@@ -21,8 +21,10 @@ surfaces, teal/cyan accent, mono UI chrome. Read `docs/DESIGN-SPEC.md` before bu
    `docs/COMPONENT-BACKLOG.md`** describing the component, its props/variants, and where
    it's used. Do not silently inline one-offs. Do not simplify the design to avoid
    building a missing piece.
-3. **No server-dependent features.** Git runs in-browser (isomorphic-git + lightning-fs).
-   Remote sync is simulated. No terminal, no code running.
+3. **No server-dependent features in v1.** Git runs in-browser (isomorphic-git +
+   lightning-fs). Remote sync is simulated. No terminal, no code running. Sharing/auth/
+   FastAPI backend are queued in `docs/ROADMAP-SHARING-AUTH.md` — do not build until
+   explicitly scheduled.
 4. **Docs are law.** `docs/DESIGN-SPEC.md` (what it looks like),
    `docs/ARCHITECTURE.md` (how it's built), `docs/IMPLEMENTATION-PLAN.md` (phases).
    If you must deviate, update the doc in the same commit and say why.

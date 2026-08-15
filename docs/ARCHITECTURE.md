@@ -52,10 +52,16 @@
   `src/theme.css` to match the screenshot palette). All custom components consume the
   same CSS variables as the library.
 
-## Non-goals
+## Non-goals (v1)
 
 Terminal, code execution, real network git, extensions marketplace (icon is a stub),
-collaborative editing.
+collaborative editing. Sharing/publishing, authentication, and the Python/FastAPI
+backend are specced for v2 in `docs/ROADMAP-SHARING-AUTH.md` — out of scope for
+phases 1–5.
+
+Note: `docs/DESIGN-SPEC.md` has a 2026-08-15 "Amendments" section (Material Icon
+Theme icons, no traffic lights, slimmer chrome, zen mode, browser-shortcut capture,
+persistence of tabs/settings/unsaved buffers) that overrides the base spec.
 
 ## Deviations
 

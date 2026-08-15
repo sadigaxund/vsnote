@@ -135,3 +135,36 @@ buildable detail. When in doubt, open the image and match it.
 - Toasts for sync results, deletes, errors. Tooltips everywhere on icon buttons.
 - Keyboard: ⌘K palette, ⌘P file jump, ⌘S save (clears dirty dot, keeps git-dirty),
   ⌘W close tab, ⌘E toggle Rendered/Source (Obsidian muscle memory).
+
+## Amendments — user feedback 2026-08-15 (these OVERRIDE anything above)
+
+1. **File icons = Material Icon Theme (Philipp Kief).** Use the npm package
+   `material-icon-theme` (MIT, the VSCode icon theme's SVG set). `FileIcon` maps
+   extension/filename → that pack's SVGs (and its folder icons for the tree, including
+   open/closed folder states). This replaces any hand-mapped lucide glyphs for
+   file/folder identity. lucide-react stays for UI chrome (chevrons, git, gear, …).
+   The mockup's flat colored glyphs are superseded by this pack.
+2. **No macOS traffic lights.** Remove the three circles from the title bar entirely —
+   no placeholder spacer. Title bar starts with the app glyph + name.
+3. **~10% slimmer chrome.** Reduce vertical thickness of: title bar, tab bar, editor
+   header row (breadcrumbs + mode switcher), sidebar header + tree row height, status
+   bar. Target ≈90% of the mockup's heights — tighter than the image, same look.
+4. **Zen mode (content-area fullscreen).** A command + toolbar affordance + shortcut
+   that expands ONLY the editor content area: hides activity bar, sidebar, tab bar,
+   editor header, status bar. `Esc` exits; a subtle floating pill shows filename +
+   exit hint on hover. Optionally also request browser fullscreen (Fullscreen API).
+5. **Own the browser shortcuts.** Global keydown handler with `preventDefault` while
+   the app has focus: `Ctrl/⌘F` opens OUR search (editor search panel in
+   Source/Diff; note-text search in Rendered), never the browser's. Same for `⌘S`
+   (save), `⌘K`/`⌘P` (palette). `⌘W` is best-effort (browsers may reserve it) —
+   provide `Ctrl/⌘⇧W`-style fallback and document it in the palette.
+6. **Statefulness is a hard requirement.** Persist and restore across reloads:
+   settings; open tabs + order + active tab + per-tab mode + pinned/preview state;
+   and **unsaved buffers** — every dirty editor buffer is checkpointed (debounced,
+   e.g. 300ms) to IndexedDB, so closing/reloading the browser NEVER loses unsaved
+   work. On reopen, dirty tabs come back dirty with their draft content intact.
+   Vault files already persist via lightning-fs.
+
+Planned-but-not-yet: sharing/publishing + authentication + a Python/FastAPI backend
+are queued for v2 — see `docs/ROADMAP-SHARING-AUTH.md`. Do NOT implement any of it
+until explicitly scheduled; v1 stays fully client-side.
