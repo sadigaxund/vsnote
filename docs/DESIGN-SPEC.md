@@ -5,8 +5,11 @@ buildable detail. When in doubt, open the image and match it.
 
 ## Overall look
 
-- Dark, near-black theme. Three surface depths: window chrome / activity bar (darkest),
-  sidebar (dark), editor (slightly lighter, ~#0d1117 family).
+- Dark, near-black theme. Three surface depths: window chrome / activity bar (darkest,
+  `#0e1015`), editor (`#101318`), sidebar (lightest of the three, `#15171c`) — the
+  sidebar reads as the "elevated" panel, not the editor (corrected against
+  app-preview.png; the editor is the darkest content surface, one step above the
+  activity bar).
 - Accent: teal/cyan (used for: active tab underline, selected mode toggle, headings in
   rendered markdown, links, folder icons, branch icon).
 - Git colors: modified = yellow/amber `M`, added = green `A`, deleted = red `D`
@@ -50,12 +53,20 @@ buildable detail. When in doubt, open the image and match it.
 
 ### 4. Editor group
 - **Tab bar**: one tab per open file — file-type icon, name, close ×. Dirty (unsaved)
-  = dot instead of / beside ×. Git-modified tabs tint the filename (yellow-ish).
+  = amber dot `#eab444` shown *beside* the close ×, not replacing it (corrected against
+  app-preview.png). Tab filenames are NOT git-tinted: active = bright `#d8dfe6`,
+  inactive = muted `#848a92` (corrected against app-preview.png — the amber in the tab
+  bar is the dirty dot only; the file *tree* is where git-modified names go amber).
   Preview tab (single-click open) = italic name (see `cover.png` in the image).
-  Active tab: lighter background + teal top/underline edge. Overflow `…` menu at right.
+  Active tab: background `#101318` — the same as the editor and *darker* than the
+  `#17191f` tab strip, so the active tab merges into the editor below it (corrected
+  against app-preview.png; previously described as "lighter background") + teal top
+  edge. Overflow `…` menu at right.
 - **Editor header row**: left, Breadcrumbs `vault / notes / architecture.md`.
   Right: diff stat chip `+12 -5` (green/red), then a segmented mode toggle:
-  `◉ Rendered` | `</> Source` | `⇄ Diff` — active segment filled teal.
+  `◉ Rendered` | `</> Source` | `⇄ Diff` — active segment is a dark teal wash
+  (`color-mix` of the surface and accent, not a solid fill) with teal icon/text
+  (corrected against app-preview.png; previously described as "filled teal").
   Segments enable/disable per file type (see Modes below).
 - **Content area**: per-mode view, ScrollArea, comfortable max-width column for
   rendered markdown (centered, generous margins as in the image).
@@ -92,9 +103,14 @@ buildable detail. When in doubt, open the image and match it.
 - Internal links `[text](file.ext)` render accent-colored and open that file in a tab.
 
 ### Rendered markdown typography (match image)
-- H1 large white bold; H2 teal; body light-gray, relaxed line height; inline code in
-  amber/yellow mono chips; bold bright-white; blockquote with left accent border,
-  italic; code blocks on slightly raised dark surface, mono, amber-tinted tokens.
+- H1 large bright bold (`#d8dfe6`); H2 teal; body light-gray (`#bac1c8`), relaxed line
+  height, ~46ch measure; inline code is bare lime-green mono text (`#a8d578`, no chip,
+  no border — corrected against app-preview.png, which has no amber chip anywhere in
+  the rendered body); bold bright; blockquote with left accent border, italic, muted
+  gray text; fenced code blocks sit flush on the editor background (`#101318`, same as
+  the page — no raised surface, no border, no rounded box), mono, same lime-green token
+  color as inline code (corrected against app-preview.png; previously described as
+  amber-tinted on a raised surface).
 
 ## Git features
 

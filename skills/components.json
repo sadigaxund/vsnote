@@ -1,0 +1,5332 @@
+{
+  "package": "my-you-eye",
+  "generated": "auto — do not edit by hand; run `npm run manifest`",
+  "count": 114,
+  "components": [
+    {
+      "name": "Beat",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/beat",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "hold": {
+          "type": "BeatUnit",
+          "optional": true,
+          "doc": "Purely descriptive — documents how long this hold lasts in a step sequence."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Hold between reveals"
+      ],
+      "description": "A no-op hold, so a deliberate pause reads as intentional rather than a missing animation."
+    },
+    {
+      "name": "Camera",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/camera",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "keyframes": {
+          "type": "CameraKeyframe[]",
+          "optional": false,
+          "doc": "Camera moves, in frame order. `focus` is an explicit rect or the `id` of a descendant element to measure."
+        },
+        "fit": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Compute zoom automatically to fit the focused rect when a keyframe doesn't specify one."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Pan and fit zoom",
+        "spring=\"bouncy\""
+      ],
+      "description": "Pan and zoom over children via GPU-composited transform only, eased between keyframes.",
+      "extends": [
+        "MovementTiming"
+      ]
+    },
+    {
+      "name": "Caption",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/caption",
+      "variants": {},
+      "props": {
+        "text": {
+          "type": "string",
+          "optional": false
+        },
+        "subtitle": {
+          "type": "string",
+          "optional": true
+        },
+        "position": {
+          "type": "CaptionPosition",
+          "optional": true,
+          "doc": "Default \"bottom-left\"."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Positions",
+        "Bottom center"
+      ],
+      "description": "Timed lower-third text tied to a step's Timing range. Requires a position: relative ancestor.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "CountUp",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/count-up",
+      "variants": {},
+      "props": {
+        "from": {
+          "type": "number",
+          "optional": true,
+          "doc": "Starting value."
+        },
+        "to": {
+          "type": "number",
+          "optional": false,
+          "doc": "Ending value."
+        },
+        "format": {
+          "type": "CountUpFormat",
+          "optional": true,
+          "doc": "Default \"number\"."
+        },
+        "formatOptions": {
+          "type": "CountUpFormatOptions",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Formats",
+        "Signed & duration"
+      ],
+      "description": "Numeric tween that reuses src/lib/format.ts for every formatting mode — never reimplements Intl formatting.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Cursor",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/cursor",
+      "variants": {},
+      "props": {
+        "events": {
+          "type": "CursorEvent[]",
+          "optional": false,
+          "doc": "Timed positions/actions, in frame order."
+        },
+        "color": {
+          "type": "MotionColor",
+          "optional": true
+        },
+        "shape": {
+          "type": "CursorShape",
+          "optional": true,
+          "doc": "Pointer appearance."
+        },
+        "clickEffect": {
+          "type": "RippleVariant",
+          "optional": true,
+          "doc": "Ripple treatment rendered on click/dblclick — forwarded straight to `Ripple`'s `variant`, never a second, hand-rolled click effect."
+        },
+        "children": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Escape hatch: a custom cursor node (an icon, an avatar, anything) replacing the built-in `shape` glyph entirely — `shape`/`color` are then ignored for the glyph itself (though `color` still tints the click `Ripple`)."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Move, click, type",
+        "Shapes",
+        "Custom cursor node",
+        "Click effect variants"
+      ],
+      "description": "A fake pointer for simulated UI walkthroughs — eased movement, four shapes, Ripple click feedback.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Draw",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/draw",
+      "variants": {},
+      "props": {
+        "d": {
+          "type": "string",
+          "optional": false,
+          "doc": "SVG path data to draw."
+        },
+        "viewBox": {
+          "type": "string",
+          "optional": true,
+          "doc": "viewBox for the wrapping <svg>."
+        },
+        "color": {
+          "type": "MotionColor",
+          "optional": true
+        },
+        "strokeWidth": {
+          "type": "DrawStrokeWidth",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Basic path",
+        "Colors & stroke widths"
+      ],
+      "description": "stroke-dashoffset reveal on any SVG path, normalised via pathLength. Pairs with ConnectionLine for diagram edges.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Highlight",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/highlight",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "mode": {
+          "type": "HighlightMode",
+          "optional": true,
+          "doc": "Default \"fill\"."
+        },
+        "color": {
+          "type": "HighlightColor",
+          "optional": true,
+          "doc": "Token color only — no arbitrary values."
+        },
+        "as": {
+          "type": "\"span\" | \"div\"",
+          "optional": true,
+          "doc": "Host element."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Modes",
+        "Overlay radius"
+      ],
+      "description": "Five token-coloured, progress-driven treatments over inline content.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Morph",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/morph",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "from": {
+          "type": "MorphSnapshot",
+          "optional": false
+        },
+        "to": {
+          "type": "MorphSnapshot",
+          "optional": false
+        },
+        "toChildren": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "A second node cross-faded in as `children` cross-fades out, both sharing the same interpolated position/size (e.g. a list row's summary cross-fading into its own detail panel while the box resizes)."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Between layout slots",
+        "Cross-fade two elements",
+        "Row expanding into a panel"
+      ],
+      "description": "Lerps position/size/opacity between two caller-supplied snapshots — a simplified FLIP, not shape morphing.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Motion Core",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/core",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "useTimeline / useProgress",
+        "Beat values",
+        "Easing vs spring",
+        "Seek & scrub"
+      ],
+      "description": "The foundation every primitive builds on: useTimeline() / useProgress(), reading from whichever driver is mounted."
+    },
+    {
+      "name": "Pulse",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/pulse",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "loop": {
+          "type": "number",
+          "optional": true,
+          "doc": "Finite number of breaths."
+        },
+        "asChild": {
+          "type": "boolean",
+          "optional": true
+        },
+        "as": {
+          "type": "\"div\" | \"span\"",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Infinite",
+        "Loop=3, then settles",
+        "Pulse a non-text sibling"
+      ],
+      "description": "Looping scale/opacity breathing, driven by frame % period — never CSS animation.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Reveal",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/reveal",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "from": {
+          "type": "RevealFrom",
+          "optional": true,
+          "doc": "What the entrance animates from."
+        },
+        "distance": {
+          "type": "DistanceToken",
+          "optional": true,
+          "doc": "Travel distance for the directional variants, as a grid-unit multiple."
+        },
+        "asChild": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Render the animated style onto the single child element instead of wrapping it in a `<div>` — so Reveal never injects a layout box that could break a flex/grid parent."
+        },
+        "as": {
+          "type": "\"div\" | \"span\"",
+          "optional": true,
+          "doc": "Host element when not using `asChild`."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "from variants",
+        "asChild (no layout box)"
+      ],
+      "description": "Generic entrance animation — fade, directional slide, scale or blur — driven entirely by useProgress().",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Ripple",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/ripple",
+      "variants": {},
+      "props": {
+        "x": {
+          "type": "number",
+          "optional": false,
+          "doc": "Position within a `position: relative` ancestor — Ripple renders `position: absolute; left: x; top: y`."
+        },
+        "y": {
+          "type": "number",
+          "optional": false
+        },
+        "color": {
+          "type": "MotionColor",
+          "optional": true
+        },
+        "size": {
+          "type": "DistanceToken",
+          "optional": true,
+          "doc": "Ring size at full expansion, as a grid-unit multiple."
+        },
+        "variant": {
+          "type": "RippleVariant",
+          "optional": true,
+          "doc": "Visual treatment (TODO.md C2 / Cursor's click feedback, extended rather than duplicated — Cursor forwards its own `clickEffect` prop straight through to this). \"ring\" (default, unchanged) is a single expanding, fading outline. \"solid\" is a filled disc fading out — reads as a firmer tap than an outl…"
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Click — ring",
+        "Click — solid vs double"
+      ],
+      "description": "Click feedback at a point: an expanding ring, filled disc, or double pulse.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Shake",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/shake",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "axis": {
+          "type": "ShakeAxis",
+          "optional": true,
+          "doc": "Default \"x\"."
+        },
+        "cycles": {
+          "type": "number",
+          "optional": true,
+          "doc": "Oscillations across the full `duration`."
+        },
+        "seed": {
+          "type": "string | number",
+          "optional": true,
+          "doc": "Deterministic jitter seed — same seed always produces the same shake."
+        },
+        "asChild": {
+          "type": "boolean",
+          "optional": true
+        },
+        "as": {
+          "type": "\"div\" | \"span\"",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Axis variants"
+      ],
+      "description": "Decaying-amplitude oscillation, deterministic via a seeded PRNG — never an unseeded random source.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Slide",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/slide",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "direction": {
+          "type": "SlideDirection",
+          "optional": true,
+          "doc": "Default \"left\"."
+        },
+        "mode": {
+          "type": "SlideMode",
+          "optional": true,
+          "doc": "\"in\" slides content from offscreen to its resting place; \"out\" slides it from resting place offscreen."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "mode=\"in\" — 4 directions",
+        "mode=\"out\""
+      ],
+      "description": "Real clipping parent plus a separately-translating inner element, so overflow:hidden actually clips.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Spotlight",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/spotlight",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "focus": {
+          "type": "SpotlightRect",
+          "optional": false,
+          "doc": "Focused rect, in the wrapping container's own layout coordinates — Spotlight doesn't measure the DOM itself (same \"caller supplies the rect\" convention as Camera/Morph)."
+        },
+        "feather": {
+          "type": "BlurToken",
+          "optional": true,
+          "doc": "Softness of the cut-out edge."
+        },
+        "dim": {
+          "type": "number",
+          "optional": true,
+          "doc": "Maximum dim strength, 0-1."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "One line of code",
+        "One node in a diagram",
+        "One card in a dashboard"
+      ],
+      "description": "Dims everything except a focused rect via a box-shadow cut-out — never backdrop-filter.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Stagger",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/stagger",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "each": {
+          "type": "Beat",
+          "optional": true,
+          "doc": "Offset between successive children's reveals."
+        },
+        "from": {
+          "type": "StaggerOrigin",
+          "optional": true,
+          "doc": "Which child reveals first: index 0, index N-1, or the middle child outward."
+        },
+        "revealFrom": {
+          "type": "RevealFrom",
+          "optional": true,
+          "doc": "Forwarded to each child's Reveal."
+        },
+        "distance": {
+          "type": "DistanceToken",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Reveal vs Stagger",
+        "from=\"first\"",
+        "from=\"center\""
+      ],
+      "description": "Orchestrates a per-child Reveal with offset timing: first-to-last, last-to-first, or from the center.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "TextSwap",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/text-swap",
+      "variants": {},
+      "props": {
+        "from": {
+          "type": "string",
+          "optional": false
+        },
+        "to": {
+          "type": "string",
+          "optional": false
+        },
+        "mode": {
+          "type": "TextSwapMode",
+          "optional": true,
+          "doc": "\"fade\" cross-fades; \"roll\" translates old text out / new text in (an odometer look)."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Fade",
+        "Roll"
+      ],
+      "description": "Cross-fade or roll between two strings without a layout jump — a hidden sizer reserves the space.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Trace",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/trace",
+      "variants": {},
+      "props": {
+        "d": {
+          "type": "string",
+          "optional": false,
+          "doc": "SVG path data the tokens travel along."
+        },
+        "viewBox": {
+          "type": "string",
+          "optional": true,
+          "doc": "viewBox for the wrapping <svg>."
+        },
+        "count": {
+          "type": "number",
+          "optional": true,
+          "doc": "How many tokens travel at once, evenly spaced."
+        },
+        "spacing": {
+          "type": "number",
+          "optional": true,
+          "doc": "Spacing between tokens, as a 0-1 fraction of the path."
+        },
+        "loop": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Loop continuously (each token cycles start-to-end every `duration`) instead of running once and stopping."
+        },
+        "shape": {
+          "type": "TraceShape",
+          "optional": true
+        },
+        "color": {
+          "type": "MotionColor",
+          "optional": true
+        },
+        "size": {
+          "type": "number",
+          "optional": true,
+          "doc": "Token size, in the path's own SVG user-space units."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Single token, looping",
+        "Multiple tokens, spaced"
+      ],
+      "description": "Tokens travelling along an SVG path — the data-flow primitive for architecture diagrams.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "TypeText",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/type-text",
+      "variants": {},
+      "props": {
+        "text": {
+          "type": "string",
+          "optional": false
+        },
+        "mode": {
+          "type": "TypeTextMode",
+          "optional": true,
+          "doc": "Reveal unit."
+        },
+        "cursor": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Show a caret while (and briefly after) typing."
+        },
+        "caret": {
+          "type": "TypeTextCaret",
+          "optional": true,
+          "doc": "Caret shape. \"bar\" (default, unchanged) is the classic \"|\". \"block\" is a filled character cell, \"underline\" a low bar, \"none\" renders nothing regardless of `cursor`."
+        },
+        "blinkRate": {
+          "type": "Beat",
+          "optional": true,
+          "doc": "Caret blink half-period, once typing has finished (the caret is solid while actively typing)."
+        },
+        "preserveLayout": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Reserve the fully-typed box size up front so surrounding content never reflows while typing — critical for video, where a reflowing neighbour is a visible pop."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Char mode",
+        "Word mode",
+        "Caret variants",
+        "preserveLayout (no reflow)"
+      ],
+      "description": "Types out text char, word or line at a time, as a pure function of progress.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Unmask",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/unmask",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "direction": {
+          "type": "UnmaskDirection",
+          "optional": true,
+          "doc": "Sweep direction."
+        },
+        "softness": {
+          "type": "number",
+          "optional": true,
+          "doc": "Softness of the leading edge, as a 0-1 fraction of the sweep."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Directions & softness"
+      ],
+      "description": "Soft-edged mask sweep — a gentler alternative to Wipe's hard clip-path edge, for headings and pull-quotes.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Wipe",
+      "group": "motion",
+      "tier": "motion",
+      "entry": "my-you-eye/motion",
+      "folder": "motion/wipe",
+      "variants": {},
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "direction": {
+          "type": "WipeDirection",
+          "optional": true,
+          "doc": "Which edge the reveal grows from."
+        },
+        "variant": {
+          "type": "WipeVariant",
+          "optional": true,
+          "doc": "\"linear\" is a hard-edged sweep; \"radial\" grows a circle from the direction's edge."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Linear — 4 directions",
+        "Radial"
+      ],
+      "description": "clip-path reveal — linear (hard edge, 4 directions) or radial (circle growing from the direction's edge).",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "Presenter",
+      "group": "scenes",
+      "tier": "present",
+      "entry": "my-you-eye/present",
+      "folder": "present/presenter",
+      "variants": {},
+      "props": {
+        "video": {
+          "type": "Video",
+          "optional": false
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        },
+        "onStepChange": {
+          "type": "(info: PresenterStepInfo) => void",
+          "optional": true,
+          "doc": "Called whenever the active step changes — for a consumer syncing their own chrome (e.g. a `SpeakerView` they've opened some other way) to Presenter's position."
+        }
+      },
+      "demos": [
+        "Click-through presenter"
+      ],
+      "description": "Click-through presentation of a Video: → or Space advances, ← reverses, Esc overviews, f fullscreens."
+    },
+    {
+      "name": "SpeakerView",
+      "group": "scenes",
+      "tier": "present",
+      "entry": "my-you-eye/present",
+      "folder": "present/speaker-view",
+      "variants": {},
+      "props": {
+        "video": {
+          "type": "Video",
+          "optional": false
+        },
+        "sceneIndex": {
+          "type": "number",
+          "optional": false,
+          "doc": "Currently-showing scene, as an index into `video.scenes` — the same position `Presenter` (or a consumer's own `useSteps`-driven UI) is at."
+        },
+        "stepIndex": {
+          "type": "number",
+          "optional": false,
+          "doc": "Currently-showing step, as an index into that scene's own step list."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Now / next / notes / elapsed timer"
+      ],
+      "description": "Current and next step side by side, an elapsed timer, and notes from step.say / scene.notes."
+    },
+    {
+      "name": "useSteps",
+      "group": "scenes",
+      "tier": "present",
+      "entry": "my-you-eye/present",
+      "folder": "present/use-steps",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "Custom controls built from useSteps"
+      ],
+      "description": "Headless step-navigation hook — the flattened (scene, step) list across a whole Video."
+    },
+    {
+      "name": "BulletScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/bullet-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "BulletSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Playing",
+        "Pinned mid-sequence (frame 179/280)",
+        "Pinned at rest (frame 280/280)"
+      ],
+      "description": "Heading plus bullets, each revealed as its own step and paced by its own narration length."
+    },
+    {
+      "name": "ChartScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/chart-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "ChartSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Bar — playing",
+        "Gauge — no steps (single-beat draw-on)"
+      ],
+      "description": "Wraps whichever chart ChartSpec.type selects, driving its progress prop step by step."
+    },
+    {
+      "name": "CodeDiff",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/code-diff",
+      "variants": {},
+      "props": {
+        "from": {
+          "type": "string",
+          "optional": false,
+          "doc": "Source as it was before this diff."
+        },
+        "to": {
+          "type": "string",
+          "optional": false,
+          "doc": "Source after this diff."
+        },
+        "language": {
+          "type": "string",
+          "optional": true
+        },
+        "header": {
+          "type": "string",
+          "optional": true,
+          "doc": "Filename shown in the header tab, matching CodeBlock's header."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Playing",
+        "Pinned mid-transition (frame 70/150)",
+        "Pinned at rest (frame 150/150)"
+      ],
+      "description": "Animates between two sources: added rows grow in, removed rows collapse out, changed rows cross-fade.",
+      "extends": [
+        "Timing"
+      ]
+    },
+    {
+      "name": "CodeScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/code-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "CodeSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Playing"
+      ],
+      "description": "CodeBlock with per-step focus dimming, Camera framing, highlights, typing and diff cross-fades."
+    },
+    {
+      "name": "CompareScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/compare-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "CompareSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Columns (code panes) — playing",
+        "Wipe (image panes) — playing"
+      ],
+      "description": "Wraps Comparison: two panes side by side (\"columns\") or under a moving divider (\"wipe\")."
+    },
+    {
+      "name": "DiagramScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/diagram-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "DiagramSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Architecture — playing",
+        "State machine (\"state\" preset)",
+        "Dataflow (\"dataflow\" preset)"
+      ],
+      "description": "Canvas, GraphGroups, GraphNodes and a ConnectionLayer, revealed step by step from diagram data."
+    },
+    {
+      "name": "OutroScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/outro-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "OutroSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Playing",
+        "Pinned mid-stagger (frame 10/90)",
+        "Pinned at rest (frame 90/90)"
+      ],
+      "description": "End card — title, subtitle, links and a closing call to action, staggering in as one beat."
+    },
+    {
+      "name": "SceneRenderer",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/scene-renderer",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "Scene",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Title",
+        "Bullets",
+        "Diagram, chart, stat"
+      ],
+      "description": "The single switch(scene.kind) consumers never touch. All eleven SceneKinds render for real — there is no placeholder branch."
+    },
+    {
+      "name": "SequenceScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/sequence-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "SequenceSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Playing"
+      ],
+      "description": "Wraps SequenceDiagram, one message or note per step. Activation bars are derived, never authored."
+    },
+    {
+      "name": "StatScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/stat-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "StatSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Playing"
+      ],
+      "description": "StatGrid with per-tile staggered CountUp, delta arrows and inline Sparklines — one step per tile."
+    },
+    {
+      "name": "TerminalScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/terminal-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "TerminalSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Playing",
+        "Pinned mid-typing, entry 1 (frame 12/160)",
+        "Pinned on entry 2's spinner (frame 72/160)",
+        "Pinned at rest (frame 160/160)",
+        "Prompt change (rows + scheme)"
+      ],
+      "description": "Wraps Terminal, revealing one entry per step: command types in, spinner holds, output and badge land."
+    },
+    {
+      "name": "TitleScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/title-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "TitleSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Centered, playing",
+        "Left-aligned, no chapter/subtitle",
+        "Pinned mid-stagger (frame 12/90)",
+        "Pinned at rest (frame 90/90)"
+      ],
+      "description": "Opening/chapter card — chapter eyebrow, title and subtitle stagger in together, timed off the scene's own content-derived duration."
+    },
+    {
+      "name": "Validation",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/validation-demo",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "Deliberately broken video",
+        "Valid, minimal video"
+      ],
+      "description": "validateVideo(video) run against a deliberately broken Video — every runtime check, made visible."
+    },
+    {
+      "name": "WalkthroughScene",
+      "group": "scenes",
+      "tier": "scenes",
+      "entry": "my-you-eye/scenes",
+      "folder": "scenes/walkthrough-scene",
+      "variants": {},
+      "props": {
+        "scene": {
+          "type": "WalkthroughSceneData",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Playing"
+      ],
+      "description": "DeviceFrame, Cursor and Spotlight over a static screenshot — the alternative to a screen recording."
+    },
+    {
+      "name": "Annotation",
+      "group": "canvas",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/annotation",
+      "variants": {},
+      "props": {
+        "target": {
+          "type": "Point",
+          "optional": false,
+          "doc": "Point being annotated, in the same coordinate space as the nearest `position: relative` ancestor (e.g. a `Canvas`'s canvas-space, or a screenshot `Image`'s own pixel space)."
+        },
+        "label": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "side": {
+          "type": "\"left\" | \"right\" | \"top\" | \"bottom\"",
+          "optional": true,
+          "doc": "Preferred side the label sits on. \"left\"/\"right\" (default \"right\") are auto-flipped near a container edge when `containerWidth` is given; \"top\"/\"bottom\" anchor the label directly above/below `target` instead (no auto-flip — there's no `containerHeight` prop to flip against, so a vertical leader alw…"
+        },
+        "distance": {
+          "type": "number",
+          "optional": true,
+          "doc": "Distance (px) from `target` to the label's near edge, before flip."
+        },
+        "marker": {
+          "type": "\"none\" | \"arrow\" | \"pin\" | ArrowheadShape",
+          "optional": true,
+          "doc": "Pointer-end decoration at `target`."
+        },
+        "leaderVariant": {
+          "type": "Extract<ConnectionVariant, \"straight\" | \"stepped\">",
+          "optional": true,
+          "doc": "Leader-line shape — reuses `connection-line/geometry.ts`'s own variant names (a subset: a callout leader is either direct or right-angled, never a curve)."
+        },
+        "containerWidth": {
+          "type": "number",
+          "optional": true,
+          "doc": "Width (px) of the space Annotation overlays — used only to flip the label to the opposite side of `target` before it would run past this edge."
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 reveal progress, default 1."
+        },
+        "accentColor": {
+          "type": "\"primary\" | \"success\" | \"warning\" | \"danger\" | \"muted\"",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Marker variants",
+        "Auto-flip near the container edge",
+        "Vertical sides (top/bottom)",
+        "Progress reveal"
+      ],
+      "description": "A callout/leader-line pointing at a target point — for highlighting part of a diagram or screenshot in a video. Leader-line path math (and the arrow marker's angle) come straight from connection-line/geometry.ts; no new path math.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"children\">"
+      ]
+    },
+    {
+      "name": "Canvas",
+      "group": "canvas",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/canvas",
+      "variants": {},
+      "props": {
+        "gridSize": {
+          "type": "number",
+          "optional": true
+        },
+        "initialZoom": {
+          "type": "number",
+          "optional": true
+        },
+        "minZoom": {
+          "type": "number",
+          "optional": true
+        },
+        "maxZoom": {
+          "type": "number",
+          "optional": true
+        },
+        "zoomStep": {
+          "type": "number",
+          "optional": true
+        },
+        "controls": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "onBackgroundClick": {
+          "type": "() => void",
+          "optional": true
+        },
+        "offset": {
+          "type": "{ x: number; y: number }",
+          "optional": true
+        },
+        "zoom": {
+          "type": "number",
+          "optional": true
+        },
+        "onOffsetChange": {
+          "type": "(o: { x: number; y: number }) => void",
+          "optional": true
+        },
+        "onZoomChange": {
+          "type": "(z: number) => void",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Empty grid",
+        "Populated graph",
+        "Edge states"
+      ],
+      "description": "An infinite pan/zoom surface with a GPU-composited grid background, used as the base layer for node graphs.",
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "ConnectionLayer",
+      "group": "canvas",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/connection-layer",
+      "variants": {},
+      "props": {
+        "edges": {
+          "type": "ConnectionLayerEdge[]",
+          "optional": false,
+          "doc": "Edges to render."
+        },
+        "bundleParallelEdges": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Automatically nudges apart edges that share an endpoint pair (default true)."
+        },
+        "autoLabelPlacement": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Automatically searches for a label position clear of every other edge's path when an edge has a `label` but no explicit `labelPosition` (default true)."
+        }
+      },
+      "demos": [
+        "Many edges, one svg",
+        "Parallel edges (automatic bundling)",
+        "Edge states share the same visual language as ConnectionLine"
+      ],
+      "description": "One shared <svg> for N edges — path, arrowhead and label rendering reused from ConnectionLine's ConnectionPath, not duplicated. Prefer this over stacking many standalone ConnectionLines for diagrams with lots of edges.",
+      "extends": [
+        "Omit<SVGAttributes<SVGSVGElement>, \"id\">"
+      ]
+    },
+    {
+      "name": "ConnectionLine",
+      "group": "canvas",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/connection-line",
+      "variants": {},
+      "props": {
+        "from": {
+          "type": "EdgeEnd",
+          "optional": false,
+          "doc": "A bare `{x, y}` (the route starts exactly there), or an `AnchoredEnd` `{ rect, anchor?, inset? }` — a shape the edge attaches to."
+        },
+        "to": {
+          "type": "EdgeEnd",
+          "optional": false
+        },
+        "arrowhead": {
+          "type": "ArrowheadProp",
+          "optional": true,
+          "doc": "`true` draws the default solid triangle; a shape name selects another terminator (`\"open\"`, `\"circle\"`, `\"diamond\"`, `\"bar\"`, `\"crow\"`, …)."
+        },
+        "label": {
+          "type": "string",
+          "optional": true
+        },
+        "labelPosition": {
+          "type": "number",
+          "optional": true,
+          "doc": "Position along the actual rendered path (0–100), default 50 (midpoint)."
+        },
+        "labelElevated": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Toggles a subtle drop shadow on the label badge (default true)."
+        },
+        "waypoints": {
+          "type": "Point[]",
+          "optional": true,
+          "doc": "Points the route must pass through, in order, between `from` and `to`."
+        },
+        "obstacles": {
+          "type": "ObstacleRect[]",
+          "optional": true,
+          "doc": "Rects an `orthogonal` route detours around."
+        },
+        "kind": {
+          "type": "ConnectionKind",
+          "optional": true,
+          "doc": "Semantic edge type — see `KIND_STYLES`."
+        },
+        "offset": {
+          "type": "number",
+          "optional": true,
+          "doc": "Perpendicular offset (px) applied to the whole route."
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 draw-on progress (TODO.md D4's progress-in convention)."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Path variants",
+        "Edge states",
+        "Decorations (arrowheads + labels)",
+        "Label positions",
+        "Label on a genuinely curved path",
+        "ConnectionLayer (one svg, many edges)",
+        "Shape anchoring (from/to as a rect, not a point)",
+        "Arrowhead shapes",
+        "Orthogonal routing avoids obstacles",
+        "Waypoints",
+        "Edge kind (semantic styling)",
+        "Draw-on progress"
+      ],
+      "extends": [
+        "VariantProps<typeof connectionLineVariants>"
+      ]
+    },
+    {
+      "name": "Graph",
+      "group": "canvas",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/graph",
+      "variants": {},
+      "props": {
+        "initialNodes": {
+          "type": "EditorNode[]",
+          "optional": false
+        },
+        "initialEdges": {
+          "type": "EditorEdge[]",
+          "optional": true
+        },
+        "snapToGrid": {
+          "type": "boolean",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        },
+        "controls": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "onChange": {
+          "type": "(state: { nodes: EditorNode[]; edges: EditorEdge[] }) => void",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Pipeline editor (drag nodes, connect ports, delete selected)"
+      ],
+      "description": "A composed pattern combining Canvas, GraphNode, and Edge into a drag-and-drop pipeline editor."
+    },
+    {
+      "name": "GraphGroup",
+      "group": "canvas",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/graph-group",
+      "variants": {
+        "border": [
+          "dashed",
+          "solid"
+        ]
+      },
+      "props": {
+        "x": {
+          "type": "number",
+          "optional": false,
+          "doc": "Canvas-space position/size, same coordinate space as `GraphNode`'s `x`/`y`."
+        },
+        "y": {
+          "type": "number",
+          "optional": false
+        },
+        "width": {
+          "type": "number",
+          "optional": false
+        },
+        "height": {
+          "type": "number",
+          "optional": false
+        },
+        "label": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "icon": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Icon shown before the label text."
+        },
+        "labelPlacement": {
+          "type": "\"top-left\" | \"top-center\" | \"top-right\" | \"outside-top\"",
+          "optional": true,
+          "doc": "Where the label chip sits relative to the region. \"top-left\" (default) is the usual choice for architecture diagrams (\"VPC\", \"Cluster\", …). \"outside-top\" floats the chip entirely above the box instead of inset, for when the group's own top-left corner needs to stay clear (e.g. a node is positioned …"
+        },
+        "accentColor": {
+          "type": "\"primary\" | \"success\" | \"warning\" | \"danger\" | \"muted\"",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Architecture boundaries",
+        "Label placement"
+      ],
+      "description": "A labelled boundary region — VPC, cluster, service boundary — drawn behind the nodes and edges it encloses. Render groups before nodes in JSX: stacking is DOM order, not z-index.",
+      "variantDefaults": {
+        "border": "dashed"
+      },
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"children\">",
+        "VariantProps<typeof graphGroupVariants>"
+      ]
+    },
+    {
+      "name": "GraphNode",
+      "group": "canvas",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/graph-node",
+      "variants": {
+        "variant": [
+          "default",
+          "muted",
+          "selected",
+          "simple"
+        ],
+        "shape": [
+          "box",
+          "pill"
+        ]
+      },
+      "props": {
+        "x": {
+          "type": "number",
+          "optional": false
+        },
+        "y": {
+          "type": "number",
+          "optional": false
+        },
+        "header": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "accent": {
+          "type": "boolean",
+          "optional": true
+        },
+        "ports": {
+          "type": "PortDef[]",
+          "optional": true
+        },
+        "footer": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "rows": {
+          "type": "GraphNodeRow[]",
+          "optional": true
+        },
+        "headerIcon": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Icon shown at the start of the header, before the title — rendered in a small tinted tile in `accentColor`."
+        },
+        "headerStatus": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Status/badge slot shown at the end of the header, after the title — e.g. a `StatusDot` or `Badge`."
+        },
+        "subtitle": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Second, muted line under the header title."
+        },
+        "headerDots": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Mac-style red/amber/green window buttons at the start of the header. **Off by default**, and deliberately so: they are the chrome of a macOS window, and on a service/queue/database node they say nothing — three decorations sitting in the one place a reader looks first (owner: \"they kinda feel rando…"
+        },
+        "accentColor": {
+          "type": "\"primary\" | \"success\" | \"warning\" | \"danger\" | \"muted\"",
+          "optional": true,
+          "doc": "Accent bar color, only visible when `accent` is true."
+        },
+        "footerMetric": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Metric/count shown at the end of the footer row (e.g. \"42 items\")."
+        },
+        "footerAction": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Small action slot (e.g. a `Button`) at the end of the footer row, after `footerMetric` if both are given."
+        },
+        "footerProgress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0–100 progress value rendered as a compact inline bar in the footer, alongside `footer`'s text."
+        }
+      },
+      "demos": [
+        "Variants",
+        "Simple variant",
+        "Legacy ports on a tall node",
+        "Free-form body",
+        "Header variations",
+        "Accent bar color",
+        "Footer variations",
+        "Shape (state-machine pill)",
+        "All variations together"
+      ],
+      "description": "A node block for graph/flow diagrams with a fixed grid-aligned corner radius, header/rows/footer, and left/right ports.",
+      "variantDefaults": {
+        "variant": "default",
+        "shape": "box"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof graphNodeVariants>"
+      ]
+    },
+    {
+      "name": "Port",
+      "group": "canvas",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/port",
+      "variants": {
+        "side": [
+          "in",
+          "out"
+        ],
+        "state": [
+          "connected",
+          "default",
+          "highlighted"
+        ]
+      },
+      "props": {
+        "label": {
+          "type": "string",
+          "optional": true
+        },
+        "shape": {
+          "type": "\"circle\" | \"socket\"",
+          "optional": true,
+          "doc": "\"circle\" (default) renders a full disc — the original look, unchanged, for a freestanding port that isn't mounted on any edge (e.g. a legend swatch, or GraphNode's legacy `ports` prop which already floats beside the node with its own label). \"socket\" renders a true half-disc via SVG path geometry —…"
+        },
+        "mount": {
+          "type": "\"outward\" | \"inward\"",
+          "optional": true,
+          "doc": "Which way a `socket`'s rounded half bulges, relative to the border it's mounted on. `\"outward\"` (default) bulges away from the node — correct for a freestanding mount where nothing clips it. `\"inward\"` bulges into the node."
+        }
+      },
+      "demos": [
+        "States (circle)",
+        "Socket shape — mounted on a border",
+        "Socket mount — outward vs inward",
+        "Socket shape — all states",
+        "Circle vs socket, side by side"
+      ],
+      "description": "shape=\"circle\" is a freestanding full disc. shape=\"socket\" is a true half-disc (SVG geometry, not clipping) meant to sit exactly on a node's border — see GraphNode's row ports.",
+      "variantDefaults": {
+        "side": "in",
+        "state": "default"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof portVariants>"
+      ]
+    },
+    {
+      "name": "BarChart",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/bar-chart",
+      "variants": {},
+      "props": {
+        "categories": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "One label per data point — the category axis."
+        },
+        "series": {
+          "type": "BarChartSeries[]",
+          "optional": false
+        },
+        "orientation": {
+          "type": "\"vertical\" | \"horizontal\"",
+          "optional": true
+        },
+        "mode": {
+          "type": "\"grouped\" | \"stacked\"",
+          "optional": true,
+          "doc": "Only meaningful with 2+ series."
+        },
+        "title": {
+          "type": "string",
+          "optional": true
+        },
+        "subtitle": {
+          "type": "string",
+          "optional": true
+        },
+        "height": {
+          "type": "number",
+          "optional": true
+        },
+        "valueFormat": {
+          "type": "(value: number) => string",
+          "optional": true
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 draw-on progress."
+        },
+        "focus": {
+          "type": "string",
+          "optional": true,
+          "doc": "Category label to spotlight — every other category's bars dim to `opacity-muted`."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Single series (vertical)",
+        "Grouped, multi-series",
+        "Stacked",
+        "Horizontal",
+        "Horizontal, grouped",
+        "Long category label",
+        "Empty",
+        "Draw-on progress (50%)",
+        "Focus a category"
+      ],
+      "description": "Vertical/horizontal, grouped/stacked. Bars grow from the baseline as `progress` sweeps 0→1."
+    },
+    {
+      "name": "ChartFrame",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/chart-frame",
+      "variants": {},
+      "props": {
+        "title": {
+          "type": "string",
+          "optional": true
+        },
+        "subtitle": {
+          "type": "string",
+          "optional": true
+        },
+        "height": {
+          "type": "number",
+          "optional": true,
+          "doc": "Total SVG height in px, INCLUDING the x-axis band (dataviz rule: a fixed height must include the axis band, never just the plot)."
+        },
+        "xLabels": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "Category labels for the x-axis."
+        },
+        "yTicks": {
+          "type": "number[]",
+          "optional": true,
+          "doc": "Clean, already-rounded tick values for the y-axis (0 / 1,000 / 2,000…)."
+        },
+        "yDomain": {
+          "type": "[number, number]",
+          "optional": true,
+          "doc": "[min, max] the y-axis spans."
+        },
+        "formatYTick": {
+          "type": "(value: number) => string",
+          "optional": true
+        },
+        "yAxisWidth": {
+          "type": "number",
+          "optional": true,
+          "doc": "Explicit left-band width (px), reserved regardless of `yTicks`."
+        },
+        "legend": {
+          "type": "ChartFrameLegendItem[]",
+          "optional": true
+        },
+        "loading": {
+          "type": "boolean",
+          "optional": true
+        },
+        "empty": {
+          "type": "boolean",
+          "optional": true
+        },
+        "emptyTitle": {
+          "type": "string",
+          "optional": true
+        },
+        "emptyDescription": {
+          "type": "string",
+          "optional": true
+        },
+        "children": {
+          "type": "(ctx: ChartFrameRenderCtx) => ReactNode",
+          "optional": true,
+          "doc": "Optional because `loading` and `empty` short-circuit before the plot is ever rendered — a caller in either of those states has no marks to draw and was previously forced to pass a dummy render function to satisfy the type."
+        },
+        "tooltip": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Tooltip content for the current hover target; ChartFrame owns positioning, the chart owns content and calls `onHover` from its marks."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Axes, gridlines & a custom plot",
+        "Loading",
+        "Empty"
+      ],
+      "description": "Shared chart chrome — measurement, axes, gridlines, legend, tooltip layer, empty/loading states. Every chart in this library composes it instead of re-implementing axis code."
+    },
+    {
+      "name": "Funnel",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/funnel",
+      "variants": {},
+      "props": {
+        "stages": {
+          "type": "FunnelStage[]",
+          "optional": false,
+          "doc": "Stages in order, first = the widest / entry stage."
+        },
+        "title": {
+          "type": "string",
+          "optional": true
+        },
+        "subtitle": {
+          "type": "string",
+          "optional": true
+        },
+        "valueFormat": {
+          "type": "(value: number) => string",
+          "optional": true
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 draw-on progress."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Four stages",
+        "Two stages",
+        "Long stage labels",
+        "Empty",
+        "Draw-on progress (50%)"
+      ],
+      "description": "Stage conversion, on the sequential ramp (ordered data, not categorical identity). Stages reveal top-to-bottom as `progress` sweeps 0→1."
+    },
+    {
+      "name": "Gauge",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/gauge",
+      "variants": {},
+      "props": {
+        "value": {
+          "type": "number",
+          "optional": false
+        },
+        "min": {
+          "type": "number",
+          "optional": true
+        },
+        "max": {
+          "type": "number",
+          "optional": true
+        },
+        "bands": {
+          "type": "GaugeThresholdBand[]",
+          "optional": true,
+          "doc": "Threshold bands, ascending by `upTo`."
+        },
+        "label": {
+          "type": "string",
+          "optional": true
+        },
+        "valueFormat": {
+          "type": "(value: number) => string",
+          "optional": true
+        },
+        "size": {
+          "type": "number",
+          "optional": true
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 draw-on progress."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Basic",
+        "Threshold bands — healthy",
+        "Threshold bands — critical",
+        "Custom range",
+        "Long label",
+        "Draw-on progress (50%)"
+      ],
+      "description": "Arc meter with threshold bands, for SLOs and single-value metrics. The needle sweeps from min as `progress` sweeps 0→1."
+    },
+    {
+      "name": "Heatmap",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/heatmap",
+      "variants": {},
+      "props": {
+        "xLabels": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "Column labels (e.g. hours, days)."
+        },
+        "yLabels": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "Row labels (e.g. days, services)."
+        },
+        "values": {
+          "type": "number[][]",
+          "optional": false,
+          "doc": "Row-major values: `values[row][col]`."
+        },
+        "title": {
+          "type": "string",
+          "optional": true
+        },
+        "subtitle": {
+          "type": "string",
+          "optional": true
+        },
+        "valueFormat": {
+          "type": "(value: number) => string",
+          "optional": true
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 draw-on progress."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Activity calendar",
+        "Single column",
+        "Long row label",
+        "Empty",
+        "Draw-on progress (50%)"
+      ],
+      "description": "Matrix on the sequential ramp — latency grids, activity calendars. Cells fade in by rank (lowest value first) as `progress` sweeps 0→1."
+    },
+    {
+      "name": "Legend",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/legend",
+      "variants": {},
+      "props": {
+        "items": {
+          "type": "LegendItem[]",
+          "optional": false
+        },
+        "swatch": {
+          "type": "\"rect\" | \"line\" | \"dot\"",
+          "optional": true,
+          "doc": "Swatch shape — \"rect\" for bar/area fills, \"line\" for line series, \"dot\" for point/scatter series."
+        },
+        "orientation": {
+          "type": "\"horizontal\" | \"vertical\"",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Rect swatches (bar / area fills)",
+        "Line swatches",
+        "Dot swatches (scatter / points)",
+        "Vertical orientation"
+      ],
+      "description": "Standalone series-identity legend, shared by every chart and by diagrams.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLUListElement>, \"children\">"
+      ]
+    },
+    {
+      "name": "LineChart",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/line-chart",
+      "variants": {},
+      "props": {
+        "categories": {
+          "type": "string[]",
+          "optional": false
+        },
+        "series": {
+          "type": "LineChartSeries[]",
+          "optional": false
+        },
+        "area": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Fill the area under each line at a light wash."
+        },
+        "showPoints": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Show a marker dot at every data point."
+        },
+        "title": {
+          "type": "string",
+          "optional": true
+        },
+        "subtitle": {
+          "type": "string",
+          "optional": true
+        },
+        "height": {
+          "type": "number",
+          "optional": true
+        },
+        "valueFormat": {
+          "type": "(value: number) => string",
+          "optional": true
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 draw-on progress."
+        },
+        "focus": {
+          "type": "string",
+          "optional": true,
+          "doc": "Category label to spotlight — every series' point marker at every other category dims to `opacity-muted` (the lines themselves, which span every category, stay at full opacity)."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Single series",
+        "Multi-series",
+        "Area fill",
+        "No point markers",
+        "Long category label",
+        "Empty",
+        "Draw-on progress (50%)",
+        "Focus a category"
+      ],
+      "description": "Multi-series, optional area fill, point markers. Draws left-to-right as `progress` sweeps 0→1."
+    },
+    {
+      "name": "PieChart",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/pie-chart",
+      "variants": {},
+      "props": {
+        "slices": {
+          "type": "PieChartSlice[]",
+          "optional": false
+        },
+        "innerRadius": {
+          "type": "number",
+          "optional": true,
+          "doc": "Donut hole radius as a fraction of the outer radius (0 = pie, default 0)."
+        },
+        "centerLabel": {
+          "type": "string",
+          "optional": true,
+          "doc": "Text shown at the center — only meaningful with `innerRadius > 0`."
+        },
+        "centerValue": {
+          "type": "string",
+          "optional": true
+        },
+        "title": {
+          "type": "string",
+          "optional": true
+        },
+        "size": {
+          "type": "number",
+          "optional": true
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 draw-on progress."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Pie",
+        "Donut with center label",
+        "Single category (no legend)",
+        "Long labels",
+        "Empty",
+        "Draw-on progress (50%)"
+      ],
+      "description": "Pie + donut variants, center label. The arc sweeps clockwise from 12 o'clock as `progress` sweeps 0→1."
+    },
+    {
+      "name": "ScatterPlot",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/scatter-plot",
+      "variants": {},
+      "props": {
+        "series": {
+          "type": "ScatterSeries[]",
+          "optional": false
+        },
+        "trendLine": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Draw a linear least-squares trend line through every point (all series pooled)."
+        },
+        "title": {
+          "type": "string",
+          "optional": true
+        },
+        "subtitle": {
+          "type": "string",
+          "optional": true
+        },
+        "height": {
+          "type": "number",
+          "optional": true
+        },
+        "width": {
+          "type": "number",
+          "optional": true
+        },
+        "xFormat": {
+          "type": "(value: number) => string",
+          "optional": true
+        },
+        "yFormat": {
+          "type": "(value: number) => string",
+          "optional": true
+        },
+        "loading": {
+          "type": "boolean",
+          "optional": true
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 draw-on progress."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Single series",
+        "With trend line",
+        "Multi-series (3, all-pairs cap)",
+        "Long point label (tooltip)",
+        "Loading",
+        "Empty",
+        "Draw-on progress (50%)"
+      ],
+      "description": "Points + optional trend line. Points fade in by index order as `progress` sweeps 0→1."
+    },
+    {
+      "name": "Sparkline",
+      "group": "charts",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/sparkline",
+      "variants": {},
+      "props": {
+        "data": {
+          "type": "number[]",
+          "optional": false,
+          "doc": "Plain numeric series — no axes, no categories (feeds StatCard's inline trend slot)."
+        },
+        "token": {
+          "type": "ChartColorToken",
+          "optional": true
+        },
+        "area": {
+          "type": "boolean",
+          "optional": true
+        },
+        "width": {
+          "type": "number",
+          "optional": true,
+          "doc": "SVG pixel width."
+        },
+        "height": {
+          "type": "number",
+          "optional": true,
+          "doc": "SVG pixel height."
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 draw-on progress."
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Basic",
+        "Area fill",
+        "Downward trend, danger token",
+        "Inside StatCard",
+        "Empty",
+        "Draw-on progress (50%)"
+      ],
+      "description": "Inline micro-chart, no axes — feeds StatCard's trend slot. Draws left-to-right as `progress` sweeps 0→1."
+    },
+    {
+      "name": "CellType",
+      "group": "data",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/cell-type",
+      "variants": {},
+      "props": {
+        "type": {
+          "type": "CellValueType",
+          "optional": true
+        },
+        "value": {
+          "type": "unknown",
+          "optional": true
+        },
+        "badgeVariant": {
+          "type": "BadgeProps[\"variant\"]",
+          "optional": true
+        },
+        "badgeStyle": {
+          "type": "BadgeProps[\"tone\"]",
+          "optional": true
+        },
+        "statusVariant": {
+          "type": "StatusDotProps[\"variant\"]",
+          "optional": true
+        },
+        "statusPulse": {
+          "type": "boolean",
+          "optional": true
+        },
+        "replacements": {
+          "type": "UrlReplacement[]",
+          "optional": true
+        },
+        "dateFormat": {
+          "type": "Intl.DateTimeFormatOptions",
+          "optional": true
+        },
+        "compact": {
+          "type": "boolean",
+          "optional": true
+        },
+        "fractionDigits": {
+          "type": "number",
+          "optional": true,
+          "doc": "Fraction digits (0-20)."
+        },
+        "currency": {
+          "type": "string",
+          "optional": true,
+          "doc": "ISO 4217 currency code for \"currency\" type (default \"USD\")."
+        },
+        "displayUnit": {
+          "type": "string",
+          "optional": true,
+          "doc": "Force a byte unit (e.g. \"GB\")."
+        },
+        "codeLanguage": {
+          "type": "string",
+          "optional": true,
+          "doc": "Highlight language for \"code\" type (e.g. \"ts\", \"sql\")."
+        },
+        "avatarSrc": {
+          "type": "string",
+          "optional": true,
+          "doc": "Optional photo URL for \"user\" type — falls back to initials (Avatar's own fallback behavior) when omitted."
+        }
+      },
+      "demos": [
+        "Data Types",
+        "New data types",
+        "Numeric types",
+        "Column alignment"
+      ]
+    },
+    {
+      "name": "DataList",
+      "group": "data",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/data-list",
+      "variants": {
+        "striped": [
+          "false",
+          "true"
+        ]
+      },
+      "props": {
+        "items": {
+          "type": "DataListItem[]",
+          "optional": false
+        },
+        "replacements": {
+          "type": "UrlReplacement[]",
+          "optional": true
+        },
+        "variant": {
+          "type": "\"default\" | \"compact\"",
+          "optional": true
+        },
+        "density": {
+          "type": "\"normal\" | \"compact\"",
+          "optional": true
+        },
+        "labelWidth": {
+          "type": "\"sm\" | \"md\" | \"lg\"",
+          "optional": true,
+          "doc": "Label (\"dt\") column width."
+        }
+      },
+      "demos": [
+        "Density (normal vs compact)",
+        "Striped",
+        "Label width",
+        "Alignment",
+        "Scrolling"
+      ],
+      "description": "A label/value list (definition list) for record-detail views — the non-tabular counterpart to Table/DataTable.",
+      "parent": "Table",
+      "extends": [
+        "HTMLAttributes<HTMLDListElement>",
+        "VariantProps<typeof dataListVariants>"
+      ]
+    },
+    {
+      "name": "DataTable",
+      "group": "data",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/data-table",
+      "variants": {
+        "variant": [
+          "default",
+          "striped"
+        ],
+        "density": [
+          "compact",
+          "normal"
+        ]
+      },
+      "props": {
+        "columns": {
+          "type": "DataTableColumn[]",
+          "optional": false
+        },
+        "rows": {
+          "type": "Record<string, unknown>[]",
+          "optional": false
+        },
+        "stickyHeader": {
+          "type": "boolean",
+          "optional": true
+        },
+        "replacements": {
+          "type": "UrlReplacement[]",
+          "optional": true
+        },
+        "layout": {
+          "type": "\"fixed\" | \"auto\"",
+          "optional": true,
+          "doc": "\"fixed\" locks columns to width hints/equal share (default). \"auto\" sizes columns to content and enables horizontal scroll — use for rows with divergent content widths (e.g. a type smoke test) where fixed columns would clip legitimate content."
+        },
+        "rowKey": {
+          "type": "(row: Record<string, unknown>, index: number) => string | number",
+          "optional": true,
+          "doc": "Stable React key for a row."
+        }
+      },
+      "demos": [
+        "Default",
+        "Striped",
+        "Scrolling + sticky header",
+        "Alignment",
+        "Truncation"
+      ],
+      "description": "A composed table pattern that renders columns + rows through CellType, with variant/density options and an optional sticky header.",
+      "parent": "Table",
+      "variantDefaults": {
+        "variant": "default",
+        "density": "normal"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof dataTableVariants>"
+      ]
+    },
+    {
+      "name": "Table",
+      "group": "data",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/table",
+      "variants": {
+        "variant": [
+          "default",
+          "striped"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Composition",
+        "Variants",
+        "Density",
+        "Truncation & expand",
+        "Sticky header"
+      ],
+      "description": "The raw compositional table primitives (Table/TableHeader/TableBody/TableRow/TableHead/TableCell) — DataTable is the data-driven pattern built on top of these for typical use. Reach for Table directly when you need bespoke markup a data-driven API can't express.",
+      "parent": "Table",
+      "variantDefaults": {
+        "variant": "default"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLTableElement>",
+        "VariantProps<typeof tableVariants>"
+      ]
+    },
+    {
+      "name": "Timeline",
+      "group": "data",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/timeline",
+      "variants": {},
+      "props": {
+        "events": {
+          "type": "TimelineEvent[]",
+          "optional": false
+        },
+        "orientation": {
+          "type": "\"horizontal\" | \"vertical\"",
+          "optional": true,
+          "doc": "\"horizontal\" (default): lanes stack as rows, events spaced proportionally to `at` along the row — for roadmaps and request traces. \"vertical\": lanes sit as columns, events stack sequentially top-to-bottom — for a git-history/changelog read."
+        },
+        "lanes": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "Explicit lane display order."
+        },
+        "density": {
+          "type": "TimelineDensity",
+          "optional": true,
+          "doc": "Row height and text scale. `compact` also drops event descriptions in the vertical orientation — at that density they're what overflows."
+        },
+        "labelPlacement": {
+          "type": "TimelineLabelPlacement",
+          "optional": true,
+          "doc": "Horizontal only. `\"stagger\"` (default) alternates labels above and below the rule so neighbouring events can't collide; `\"below\"` puts them all under it, which is tighter but only safe when events are well separated."
+        },
+        "axis": {
+          "type": "(at: number) => string",
+          "optional": true,
+          "doc": "Horizontal only."
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 reveal (TODO.md D4's progress-in convention)."
+        }
+      },
+      "demos": [
+        "Horizontal — single lane",
+        "Horizontal — lanes",
+        "Spans — events with a duration",
+        "Shared scale across lanes",
+        "Label placement",
+        "Density",
+        "Progress (playhead reveal)",
+        "Vertical — single lane",
+        "Vertical — lanes"
+      ],
+      "description": "Data-driven horizontal/vertical event sequences with optional lanes — roadmaps, request traces, git history. Events can be instants or spans (`until`). Draws no graph edges.",
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "TreeView",
+      "group": "data",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/tree-view",
+      "variants": {},
+      "props": {
+        "data": {
+          "type": "TreeNode[]",
+          "optional": false
+        },
+        "indent": {
+          "type": "IndentSize | number",
+          "optional": true,
+          "doc": "\"sm\" | \"md\" | \"lg\", mapped to --grid-unit multiples (12 / 16 / 24px)."
+        },
+        "variant": {
+          "type": "\"default\" | \"condensed\"",
+          "optional": true
+        },
+        "density": {
+          "type": "\"normal\" | \"compact\"",
+          "optional": true
+        },
+        "defaultExpandedDepth": {
+          "type": "number",
+          "optional": true
+        },
+        "expandedKeys": {
+          "type": "Set<string>",
+          "optional": true
+        },
+        "onToggle": {
+          "type": "(id: string) => void",
+          "optional": true
+        },
+        "replacements": {
+          "type": "UrlReplacement[]",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true,
+          "doc": "Merged onto the root `<ul>`."
+        }
+      },
+      "demos": [
+        "Density (normal vs compact)",
+        "Tall values (elbow/chevron alignment)",
+        "Depth-based expand",
+        "Controlled expand state",
+        "Leading icons (click a row, then use arrow keys)",
+        "Messy nested payload (hover to trace depth guides)"
+      ],
+      "description": "A collapsible hierarchical list for nested data, with indent guide lines, controlled expand/collapse, arrow-key navigation, and typed value rendering."
+    },
+    {
+      "name": "Avatar",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/avatar",
+      "variants": {
+        "size": [
+          "lg",
+          "md",
+          "sm"
+        ]
+      },
+      "props": {
+        "src": {
+          "type": "string",
+          "optional": true
+        },
+        "alt": {
+          "type": "string",
+          "optional": true
+        },
+        "fallback": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Sizes",
+        "Fallback variants",
+        "With image",
+        "With ring",
+        "With status dot"
+      ],
+      "variantDefaults": {
+        "size": "md"
+      },
+      "extends": [
+        "React.ComponentPropsWithoutRef<typeof Root>",
+        "VariantProps<typeof avatarVariants>"
+      ]
+    },
+    {
+      "name": "Badge",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/badge",
+      "variants": {
+        "variant": [
+          "danger",
+          "neutral",
+          "primary",
+          "success",
+          "warning"
+        ],
+        "tone": [
+          "soft",
+          "solid"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Variants (solid)",
+        "Variants (soft)"
+      ],
+      "variantDefaults": {
+        "variant": "neutral",
+        "tone": "solid"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLSpanElement>",
+        "VariantProps<typeof badgeVariants>"
+      ]
+    },
+    {
+      "name": "Card",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/card",
+      "variants": {
+        "variant": [
+          "default",
+          "elevated",
+          "outlined"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Variants",
+        "With footer actions",
+        "Size"
+      ],
+      "description": "A container with header, title, content, and footer slots for grouping related content.",
+      "variantDefaults": {
+        "variant": "default"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof cardVariants>"
+      ]
+    },
+    {
+      "name": "CodeBlock",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/code-block",
+      "variants": {
+        "variant": [
+          "default",
+          "elevated"
+        ]
+      },
+      "props": {
+        "code": {
+          "type": "string",
+          "optional": false
+        },
+        "language": {
+          "type": "string",
+          "optional": true
+        },
+        "header": {
+          "type": "string",
+          "optional": true
+        },
+        "wrap": {
+          "type": "boolean",
+          "optional": true
+        },
+        "showLineNumbers": {
+          "type": "boolean",
+          "optional": true
+        },
+        "highlight": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Enable syntax highlighting for supported languages (js, ts, tsx, json, bash)."
+        },
+        "highlightLines": {
+          "type": "number[]",
+          "optional": true,
+          "doc": "1-indexed line numbers to highlight."
+        },
+        "highlightColor": {
+          "type": "CodeBlockHighlightGroup[\"color\"]",
+          "optional": true,
+          "doc": "Color for highlightLines (default \"primary\")."
+        },
+        "highlightGroups": {
+          "type": "CodeBlockHighlightGroup[]",
+          "optional": true,
+          "doc": "Multi-color highlight groups."
+        },
+        "highlightRanges": {
+          "type": "HighlightRangeDef[]",
+          "optional": true,
+          "doc": "Substring-level highlight ranges (0-indexed char positions within each line)."
+        },
+        "focusRange": {
+          "type": "[number, number]",
+          "optional": true,
+          "doc": "1-based line numbers outside this `[start, end]` range get a reduced opacity (the `opacity-muted` token) instead of full contrast — the \"focus on this range, dim the rest\" treatment a code walkthrough needs."
+        },
+        "lineId": {
+          "type": "(lineNumber: number) => string",
+          "optional": true,
+          "doc": "Assigns an `id` to each rendered line's row element, keyed by its 1-based line number."
+        },
+        "bare": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Strips the persistent header bar (filename/language badge) and the block's own opaque background/border, leaving only a hover-revealed copy button in the corner."
+        }
+      },
+      "demos": [
+        "Bare (no header, no language)",
+        "Language-only (badge overlay, no header bar)",
+        "With header + language",
+        "Elevated",
+        "Line numbers",
+        "No wrap (horizontal scroll)",
+        "Syntax highlighting (TS)",
+        "Line highlights",
+        "Line highlights (implicit gutter)",
+        "Multi-color highlights",
+        "Substring highlights",
+        "Substring highlights on a long line (wrap forced off)",
+        "Merged highlights",
+        "Focus range (dims everything outside it)",
+        "Bare (embedded in another surface)",
+        "Syntax highlighting (CSS / HTML / SQL / YAML / Python)"
+      ],
+      "variantDefaults": {
+        "variant": "default"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLPreElement>",
+        "VariantProps<typeof codeBlockVariants>"
+      ]
+    },
+    {
+      "name": "DeviceFrame",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/device-frame",
+      "variants": {
+        "variant": [
+          "browser",
+          "phone",
+          "window"
+        ]
+      },
+      "props": {
+        "url": {
+          "type": "string",
+          "optional": true,
+          "doc": "Address shown in the browser variant's URL bar."
+        },
+        "title": {
+          "type": "string",
+          "optional": true,
+          "doc": "Title shown in the window variant's centered title bar (and the browser tab, if given alongside `url`)."
+        },
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Browser",
+        "Window",
+        "Phone"
+      ],
+      "description": "Browser / window / phone chrome around arbitrary children — for showing UI on screen without a real screen recording.",
+      "variantDefaults": {
+        "variant": "browser"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof deviceFrameVariants>"
+      ]
+    },
+    {
+      "name": "DiffBlock",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/diff-block",
+      "variants": {
+        "variant": [
+          "default",
+          "elevated"
+        ]
+      },
+      "props": {
+        "lines": {
+          "type": "DiffLine[]",
+          "optional": false
+        },
+        "language": {
+          "type": "string",
+          "optional": true
+        },
+        "header": {
+          "type": "string",
+          "optional": true
+        },
+        "mode": {
+          "type": "\"unified\" | \"split\"",
+          "optional": true,
+          "doc": "\"unified\" (default): single column with +/- markers. \"split\": two-column side-by-side."
+        },
+        "highlight": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Syntax-highlight line content via CodeBlock's tokenizer (js/ts/json/bash/css/html/py/yaml/sql)."
+        },
+        "wordDiff": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Word-level intra-line diff for a removed line immediately followed by an added line (a 1:1 changed pair)."
+        }
+      },
+      "demos": [
+        "Unified",
+        "Unified — word diff",
+        "Split",
+        "Split — word diff",
+        "Elevated"
+      ],
+      "description": "Unified and side-by-side diff views, reusing CodeBlock's tokenizer for syntax color and a token-level LCS for optional word diff.",
+      "variantDefaults": {
+        "variant": "default"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof diffBlockVariants>"
+      ]
+    },
+    {
+      "name": "EmptyState",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/empty-state",
+      "variants": {},
+      "props": {
+        "icon": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "title": {
+          "type": "string",
+          "optional": false
+        },
+        "description": {
+          "type": "string",
+          "optional": true
+        },
+        "action": {
+          "type": "ReactNode",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Default",
+        "With icon and action"
+      ],
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "Image",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/image",
+      "variants": {
+        "fit": [
+          "contain",
+          "cover",
+          "fill",
+          "none",
+          "scaleDown"
+        ],
+        "radius": [
+          "full",
+          "lg",
+          "md",
+          "none",
+          "sm"
+        ],
+        "aspect": [
+          "auto",
+          "square",
+          "tall",
+          "video",
+          "wide"
+        ],
+        "bordered": [
+          "true"
+        ],
+        "shadowed": [
+          "true"
+        ]
+      },
+      "props": {
+        "caption": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Fit modes",
+        "Border radius",
+        "Aspect ratio",
+        "Styles",
+        "With caption"
+      ],
+      "variantDefaults": {
+        "fit": "cover",
+        "radius": "md",
+        "aspect": "auto"
+      },
+      "extends": [
+        "ImgHTMLAttributes<HTMLImageElement>",
+        "VariantProps<typeof imageVariants>"
+      ]
+    },
+    {
+      "name": "Kbd",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/kbd",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "Default",
+        "Combinations"
+      ],
+      "extends": [
+        "HTMLAttributes<HTMLElement>"
+      ]
+    },
+    {
+      "name": "Markdown",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/markdown",
+      "variants": {},
+      "props": {
+        "content": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Rendered markdown"
+      ],
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "ScrollArea",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/scroll-area",
+      "variants": {
+        "orientation": [
+          "both",
+          "horizontal",
+          "vertical"
+        ]
+      },
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "fade": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Adds a CSS-mask fade at the scrollable edge(s) so a scrollable region visibly reads as scrollable even before it's touched."
+        }
+      },
+      "demos": [
+        "Vertical scroll",
+        "Horizontal scroll",
+        "Both axes",
+        "Rounded corners (radius on ScrollArea itself, not a wrapper)",
+        "Edge fade"
+      ],
+      "variantDefaults": {
+        "orientation": "both"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof scrollAreaVariants>"
+      ]
+    },
+    {
+      "name": "Separator",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/separator",
+      "variants": {
+        "orientation": [
+          "horizontal",
+          "vertical"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Horizontal",
+        "Vertical"
+      ],
+      "variantDefaults": {
+        "orientation": "horizontal"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof separatorVariants>"
+      ]
+    },
+    {
+      "name": "StatusDot",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/status-dot",
+      "variants": {
+        "variant": [
+          "danger",
+          "info",
+          "neutral",
+          "success",
+          "warning"
+        ],
+        "size": [
+          "md",
+          "sm"
+        ]
+      },
+      "props": {
+        "pulse": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Variants",
+        "Sizes",
+        "Pulsing"
+      ],
+      "variantDefaults": {
+        "variant": "neutral",
+        "size": "md"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLSpanElement>",
+        "VariantProps<typeof statusDotVariants>"
+      ]
+    },
+    {
+      "name": "Terminal",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/terminal",
+      "variants": {
+        "variant": [
+          "default",
+          "elevated"
+        ],
+        "scheme": [
+          "amber",
+          "default",
+          "matrix"
+        ],
+        "chrome": [
+          "dots",
+          "none"
+        ]
+      },
+      "props": {
+        "entries": {
+          "type": "TerminalEntry[]",
+          "optional": false
+        },
+        "prompt": {
+          "type": "TerminalPromptGlyph",
+          "optional": true,
+          "doc": "Prompt glyph before each command."
+        },
+        "cwd": {
+          "type": "string",
+          "optional": true,
+          "doc": "Working directory shown in the prompt chrome (and the title bar, if no `title` is given)."
+        },
+        "user": {
+          "type": "string",
+          "optional": true,
+          "doc": "Username shown before an \"@host\" segment in the prompt chrome."
+        },
+        "host": {
+          "type": "string",
+          "optional": true,
+          "doc": "Hostname shown after \"user@\" in the prompt chrome."
+        },
+        "title": {
+          "type": "string",
+          "optional": true,
+          "doc": "Caption for an optional window-style title bar above the entries."
+        },
+        "rows": {
+          "type": "number",
+          "optional": true,
+          "doc": "Fixed visible height, expressed as a whole number of text lines (owner feedback: \"I want to see a constant height terminal that does not change or move, and the content gets added within it ... like a scrolling action\")."
+        }
+      },
+      "demos": [
+        "Prompt glyphs",
+        "Title bar",
+        "Variant",
+        "Color schemes",
+        "Chrome decorator",
+        "Fixed height, scrolls as content grows",
+        "Prompt segments, changed mid-session"
+      ],
+      "description": "Prompt/command/output/exit-code sequences, composing CodeBlock for output bodies. Data-driven via a typed entries array.",
+      "variantDefaults": {
+        "variant": "default",
+        "scheme": "default",
+        "chrome": "dots"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof terminalVariants>"
+      ]
+    },
+    {
+      "name": "Alert",
+      "group": "feedback",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/alert",
+      "variants": {
+        "variant": [
+          "danger",
+          "info",
+          "note",
+          "success",
+          "tip",
+          "warning"
+        ],
+        "size": [
+          "lg",
+          "md",
+          "sm",
+          "xl"
+        ]
+      },
+      "props": {
+        "title": {
+          "type": "string",
+          "optional": true
+        },
+        "icon": {
+          "type": "ReactNode",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Variants",
+        "With title",
+        "With icon",
+        "Size",
+        "Note & tip",
+        "Presentation size (xl)"
+      ],
+      "variantDefaults": {
+        "variant": "info",
+        "size": "md"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof alertVariants>"
+      ]
+    },
+    {
+      "name": "Progress",
+      "group": "feedback",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/progress",
+      "variants": {
+        "variant": [
+          "danger",
+          "default",
+          "success",
+          "warning"
+        ]
+      },
+      "props": {
+        "value": {
+          "type": "number",
+          "optional": false
+        },
+        "label": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Variants",
+        "No label"
+      ],
+      "variantDefaults": {
+        "variant": "default"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof barVariants>"
+      ]
+    },
+    {
+      "name": "Skeleton",
+      "group": "feedback",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/skeleton",
+      "variants": {
+        "shape": [
+          "circle",
+          "rect",
+          "text"
+        ]
+      },
+      "props": {
+        "width": {
+          "type": "string",
+          "optional": true
+        },
+        "height": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Shapes"
+      ],
+      "variantDefaults": {
+        "shape": "text"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof skeletonVariants>"
+      ]
+    },
+    {
+      "name": "Spinner",
+      "group": "feedback",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/spinner",
+      "variants": {
+        "size": [
+          "lg",
+          "md",
+          "sm"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Sizes"
+      ],
+      "variantDefaults": {
+        "size": "md"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof spinnerVariants>"
+      ]
+    },
+    {
+      "name": "Toast",
+      "group": "feedback",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/toast",
+      "variants": {
+        "variant": [
+          "danger",
+          "default",
+          "success"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Trigger toasts"
+      ],
+      "description": "A transient notification for success, danger, and default states, triggered imperatively via the useToast hook.",
+      "variantDefaults": {
+        "variant": "default"
+      }
+    },
+    {
+      "name": "Button",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/button",
+      "variants": {
+        "variant": [
+          "danger",
+          "ghost",
+          "primary",
+          "secondary"
+        ],
+        "size": [
+          "icon-sm",
+          "lg",
+          "md",
+          "sm"
+        ]
+      },
+      "props": {
+        "loading": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Variants",
+        "Sizes",
+        "Icon-only (compact)",
+        "Disabled & loading"
+      ],
+      "description": "A clickable action trigger with primary, secondary, ghost, and danger variants, three sizes, and loading/disabled states.",
+      "variantDefaults": {
+        "variant": "primary",
+        "size": "md"
+      },
+      "extends": [
+        "ButtonHTMLAttributes<HTMLButtonElement>",
+        "VariantProps<typeof buttonVariants>"
+      ]
+    },
+    {
+      "name": "Checkbox",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/checkbox",
+      "variants": {
+        "size": [
+          "md",
+          "sm"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Sizes",
+        "States"
+      ],
+      "variantDefaults": {
+        "size": "md"
+      },
+      "extends": [
+        "React.ComponentPropsWithoutRef<typeof Root>",
+        "VariantProps<typeof checkboxVariants>"
+      ]
+    },
+    {
+      "name": "Combobox",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/combobox",
+      "variants": {},
+      "props": {
+        "options": {
+          "type": "ComboboxOption[]",
+          "optional": false
+        },
+        "value": {
+          "type": "string",
+          "optional": true,
+          "doc": "Controlled selection."
+        },
+        "defaultValue": {
+          "type": "string",
+          "optional": true,
+          "doc": "Initial selection for uncontrolled use."
+        },
+        "onChange": {
+          "type": "(value: string) => void",
+          "optional": true
+        },
+        "placeholder": {
+          "type": "string",
+          "optional": true
+        },
+        "emptyText": {
+          "type": "string",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        },
+        "disabled": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Basic",
+        "Uncontrolled",
+        "Disabled"
+      ]
+    },
+    {
+      "name": "FileDrop",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/file-drop",
+      "variants": {
+        "state": [
+          "default",
+          "dragging",
+          "error",
+          "success"
+        ],
+        "size": [
+          "lg",
+          "md",
+          "sm"
+        ]
+      },
+      "props": {
+        "onDrop": {
+          "type": "(files: File[]) => void",
+          "optional": true
+        },
+        "accept": {
+          "type": "string",
+          "optional": true
+        },
+        "multiple": {
+          "type": "boolean",
+          "optional": true
+        },
+        "maxSize": {
+          "type": "number",
+          "optional": true
+        },
+        "size": {
+          "type": "\"sm\" | \"md\" | \"lg\"",
+          "optional": true
+        },
+        "disabled": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Default",
+        "Sizes",
+        "States",
+        "Disabled",
+        "Single image only"
+      ],
+      "description": "A drag-and-drop file target with click-to-browse, type/size validation and inline feedback.",
+      "variantDefaults": {
+        "state": "default",
+        "size": "md"
+      },
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"onDrop\">"
+      ]
+    },
+    {
+      "name": "Input",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/input",
+      "variants": {
+        "variant": [
+          "default",
+          "filled"
+        ],
+        "size": [
+          "md",
+          "sm"
+        ],
+        "invalid": [
+          "true"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Variants",
+        "Sizes",
+        "States"
+      ],
+      "description": "A single-line text field with default and filled variants, two sizes, and an invalid state for validation errors.",
+      "variantDefaults": {
+        "variant": "default",
+        "size": "md"
+      },
+      "extends": [
+        "Omit<InputHTMLAttributes<HTMLInputElement>, \"size\">",
+        "VariantProps<typeof inputVariants>"
+      ]
+    },
+    {
+      "name": "Label",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/label",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "Default"
+      ],
+      "extends": [
+        "ComponentPropsWithoutRef<typeof Root>",
+        "VariantProps<typeof labelVariants>"
+      ]
+    },
+    {
+      "name": "MultiSelect",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/multi-select",
+      "variants": {},
+      "props": {
+        "options": {
+          "type": "MultiSelectOption[]",
+          "optional": false
+        },
+        "value": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "Controlled selection."
+        },
+        "defaultValue": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "Initial selection for uncontrolled use."
+        },
+        "onChange": {
+          "type": "(value: string[]) => void",
+          "optional": true
+        },
+        "placeholder": {
+          "type": "string",
+          "optional": true
+        },
+        "emptyText": {
+          "type": "string",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        },
+        "disabled": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Basic",
+        "Uncontrolled",
+        "Empty",
+        "Disabled"
+      ]
+    },
+    {
+      "name": "RadioGroup",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/radio-group",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "Default"
+      ],
+      "extends": [
+        "React.ComponentPropsWithoutRef<typeof Root>"
+      ]
+    },
+    {
+      "name": "Select",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/select",
+      "variants": {
+        "size": [
+          "md",
+          "sm"
+        ],
+        "invalid": [
+          "true"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Sizes",
+        "States",
+        "No indicator"
+      ],
+      "variantDefaults": {
+        "size": "md"
+      }
+    },
+    {
+      "name": "Slider",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/slider",
+      "variants": {
+        "size": [
+          "md",
+          "sm"
+        ]
+      },
+      "props": {
+        "label": {
+          "type": "string",
+          "optional": true
+        },
+        "showValue": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Basic slider",
+        "Sizes"
+      ],
+      "variantDefaults": {
+        "size": "md"
+      },
+      "extends": [
+        "Omit<InputHTMLAttributes<HTMLInputElement>, \"type\" | \"size\">",
+        "VariantProps<typeof sliderTrackVariants>"
+      ]
+    },
+    {
+      "name": "Switch",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/switch",
+      "variants": {
+        "size": [
+          "md",
+          "sm"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Sizes",
+        "States"
+      ],
+      "variantDefaults": {
+        "size": "md"
+      },
+      "extends": [
+        "React.ComponentPropsWithoutRef<typeof Root>",
+        "VariantProps<typeof switchVariants>"
+      ]
+    },
+    {
+      "name": "Textarea",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/textarea",
+      "variants": {
+        "variant": [
+          "default",
+          "filled"
+        ],
+        "invalid": [
+          "true"
+        ]
+      },
+      "props": {
+        "autoResize": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Variants",
+        "States"
+      ],
+      "variantDefaults": {
+        "variant": "default"
+      },
+      "extends": [
+        "Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, \"size\">",
+        "VariantProps<typeof textareaVariants>"
+      ]
+    },
+    {
+      "name": "Breadcrumbs",
+      "group": "navigation",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/breadcrumbs",
+      "variants": {},
+      "props": {
+        "items": {
+          "type": "BreadcrumbItem[]",
+          "optional": false
+        },
+        "separator": {
+          "type": "ReactNode",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Default",
+        "Custom separator"
+      ],
+      "extends": [
+        "HTMLAttributes<HTMLElement>"
+      ]
+    },
+    {
+      "name": "Link",
+      "group": "navigation",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/link",
+      "variants": {
+        "variant": [
+          "muted",
+          "primary"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Variants",
+        "In a sentence"
+      ],
+      "description": "A styled <a> — the primitive underneath any real, navigable link (OutroScene's link list, prose, cards).",
+      "variantDefaults": {
+        "variant": "primary"
+      },
+      "extends": [
+        "AnchorHTMLAttributes<HTMLAnchorElement>",
+        "VariantProps<typeof linkVariants>"
+      ]
+    },
+    {
+      "name": "Pagination",
+      "group": "navigation",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/pagination",
+      "variants": {},
+      "props": {
+        "currentPage": {
+          "type": "number",
+          "optional": false
+        },
+        "totalPages": {
+          "type": "number",
+          "optional": false
+        },
+        "onPageChange": {
+          "type": "(page: number) => void",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Default (10 pages)",
+        "Few pages"
+      ],
+      "extends": [
+        "HTMLAttributes<HTMLElement>"
+      ]
+    },
+    {
+      "name": "Tabs",
+      "group": "navigation",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/tabs",
+      "variants": {
+        "variant": [
+          "filing",
+          "pills",
+          "underline"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Underline",
+        "Pills",
+        "Filing"
+      ],
+      "variantDefaults": {
+        "variant": "underline"
+      },
+      "extends": [
+        "React.ComponentPropsWithoutRef<typeof Root>",
+        "VariantProps<typeof tabsListVariants>"
+      ]
+    },
+    {
+      "name": "CommandPalette",
+      "group": "overlay",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/command-palette",
+      "variants": {},
+      "props": {
+        "open": {
+          "type": "boolean",
+          "optional": false
+        },
+        "onOpenChange": {
+          "type": "(open: boolean) => void",
+          "optional": false
+        },
+        "actions": {
+          "type": "CommandAction[]",
+          "optional": false
+        },
+        "onSelect": {
+          "type": "(action: CommandAction) => void",
+          "optional": false
+        },
+        "placeholder": {
+          "type": "string",
+          "optional": true
+        },
+        "emptyText": {
+          "type": "string",
+          "optional": true
+        },
+        "groups": {
+          "type": "{ label: string; actionIds: string[] }[]",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Basic",
+        "With groups"
+      ]
+    },
+    {
+      "name": "Dialog",
+      "group": "overlay",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/dialog",
+      "variants": {
+        "size": [
+          "lg",
+          "md",
+          "sm"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Sizes",
+        "Form example"
+      ],
+      "description": "A modal overlay for focused tasks like forms and confirmations, in small, medium, and large sizes.",
+      "variantDefaults": {
+        "size": "md"
+      }
+    },
+    {
+      "name": "Drawer",
+      "group": "overlay",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/drawer",
+      "variants": {
+        "side": [
+          "left",
+          "right"
+        ],
+        "size": [
+          "lg",
+          "md",
+          "sm"
+        ]
+      },
+      "props": {},
+      "demos": [
+        "Left & Right",
+        "Sizes"
+      ],
+      "variantDefaults": {
+        "side": "right",
+        "size": "md"
+      }
+    },
+    {
+      "name": "DropdownMenu",
+      "group": "overlay",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/dropdown-menu",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "Default"
+      ],
+      "description": "A click-triggered action menu with labels, separators, destructive items and disabled items."
+    },
+    {
+      "name": "Popover",
+      "group": "overlay",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/popover",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "Default",
+        "Positioning",
+        "With close button"
+      ],
+      "description": "A click-triggered floating panel for secondary controls, positioned by Radix and portalled above the page."
+    },
+    {
+      "name": "Tooltip",
+      "group": "overlay",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/tooltip",
+      "variants": {},
+      "props": {
+        "content": {
+          "type": "string",
+          "optional": false
+        },
+        "side": {
+          "type": "\"top\" | \"right\" | \"bottom\" | \"left\"",
+          "optional": true
+        },
+        "children": {
+          "type": "React.ReactNode",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Directions"
+      ]
+    },
+    {
+      "name": "Comparison",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/comparison",
+      "variants": {},
+      "props": {
+        "before": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "after": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "beforeLabel": {
+          "type": "string",
+          "optional": true
+        },
+        "afterLabel": {
+          "type": "string",
+          "optional": true
+        },
+        "mode": {
+          "type": "\"side-by-side\" | \"wipe\"",
+          "optional": true,
+          "doc": "\"side-by-side\" (default): two columns. \"wipe\": before/after stacked with a draggable reveal divider."
+        },
+        "value": {
+          "type": "number",
+          "optional": true,
+          "doc": "Controlled divider position, 0-100 (wipe mode only)."
+        },
+        "defaultValue": {
+          "type": "number",
+          "optional": true,
+          "doc": "Uncontrolled initial divider position, 0-100."
+        },
+        "onValueChange": {
+          "type": "(value: number) => void",
+          "optional": true
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 animation-in progress (TODO.md D4's progress-in convention) — lets a video/live scene animate the reveal without ever importing src/motion/."
+        }
+      },
+      "demos": [
+        "Side-by-side",
+        "Wipe (draggable)",
+        "Wipe — progress-driven"
+      ],
+      "description": "Before/after — side-by-side two-column or an overlay wipe with a draggable divider. Divider position is controlled/uncontrolled, or driven by an animation-friendly `progress` prop (0→1) without importing src/motion/.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"onChange\">"
+      ]
+    },
+    {
+      "name": "ConfirmDialog",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/confirm-dialog",
+      "variants": {},
+      "props": {
+        "title": {
+          "type": "string",
+          "optional": false
+        },
+        "description": {
+          "type": "string",
+          "optional": true
+        },
+        "confirmLabel": {
+          "type": "string",
+          "optional": true
+        },
+        "destructive": {
+          "type": "boolean",
+          "optional": true
+        },
+        "onConfirm": {
+          "type": "() => void",
+          "optional": false
+        },
+        "trigger": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "open": {
+          "type": "boolean",
+          "optional": true
+        },
+        "onOpenChange": {
+          "type": "(open: boolean) => void",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Variants"
+      ]
+    },
+    {
+      "name": "FileTree",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/file-tree",
+      "variants": {},
+      "props": {
+        "data": {
+          "type": "FileTreeNode[]",
+          "optional": false
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Project tree with git status",
+        "Compact density"
+      ],
+      "description": "A file/folder tree for \"here's the project structure\" moments in coding videos — a pattern over TreeView, not a fork of it. Shapes FileTreeNode[] into TreeNode[] (icons, a git-status badge, a trailing metadata readout) and renders TreeView.",
+      "extends": [
+        "Pick<TreeViewProps, \"defaultExpandedDepth\" | \"expandedKeys\" | \"onToggle\" | \"density\" | \"indent\">"
+      ]
+    },
+    {
+      "name": "FormField",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/form-field",
+      "variants": {},
+      "props": {
+        "label": {
+          "type": "string",
+          "optional": false
+        },
+        "error": {
+          "type": "string",
+          "optional": true
+        },
+        "hint": {
+          "type": "string",
+          "optional": true
+        },
+        "required": {
+          "type": "boolean",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        },
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Default",
+        "With hint",
+        "Required with error"
+      ]
+    },
+    {
+      "name": "PageShell",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/page-shell",
+      "variants": {},
+      "props": {
+        "title": {
+          "type": "string",
+          "optional": false
+        },
+        "description": {
+          "type": "string",
+          "optional": true
+        },
+        "actions": {
+          "type": "ReactNode",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Default",
+        "With actions"
+      ],
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "SequenceDiagram",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/sequence-diagram",
+      "variants": {},
+      "props": {
+        "participants": {
+          "type": "SequenceParticipant[]",
+          "optional": false
+        },
+        "items": {
+          "type": "SequenceItem[]",
+          "optional": false,
+          "doc": "Ordered messages and notes — order is both the vertical stacking order and the order `progress` reveals them in."
+        },
+        "activations": {
+          "type": "SequenceActivation[]",
+          "optional": true
+        },
+        "laneWidth": {
+          "type": "number",
+          "optional": true,
+          "doc": "Lane (participant column) width in px."
+        },
+        "progress": {
+          "type": "number",
+          "optional": true,
+          "doc": "0→1 reveal progress, default 1 (fully drawn)."
+        }
+      },
+      "demos": [
+        "Request flow",
+        "Self-messages, spanning note, error path",
+        "Progress reveal"
+      ],
+      "description": "UML-style sequence diagram — participant lanes, dashed lifelines, messages as ConnectionLayer edges, activation bars, and notes. Every coordinate is a GRID (16) multiple; message arrows are never hand-drawn <path>s.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"children\">"
+      ]
+    },
+    {
+      "name": "StatCard",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/stat-card",
+      "variants": {},
+      "props": {
+        "label": {
+          "type": "string",
+          "optional": false
+        },
+        "value": {
+          "type": "ReactNode",
+          "optional": false,
+          "doc": "Widened from `string` to `ReactNode` so a caller can drop in a live numeric tween (e.g. `my-you-eye/motion`'s `CountUp`) instead of a static string — a plain string still works exactly as before (TODO.md D4's progress-in convention: StatCard itself stays a pure presentational component, no motion i…"
+        },
+        "delta": {
+          "type": "StatCardDelta",
+          "optional": true
+        },
+        "icon": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "size": {
+          "type": "\"sm\" | \"md\" | \"lg\"",
+          "optional": true,
+          "doc": "Padding density, forwarded to CardContent."
+        },
+        "sparkline": {
+          "type": "StatCardSparklineProps",
+          "optional": true,
+          "doc": "Inline trend chart under the value/delta, composing Sparkline."
+        }
+      },
+      "demos": [
+        "Default",
+        "Size",
+        "Numeric delta",
+        "Icon + sparkline"
+      ],
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "StatGrid",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/stat-grid",
+      "variants": {},
+      "props": {
+        "items": {
+          "type": "StatGridItem[]",
+          "optional": false
+        },
+        "columns": {
+          "type": "2 | 3 | 4 | 5 | 6",
+          "optional": true,
+          "doc": "Column count at the widest breakpoint."
+        },
+        "size": {
+          "type": "\"sm\" | \"md\" | \"lg\"",
+          "optional": true,
+          "doc": "Forwarded to every StatCard."
+        }
+      },
+      "demos": [
+        "4-column KPI row",
+        "3-column with sparklines",
+        "Size",
+        "positiveIsGood"
+      ],
+      "description": "A KPI row as one component — data-driven StatGrid over StatCard, instead of a call-site grid of individually placed StatCards.",
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "TexturedSurface",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/textured-surface",
+      "variants": {
+        "variant": [
+          "elevated",
+          "surface"
+        ],
+        "radius": [
+          "default",
+          "lg",
+          "none",
+          "sm"
+        ]
+      },
+      "props": {
+        "color": {
+          "type": "string",
+          "optional": true
+        },
+        "texture": {
+          "type": "TextureName",
+          "optional": true
+        },
+        "strength": {
+          "type": "\"subtle\" | \"medium\" | \"strong\"",
+          "optional": true
+        },
+        "layer": {
+          "type": "TextureLayer",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Tuner",
+        "Paper grain",
+        "Frosted glass",
+        "Brushed aluminium",
+        "Paper grain — full matrix",
+        "Frosted glass — full matrix",
+        "Brushed aluminium — full matrix",
+        "Theme-driven",
+        "Composed"
+      ],
+      "variantDefaults": {
+        "variant": "surface",
+        "radius": "default"
+      },
+      "extends": [
+        "VariantProps<typeof texturedSurfaceVariants>",
+        "Omit<HTMLAttributes<HTMLDivElement>, \"color\">"
+      ]
+    },
+    {
+      "name": "Toolbar",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/patterns/toolbar",
+      "variants": {},
+      "props": {
+        "leading": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "search": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "filters": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "actions": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "resultCount": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "chips": {
+          "type": "ToolbarFilterChip[]",
+          "optional": true
+        },
+        "onClearAll": {
+          "type": "() => void",
+          "optional": true
+        }
+      },
+      "demos": [
+        "All slots filled",
+        "With leading label",
+        "Result count + removable filter chips",
+        "Narrow / responsive collapse"
+      ],
+      "description": "A composable app toolbar: leading label, search, filters, and actions up top, with an optional result-count and active-filter-chip row below.",
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "Typography & Tokens",
+      "group": "typography",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/typography",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "Prose block",
+        "Font families",
+        "Text sizes",
+        "Colors",
+        "Radius & spacing"
+      ],
+      "description": "The Typography prose wrapper, plus a live reference for the font, size, colour, radius and spacing tokens.",
+      "extends": [
+        "HTMLAttributes<HTMLDivElement>"
+      ]
+    }
+  ],
+  "videoSchema": {
+    "video": [
+      {
+        "name": "meta",
+        "optional": true,
+        "type": "VideoMeta"
+      },
+      {
+        "name": "scenes",
+        "optional": false,
+        "type": "Scene[]"
+      }
+    ],
+    "meta": [
+      {
+        "name": "fps",
+        "optional": true,
+        "type": "24 | 30 | 60",
+        "description": "Frames per second. Default 30."
+      },
+      {
+        "name": "size",
+        "optional": true,
+        "type": "VideoSize",
+        "description": "Output dimensions. Default \"1080p\"."
+      },
+      {
+        "name": "theme",
+        "optional": true,
+        "type": "VideoTheme",
+        "description": "Theme profile. Default \"default\"."
+      },
+      {
+        "name": "appearance",
+        "optional": true,
+        "type": "\"light\" | \"dark\"",
+        "description": "Light or dark rendering of the chosen theme. Default \"dark\" — video content is watched on a bright screen in a dark room far more often than the reverse."
+      },
+      {
+        "name": "font",
+        "optional": true,
+        "type": "FontMode",
+        "description": "Typeface set, from the same list the showcase's font picker uses. Default \"sans\"."
+      },
+      {
+        "name": "title",
+        "optional": true,
+        "type": "string",
+        "description": "Video title. Used for the Remotion composition id and the presenter's document title; never rendered into a frame (author a `title` scene for that)."
+      },
+      {
+        "name": "watermark",
+        "optional": true,
+        "type": "string",
+        "description": "Persistent corner handle/watermark, e.g. \"@yourchannel\"."
+      },
+      {
+        "name": "progressBar",
+        "optional": true,
+        "type": "boolean",
+        "description": "Thin progress bar along the bottom edge of every frame. Default true."
+      },
+      {
+        "name": "chapters",
+        "optional": true,
+        "type": "boolean",
+        "description": "Chapter markers derived from `title` scenes. Default true."
+      }
+    ],
+    "sceneBase": [
+      {
+        "name": "id",
+        "optional": true,
+        "type": "string",
+        "description": "Stable id — used for chapter markers, presenter deep-links, and to name the scene in validation errors. Derived from the index when omitted."
+      },
+      {
+        "name": "pace",
+        "optional": true,
+        "type": "Pace",
+        "description": "Coarse pacing for every step in this scene. Default \"normal\". This is the only timing dial: everything else is derived from how much you wrote in `say`."
+      },
+      {
+        "name": "transition",
+        "optional": true,
+        "type": "SceneTransition",
+        "description": "Transition into this scene from the previous one. Default \"fade\"."
+      },
+      {
+        "name": "notes",
+        "optional": true,
+        "type": "string",
+        "description": "Speaker-view note for the scene as a whole. Never rendered on screen."
+      }
+    ],
+    "stepBase": [
+      {
+        "name": "id",
+        "optional": true,
+        "type": "string",
+        "description": "Stable id. Auto-derived from the step's index when omitted; only worth setting for a step you want to deep-link to from the presenter."
+      },
+      {
+        "name": "say",
+        "optional": true,
+        "type": "string",
+        "description": "The narration line for this step. It does three jobs at once: speaker-view script, the content-length input that derives this step's duration (longer line → longer step), and the reserved anchor for narration/TTS timing later (TODO.md Phase G). Writing it is how you control pacing — there is no duration field."
+      },
+      {
+        "name": "hold",
+        "optional": true,
+        "type": "Beat",
+        "description": "Extra hold after the step's animation finishes, before the next step begins. For letting a reveal land."
+      },
+      {
+        "name": "caption",
+        "optional": true,
+        "type": "string",
+        "description": "Lower-third caption rendered on screen for this step's duration. Use for a key term, not for a transcript of `say`."
+      }
+    ],
+    "scenes": [
+      {
+        "kind": "title",
+        "interface": "TitleScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"title\""
+          },
+          {
+            "name": "title",
+            "optional": false,
+            "type": "string"
+          },
+          {
+            "name": "subtitle",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "chapter",
+            "optional": true,
+            "type": "string",
+            "description": "Eyebrow above the title, e.g. \"Part 3\" or \"01\"."
+          },
+          {
+            "name": "align",
+            "optional": true,
+            "type": "\"center\" | \"left\""
+          }
+        ]
+      },
+      {
+        "kind": "bullets",
+        "interface": "BulletScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"bullets\""
+          },
+          {
+            "name": "heading",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "bullets",
+            "optional": false,
+            "type": "BulletItem[]"
+          }
+        ],
+        "stepInterface": "BulletItem",
+        "stepFields": [
+          {
+            "name": "text",
+            "optional": false,
+            "type": "string"
+          },
+          {
+            "name": "children",
+            "optional": true,
+            "type": "string[]",
+            "description": "Sub-points revealed together with their parent."
+          },
+          {
+            "name": "emphasis",
+            "optional": true,
+            "type": "\"none\" | \"strong\"",
+            "description": "Marks the bullet that lands the point. Default \"none\"."
+          }
+        ]
+      },
+      {
+        "kind": "code",
+        "interface": "CodeScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"code\""
+          },
+          {
+            "name": "code",
+            "optional": false,
+            "type": "string",
+            "description": "Source shown before the first step runs."
+          },
+          {
+            "name": "lang",
+            "optional": true,
+            "type": "string",
+            "description": "Language id for the highlighter, e.g. \"ts\", \"tsx\", \"python\"."
+          },
+          {
+            "name": "file",
+            "optional": true,
+            "type": "string",
+            "description": "Filename shown in the header tab."
+          },
+          {
+            "name": "lineNumbers",
+            "optional": true,
+            "type": "boolean",
+            "description": "Show the line-number gutter. Default true."
+          },
+          {
+            "name": "steps",
+            "optional": false,
+            "type": "CodeStep[]"
+          }
+        ],
+        "stepInterface": "CodeStep",
+        "stepFields": [
+          {
+            "name": "focus",
+            "optional": true,
+            "type": "LineRange",
+            "description": "Lines to focus. Everything else dims and the camera frames the range."
+          },
+          {
+            "name": "highlight",
+            "optional": true,
+            "type": "string[]",
+            "description": "Substrings inside the focused lines to highlight inline. Matched literally, not as a regex."
+          },
+          {
+            "name": "code",
+            "optional": true,
+            "type": "string",
+            "description": "Replaces the source for this step. Rendered as an animated diff from whatever was on screen before it — that diff is the whole reason to split a walkthrough into steps rather than showing the final file."
+          },
+          {
+            "name": "typed",
+            "optional": true,
+            "type": "boolean",
+            "description": "Types the source in character by character instead of cutting to it. Meaningful on the first step, or on any step that supplies `code`."
+          },
+          {
+            "name": "annotate",
+            "optional": true,
+            "type": "CodeAnnotation[]",
+            "description": "Leader-line callouts pinned to source lines."
+          }
+        ]
+      },
+      {
+        "kind": "terminal",
+        "interface": "TerminalScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"terminal\""
+          },
+          {
+            "name": "entries",
+            "optional": false,
+            "type": "TerminalStep[]"
+          },
+          {
+            "name": "cwd",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "user",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "host",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "title",
+            "optional": true,
+            "type": "string",
+            "description": "Caption for the window title bar. Defaults to `cwd`."
+          },
+          {
+            "name": "prompt",
+            "optional": true,
+            "type": "\"$\" | \">\" | \"#\" | \"❯\""
+          },
+          {
+            "name": "scheme",
+            "optional": true,
+            "type": "\"default\" | \"matrix\" | \"amber\"",
+            "description": "Color decorator — forwarded to `Terminal`'s `scheme`. Default \"default\"."
+          },
+          {
+            "name": "chrome",
+            "optional": true,
+            "type": "\"dots\" | \"none\"",
+            "description": "Window-chrome decorator — forwarded to `Terminal`'s `chrome`. Default \"dots\"."
+          },
+          {
+            "name": "rows",
+            "optional": true,
+            "type": "number",
+            "description": "Fixed visible height in lines — forwarded to `Terminal`'s `rows`. Defaults to 12: a scene draws into a fixed video frame, so the terminal always holds a constant height and scrolls its content rather than growing as it types. This only tunes how tall it holds."
+          }
+        ],
+        "stepInterface": "TerminalStep",
+        "stepFields": [
+          {
+            "name": "command",
+            "optional": true,
+            "type": "string",
+            "description": "Command typed after the prompt. Omit for an output-only entry (a banner, a log tail)."
+          },
+          {
+            "name": "output",
+            "optional": true,
+            "type": "string",
+            "description": "Output body shown under the command."
+          },
+          {
+            "name": "language",
+            "optional": true,
+            "type": "string",
+            "description": "Language id for highlighting `output`."
+          },
+          {
+            "name": "exitCode",
+            "optional": true,
+            "type": "number",
+            "description": "Process exit code — renders a badge (0 reads success, non-zero danger)."
+          },
+          {
+            "name": "spinner",
+            "optional": true,
+            "type": "string",
+            "description": "Shows a spinner with this label while the step runs, before `output` lands. For a step that should read as \"this takes a while\"."
+          },
+          {
+            "name": "cwd",
+            "optional": true,
+            "type": "string",
+            "description": "Per-entry overrides of the prompt chrome — each independently optional, and each PERSISTS to every following entry until overridden again, mirroring `Terminal`'s own per-entry override semantics (a real shell's `cd`/`ssh` changes the prompt for every command after it, not just that one line). Falls back to the scene-level prop of the same name when never set by any entry up to this point."
+          },
+          {
+            "name": "user",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "host",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "promptGlyph",
+            "optional": true,
+            "type": "\"$\" | \">\" | \"#\" | \"❯\""
+          }
+        ]
+      },
+      {
+        "kind": "diagram",
+        "interface": "DiagramScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"diagram\""
+          },
+          {
+            "name": "preset",
+            "optional": true,
+            "type": "DiagramPreset",
+            "description": "Default \"architecture\"."
+          },
+          {
+            "name": "title",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "nodes",
+            "optional": false,
+            "type": "DiagramNode[]"
+          },
+          {
+            "name": "edges",
+            "optional": false,
+            "type": "DiagramEdge[]"
+          },
+          {
+            "name": "groups",
+            "optional": true,
+            "type": "DiagramGroup[]"
+          },
+          {
+            "name": "layout",
+            "optional": true,
+            "type": "DiagramLayout",
+            "description": "Overrides the preset's default placement strategy."
+          },
+          {
+            "name": "steps",
+            "optional": false,
+            "type": "DiagramStep[]"
+          }
+        ],
+        "stepInterface": "DiagramStep",
+        "stepFields": [
+          {
+            "name": "reveal",
+            "optional": true,
+            "type": "string[]",
+            "description": "Node and group ids that appear on this step. Anything never named in any step's `reveal` is present from the first frame."
+          },
+          {
+            "name": "connect",
+            "optional": true,
+            "type": "string[]",
+            "description": "Edge ids whose line draws on this step."
+          },
+          {
+            "name": "flow",
+            "optional": true,
+            "type": "string[]",
+            "description": "Edge ids that carry animated flow tokens for this step's duration — the \"watch the request travel\" beat."
+          },
+          {
+            "name": "focus",
+            "optional": true,
+            "type": "string[]",
+            "description": "Node ids to spotlight; everything else dims."
+          },
+          {
+            "name": "annotate",
+            "optional": true,
+            "type": "DiagramAnnotation[]",
+            "description": "Leader-line callouts pinned to nodes."
+          }
+        ]
+      },
+      {
+        "kind": "sequence",
+        "interface": "SequenceScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"sequence\""
+          },
+          {
+            "name": "title",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "participants",
+            "optional": false,
+            "type": "SequenceParticipantSpec[]"
+          },
+          {
+            "name": "messages",
+            "optional": false,
+            "type": "SequenceStep[]",
+            "description": "Ordered messages and notes. Order is both the vertical stacking order and the reveal order. Activation bars are derived from it."
+          }
+        ],
+        "stepVariants": [
+          {
+            "interface": "SequenceMessageStep",
+            "fields": [
+              {
+                "name": "type",
+                "optional": false,
+                "type": "\"message\""
+              },
+              {
+                "name": "from",
+                "optional": false,
+                "type": "string",
+                "description": "Participant id the message leaves from."
+              },
+              {
+                "name": "to",
+                "optional": false,
+                "type": "string",
+                "description": "Participant id it arrives at. Equal to `from` draws a self-call loop."
+              },
+              {
+                "name": "label",
+                "optional": true,
+                "type": "string"
+              },
+              {
+                "name": "kind",
+                "optional": true,
+                "type": "\"sync\" | \"async\" | \"data\" | \"error\"",
+                "description": "Default \"sync\". Use \"data\" for a return/reply and \"error\" for a failure path — that is what makes the diagram readable at a glance."
+              }
+            ]
+          },
+          {
+            "interface": "SequenceNoteStep",
+            "fields": [
+              {
+                "name": "type",
+                "optional": false,
+                "type": "\"note\""
+              },
+              {
+                "name": "text",
+                "optional": false,
+                "type": "string"
+              },
+              {
+                "name": "on",
+                "optional": false,
+                "type": "string[]",
+                "description": "Participant ids the note attaches to. One anchors it to that lane; two or more span from the leftmost to the rightmost."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "chart",
+        "interface": "ChartScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"chart\""
+          },
+          {
+            "name": "title",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "subtitle",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "chart",
+            "optional": false,
+            "type": "ChartSpec"
+          },
+          {
+            "name": "steps",
+            "optional": true,
+            "type": "ChartStep[]",
+            "description": "Omit for a single-beat scene that just draws the chart on."
+          }
+        ],
+        "stepInterface": "ChartStep",
+        "stepFields": [
+          {
+            "name": "series",
+            "optional": true,
+            "type": "string[]",
+            "description": "Series labels revealed on this step. Omitted on every step means the whole chart draws on over the scene's first step."
+          },
+          {
+            "name": "callout",
+            "optional": true,
+            "type": "{ value: number; label: string; format?: NumberFormat; }",
+            "description": "A number to pull out as a counted-up callout while this step runs."
+          },
+          {
+            "name": "focus",
+            "optional": true,
+            "type": "string",
+            "description": "Category label to spotlight — its bar/point/slice stays lit and the rest dim."
+          }
+        ]
+      },
+      {
+        "kind": "stat",
+        "interface": "StatScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"stat\""
+          },
+          {
+            "name": "heading",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "stats",
+            "optional": false,
+            "type": "StatItem[]"
+          },
+          {
+            "name": "columns",
+            "optional": true,
+            "type": "2 | 3 | 4 | 5 | 6",
+            "description": "Tiles per row at the widest breakpoint. Default 4."
+          }
+        ],
+        "stepInterface": "StatItem",
+        "stepFields": [
+          {
+            "name": "label",
+            "optional": false,
+            "type": "string"
+          },
+          {
+            "name": "value",
+            "optional": true,
+            "type": "number",
+            "description": "Numeric target — counted up from zero."
+          },
+          {
+            "name": "text",
+            "optional": true,
+            "type": "string",
+            "description": "Non-numeric value (\"Healthy\", \"us-east-1\"). Use instead of `value`."
+          },
+          {
+            "name": "format",
+            "optional": true,
+            "type": "NumberFormat"
+          },
+          {
+            "name": "delta",
+            "optional": true,
+            "type": "number",
+            "description": "Change against the previous period, signed."
+          },
+          {
+            "name": "positiveIsGood",
+            "optional": true,
+            "type": "boolean",
+            "description": "Whether a positive `delta` should read as good. Default true — set false for metrics like latency or error rate."
+          },
+          {
+            "name": "sparkline",
+            "optional": true,
+            "type": "number[]",
+            "description": "Trend series drawn as an inline sparkline."
+          }
+        ]
+      },
+      {
+        "kind": "compare",
+        "interface": "CompareScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"compare\""
+          },
+          {
+            "name": "mode",
+            "optional": true,
+            "type": "\"columns\" | \"wipe\"",
+            "description": "\"columns\" sets them side by side; \"wipe\" overlays them under a divider that sweeps across. Default \"columns\"."
+          },
+          {
+            "name": "heading",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "before",
+            "optional": false,
+            "type": "ComparePane"
+          },
+          {
+            "name": "after",
+            "optional": false,
+            "type": "ComparePane"
+          },
+          {
+            "name": "say",
+            "optional": true,
+            "type": "string",
+            "description": "Narration for the reveal of `after`."
+          }
+        ],
+        "typeAlias": {
+          "name": "ComparePane",
+          "raw": "| { content: \"code\"; label: string; code: string; lang?: string }\n  | { content: \"text\"; label: string; text: string }\n  | { content: \"image\"; label: string; src: string; alt?: string }"
+        }
+      },
+      {
+        "kind": "walkthrough",
+        "interface": "WalkthroughScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"walkthrough\""
+          },
+          {
+            "name": "frame",
+            "optional": true,
+            "type": "\"browser\" | \"window\" | \"phone\"",
+            "description": "Chrome drawn around the screenshot. Default \"browser\"."
+          },
+          {
+            "name": "image",
+            "optional": false,
+            "type": "string",
+            "description": "Image rendered inside the frame — a URL or a data URI."
+          },
+          {
+            "name": "url",
+            "optional": true,
+            "type": "string",
+            "description": "Address shown in the browser chrome."
+          },
+          {
+            "name": "title",
+            "optional": true,
+            "type": "string",
+            "description": "Caption for window/phone chrome."
+          },
+          {
+            "name": "steps",
+            "optional": false,
+            "type": "WalkthroughStep[]"
+          }
+        ],
+        "stepInterface": "WalkthroughStep",
+        "stepFields": [
+          {
+            "name": "to",
+            "optional": true,
+            "type": "PercentPoint",
+            "description": "Where the cursor travels to, in percent of the frame."
+          },
+          {
+            "name": "action",
+            "optional": true,
+            "type": "\"none\" | \"click\" | \"double-click\" | \"drag\"",
+            "description": "What the cursor does on arrival. Default \"none\"."
+          },
+          {
+            "name": "type",
+            "optional": true,
+            "type": "string",
+            "description": "Text typed after the action lands."
+          },
+          {
+            "name": "spotlight",
+            "optional": true,
+            "type": "PercentRect",
+            "description": "Region to spotlight — everything outside it dims."
+          },
+          {
+            "name": "annotate",
+            "optional": true,
+            "type": "string",
+            "description": "Callout pinned at the cursor."
+          }
+        ]
+      },
+      {
+        "kind": "outro",
+        "interface": "OutroScene",
+        "fields": [
+          {
+            "name": "kind",
+            "optional": false,
+            "type": "\"outro\""
+          },
+          {
+            "name": "title",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "subtitle",
+            "optional": true,
+            "type": "string"
+          },
+          {
+            "name": "links",
+            "optional": true,
+            "type": "OutroLink[]"
+          },
+          {
+            "name": "cta",
+            "optional": true,
+            "type": "string",
+            "description": "Closing call to action, e.g. \"Subscribe for part 4\"."
+          }
+        ]
+      }
+    ]
+  }
+}

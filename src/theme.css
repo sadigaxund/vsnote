@@ -1,0 +1,114 @@
+/**
+ * Slate theme — token overrides for the app-preview.png palette.
+ *
+ * The library (`my-you-eye/styles.css`) registers its full token set via
+ * `@theme` in tokens.css and ships a `.dark` override block. We don't fork
+ * any component: every value here is a redefinition of an existing CSS
+ * custom property (or a new app-only token, namespaced `--app-*` / `--git-*`
+ * so it never collides with the library's own `@theme` registry) consumed
+ * the same way the library's own components already consume `--color-*`.
+ *
+ * Dark is the only theme this app ships in Phase 1 — `<html class="dark">`
+ * is set directly in index.html so there is no flash of the light theme.
+ *
+ * Every hex value below was sampled directly out of app-preview.png (PIL
+ * dominant-color sampling), not eyeballed — see docs/DESIGN-SPEC.md, which
+ * was corrected in the same change where its prose disagreed with the
+ * measured pixels (surface depth order, code color, segmented-control
+ * active fill).
+ */
+
+:root {
+  /* Monospaced UI chrome + code. Websafe stack only — no @font-face, no
+     external CDN request, so the app renders identically offline. Falls
+     forward to the OS's native mono font when JetBrains Mono isn't
+     installed locally. */
+  --font-mono:
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", "Cascadia Mono", monospace;
+  /* Sans reading font for rendered markdown body text AND UI labels (tab
+     names, tree rows) — system stack only. Mono chrome is reserved for
+     status-bar/breadcrumb/code text, not filenames — see app-preview.png's
+     tab bar and file tree, both proportional type. */
+  --font-sans:
+    ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+.dark {
+  /* ---- Three surface depths (DESIGN-SPEC "Overall look") ----
+     Measured order (darkest → lightest): activity bar < editor < sidebar.
+     This is the OPPOSITE of DESIGN-SPEC's original prose ("editor slightly
+     lighter than sidebar") — the image wins per CLAUDE.md rule 4; the doc
+     has been corrected alongside this file. */
+  --color-bg: #0e1015;
+  --color-surface: #15171c;
+  --color-surface-hover: #1c1f26;
+  --color-surface-active: #292e37;
+  --color-surface-elevated: #1c1f26;
+  --color-surface-opaque: #15171c;
+  --color-border: #23262d;
+
+  /* ---- Text ---- */
+  --color-fg: #d8dfe6;
+  --color-muted: #848a92;
+
+  /* ---- Accent: teal/cyan ---- */
+  --color-primary: #27d2c5;
+  --color-primary-fg: #04201c;
+  --color-ring: #27d2c5;
+
+  --color-secondary: #1c1f26;
+  --color-secondary-fg: #d8dfe6;
+
+  /* ---- Semantic (reused for git added/deleted) ---- */
+  --color-danger: #f85149;
+  --color-danger-fg: #1a0605;
+  --color-success: #3fb950;
+  --color-success-fg: #04170a;
+  --color-warning: #e3b341;
+  --color-warning-fg: #1c1200;
+
+  /* ---- Code surfaces (generic library CodeBlock token; not used by
+     Phase 1's static shell today, kept in step with the measured
+     inline/fenced code color so a future consumer isn't surprised). ---- */
+  --color-code-bg: #101318;
+  --color-code-fg: #a8d578;
+  --color-code-muted: #6e7681;
+
+  --color-scrollbar: #30363d;
+  --color-scrollbar-hover: #484f58;
+  --color-grid-dot: #262c34;
+}
+
+/* ---- App-only tokens ---- */
+.dark {
+  /* Activity bar: the darkest of the three depths. */
+  --app-chrome-bg: #0e1015;
+  --app-chrome-border: #1e2128;
+  /* Sidebar surface — measured LIGHTER than the editor, see note above. */
+  --app-sidebar-bg: #15171c;
+  /* Editor / content surface — measured the darkest "content" depth,
+     shared by the active tab (see EditorTabBar) so it visually merges
+     into the editor below it. */
+  --app-editor-bg: #101318;
+  /* Title bar, tab strip, and status bar all share this one flat surface. */
+  --app-titlebar-bg: #17191f;
+
+  /* Git status colors — the vocabulary used by the tree, tabs, and status
+     bar. `M`/amber and `U`/violet have no equivalent in the library's
+     token set (only success/danger map to added/deleted), so they're new
+     app tokens rather than a misuse of --color-warning (which the library
+     also uses for its own Alert/Badge "warning" meaning). */
+  --git-modified: #eab444;
+  --git-added: #3fb950;
+  --git-deleted: #f85149;
+  --git-untracked: #a78bfa;
+
+  /* Rendered-markdown-only tokens (src/components/EditorContent.tsx).
+     Lime-green mono code color, no chip/border/raised surface — the fenced
+     block sits flush on --app-editor-bg. (Previously amber-tinted chips;
+     corrected against app-preview.png, which has plain colored mono text.) */
+  --markdown-code-color: #a8d578;
+  --markdown-body: #bac1c8;
+}

@@ -56,3 +56,39 @@
 
 Terminal, code execution, real network git, extensions marketplace (icon is a stub),
 collaborative editing.
+
+## Deviations
+
+Real friction points found while building against the actual `my-you-eye@0.4.0` npm
+package (not just its docs), and how Phase 1 resolved each without abandoning the
+stack choices in this doc.
+
+- **React version.** `my-you-eye` declares `react`/`react-dom` as plain `dependencies`
+  pinned to `^19.2.7`, not `peerDependencies` — installing it alongside this app's
+  required React 18 would let npm nest a second, incompatible React copy inside
+  `node_modules/my-you-eye/node_modules/react`, which breaks hooks across the
+  library/app boundary (two dispatcher instances). Fixed with a `package.json`
+  `"overrides"` block pinning `react`/`react-dom` to this app's `^18.3.1` everywhere in
+  the tree, so exactly one React copy is ever installed. Nothing in the library's
+  compiled output (checked in `node_modules/my-you-eye/dist/index.js`) uses a React
+  19-only API, so this holds up in practice — confirmed by exercising `Tooltip` and
+  `DropdownMenu` (both stateful, hook-heavy) in the running app with zero console
+  errors. If a future `my-you-eye` bump needs a real 19-only feature, this override
+  becomes a real blocker and React 18 vs. the library version needs revisiting then.
+- **Tailwind v4 content scanning vs. a component library shipped as compiled JS.**
+  We used the documented "normal path" — `@import "my-you-eye/styles.css"` (the raw
+  Tailwind v4 source, not the `styles.compiled.css` fallback) — but Tailwind v4's
+  automatic content detection does not scan `node_modules` by default, while every
+  `my-you-eye` component's utility classes live only as string literals inside its
+  compiled `node_modules/my-you-eye/dist/*.js`. Left alone, this silently drops any
+  utility class that our own source never happens to also reference (`Input`'s
+  `w-full` was the tell: the search field and filter field rendered at a fixed
+  ~20-character intrinsic width instead of filling their container, with no error —
+  just quietly wrong CSS). Fixed with one `@source "../node_modules/my-you-eye/dist";`
+  directive in `src/index.css`, the standard Tailwind v4 mechanism for opting a path
+  back into scanning. Confirmed fixed by grepping the built CSS for `.w-full` (absent
+  before, present after) and by the search bar/filter input rendering at full width.
+  This is *not* the `styles.compiled.css` fallback the setup docs describe (that
+  trade-off — losing the ability to use Tailwind utilities in our own source — was
+  never needed here); it's a one-line addition to the source-CSS pipeline described in
+  the stack table above.
