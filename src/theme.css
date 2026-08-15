@@ -8,8 +8,10 @@
  * so it never collides with the library's own `@theme` registry) consumed
  * the same way the library's own components already consume `--color-*`.
  *
- * Dark is the only theme this app ships in Phase 1 — `<html class="dark">`
- * is set directly in index.html so there is no flash of the light theme.
+ * `<html class="dark">` is set directly in index.html so there is no flash
+ * of the light theme; `data-theme` (Phase 5a's Settings dialog) selects
+ * which of the library's ten themes' `--color-*` tokens are in play — see
+ * the two blocks below for how that combines with this app's own palette.
  *
  * Every hex value below was sampled directly out of app-preview.png (PIL
  * dominant-color sampling), not eyeballed — see docs/DESIGN-SPEC.md, which
@@ -35,7 +37,78 @@
     sans-serif;
 }
 
+/* ---- Phase 5a: Settings dialog theme switching (DESIGN-SPEC "Misc /
+   settings" + SKILL.md "Trust the theme") ----
+   `useSettingsStore`'s `theme` field is one of the library's ten
+   `data-theme` values; the Settings dialog sets `document.documentElement
+   .dataset.theme` per the library's own documented mechanism (SKILL.md:
+   "switching `data-theme` + `.dark` must be enough to restyle the whole
+   app"). Two requirements in tension: (1) boot must render this app's own
+   pixel-sampled Slate palette regardless of the persisted setting's exact
+   value ("the app's own dark palette must remain the default at boot"),
+   and (2) picking a *different* theme in Settings must visibly change the
+   app, not just the library's internals our components never touch.
+
+   Resolved with two blocks instead of one unconditional `.dark`:
+   - This block (theme-agnostic) defines every `--app-*`/`--git-*`/
+     `--markdown-*` app-only token (nothing else registers them — the
+     library only ships `--color-*`/`--font-*`/etc.) by DERIVING them from
+     the library's own theme-varying tokens, so all ten themes get a
+     coherent, legible app shell even though only one was pixel-sampled.
+   - The second block (below, "Slate default theme") matches only when
+     `data-theme` is absent (boot) or explicitly `"dark"` (the settings
+     store's own default value) and re-asserts the exact hand-sampled hex
+     values for both the library tokens AND these same app-only tokens.
+     Cascade order (not specificity — both blocks match `:root.dark` at the
+     same specificity) makes the later, narrower block win whenever it
+     matches, so boot and the explicit "dark" choice stay pixel-identical
+     to every phase before this one; any other `data-theme` value falls
+     through to this block's library-token derivation instead. */
 .dark {
+  --app-chrome-bg: var(--color-bg);
+  --app-chrome-border: var(--color-border);
+  --app-sidebar-bg: var(--color-surface);
+  /* No single library token matches this app's third, darker-than-bg
+     content depth (app-preview.png's editor surface) — derived rather than
+     invented, so it still tracks each theme's own bg. */
+  --app-editor-bg: color-mix(in oklab, var(--color-bg) 92%, black);
+  --app-titlebar-bg: var(--color-surface-elevated, var(--color-surface));
+
+  /* Git status colors — reuse the library's semantic tokens where the
+     vocabulary lines up (modified~warning, added~success, deleted~danger);
+     "untracked" has no library equivalent in any theme, so it keeps a
+     fixed violet everywhere (a status color, not a themed decoration). */
+  --git-modified: var(--color-warning);
+  --git-added: var(--color-success);
+  --git-deleted: var(--color-danger);
+  --git-untracked: #a78bfa;
+
+  --markdown-code-color: var(--color-code-fg);
+  --markdown-body: var(--color-fg);
+
+  /* ---- Chrome band thickness (DESIGN-SPEC Amendments item 3) ----
+     Theme-independent — every theme gets the same ~90%-of-mockup heights.
+     Every horizontal chrome band's vertical size lives here, once, as a
+     token each component references (`local/TitleBar.tsx`,
+     `local/EditorTabBar.tsx`, `EditorHeader.tsx`, `Sidebar.tsx`'s header
+     row, `local/ExplorerTree.tsx`'s row, `local/StatusBar.tsx`) instead of
+     a literal repeated in each. */
+  --app-chrome-titlebar-h: 40px; /* was 44px */
+  --app-chrome-tabbar-h: 32px; /* was 36px */
+  --app-chrome-editorheader-h: 34px; /* was 38px */
+  --app-chrome-sidebar-header-h: 36px; /* was 40px */
+  --app-chrome-tree-row-h: 24px; /* was 26px */
+  --app-chrome-statusbar-h: 22px; /* was 24px */
+}
+
+/* ---- Slate default theme — pixel-sampled from app-preview.png, and the
+   ONLY palette used at boot. Wins over the derived block above (later in
+   the cascade, same specificity) whenever `data-theme` is unset (boot,
+   before Settings ever writes the attribute) or explicitly "dark" (the
+   settings store's own default value) — every other `data-theme` value
+   falls through to the derived block above instead. ---- */
+:root:not([data-theme]).dark,
+:root[data-theme="dark"].dark {
   /* ---- Three surface depths (DESIGN-SPEC "Overall look") ----
      Measured order (darkest → lightest): activity bar < editor < sidebar.
      This is the OPPOSITE of DESIGN-SPEC's original prose ("editor slightly
@@ -79,10 +152,10 @@
   --color-scrollbar: #30363d;
   --color-scrollbar-hover: #484f58;
   --color-grid-dot: #262c34;
-}
 
-/* ---- App-only tokens ---- */
-.dark {
+  /* ---- App-only tokens: the exact hand-sampled values (unchanged from
+     every phase before Phase 5a), reasserted here so they win over the
+     library-token derivation above for this theme specifically. ---- */
   /* Activity bar: the darkest of the three depths. */
   --app-chrome-bg: #0e1015;
   --app-chrome-border: #1e2128;
@@ -111,18 +184,4 @@
      corrected against app-preview.png, which has plain colored mono text.) */
   --markdown-code-color: #a8d578;
   --markdown-body: #bac1c8;
-
-  /* ---- Chrome band thickness (DESIGN-SPEC Amendments item 3) ----
-     Every horizontal chrome band's vertical size lives here, once, as a
-     token each component references (`local/TitleBar.tsx`,
-     `local/EditorTabBar.tsx`, `EditorHeader.tsx`, `Sidebar.tsx`'s header
-     row, `local/ExplorerTree.tsx`'s row, `local/StatusBar.tsx`) instead of
-     a literal repeated in each — ~90% of the pre-amendment mockup height
-     (noted per value below), same look, tighter. */
-  --app-chrome-titlebar-h: 40px; /* was 44px */
-  --app-chrome-tabbar-h: 32px; /* was 36px */
-  --app-chrome-editorheader-h: 34px; /* was 38px */
-  --app-chrome-sidebar-header-h: 36px; /* was 40px */
-  --app-chrome-tree-row-h: 24px; /* was 26px */
-  --app-chrome-statusbar-h: 22px; /* was 24px */
 }

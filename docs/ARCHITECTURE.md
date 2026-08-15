@@ -264,3 +264,79 @@ stack choices in this doc.
   Rendered — the sandboxed iframe (`sandbox=""`, `srcDoc`) rendered the real
   heading/paragraph with its own isolated dark styling, confirming both the
   renderer and the sandbox attribute are wired correctly end-to-end.
+- **`<Toaster>` was mounted as a sibling of `<App>` (`main.tsx`) since Phase 1's
+  scaffold, not a wrapper — a latent bug invisible until Phase 5a became the
+  first code to call `useToast()`.** `node_modules/my-you-eye/dist/index.js`
+  shows `Toaster` *is* `ToastContext.Provider` itself (`{children, [rendered
+  toasts + viewport]}`), so it must wrap whatever calls `useToast()`, not sit
+  next to it — confirmed by the exact runtime error the first Playwright boot
+  of the sync/reset-vault toasts threw: `"useToast must be used within
+  <Toaster />"`, thrown from `App` despite `<Toaster />` being right there in
+  the tree, just as an unrelated sibling. Fixed by nesting `<App />` inside
+  `<Toaster>` in `main.tsx`; `TooltipProvider` still wraps both, unaffected.
+- **The Settings dialog's theme switcher needed `src/theme.css` restructured
+  from one unconditional `.dark { ... }` block into two** (Phase 5a,
+  DESIGN-SPEC "Misc / settings" + SKILL.md "Trust the theme"): a boot-default
+  block (pixel-sampled hex, scoped to `data-theme` unset or `"dark"`) and a
+  theme-agnostic block deriving every `--app-*`/`--git-*`/`--markdown-*`
+  app-only token from the library's own theme-varying `--color-*` tokens
+  (`--app-editor-bg` via `color-mix`, since no single library token matches
+  this app's third, darker-than-`--color-bg` content depth). Needed because
+  the original single block redefined every token unconditionally on `.dark`,
+  so setting `data-theme="neon"` (etc.) would change nothing this app's own
+  components actually render with — confirmed by reading the library's theme
+  files (`node_modules/my-you-eye/dist/themes/*.css`, each a plain
+  `[data-theme="X"]`/`[data-theme="X"].dark` selector in `@layer(theme)`) and
+  verifying with Playwright: `data-theme="neon"` after a Settings change now
+  measurably changes `--app-chrome-bg`'s computed value, while an unset/
+  `"dark"` `data-theme` (boot, or explicitly re-selecting "Dark (Slate
+  default)") stays pixel-identical to every phase before this one.
+- **`LivePreviewEditor.tsx`'s new font-size `Compartment` needed
+  `Prec.highest`, not just array position, to beat `livepreview/theme.ts`'s
+  own hardcoded `&{fontSize: "17px"}` rule** — verified empirically: ordering
+  the compartment's extension *after* `livePreviewExtensions` in the array
+  (the natural first attempt, reasoning by analogy with a plain stylesheet's
+  cascade) did not win the same-specificity tie, since CM6's `StyleModule`
+  doesn't resolve two separate `EditorView.theme()` calls' identical-
+  specificity rules by extension-registration order. Wrapping in
+  `Prec.highest(...)` fixed it and (CM6's documented pattern) survives every
+  later `.reconfigure()` too.
+- **Wiring that same font-size setting straight through to Rendered mode was
+  a real regression, caught by Phase 5a's own verification, not shipped**:
+  at the setting's own default (13, tuned for Source mode's monospace code
+  size), it silently shrank Rendered's carefully-tuned 17px prose size on
+  every fresh boot — visibly off `app-preview.png`, and (worse) enough to
+  shift the live-preview reveal decorations' pixel geometry that a scripted
+  click at a coordinate computed from the live (regressed) page landed on a
+  completely different line than intended. Caught by comparing the exact
+  same click coordinates against a from-scratch build of the pre-Phase-5a
+  commit (`git worktree add ... a9112df`) in a second `vite preview`
+  instance — the two builds' `.cm-content` DOM (`innerHTML`, byte-for-byte)
+  disagreed only because of this. Fixed by applying the setting as an
+  *offset* from Rendered's own 17px base (`17 + (fontSize - 13)`,
+  `LivePreviewEditor.tsx`'s `renderedFontSize`) instead of the raw value, so
+  the unconfigured-default boot state is pixel-identical to Phase 4 while the
+  slider still visibly scales Rendered up/down by the same delta it applies
+  to Source. `DEFAULT_EDITOR_FONT_SIZE` (13) is now exported from
+  `useSettingsStore.ts` so the two files don't duplicate that literal.
+- **A search result's "open the file at that line" (Phase 5a's Search
+  activity view) needed to distinguish "no CM6 view registered yet" from
+  "still reading the outgoing view that's about to be torn down," not just
+  poll `editor/activeView.ts`'s `getActiveEditorView()` until it's
+  non-null.** `CodeMirrorEditor` is `React.lazy`-loaded
+  (`EditorContent.tsx`); switching a file from Rendered to Source mode for
+  the first time in a session means that chunk hasn't downloaded yet, so the
+  outgoing `LivePreviewEditor`'s view (confirmed via a temporary debug trace:
+  `hasView: true`, but no `.cm-gutters` in its DOM, i.e. definitely not
+  `CodeMirrorEditor`'s view) stays the one thing registered for the whole
+  time React's `<Suspense>` fallback is showing — a same-tick or next-`rAF`
+  read reliably grabbed that stale view and dispatched the line-jump to it
+  for nothing (cursor stayed at Ln 1, Col 1). Fixed in `App.tsx`:
+  `handleSearchOpenResult` snapshots whatever view is registered *before*
+  requesting the jump (`pendingJumpStaleView`), and the polling effect
+  requires a *different* view to show up (falling back to "whatever's
+  registered" once its ~1s attempt budget runs out, which also correctly
+  covers the no-remount-needed case, where stale and final are the same
+  object by design). Verified for both the same-tab mode-switch path
+  (Rendered→Source on the already-active file) and the cross-tab path
+  (jumping into a different, not-yet-open file).

@@ -1,10 +1,11 @@
 /**
  * Editor header row: breadcrumbs (left) + diff stat chip + mode segmented
- * control (right). Composition over the library's `Breadcrumbs` and the
- * local `DiffStatChip`/`SegmentedControl`.
+ * control + zen-mode toggle (right). Composition over the library's
+ * `Breadcrumbs`/`Button`/`Tooltip` and the local `DiffStatChip`/
+ * `SegmentedControl`.
  */
-import { Breadcrumbs } from "my-you-eye";
-import { Eye, FileCode, GitCompareArrows } from "lucide-react";
+import { Breadcrumbs, Button, Tooltip } from "my-you-eye";
+import { Eye, FileCode, GitCompareArrows, Maximize2 } from "lucide-react";
 import { DiffStatChip } from "./local/DiffStatChip";
 import { SegmentedControl } from "./local/SegmentedControl";
 import type { DiffStat, EditorMode } from "../types";
@@ -21,6 +22,11 @@ export interface EditorHeaderProps {
    * availability (json tree view, csv DataTable, html iframe) lands with
    * their renderers in Phase 4. */
   availableModes?: EditorMode[];
+  /** DESIGN-SPEC Amendments item 4 ("Zen mode ... a command + a toolbar
+   * affordance + a shortcut"). This IS the toolbar affordance; the command
+   * lives in the command palette and the shortcut (⌘⇧Z) in App.tsx's
+   * global keydown handler — all three call the same `App.tsx` toggle. */
+  onEnterZen?: () => void;
 }
 
 export function EditorHeader({
@@ -29,6 +35,7 @@ export function EditorHeader({
   mode,
   onModeChange,
   availableModes = ["rendered", "source", "diff"],
+  onEnterZen,
 }: EditorHeaderProps) {
   const has = (m: EditorMode) => availableModes.includes(m);
   return (
@@ -61,6 +68,18 @@ export function EditorHeader({
             { value: "diff", label: "Diff", icon: <GitCompareArrows size={13} />, disabled: !has("diff") },
           ]}
         />
+        <Tooltip content="Zen mode (⌘⇧Z)" side="bottom">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Enter zen mode"
+            onClick={onEnterZen}
+            style={{ width: 26, height: 26, color: "var(--color-muted)" }}
+          >
+            <Maximize2 size={13} />
+          </Button>
+        </Tooltip>
       </div>
     </div>
   );

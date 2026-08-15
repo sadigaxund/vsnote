@@ -7,6 +7,14 @@
  * live editor built this phase matches exactly what was already validated
  * against `app-preview.png`, just applied to CM6's DOM instead of static
  * JSX. No hex is invented here — every color is a `var(--...)` token.
+ *
+ * No `fontSize` here (Phase 5a removed the `"&": {fontSize: "17px"}}` rule
+ * that used to live in this block): `LivePreviewEditor.tsx` now supplies it
+ * via a `Prec.highest`-wrapped `fontSizeCompartment` so the Settings
+ * dialog's font-size slider can reconfigure it live — a hardcoded rule here
+ * would always lose that precedence fight anyway (dead, misleading weight).
+ * `LivePreviewEditor.tsx`'s `RENDERED_BASE_FONT_SIZE` (17, unchanged from
+ * this line) is the one place that number is defined now.
  */
 import { EditorView } from "@codemirror/view";
 
@@ -16,7 +24,6 @@ export const livePreviewTheme = EditorView.theme(
       color: "var(--markdown-body)",
       backgroundColor: "var(--app-editor-bg)",
       height: "100%",
-      fontSize: "17px",
     },
     ".cm-scroller": {
       fontFamily: "var(--font-sans)",

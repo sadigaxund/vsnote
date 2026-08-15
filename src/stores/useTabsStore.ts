@@ -17,7 +17,20 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defaultModeFor, modeAvailabilityFor } from "../filetypes/registry";
+import { useSettingsStore } from "./useSettingsStore";
 import type { EditorMode, FileKind } from "../types";
+
+/** A newly-opened file's mode: the Settings dialog's per-file-type default
+ * (DESIGN-SPEC "Misc / settings": "'reading view lock' default mode per
+ * file type", Phase 5a's `readingViewDefaultMode`) when the user has set
+ * one AND it's actually valid for this kind, else the registry's own
+ * `defaultModeFor`. Reads the settings store directly (`getState()`, not a
+ * hook) — this runs inside a zustand action, not a component. */
+function initialModeFor(kind: FileKind): EditorMode {
+  const override = useSettingsStore.getState().readingViewDefaultMode[kind];
+  if (override && modeAvailabilityFor(kind, false).includes(override)) return override;
+  return defaultModeFor(kind);
+}
 
 export interface OpenTab {
   /** Display path — doubles as the tab id. */
@@ -115,7 +128,7 @@ export const useTabsStore = create<TabsStoreState>()(
               path: file.path,
               name: file.name,
               kind: file.kind,
-              mode: defaultModeFor(file.kind),
+              mode: initialModeFor(file.kind),
               preview: !pin,
               pinned: pin,
             };

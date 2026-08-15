@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDialog, useToast } from "my-you-eye";
 import { AppActivityBar, type ActivityPanel } from "./components/ActivityBar";
 import { AppTitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
@@ -7,22 +8,36 @@ import { AppTabBar } from "./components/TabBar";
 import { EditorHeader } from "./components/EditorHeader";
 import { EditorContent } from "./components/EditorContent";
 import { AppStatusBar } from "./components/StatusBar";
-import { ensureSeeded } from "./fs/seed";
+import { ensureSeeded, resetDemoVault } from "./fs/seed";
 import { useFsStore, inferFileKind } from "./stores/useFsStore";
 import { useGitStore } from "./stores/useGitStore";
 import { useTabsStore } from "./stores/useTabsStore";
 import { useBufferStore } from "./stores/useBufferStore";
+import { useSettingsStore } from "./stores/useSettingsStore";
 import { flushDraftSave } from "./fs/drafts";
 import { useDecoratedTree } from "./stores/useDecoratedTree";
 import { EMPTY_DIFF } from "./git/diff";
 import { fileTypeFor } from "./filetypes/registry";
-import { openSearchInActiveView } from "./editor/activeView";
+import { getActiveEditorView, openSearchInActiveView } from "./editor/activeView";
 import { resolveMarkdownLink } from "./editor/livepreview/links";
 import { modeAvailabilityFor } from "./filetypes/registry";
 import { pathExists } from "./fs/operations";
 import { displayToFsPath } from "./fs/paths";
+import { flattenFiles } from "./lib/flattenTree";
 import type { CursorPos } from "./editor/CodeMirrorEditor";
 import type { EditorMode, FileKind, FileNode, TabItem } from "./types";
+
+// Phase 5a: CommandPalette / Settings / Search are all overlay/panel UI a
+// user may never open in a given session (⌘K/⌘P, the gear icon, the Search
+// activity-rail icon) — `React.lazy` keeps their imports (the library's
+// `CommandPalette`/`Select`/`Slider`/`RadioGroup`/`Switch`/`FormField`, and
+// the vault-search walk) out of the cold-boot bundle until first opened,
+// matching `EditorContent.tsx`'s existing lazy-surface pattern.
+const CommandPaletteHost = lazy(() =>
+  import("./components/CommandPaletteHost").then((m) => ({ default: m.CommandPaletteHost })),
+);
+const SettingsDialog = lazy(() => import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
+const SearchPanel = lazy(() => import("./components/SearchPanel").then((m) => ({ default: m.SearchPanel })));
 
 const ACTIVE_ON_BOOT = "vault/notes/architecture.md";
 
@@ -49,6 +64,23 @@ export default function App() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
   const [cursor, setCursor] = useState<CursorPos>({ line: 1, column: 1 });
+
+  // Phase 5a UI state — palette (⌘K grouped / ⌘P file-jump), Settings
+  // dialog, Zen mode (DESIGN-SPEC Amendments item 4), the "Reset demo
+  // vault" confirm step, and a pending line to jump to once a search
+  // result's target file/mode has finished opening (see the effect below).
+  const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [zenMode, setZenMode] = useState(false);
+  const [zenPillHovered, setZenPillHovered] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [pendingJump, setPendingJump] = useState<{ path: string; line: number } | null>(null);
+  // Snapshot of whichever CM6 view was registered at the moment a jump was
+  // requested — see the polling effect below for why this matters (it lets
+  // that effect tell "a fresh view mounted" apart from "still reading the
+  // view that's about to be torn down").
+  const pendingJumpStaleView = useRef<ReturnType<typeof getActiveEditorView>>(null);
+  const { toast } = useToast();
 
   const tree = useDecoratedTree();
   const fs = useFsStore();
@@ -106,14 +138,114 @@ export default function App() {
   // without a render lag.
   const displayCursor: CursorPos = activeTab && (activeTab.mode === "source" || activeTab.mode === "diff") ? cursor : { line: 1, column: 1 };
 
+  // DESIGN-SPEC "⌘E toggle Rendered/Source (Obsidian muscle memory)" — a
+  // named function (not inlined in the keydown handler below) since both
+  // the ⌘E shortcut AND the command palette's "Toggle Rendered / Source"
+  // action need the exact same logic. Only meaningful when the active file
+  // actually has both — a code file with Rendered disabled just keeps this
+  // a no-op rather than toggling into a mode the segmented control
+  // wouldn't offer.
+  function toggleRenderedSource(): void {
+    const tab = useTabsStore.getState().activePane().tabs.find((t) => t.path === activeTab?.path);
+    if (!tab) return;
+    const modes = modeAvailabilityFor(tab.kind, false);
+    if (!modes.includes("rendered")) return;
+    useTabsStore.getState().setMode(tab.path, tab.mode === "rendered" ? "source" : "rendered");
+  }
+
+  // Best-effort ⌘W (DESIGN-SPEC Amendments item 5: "⌘W is best-effort —
+  // browsers may reserve it"): closes the active tab when the browser lets
+  // the keydown through at all (many browsers intercept Ctrl/⌘W before any
+  // page JS ever sees it, which `preventDefault` cannot undo — a browser-
+  // level reservation, not a bug here). ⌘⇧W is the guaranteed fallback,
+  // documented in the command palette's "Close tab" shortcut hint.
+  function closeActiveTab(): void {
+    if (activeTab) useTabsStore.getState().closeTab(activeTab.path);
+  }
+
+  // "Latest ref" pattern (same one `editor/CodeMirrorEditor.tsx`'s
+  // `onChangeRef`/`onCursorChangeRef` already use) so the global keydown
+  // effect below — deliberately scoped to `[activeTab?.path]`, not every
+  // render — can always call the CURRENT `toggleRenderedSource`/
+  // `closeActiveTab` (both plain functions recreated every render) without
+  // either going stale or forcing the effect (and its
+  // addEventListener/removeEventListener churn) to rerun on every render.
+  const toggleRenderedSourceRef = useRef(toggleRenderedSource);
+  const closeActiveTabRef = useRef(closeActiveTab);
+  useEffect(() => {
+    toggleRenderedSourceRef.current = toggleRenderedSource;
+    closeActiveTabRef.current = closeActiveTab;
+  });
+
+  function enterZenMode(): void {
+    setZenMode(true);
+    if (document.fullscreenEnabled && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }
+
+  function exitZenMode(): void {
+    setZenMode(false);
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+
+  // Functional `setZenMode` update (not "read `zenMode`, then branch") so
+  // this stays correct when called from the global keydown effect below,
+  // whose closure is only recreated when `activeTab?.path` changes — a
+  // plain `if (zenMode) ... else ...` here would toggle against whatever
+  // `zenMode` was at that last path change, not the current value.
+  function toggleZenMode(): void {
+    setZenMode((prev) => {
+      const next = !prev;
+      if (next) {
+        if (document.fullscreenEnabled && !document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      } else if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+      return next;
+    });
+  }
+
+  async function handleSyncNow(): Promise<void> {
+    await useGitStore.getState().syncNow();
+    const { ahead, behind } = useGitStore.getState();
+    toast({
+      title: "Synced with remote",
+      description: ahead === 0 && behind === 0 ? "Up to date." : `↑${ahead} ↓${behind}`,
+      variant: "success",
+    });
+  }
+
+  async function handleResetVaultConfirmed(): Promise<void> {
+    await resetDemoVault();
+    // The reseeded vault is byte-identical to boot's demo content at the
+    // same paths, but every in-memory buffer/tab/selection is now stale
+    // (a buffer's `loaded` flag would otherwise skip re-reading from fs —
+    // see `useBufferStore.ensureLoaded`) — clear and reopen exactly like a
+    // fresh boot rather than leaving a half-stale session behind.
+    useBufferStore.setState({ buffers: {} });
+    await Promise.all([useFsStore.getState().refresh(), useGitStore.getState().refresh()]);
+    useTabsStore.setState({
+      panes: { root: { id: "root", tabs: [], activeTabId: undefined } },
+      activePaneId: "root",
+    });
+    for (const t of DEFAULT_TABS) {
+      useTabsStore.getState().openFile({ path: t.path, name: t.name, kind: t.kind }, { pin: t.pin });
+    }
+    useTabsStore.getState().setActiveTab(ACTIVE_ON_BOOT);
+    setSelectedId(ACTIVE_ON_BOOT);
+    toast({ title: "Demo vault reset", description: "Filesystem and git history re-seeded from scratch.", variant: "success" });
+  }
+
   // DESIGN-SPEC Amendments item 5 ("Own the browser shortcuts"): one global
-  // keydown handler that `preventDefault`s and owns ⌘S (save) and ⌘F (open
-  // OUR CM6 search panel, never the browser's find bar) while the app has
-  // focus. ⌘S saves the active buffer to fs and refreshes git status/diff
-  // so the M/A/D/U letters and +/- numbers never go stale. ⌘F is a no-op
-  // beyond swallowing the shortcut when no CM6 view is registered (Rendered
-  // mode/no tab) — note-text search in Rendered is Phase 4/5 territory per
-  // this phase's scope.
+  // keydown handler that `preventDefault`s and owns every shortcut this app
+  // claims while it has focus, so the browser's own bindings never win:
+  // ⌘S (save), ⌘F (open OUR CM6 search panel, never the browser's find
+  // bar), ⌘E (toggle Rendered/Source), ⌘K (command palette), ⌘P (file
+  // jump), ⌘W / ⌘⇧W (close tab — best-effort / guaranteed fallback, see
+  // `closeActiveTab`'s doc), ⌘⇧Z (zen mode).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey;
@@ -128,21 +260,91 @@ export default function App() {
         e.preventDefault();
         void openSearchInActiveView();
       } else if (key === "e") {
-        // DESIGN-SPEC "⌘E toggle Rendered/Source (Obsidian muscle memory)".
-        // Only meaningful when the active file actually has both — a code
-        // file with Rendered disabled just keeps ⌘E a no-op rather than
-        // toggling into a mode the segmented control wouldn't offer.
         e.preventDefault();
-        const tab = useTabsStore.getState().activePane().tabs.find((t) => t.path === activeTab?.path);
-        if (!tab) return;
-        const modes = modeAvailabilityFor(tab.kind, false);
-        if (!modes.includes("rendered")) return;
-        useTabsStore.getState().setMode(tab.path, tab.mode === "rendered" ? "source" : "rendered");
+        toggleRenderedSourceRef.current();
+      } else if (key === "k") {
+        e.preventDefault();
+        setPaletteMode("commands");
+      } else if (key === "p") {
+        e.preventDefault();
+        setPaletteMode("files");
+      } else if (key === "w") {
+        e.preventDefault();
+        closeActiveTabRef.current();
+      } else if (key === "z" && e.shiftKey) {
+        e.preventDefault();
+        toggleZenMode();
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [activeTab?.path]);
+
+  // Esc exits zen mode (DESIGN-SPEC Amendments item 4) — scoped to only
+  // listen while zen mode is actually active, so it never competes with
+  // Escape's normal jobs elsewhere (closing dialogs/the palette, CM6's own
+  // search-panel Escape binding).
+  useEffect(() => {
+    if (!zenMode) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        exitZenMode();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [zenMode]);
+
+  // A search result's file may need to open (new tab) and/or switch to
+  // Source mode before its CM6 EditorView exists to jump a selection into —
+  // both happen synchronously in `handleSearchOpenResult` below, but the
+  // EditorView mount is a child-component effect (`CodeMirrorEditor.tsx`'s)
+  // that only runs after THIS render commits, and — the real gotcha,
+  // confirmed empirically during Phase 5a verification with a temporary
+  // debug trace — `CodeMirrorEditor` is `React.lazy`-loaded (`EditorContent.
+  // tsx`): switching a tab from Rendered to Source for the FIRST time in a
+  // session means that chunk hasn't downloaded yet, so the outgoing
+  // `LivePreviewEditor`'s view (still `.cm-editor` with no `.cm-gutters`,
+  // no line numbers) stays the one `getActiveEditorView()` returns for the
+  // whole time its `<Suspense>` fallback is showing — a same-tick/next-rAF
+  // read reliably grabbed that STALE, about-to-be-torn-down view and
+  // dispatched the jump to it for nothing (confirmed: `hasView: true` but
+  // `hasGutter: false` in the trace, cursor stayed at Ln 1, Col 1).
+  // `pendingJumpStaleView` below is a snapshot of whatever view was
+  // registered at request time; this effect polls until a *different* view
+  // shows up (i.e. an actual remount happened) — falling back to whatever's
+  // registered once the attempt budget runs out, which also correctly
+  // covers the "no remount needed at all" case (jumping within the file/
+  // mode already on screen), where the "stale" and final view are the same
+  // object by design.
+  useEffect(() => {
+    if (!pendingJump || activeTab?.path !== pendingJump.path) return;
+    let raf = 0;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 60; // ~1s at 60fps — generous for a lazy-chunk fetch
+    function tick() {
+      const view = getActiveEditorView();
+      attempts++;
+      const isFresh = !!view && view !== pendingJumpStaleView.current;
+      const outOfAttempts = attempts >= MAX_ATTEMPTS;
+      if (view && (isFresh || outOfAttempts)) {
+        const clamped = Math.min(pendingJump!.line, view.state.doc.lines);
+        const lineInfo = view.state.doc.line(Math.max(1, clamped));
+        view.dispatch({ selection: { anchor: lineInfo.from }, scrollIntoView: true });
+        view.focus();
+        setPendingJump(null);
+        return;
+      }
+      if (outOfAttempts) {
+        setPendingJump(null); // give up quietly rather than poll forever
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [pendingJump, activeTab?.path]);
 
   // Extra safety net for DESIGN-SPEC Amendments item 6 ("closing/reloading
   // the browser NEVER loses unsaved work"): the 300ms debounce in
@@ -286,6 +488,87 @@ export default function App() {
 
   const availableModes = modeAvailabilityFor(activeTab?.kind, activeDiff.added > 0 || activeDiff.removed > 0);
 
+  // Command palette (⌘K/⌘P) file-jump: opens exactly like clicking the file
+  // in the Explorer (a pinned tab, since a palette pick is a deliberate
+  // "go to" action, not the tree's hover-preview affordance).
+  const handlePaletteFileSelect = (path: string) => {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    const kind = inferFileKind(name);
+    tabs.openFile({ path, name, kind }, { pin: true });
+    setSelectedId(path);
+    void useBufferStore.getState().ensureLoaded(path);
+  };
+
+  // Search activity view result click: opens the file, forces Source mode
+  // (every kind supports it — the one mode a raw line number is always
+  // meaningful in, including for kinds whose default is Rendered) and
+  // queues the line jump the effect above performs once that file's CM6
+  // view mounts.
+  const handleSearchOpenResult = (path: string, line: number) => {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    const kind = inferFileKind(name);
+    pendingJumpStaleView.current = getActiveEditorView();
+    tabs.openFile({ path, name, kind }, { pin: true });
+    tabs.setMode(path, "source");
+    setSelectedId(path);
+    void useBufferStore.getState().ensureLoaded(path);
+    setPendingJump({ path, line });
+  };
+
+  // Command palette's "Commands" group (DESIGN-SPEC "Misc / settings":
+  // "commands (toggle mode, theme, sync, new file…)" + Amendments item 4
+  // "zen mode" + item 5's ⌘W fallback, surfaced here so it's discoverable
+  // even though the shortcut itself is best-effort).
+  const paletteCommands = [
+    { id: "toggle-mode", label: "Toggle Rendered / Source", shortcut: "⌘E" },
+    { id: "toggle-theme", label: "Toggle theme" },
+    { id: "sync", label: "Sync now (push & pull)" },
+    { id: "new-file", label: "New file" },
+    { id: "reset-vault", label: "Reset demo vault…" },
+    { id: "zen", label: "Toggle zen mode", shortcut: "⌘⇧Z" },
+    { id: "search", label: "Search in files" },
+    { id: "save", label: "Save file", shortcut: "⌘S" },
+    { id: "close-tab", label: "Close tab", shortcut: "⌘W / ⌘⇧W" },
+    { id: "settings", label: "Open settings…" },
+  ];
+
+  const handlePaletteCommand = (id: string) => {
+    switch (id) {
+      case "toggle-mode":
+        toggleRenderedSource();
+        break;
+      case "toggle-theme":
+        useSettingsStore.getState().cycleTheme();
+        break;
+      case "sync":
+        void handleSyncNow();
+        break;
+      case "new-file":
+        void handleCreateFile();
+        break;
+      case "reset-vault":
+        setResetConfirmOpen(true);
+        break;
+      case "zen":
+        toggleZenMode();
+        break;
+      case "search":
+        setActivePanel("search");
+        break;
+      case "save":
+        if (activeTab && useBufferStore.getState().buffers[activeTab.path]?.dirty) {
+          void useBufferStore.getState().save(activeTab.path).then(() => useGitStore.getState().refresh());
+        }
+        break;
+      case "close-tab":
+        closeActiveTab();
+        break;
+      case "settings":
+        setSettingsOpen(true);
+        break;
+    }
+  };
+
   return (
     <div
       style={{
@@ -298,12 +581,23 @@ export default function App() {
         overflow: "hidden",
       }}
     >
-      <AppTitleBar vaultName="vault" />
+      <AppTitleBar vaultName="vault" onOpenSettings={() => setSettingsOpen(true)} />
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        <AppActivityBar active={activePanel} onSelect={setActivePanel} changedCount={git.changedCount} />
+        {/* DESIGN-SPEC Amendments item 4 ("Zen mode ... hides activity bar,
+            sidebar, tab bar, editor header, status bar"): every region
+            below wraps in `!zenMode &&` — the title bar (above) stays
+            visible, matching the item's own literal five-region list. */}
+        {!zenMode && (
+          <AppActivityBar
+            active={activePanel}
+            onSelect={setActivePanel}
+            changedCount={git.changedCount}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        )}
 
-        {activePanel === "explorer" && (
+        {!zenMode && activePanel === "explorer" && (
           <Sidebar
             tree={tree}
             selectedId={selectedId}
@@ -321,7 +615,13 @@ export default function App() {
           />
         )}
 
-        {activePanel === "scm" && <SourceControlPanel onOpenDiff={handleOpenDiff} />}
+        {!zenMode && activePanel === "scm" && <SourceControlPanel onOpenDiff={handleOpenDiff} />}
+
+        {!zenMode && activePanel === "search" && (
+          <Suspense fallback={<div style={{ width: 288, flexShrink: 0, background: "var(--app-sidebar-bg)", borderRight: "1px solid var(--app-chrome-border)" }} />}>
+            <SearchPanel onOpenResult={handleSearchOpenResult} />
+          </Suspense>
+        )}
 
         <div
           style={{
@@ -330,17 +630,25 @@ export default function App() {
             flexDirection: "column",
             minWidth: 0,
             minHeight: 0,
+            position: "relative",
             background: "var(--app-editor-bg)",
           }}
+          onMouseEnter={() => zenMode && setZenPillHovered(true)}
+          onMouseLeave={() => zenMode && setZenPillHovered(false)}
         >
-          <AppTabBar tabs={tabItems} activeId={activeTab?.path} onSelect={handleTabSelect} onClose={handleCloseTab} />
-          <EditorHeader
-            breadcrumb={activeTab ? activeTab.path.split("/") : ["vault"]}
-            diff={activeDiff}
-            mode={activeTab?.mode ?? "source"}
-            onModeChange={handleModeChange}
-            availableModes={availableModes}
-          />
+          {!zenMode && (
+            <>
+              <AppTabBar tabs={tabItems} activeId={activeTab?.path} onSelect={handleTabSelect} onClose={handleCloseTab} />
+              <EditorHeader
+                breadcrumb={activeTab ? activeTab.path.split("/") : ["vault"]}
+                diff={activeDiff}
+                mode={activeTab?.mode ?? "source"}
+                onModeChange={handleModeChange}
+                availableModes={availableModes}
+                onEnterZen={enterZenMode}
+              />
+            </>
+          )}
           <EditorContent
             hasTab={!!activeTab}
             path={activeTab?.path}
@@ -356,26 +664,60 @@ export default function App() {
             onCursorChange={setCursor}
             onOpenLink={(href) => void handleOpenLink(href)}
           />
+
+          {zenMode && (
+            <div
+              role="status"
+              onClick={exitZenMode}
+              style={{
+                position: "absolute",
+                top: 14,
+                left: "50%",
+                transform: "translateX(-50%)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 14px",
+                borderRadius: 999,
+                background: "color-mix(in oklab, var(--app-titlebar-bg) 88%, transparent)",
+                border: "1px solid var(--app-chrome-border)",
+                color: "var(--color-muted)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11.5,
+                cursor: "pointer",
+                opacity: zenPillHovered ? 1 : 0,
+                transition: "opacity 150ms ease",
+                pointerEvents: zenPillHovered ? "auto" : "none",
+              }}
+            >
+              <span style={{ color: "var(--color-fg)" }}>{activeTab?.name ?? "vault"}</span>
+              <span>·</span>
+              <span>Esc to exit</span>
+            </div>
+          )}
         </div>
       </div>
 
-      <AppStatusBar
-        git={{
-          branch: git.branch,
-          ahead: git.ahead,
-          behind: git.behind,
-          syncedLabel: git.syncedLabel,
-          diff: activeDiff,
-          untracked: git.untrackedCount,
-          changedCount: git.changedCount,
-        }}
-        // Live from the mounted CM6 view's selection (Source/Diff modes) —
-        // see `displayCursor` above for Rendered mode/no-tab.
-        cursor={displayCursor}
-        encoding="UTF-8"
-        eol="LF"
-        language={fileTypeFor(activeTab?.kind)?.languageId ?? "PLAIN"}
-      />
+      {!zenMode && (
+        <AppStatusBar
+          git={{
+            branch: git.branch,
+            ahead: git.ahead,
+            behind: git.behind,
+            syncedLabel: git.syncedLabel,
+            diff: activeDiff,
+            untracked: git.untrackedCount,
+            changedCount: git.changedCount,
+          }}
+          // Live from the mounted CM6 view's selection (Source/Diff modes) —
+          // see `displayCursor` above for Rendered mode/no-tab.
+          cursor={displayCursor}
+          encoding="UTF-8"
+          eol="LF"
+          language={fileTypeFor(activeTab?.kind)?.languageId ?? "PLAIN"}
+          onSync={() => void handleSyncNow()}
+        />
+      )}
 
       {!booted && (
         <div
@@ -395,6 +737,36 @@ export default function App() {
           Seeding demo vault…
         </div>
       )}
+
+      {paletteMode && (
+        <Suspense fallback={null}>
+          <CommandPaletteHost
+            mode={paletteMode}
+            open={paletteMode !== null}
+            onOpenChange={(open) => !open && setPaletteMode(null)}
+            files={flattenFiles(tree)}
+            commands={paletteCommands}
+            onSelectFile={handlePaletteFileSelect}
+            onSelectCommand={handlePaletteCommand}
+          />
+        </Suspense>
+      )}
+
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+        </Suspense>
+      )}
+
+      <ConfirmDialog
+        title="Reset demo vault?"
+        description="Wipes the in-browser filesystem and git history and re-seeds the original demo vault from scratch. Any files or edits you've made are lost."
+        confirmLabel="Reset"
+        destructive
+        open={resetConfirmOpen}
+        onOpenChange={setResetConfirmOpen}
+        onConfirm={() => void handleResetVaultConfirmed()}
+      />
     </div>
   );
 }

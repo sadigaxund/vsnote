@@ -44,6 +44,11 @@ interface GitStoreState {
   push: () => Promise<void>;
   pull: () => Promise<void>;
   fetch: () => Promise<void>;
+  /** "Sync now" (Phase 5a: the status bar's sync segment + the command
+   * palette's "Sync now" command both call this) — pull then push, VSCode's
+   * usual single-button "sync" semantics, reusing the same simulated-remote
+   * calls `push`/`pull` already use rather than a third code path. */
+  syncNow: () => Promise<void>;
 }
 
 export const useGitStore = create<GitStoreState>()(
@@ -107,6 +112,14 @@ export const useGitStore = create<GitStoreState>()(
         set({ syncing: "fetch" });
         const next = await simulateFetch({ ahead: get().ahead, behind: get().behind });
         set({ ...next, syncing: false, syncedLabel: "synced just now" });
+      },
+
+      syncNow: async () => {
+        set({ syncing: "pull" });
+        const afterPull = await simulatePull({ ahead: get().ahead, behind: get().behind });
+        set({ ahead: afterPull.ahead, behind: afterPull.behind, syncing: "push" });
+        const afterPush = await simulatePush({ ahead: afterPull.ahead, behind: afterPull.behind });
+        set({ ahead: afterPush.ahead, behind: afterPush.behind, syncing: false, syncedLabel: "synced just now" });
       },
     }),
     {
