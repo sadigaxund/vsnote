@@ -25,7 +25,7 @@ export function StatusBar({ left, right }: StatusBarProps) {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        height: 24,
+        height: "var(--app-chrome-statusbar-h)",
         padding: "0 8px",
         background: "var(--app-titlebar-bg)",
         borderTop: "1px solid var(--app-chrome-border)",

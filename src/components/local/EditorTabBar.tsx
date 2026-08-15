@@ -39,7 +39,7 @@ export function EditorTabBar({ tabs, activeId, onSelect, onClose }: EditorTabBar
         alignItems: "stretch",
         background: "var(--app-titlebar-bg)",
         borderBottom: "1px solid var(--app-chrome-border)",
-        minHeight: 36,
+        minHeight: "var(--app-chrome-tabbar-h)",
       }}
     >
       <div
@@ -76,7 +76,7 @@ export function EditorTabBar({ tabs, activeId, onSelect, onClose }: EditorTabBar
                 flexShrink: 0,
               }}
             >
-              <FileIcon kind={tab.kind} size={14} />
+              <FileIcon kind={tab.kind} name={tab.name} size={14} />
               <span
                 style={{
                   flex: 1,

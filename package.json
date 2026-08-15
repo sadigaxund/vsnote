@@ -15,6 +15,7 @@
     "buffer": "^6.0.3",
     "isomorphic-git": "^1.41.4",
     "lucide-react": "^0.545.0",
+    "material-icon-theme": "^5.37.0",
     "my-you-eye": "^0.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

@@ -330,7 +330,7 @@ function TreeRow({
         display: "flex",
         alignItems: "center",
         gap: 6,
-        minHeight: 26,
+        minHeight: "var(--app-chrome-tree-row-h)",
         paddingLeft: 8 + depth * 16,
         paddingRight: 8,
         cursor: isDragging ? "grabbing" : "pointer",
@@ -383,7 +383,7 @@ function TreeRow({
       ) : (
         <span style={{ width: 12, flexShrink: 0 }} />
       )}
-      <FileIcon kind={node.kind} open={expanded} size={14} />
+      <FileIcon kind={node.kind} name={node.name} open={expanded} size={14} />
       {isRenaming ? (
         <Input
           size="sm"

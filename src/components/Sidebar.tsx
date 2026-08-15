@@ -66,7 +66,8 @@ export function Sidebar({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "10px 12px 8px",
+          height: "var(--app-chrome-sidebar-header-h)",
+          padding: "0 12px",
           flexShrink: 0,
         }}
       >

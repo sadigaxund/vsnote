@@ -21,7 +21,9 @@ buildable detail. When in doubt, open the image and match it.
 ## Layout regions (top → bottom)
 
 ### 1. Title bar
-- macOS traffic lights (decorative), app glyph + `Slate` — `vault` (workspace name).
+- ~~macOS traffic lights (decorative),~~ app glyph + `Slate` — `vault` (workspace
+  name). (superseded by Amendments item 2 — no traffic lights, no placeholder; the
+  bar starts directly at the glyph.)
 - Centered global search field: placeholder "Search files, symbols, commits…", `⌘K` kbd
   hint. Opens the command palette.
 - Right: icon buttons — toggle sidebar, split editor (may be non-functional stub),

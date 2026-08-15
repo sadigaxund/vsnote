@@ -37,7 +37,7 @@ export function EditorHeader({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        height: 38,
+        height: "var(--app-chrome-editorheader-h)",
         padding: "0 14px",
         background: "var(--app-editor-bg)",
         borderBottom: "1px solid var(--app-chrome-border)",

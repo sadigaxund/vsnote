@@ -111,4 +111,18 @@
      corrected against app-preview.png, which has plain colored mono text.) */
   --markdown-code-color: #a8d578;
   --markdown-body: #bac1c8;
+
+  /* ---- Chrome band thickness (DESIGN-SPEC Amendments item 3) ----
+     Every horizontal chrome band's vertical size lives here, once, as a
+     token each component references (`local/TitleBar.tsx`,
+     `local/EditorTabBar.tsx`, `EditorHeader.tsx`, `Sidebar.tsx`'s header
+     row, `local/ExplorerTree.tsx`'s row, `local/StatusBar.tsx`) instead of
+     a literal repeated in each — ~90% of the pre-amendment mockup height
+     (noted per value below), same look, tighter. */
+  --app-chrome-titlebar-h: 40px; /* was 44px */
+  --app-chrome-tabbar-h: 32px; /* was 36px */
+  --app-chrome-editorheader-h: 34px; /* was 38px */
+  --app-chrome-sidebar-header-h: 36px; /* was 40px */
+  --app-chrome-tree-row-h: 24px; /* was 26px */
+  --app-chrome-statusbar-h: 22px; /* was 24px */
 }

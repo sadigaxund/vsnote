@@ -13,7 +13,7 @@
 | Languages | `@codemirror/lang-*` + `@lezer/*` | md, js/ts/tsx, json, css, html; plus legacy modes via `@codemirror/legacy-modes` where needed |
 | Git | `isomorphic-git` | real repo in the browser |
 | FS | `@isomorphic-git/lightning-fs` (IndexedDB) | persists across reloads |
-| Icons | lucide-react | file-type icons mapped locally |
+| Icons | lucide-react (UI chrome) + `material-icon-theme` (file/folder identity, DESIGN-SPEC Amendments item 1) | file/folder icons resolved from the pack's manifest, lazy-loaded per icon |
 | Md utilities | lezer markdown tree (already in CM6) | avoid a second parser if possible |
 
 ## Modules (`src/`)
