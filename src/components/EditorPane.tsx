@@ -28,6 +28,7 @@
  * focused pane instead of the full `PaneGroup` tree while zen is active.
  */
 import { useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { AppTabBar } from "./TabBar";
 import { EditorHeader } from "./EditorHeader";
 import { EditorContent } from "./EditorContent";
@@ -35,10 +36,11 @@ import { DockOverlay } from "./local/PaneGroup";
 import type { TabDragPayload } from "./local/EditorTabBar";
 import { findLeaf, useTabsStore } from "../stores/useTabsStore";
 import { useBufferStore } from "../stores/useBufferStore";
+import { useCursorStore } from "../stores/useCursorStore";
 import { useGitStore } from "../stores/useGitStore";
 import { EMPTY_DIFF } from "../git/diff";
 import { modeAvailabilityFor } from "../filetypes/registry";
-import type { CursorPos } from "../editor/CodeMirrorEditor";
+import { probeRender } from "../lib/renderProbe";
 import type { DockEdge, EditorMode, TabItem } from "../types";
 
 export interface EditorPaneProps {
@@ -50,7 +52,6 @@ export interface EditorPaneProps {
   onExitZen: () => void;
   zenPillHovered: boolean;
   onZenHoverChange: (hovered: boolean) => void;
-  onCursorChange: (paneId: string, pos: CursorPos) => void;
   onOpenLink: (paneId: string, href: string) => void;
 }
 
@@ -66,7 +67,11 @@ function computeEdge(e: React.DragEvent): DockEdge {
   return "center";
 }
 
-export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered, onZenHoverChange, onCursorChange, onOpenLink }: EditorPaneProps) {
+export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered, onZenHoverChange, onOpenLink }: EditorPaneProps) {
+  // DESIGN-SPEC Amendments item 16 (typing-latency bug) instrumentation —
+  // see `lib/renderProbe.ts`'s doc.
+  probeRender(`EditorPane:${paneId}`);
+
   const leaf = useTabsStore((s) => findLeaf(s.tree, paneId));
   const isFocused = useTabsStore((s) => s.activePaneId === paneId);
   const focusPane = useTabsStore((s) => s.focusPane);
@@ -74,10 +79,30 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
   const closeTab = useTabsStore((s) => s.closeTab);
   const setMode = useTabsStore((s) => s.setMode);
   const dockTab = useTabsStore((s) => s.dockTab);
-  const buffers = useBufferStore((s) => s.buffers);
+  // Narrow, shallow-compared selector — DESIGN-SPEC Amendments item 16: the
+  // previous `useBufferStore((s) => s.buffers)` subscribed to the ENTIRE
+  // buffer map, so every pane's `EditorPane` re-rendered on every keystroke
+  // typed into ANY open buffer (even one from a totally different pane),
+  // just to read this pane's own tabs' `dirty` flags for the tab bar. Only
+  // the {path: dirty} pairs for THIS pane's own tabs are read below, and
+  // `useShallow` skips the re-render entirely once a buffer settles into
+  // "dirty" (which happens on the FIRST keystroke and then never changes
+  // again while typing continues) instead of re-rendering on every
+  // subsequent one.
+  const dirtyByPath = useBufferStore(
+    useShallow((s) => Object.fromEntries((leaf?.tabs ?? []).map((t) => [t.path, s.buffers[t.path]?.dirty ?? false]))),
+  );
   const statuses = useGitStore((s) => s.statuses);
 
   const activeTab = useMemo(() => leaf?.tabs.find((t) => t.path === leaf.activeTabId), [leaf]);
+
+  // Cursor position is written straight to `useCursorStore` (a targeted,
+  // per-pane subscription the status bar reads directly — see that store's
+  // module doc) instead of bubbling up through a prop into `App.tsx`'s own
+  // React state, which used to re-render the entire shell on every
+  // keystroke, including in Rendered mode where the value isn't even
+  // displayed.
+  const handleCursorChange = (pos: { line: number; column: number }) => useCursorStore.getState().setCursor(paneId, pos);
 
   // These two effects are moved verbatim from pre-Phase-6 App.tsx (they used
   // to run once, globally, for the single active tab; now each EditorPane
@@ -115,7 +140,7 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
     name: t.name,
     path: t.path,
     kind: t.kind,
-    dirty: buffers[t.path]?.dirty ?? false,
+    dirty: dirtyByPath[t.path] ?? false,
     preview: t.preview,
     status: statuses[t.path],
   }));
@@ -157,6 +182,7 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
 
   return (
     <div
+      data-testid="editor-pane"
       data-pane-id={paneId}
       data-pane-focused={isFocused}
       style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative", background: "var(--app-editor-bg)" }}
@@ -210,7 +236,7 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
           onChange={(value) => {
             if (activeTab) useBufferStore.getState().setContent(activeTab.path, value);
           }}
-          onCursorChange={(pos) => onCursorChange(paneId, pos)}
+          onCursorChange={handleCursorChange}
           onOpenLink={(href) => onOpenLink(paneId, href)}
         />
         {dockPreview && <DockOverlay edge={dockPreview} />}

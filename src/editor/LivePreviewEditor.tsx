@@ -93,6 +93,22 @@ export interface LivePreviewEditorProps {
 export function LivePreviewEditor({ paneId, path, content, readOnly = false, onChange, onCursorChange, onOpenLink }: LivePreviewEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // DESIGN-SPEC Amendments item 16 (typing-latency bug): the LAST content
+  // string this editor itself emitted via `onChange` — lets the content-sync
+  // effect below tell "this `content` prop update is just OUR OWN edit
+  // echoing back through `useBufferStore`" apart from "content changed for
+  // some OTHER reason (a second pane editing the same shared buffer, an
+  // external discard/undo)". Diagnosed with a temporary before/after
+  // profiling run (`lib/renderProbe.ts`'s doc + ARCHITECTURE.md's
+  // Deviations entry): every keystroke was paying for TWO full-document
+  // `doc.toString()` calls plus a full string-equality check on a large
+  // document — one in the `updateListener` below (to hand the new content
+  // to `onChange`), and a second, redundant one in the content-sync effect
+  // immediately after, re-serializing the SAME doc just to confirm it
+  // already matched what was just emitted. Skipping the second one
+  // whenever `content` is recognizably our own echo cut measured
+  // over-16ms-blocked keystrokes by roughly a third on a 1k-line document.
+  const lastEmittedRef = useRef<string | null>(null);
 
   const onChangeRef = useRef(onChange);
   const onCursorChangeRef = useRef(onCursorChange);
@@ -142,7 +158,9 @@ export function LivePreviewEditor({ paneId, path, content, readOnly = false, onC
       EditorState.readOnly.of(readOnly),
       EditorView.updateListener.of((update) => {
         if (update.docChanged && !readOnly) {
-          onChangeRef.current?.(update.state.doc.toString());
+          const value = update.state.doc.toString();
+          lastEmittedRef.current = value;
+          onChangeRef.current?.(value);
         }
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;
@@ -170,6 +188,14 @@ export function LivePreviewEditor({ paneId, path, content, readOnly = false, onC
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    // This `content` update is our own last edit echoing back through
+    // `useBufferStore` — the view already reflects it (we're the one who
+    // produced it), so skip re-serializing the whole document just to
+    // confirm that. See `lastEmittedRef`'s doc above.
+    if (content === lastEmittedRef.current) {
+      lastEmittedRef.current = null;
+      return;
+    }
     const current = view.state.doc.toString();
     if (current !== content) {
       view.dispatch({ changes: { from: 0, to: current.length, insert: content } });

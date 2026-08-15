@@ -25,7 +25,7 @@ import { modeAvailabilityFor } from "./filetypes/registry";
 import { pathExists } from "./fs/operations";
 import { displayToFsPath } from "./fs/paths";
 import { flattenFiles } from "./lib/flattenTree";
-import type { CursorPos } from "./editor/CodeMirrorEditor";
+import { probeRender } from "./lib/renderProbe";
 import type { FileKind, FileNode } from "./types";
 
 // Phase 5a: CommandPalette / Settings / Search are all overlay/panel UI a
@@ -60,16 +60,15 @@ function parentOf(path: string): string {
 }
 
 export default function App() {
+  // DESIGN-SPEC Amendments item 16 (typing-latency bug) instrumentation —
+  // see `lib/renderProbe.ts`'s doc. Inert unless a profiling script opts
+  // in; left in place as a standing regression guard.
+  probeRender("App");
+
   const [activePanel, setActivePanel] = useState<ActivityPanel>("explorer");
   const [selectedId, setSelectedId] = useState<string | undefined>(ACTIVE_ON_BOOT);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
-  // Phase 6 (grid split view): one cursor readout per pane, keyed by pane
-  // id — the status bar only ever displays the FOCUSED pane's (see
-  // `displayCursor` below), but every pane's `EditorPane` reports its own
-  // via `EditorArea`'s `onCursorChange` regardless of focus so switching
-  // focus shows that pane's real position immediately, not a stale one.
-  const [cursorByPane, setCursorByPane] = useState<Record<string, CursorPos>>({});
 
   // Phase 5a UI state — palette (⌘K grouped / ⌘P file-jump), Settings
   // dialog, Zen mode (DESIGN-SPEC Amendments item 4), the "Reset demo
@@ -93,10 +92,24 @@ export default function App() {
   const { toast } = useToast();
 
   const tree = useDecoratedTree();
-  const fs = useFsStore();
   const git = useGitStore();
   const tabs = useTabsStore();
-  const buffers = useBufferStore();
+  // DESIGN-SPEC Amendments item 16 (typing-latency bug): `useFsStore()`/
+  // `useBufferStore()` used to be called here with NO selector — the
+  // zustand anti-pattern of subscribing to an entire store's state, which
+  // re-renders the calling component on ANY change to ANY field in that
+  // store. `fs`/`buffers` below were never actually read for anything
+  // rendered (only for imperative action calls inside event handlers, e.g.
+  // `fs.createFile(...)`, `buffers.rekeyPrefix(...)`) — but `buffers`
+  // changes on EVERY keystroke (`useBufferStore.setContent`), so that bare
+  // subscription alone re-rendered the entire App shell once per keystroke,
+  // even after cursor position and the buffer selectors elsewhere were
+  // fixed to be targeted. Confirmed via the render-count probe
+  // (`lib/renderProbe.ts`): App's render count stayed 1:1 with keystrokes
+  // typed until this was fixed too. Every call site below now reads
+  // `useFsStore.getState()`/`useBufferStore.getState()` directly (the same
+  // non-reactive pattern this file already uses for `useGitStore.getState()`
+  // /`useBufferStore.getState()` in several handlers) instead of subscribing.
 
   // ---- Boot: seed (idempotent) then load live fs/git/tab state. ----
   useEffect(() => {
@@ -148,20 +161,6 @@ export default function App() {
   const activeTab = useMemo(() => focusedLeaf?.tabs.find((t) => t.path === focusedLeaf.activeTabId), [focusedLeaf]);
 
   const activeDiff = useGitStore((s) => (activeTab ? (s.diffCache[activeTab.path] ?? EMPTY_DIFF) : EMPTY_DIFF));
-
-  // The status bar's cursor readout is only meaningful with a real CM6
-  // selection behind it (Source/Diff modes), and only for the FOCUSED pane
-  // — `handlePaneCursorChange` below keeps `cursorByPane` current for every
-  // mounted pane regardless of focus, so switching focus shows that pane's
-  // real position immediately. Derived (not reset via an effect) so
-  // switching to Rendered mode/no tab shows the neutral value without a
-  // render lag.
-  const focusedCursor = cursorByPane[tabs.activePaneId] ?? { line: 1, column: 1 };
-  const displayCursor: CursorPos = activeTab && (activeTab.mode === "source" || activeTab.mode === "diff") ? focusedCursor : { line: 1, column: 1 };
-
-  const handlePaneCursorChange = (paneId: string, pos: CursorPos) => {
-    setCursorByPane((prev) => ({ ...prev, [paneId]: pos }));
-  };
 
   // DESIGN-SPEC "⌘E toggle Rendered/Source (Obsidian muscle memory)" — a
   // named function (not inlined in the keydown handler below) since both
@@ -452,7 +451,7 @@ export default function App() {
 
   const handleCreateFile = async (parentPath?: string) => {
     const parent = resolveCreateParent(parentPath);
-    const newPath = await fs.createFile(parent, "untitled.md");
+    const newPath = await useFsStore.getState().createFile(parent, "untitled.md");
     setSelectedId(newPath);
     setRenamingId(newPath);
     tabs.openFile({ path: newPath, name: newPath.slice(newPath.lastIndexOf("/") + 1), kind: "md" }, { pin: true });
@@ -461,7 +460,7 @@ export default function App() {
 
   const handleCreateFolder = async (parentPath?: string) => {
     const parent = resolveCreateParent(parentPath);
-    const newPath = await fs.createFolder(parent, "untitled-folder");
+    const newPath = await useFsStore.getState().createFolder(parent, "untitled-folder");
     setSelectedId(newPath);
     setRenamingId(newPath);
   };
@@ -471,9 +470,9 @@ export default function App() {
 
   const handleRenameCommit = async (node: FileNode, newName: string) => {
     setRenamingId(null);
-    const newPath = await fs.renameNode(node.path, newName);
+    const newPath = await useFsStore.getState().renameNode(node.path, newName);
     tabs.renamePrefix(node.path, newPath);
-    buffers.rekeyPrefix(node.path, newPath);
+    useBufferStore.getState().rekeyPrefix(node.path, newPath);
     // A folder rename remaps many descendant tab paths whose own filenames
     // (and therefore kind) never changed — only a file rename can change
     // its own extension, so `setKind` only ever applies to that one tab.
@@ -485,17 +484,17 @@ export default function App() {
   };
 
   const handleMove = async (sourcePath: string, targetParentPath: string) => {
-    const newPath = await fs.moveNode(sourcePath, targetParentPath);
+    const newPath = await useFsStore.getState().moveNode(sourcePath, targetParentPath);
     tabs.renamePrefix(sourcePath, newPath);
-    buffers.rekeyPrefix(sourcePath, newPath);
+    useBufferStore.getState().rekeyPrefix(sourcePath, newPath);
     setSelectedId((prev) => (prev && (prev === sourcePath || prev.startsWith(`${sourcePath}/`)) ? newPath + prev.slice(sourcePath.length) : prev));
     await git.refresh();
   };
 
   const handleConfirmDelete = async (node: FileNode) => {
-    await fs.removeNode(node.path);
+    await useFsStore.getState().removeNode(node.path);
     tabs.closeByPrefix(node.path);
-    buffers.forgetPrefix(node.path);
+    useBufferStore.getState().forgetPrefix(node.path);
     setSelectedId((prev) => (prev && (prev === node.path || prev.startsWith(`${node.path}/`)) ? undefined : prev));
     await git.refresh();
   };
@@ -657,7 +656,7 @@ export default function App() {
             onConfirmDelete={handleConfirmDelete}
             onCopyPath={handleCopyPath}
             onMove={handleMove}
-            onRefresh={() => void fs.refresh()}
+            onRefresh={() => void useFsStore.getState().refresh()}
           />
         )}
 
@@ -673,7 +672,6 @@ export default function App() {
           zenMode={zenMode}
           onEnterZen={enterZenMode}
           onExitZen={exitZenMode}
-          onCursorChange={handlePaneCursorChange}
           onOpenLink={(paneId, href) => void handlePaneOpenLink(paneId, href)}
         />
       </div>
@@ -690,9 +688,6 @@ export default function App() {
             untracked: git.untrackedCount,
             changedCount: git.changedCount,
           }}
-          // Live from the mounted CM6 view's selection (Source/Diff modes) —
-          // see `displayCursor` above for Rendered mode/no-tab.
-          cursor={displayCursor}
           encoding="UTF-8"
           eol="LF"
           language={fileTypeFor(activeTab?.kind)?.languageId ?? "PLAIN"}

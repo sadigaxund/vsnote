@@ -11,14 +11,37 @@
  * IndexedDB-backed lightning-fs instance (`client.ts`) under a `/.drafts`
  * folder outside `/vault`, so it's a second logical store on one physical
  * database rather than a second IndexedDB wrapper dependency.
+ *
+ * DESIGN-SPEC Amendments item 16 (typing-latency bug): the actual disk
+ * write — `writeFile` -> lightning-fs -> IndexedDB, plus the forced
+ * `pfs.flush()` `fs/operations.ts` applies (see its own long comment) — is
+ * real, non-trivial main-thread work. A bare `setTimeout(..., 300)` fires
+ * that work on a normal task queued at an arbitrary point relative to the
+ * user's typing, with no guarantee the main thread is actually free; if the
+ * user resumes typing right as it lands, the write competes with input
+ * handling for the same frame. `scheduleDraftSave` keeps the 300ms debounce
+ * (still coalesces rapid keystrokes into one write of the LAST value) but
+ * now hands the actual write to `requestIdleCallback` once the debounce
+ * fires, so the browser only runs it when the main thread is genuinely
+ * idle — with a `timeout` so a tab that's continuously busy (never goes
+ * idle) still flushes within ~500ms rather than starving forever, and a
+ * bare `setTimeout(fn, 0)` fallback for browsers without
+ * `requestIdleCallback` (Safari, as of this writing).
  */
 import { pfs } from "./client";
 import { pathExists, removeFile, writeFile } from "./operations";
 
 const DRAFTS_DIR = "/.drafts";
 const DEBOUNCE_MS = 300;
+/** Upper bound on how long the idle-scheduled write may be deferred past
+ * the debounce firing, so a continuously-busy tab still checkpoints. */
+const IDLE_TIMEOUT_MS = 500;
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Handles for the idle-scheduled write itself (post-debounce), separate
+ * from `timers` (the debounce) so `flushDraftSave`/`clearDraft` can cancel
+ * either stage cleanly. */
+const idleHandles = new Map<string, ReturnType<typeof setTimeout>>();
 
 function draftFsPath(displayPath: string): string {
   return `${DRAFTS_DIR}/${encodeURIComponent(displayPath)}.draft`;
@@ -32,24 +55,44 @@ async function writeDraftNow(displayPath: string, content: string): Promise<void
   await writeFile(draftFsPath(displayPath), content);
 }
 
-/** Schedules a debounced checkpoint write; coalesces rapid keystrokes. */
+function cancelIdleWrite(displayPath: string): void {
+  const handle = idleHandles.get(displayPath);
+  if (handle === undefined) return;
+  if (typeof requestIdleCallback === "function") cancelIdleCallback(handle);
+  else clearTimeout(handle);
+  idleHandles.delete(displayPath);
+}
+
+/** Schedules a debounced checkpoint write; coalesces rapid keystrokes. The
+ * write itself runs off the critical path — see module doc. */
 export function scheduleDraftSave(displayPath: string, content: string): void {
   const existing = timers.get(displayPath);
   if (existing) clearTimeout(existing);
+  cancelIdleWrite(displayPath);
   const timer = setTimeout(() => {
     timers.delete(displayPath);
-    void writeDraftNow(displayPath, content);
+    const run = () => {
+      idleHandles.delete(displayPath);
+      void writeDraftNow(displayPath, content);
+    };
+    if (typeof requestIdleCallback === "function") {
+      idleHandles.set(displayPath, requestIdleCallback(run, { timeout: IDLE_TIMEOUT_MS }));
+    } else {
+      idleHandles.set(displayPath, setTimeout(run, 0));
+    }
   }, DEBOUNCE_MS);
   timers.set(displayPath, timer);
 }
 
-/** Writes immediately, bypassing the debounce (e.g. before unload). */
+/** Writes immediately, bypassing both the debounce and the idle scheduling
+ * (e.g. before unload — see App.tsx's `visibilitychange` safety net). */
 export async function flushDraftSave(displayPath: string, content: string): Promise<void> {
   const existing = timers.get(displayPath);
   if (existing) {
     clearTimeout(existing);
     timers.delete(displayPath);
   }
+  cancelIdleWrite(displayPath);
   await writeDraftNow(displayPath, content);
 }
 
@@ -66,6 +109,7 @@ export async function clearDraft(displayPath: string): Promise<void> {
     clearTimeout(existing);
     timers.delete(displayPath);
   }
+  cancelIdleWrite(displayPath);
   const path = draftFsPath(displayPath);
   if (await pathExists(path)) {
     await removeFile(path);

@@ -17,17 +17,19 @@ import { useState } from "react";
 import { PaneGroup } from "./local/PaneGroup";
 import { EditorPane } from "./EditorPane";
 import { useTabsStore } from "../stores/useTabsStore";
-import type { CursorPos } from "../editor/CodeMirrorEditor";
 
 export interface EditorAreaProps {
   zenMode: boolean;
   onEnterZen: () => void;
   onExitZen: () => void;
-  onCursorChange: (paneId: string, pos: CursorPos) => void;
   onOpenLink: (paneId: string, href: string) => void;
 }
 
-export function EditorArea({ zenMode, onEnterZen, onExitZen, onCursorChange, onOpenLink }: EditorAreaProps) {
+// DESIGN-SPEC Amendments item 16: cursor position no longer flows through
+// props here — `EditorPane` writes directly to `stores/useCursorStore.ts`.
+// See that store's module doc for why (lifting it into App.tsx's state was
+// the main cause of the typing-latency bug).
+export function EditorArea({ zenMode, onEnterZen, onExitZen, onOpenLink }: EditorAreaProps) {
   const tree = useTabsStore((s) => s.tree);
   const activePaneId = useTabsStore((s) => s.activePaneId);
   const resizeBranch = useTabsStore((s) => s.resizeBranch);
@@ -43,7 +45,6 @@ export function EditorArea({ zenMode, onEnterZen, onExitZen, onCursorChange, onO
         onZenHoverChange={setZenPillHovered}
         onEnterZen={onEnterZen}
         onExitZen={onExitZen}
-        onCursorChange={onCursorChange}
         onOpenLink={onOpenLink}
       />
     );
@@ -62,7 +63,6 @@ export function EditorArea({ zenMode, onEnterZen, onExitZen, onCursorChange, onO
           onZenHoverChange={() => {}}
           onEnterZen={onEnterZen}
           onExitZen={onExitZen}
-          onCursorChange={onCursorChange}
           onOpenLink={onOpenLink}
         />
       )}

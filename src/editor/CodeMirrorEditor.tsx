@@ -60,6 +60,12 @@ export function CodeMirrorEditor({
 }: CodeMirrorEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // DESIGN-SPEC Amendments item 16 (typing-latency bug) — see
+  // `LivePreviewEditor.tsx`'s matching `lastEmittedRef` doc for the full
+  // reasoning: lets the content-sync effect below skip a redundant
+  // `doc.toString()` + full-string comparison when `content` is just this
+  // editor's own last edit echoing back through `useBufferStore`.
+  const lastEmittedRef = useRef<string | null>(null);
 
   // Refs so the mount effect (keyed only on `path`) always calls the latest
   // callback without needing to be in its dependency array — recreating the
@@ -94,7 +100,9 @@ export function CodeMirrorEditor({
         EditorState.readOnly.of(readOnly),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !readOnly) {
-            onChangeRef.current?.(update.state.doc.toString());
+            const value = update.state.doc.toString();
+            lastEmittedRef.current = value;
+            onChangeRef.current?.(value);
           }
           if (update.docChanged || update.selectionSet) {
             const head = update.state.selection.main.head;
@@ -139,6 +147,10 @@ export function CodeMirrorEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    if (content === lastEmittedRef.current) {
+      lastEmittedRef.current = null;
+      return;
+    }
     const current = view.state.doc.toString();
     if (current !== content) {
       view.dispatch({ changes: { from: 0, to: current.length, insert: content } });

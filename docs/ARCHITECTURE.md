@@ -419,3 +419,118 @@ stack choices in this doc.
   `@types/node` added as a devDependency (`tsconfig.node.json` gained
   `"types": ["node"]`) — this repo's `vite.config.ts` had never touched a
   Node builtin before this phase.
+- **DESIGN-SPEC Amendments item 16's typing-latency bug had FOUR real,
+  independently-confirmed causes on the React side, plus one avoidable
+  redundant-work cost inside the CM6 mount components — but NOT the
+  decoration-recompute breadth the spec's own suspect list led with.**
+  Diagnosed with a temporary render-count probe (`lib/renderProbe.ts`, kept
+  permanently as a standing regression guard — inert unless a script sets
+  `window.__renderProbeEnabled = true` before `page.goto`) plus a
+  `setTimeout(fn, 0)`-based main-thread-blocked-time sampler (NOT
+  `requestAnimationFrame`, which is coupled to the display's vsync/paint
+  cycle and so reports a ~16.6-16.7ms gap on every frame even when the page
+  is completely idle — confirmed empirically, a first attempt at this
+  harness flagged ~100% of frames as "over 16ms" before any typing even
+  started; a macrotask-queued `setTimeout(0)` self-rescheduling loop has no
+  such floor and directly measures blocked time) against a 1000-line
+  synthetic markdown doc typed continuously in Rendered mode:
+  1. **`App.tsx`'s cursor position was lifted into `useState` (`cursorByPane`)
+     and threaded down through `EditorArea`/`EditorPane`'s `onCursorChange`
+     prop.** Every keystroke in EVERY mode — including Rendered, where the
+     value is gated off and never displayed (`StatusBar.tsx` only shows
+     Ln/Col for Source/Diff) — called `setState` on `App`, re-rendering the
+     entire shell (Sidebar's file tree, the activity bar, every mounted
+     `EditorPane`) once per keystroke. Confirmed via the render probe:
+     `App`'s render count tracked keystrokes 1:1 (60 renders for 60
+     keystrokes) before the fix. Fixed by moving cursor position into its
+     own tiny store (`stores/useCursorStore.ts`) that `EditorPane` writes to
+     directly (no prop, it already knows its own `paneId`) and that
+     `StatusBar.tsx` reads via a targeted `s.byPane[activePaneId]` selector
+     — `App` never sees cursor updates at all now (render count: 0 during a
+     60-keystroke burst).
+  2. **`App.tsx` also called `useFsStore()` and `useBufferStore()` with NO
+     selector** — the zustand anti-pattern of subscribing to an entire
+     store, which re-renders on ANY change to ANY field in it. Neither
+     `fs` nor `buffers` was ever read for anything actually rendered in
+     `App` (only for imperative action calls inside event handlers like
+     `fs.createFile(...)`, `buffers.rekeyPrefix(...)`), but `buffers`
+     changes on every keystroke (`useBufferStore.setContent`) — so this
+     alone re-rendered the whole shell once per keystroke even AFTER cursor
+     state was fixed (confirmed: render count stayed 60 until this was also
+     fixed). Every call site now reads `useFsStore.getState()`/
+     `useBufferStore.getState()` directly instead of subscribing.
+  3. **`EditorPane.tsx` subscribed to `useBufferStore((s) => s.buffers)`**
+     (the whole map again) just to read ITS OWN tabs' `dirty` flags for the
+     tab bar — so every pane's `EditorPane` re-rendered on every keystroke
+     typed into ANY open buffer in ANY pane, not just its own. Fixed with a
+     `useShallow`-wrapped selector reading only `{path: dirty}` for this
+     pane's own tabs — since a buffer's `dirty` flag flips false->true on
+     the FIRST keystroke and then never changes again while typing
+     continues, this selector now causes zero re-renders across a whole
+     typing burst rather than one per keystroke.
+  4. **Draft checkpointing (`fs/drafts.ts`) was debounced but not
+     idle-scheduled** — the actual `writeFile`/`pfs.flush()` work ran
+     directly inside the `setTimeout(..., 300)` debounce callback, an
+     ordinary macrotask with no guarantee the main thread was actually
+     free, competing with input handling if the user resumed typing right
+     as it fired. Fixed: the debounce still fires at 300ms (unchanged
+     coalescing behavior), but now hands the actual write to
+     `requestIdleCallback` (with a 500ms `timeout` so a continuously-busy
+     tab still checkpoints, and a bare `setTimeout(fn, 0)` fallback for
+     browsers without `requestIdleCallback`, e.g. Safari at time of
+     writing) instead of running inline. Verified this doesn't reopen the
+     "reload loses unsaved work" gap the `pfs.flush()` fix above closed:
+     `flushDraftSave` (the `visibilitychange` safety net's escape hatch)
+     cancels both the debounce timer AND the pending idle handle before
+     writing immediately, so a tab closing mid-idle-wait still flushes
+     synchronously.
+  5. **`LivePreviewEditor.tsx`/`CodeMirrorEditor.tsx` each paid for TWO full
+     `doc.toString()` calls (plus a full string-equality check) per
+     keystroke on a large document** — one in the `updateListener` to hand
+     the new content to `onChange`, and a second, redundant one in the
+     content-sync effect that fires right after (triggered by that same
+     content round-tripping back down through `useBufferStore`), which
+     re-serialized the identical document just to confirm it already
+     matched what had just been emitted. Fixed with a `lastEmittedRef` that
+     remembers the exact string just emitted; the content-sync effect skips
+     its `doc.toString()` + comparison entirely whenever the incoming
+     `content` prop is recognizably that same echo, while still running the
+     full check (needed for correctness) whenever content changes for any
+     OTHER reason — a second pane editing the same shared buffer, a
+     discard, an external rename-driven reload. Verified this doesn't break
+     the multi-pane shared-buffer mechanism: `tests/e2e/split-grid.spec.ts`'s
+     "same file source|rendered in two panes shares one buffer" test (which
+     types a marker in one pane and asserts it appears in the other) still
+     passes unchanged.
+  6. **The decoration-recompute breadth suspect the spec's own list led
+     with was investigated and NOT confirmed as a significant contributor
+     at this document size** — `editor/livepreview/plugin.ts`'s
+     `buildLivePreviewDecorations` does walk the ENTIRE `@lezer/markdown`
+     syntax tree via an unbounded `syntaxTree(state).iterate()` on every
+     `docChanged`/selection-changed transaction, which is a real,
+     legitimate O(document size) cost per keystroke and does NOT scale —
+     this is flagged here as a genuine future optimization candidate (the
+     standard fix: bound the `iterate({from, to})` call to the union of the
+     transaction's changed ranges + old/new selection, each fully expanded
+     by Lezer's own "any node overlapping the range is visited in full"
+     semantics so multi-line constructs like blockquotes/fenced code still
+     decorate completely correctly, then stitch the previous decoration set
+     — mapped through `tr.changes` — back in outside that window via
+     `RangeSet.update({filterFrom, filterTo, filter: () => false, add})`).
+     It was deliberately NOT implemented this phase: a diagnostic run that
+     bypassed the decoration rebuild entirely (`return { focused, deco:
+     value.deco.map(tr.changes) }`) on the same 1000-line document showed
+     NO measurable improvement over the noise floor of this measurement
+     environment (a shared, ARM64 cloud host — repeated runs of the SAME
+     build varied by ±15 keystrokes-over-16ms out of 60 just from run-to-run
+     jitter), while items 1-5 above collectively cut the blocked-frame count
+     roughly in half and eliminated `App`'s per-keystroke re-render
+     entirely (a deterministic, noise-free result). Implementing an
+     incremental rewrite of the reveal/hide decoration logic without clear
+     evidence it's the actual bottleneck would have added real correctness
+     risk to DESIGN-SPEC's cursor-reveal contract (the exact `**…**` pair
+     COUNT assertions in `tests/e2e/live-preview.spec.ts`) for an
+     unconfirmed win — left as-is, worth revisiting with real hardware
+     profiling (not a shared cloud VM under a `PerformanceObserver`
+     `longtask`/`setTimeout(0)` proxy) if a much larger document than 1000
+     lines is ever a real usage pattern.
