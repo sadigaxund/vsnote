@@ -50,43 +50,9 @@
  */
 import { useEffect, useState } from "react";
 import { File as FileFallbackGlyph, Folder as FolderFallbackGlyph } from "lucide-react";
-import { curatedIconLoaders, curatedManifest, KIND_FALLBACK_EXT } from "./materialIcons.curated";
+import { curatedIconLoaders } from "./materialIcons.curated";
+import { resolveFileIconCurated, resolveFolderIconCurated } from "./resolveIcon";
 import type { FileKind } from "../../types";
-
-interface CuratedResolution {
-  key: string;
-  /** False only when resolution fell all the way through to the curated
-   * pack's own generic default (`file`/`folder`/`folder-open`) — signals
-   * `FileIcon` to also try the full-manifest fallback in the background. */
-  matched: boolean;
-}
-
-function resolveFileIconCurated(name: string | undefined, kind: FileKind): CuratedResolution {
-  const lower = name?.toLowerCase();
-  if (lower) {
-    const byName = curatedManifest.fileNames[lower];
-    if (byName) return { key: byName, matched: true };
-    // Longest matching extension first: "a.b.c" tries "b.c" before "c".
-    const parts = lower.split(".");
-    for (let i = 1; i < parts.length; i++) {
-      const ext = parts.slice(i).join(".");
-      const hit = curatedManifest.fileExtensions[ext];
-      if (hit) return { key: hit, matched: true };
-    }
-  }
-  const fallbackExt = KIND_FALLBACK_EXT[kind];
-  const hit = fallbackExt ? curatedManifest.fileExtensions[fallbackExt] : undefined;
-  if (hit) return { key: hit, matched: true };
-  return { key: curatedManifest.file, matched: false };
-}
-
-function resolveFolderIconCurated(name: string | undefined, open: boolean): CuratedResolution {
-  const lower = name?.toLowerCase();
-  const map = open ? curatedManifest.folderNamesExpanded : curatedManifest.folderNames;
-  const hit = lower ? map[lower] : undefined;
-  if (hit) return { key: hit, matched: true };
-  return { key: open ? curatedManifest.folderExpanded : curatedManifest.folder, matched: false };
-}
 
 const curatedUrlCache = new Map<string, Promise<string | undefined>>();
 

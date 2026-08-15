@@ -53,6 +53,7 @@ export function SourceControlPanel({ onOpenDiff }: SourceControlPanelProps) {
 
   return (
     <aside
+      data-testid="scm-panel"
       style={{
         width: 288,
         flexShrink: 0,

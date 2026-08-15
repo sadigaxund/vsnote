@@ -25,8 +25,11 @@ export interface StatusResult {
  * for a file deleted from the working tree. Only the four combinations that
  * matter to this UI are named; everything else (most commonly `[1,1,1]`,
  * unmodified) has no status letter.
+ * Exported (alongside the internal-use module) so `tests/unit/gitStatus.test.ts`
+ * can pin the head/workdir/stage → letter mapping directly, without needing a
+ * real isomorphic-git repo just to exercise this pure classification table.
  */
-function classify(head: number, workdir: number, stage: number): GitStatus | undefined {
+export function classify(head: number, workdir: number, stage: number): GitStatus | undefined {
   if (head === 0 && workdir === 2 && stage === 0) return "U"; // untracked
   if (head === 0 && workdir === 2 && stage === 2) return "A"; // new + staged
   if (head === 1 && workdir === 0) return "D"; // deleted (staged or not)

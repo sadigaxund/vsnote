@@ -308,6 +308,8 @@ function TreeRow({
       role="treeitem"
       aria-expanded={isFolder ? expanded : undefined}
       aria-selected={selected}
+      data-tree-path={node.id}
+      data-tree-kind={node.type}
       tabIndex={0}
       draggable={depth > 0 && !isRenaming}
       onDragStart={(e) => {

@@ -21,6 +21,7 @@ export interface StatusBarProps {
 export function StatusBar({ left, right }: StatusBarProps) {
   return (
     <div
+      data-testid="app-statusbar"
       style={{
         display: "flex",
         alignItems: "center",

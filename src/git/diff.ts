@@ -49,7 +49,10 @@ async function readHeadContent(repoPath: string): Promise<string | undefined> {
  * line, repeating — the same shape `pairDiffLines` (my-you-eye) expects as
  * input for a side-by-side render.
  */
-function toDiffLines(oldLines: string[], newLines: string[]): DiffLine[] {
+// Exported alongside their internal-use callers so `tests/unit/diffStat.test.ts`
+// can pin the diff-stat computation (added/removed counts) directly against
+// synthetic old/new line arrays, without needing a real git repo + fs.
+export function toDiffLines(oldLines: string[], newLines: string[]): DiffLine[] {
   const { aChanged, bChanged } = lcsDiffFlags(oldLines, newLines);
   const lines: DiffLine[] = [];
   let i = 0;
@@ -80,7 +83,7 @@ function toDiffLines(oldLines: string[], newLines: string[]): DiffLine[] {
 
 /** Splits on "\n"; drops the trailing empty element a final newline creates
  * so a file ending in `\n` doesn't produce a phantom last line. */
-function toLines(content: string): string[] {
+export function toLines(content: string): string[] {
   const lines = content.split("\n");
   if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   return lines;

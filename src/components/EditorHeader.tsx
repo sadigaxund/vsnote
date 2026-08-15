@@ -40,6 +40,7 @@ export function EditorHeader({
   const has = (m: EditorMode) => availableModes.includes(m);
   return (
     <div
+      data-testid="editor-header"
       style={{
         display: "flex",
         alignItems: "center",

@@ -51,6 +51,7 @@ export function Sidebar({
 
   return (
     <aside
+      data-testid="explorer-sidebar"
       style={{
         width: 288,
         flexShrink: 0,

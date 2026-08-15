@@ -157,6 +157,7 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                     {tab.dirty && (
                       <span
                         aria-hidden
+                        data-testid="tab-dirty-dot"
                         style={{
                           width: 8,
                           height: 8,

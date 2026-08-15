@@ -31,6 +31,7 @@ export function ActivityBar({ items, onSelect, footer, onFooterSelect }: Activit
   return (
     <nav
       aria-label="Activity Bar"
+      data-testid="app-activitybar"
       style={{
         width: 48,
         flexShrink: 0,

@@ -25,6 +25,7 @@ export interface TitleBarProps {
 export function TitleBar({ title, subtitle, glyph, center, actions }: TitleBarProps) {
   return (
     <header
+      data-testid="app-titlebar"
       style={{
         display: "grid",
         gridTemplateColumns: "1fr auto 1fr",
