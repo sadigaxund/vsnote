@@ -10,7 +10,6 @@ import { AppStatusBar } from "./components/StatusBar";
 import { ensureSeeded, resetDemoVault } from "./fs/seed";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "./fs/persistence";
 import { downloadBlob, exportVaultZip, vaultZipFilename } from "./fs/exportZip";
-import { SYNC_DRIFT_INTERVAL_MS, SYNC_DRIFT_PROBABILITY } from "./git/remote";
 import { useFsStore, inferFileKind } from "./stores/useFsStore";
 import { useGitStore } from "./stores/useGitStore";
 import { findLeaf, useTabsStore } from "./stores/useTabsStore";
@@ -194,18 +193,6 @@ export default function App() {
     // causes zero share-related network activity, ever.
   }, []);
 
-  // Phase 5b "ahead/behind drift" (IMPLEMENTATION-PLAN.md Phase 5 sync-
-  // lifecycle polish) — see `git/remote.ts`'s doc on the interval/
-  // probability constants. Skips a tick while the tab is hidden so a
-  // backgrounded session doesn't rack up drift the user never sees land.
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      if (Math.random() < SYNC_DRIFT_PROBABILITY) useGitStore.getState().driftIncrement();
-    }, SYNC_DRIFT_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, []);
-
   // Phase 6: "the active tab" is now the FOCUSED pane's active tab —
   // `tabs.activePaneId` doubles as "which pane the user last interacted
   // with" (see `useTabsStore.ts`'s module doc). Every pane's own buffer-
@@ -305,7 +292,16 @@ export default function App() {
 
   async function handleSyncNow(): Promise<void> {
     await useGitStore.getState().syncNow();
-    const { ahead, behind } = useGitStore.getState();
+    // Phase 11 (real sync) — `syncNow()` never throws (see useGitStore's
+    // doc: every sync action catches its own SyncError into `syncError`
+    // state and always clears `syncing`), so the honest result — success
+    // OR a specific failure reason — is read back from the store here
+    // rather than a try/catch.
+    const { ahead, behind, syncError } = useGitStore.getState();
+    if (syncError) {
+      toast({ title: "Sync failed", description: syncError, variant: "danger" });
+      return;
+    }
     toast({
       title: "Synced with remote",
       description: ahead === 0 && behind === 0 ? "Up to date." : `↑${ahead} ↓${behind}`,
@@ -920,6 +916,7 @@ export default function App() {
             behind: git.behind,
             lastSyncedAt: git.lastSyncedAt,
             syncing: git.syncing,
+            syncError: git.syncError,
             diff: activeDiff,
             untracked: git.untrackedCount,
             changedCount: git.changedCount,

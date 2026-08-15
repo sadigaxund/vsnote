@@ -68,10 +68,11 @@ import {
 } from "../stores/useSettingsStore";
 import { defaultModeFor } from "../filetypes/registry";
 import { useGitStore } from "../stores/useGitStore";
+import { testGitConnection, type ConnectionTestResult } from "../git/remote";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
 import { useShareStore } from "../share/useShareStore";
 import { SharedPanel } from "./local/SharedPanel";
-import type { ShareOut } from "../share/api";
+import { createApiToken, type ShareOut } from "../share/api";
 import type { EditorMode, FileKind } from "../types";
 
 // Phase 10 (sharing) — the Publish dialog composes Dialog/Select/Switch/etc.
@@ -161,6 +162,8 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const readingViewDefaultMode = useSettingsStore((s) => s.readingViewDefaultMode);
   const gitRemoteUrl = useSettingsStore((s) => s.gitRemoteUrl);
   const gitAuthToken = useSettingsStore((s) => s.gitAuthToken);
+  const setGitRemoteUrl = useSettingsStore((s) => s.setGitRemoteUrl);
+  const setGitAuthToken = useSettingsStore((s) => s.setGitAuthToken);
   const shareBackendUrl = useSettingsStore((s) => s.shareBackendUrl);
   const setShareBackendUrl = useSettingsStore((s) => s.setShareBackendUrl);
 
@@ -202,6 +205,18 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [editingShare, setEditingShare] = useState<ShareOut | null>(null);
+
+  // Phase 11 (real sync) — "Test connection" state for the Git & Sync
+  // category. Plain local state (not a store): purely transient UI
+  // feedback for one button in one view, same reasoning `loginError`/
+  // `loggingIn` would get if they weren't ALSO needed by the boot-time
+  // probe effect above (they are, hence useShareStore; this isn't).
+  const [gitUrlDraft, setGitUrlDraft] = useState(gitRemoteUrl);
+  const [gitTokenDraft, setGitTokenDraft] = useState(gitAuthToken);
+  const [gitTesting, setGitTesting] = useState(false);
+  const [gitTestResult, setGitTestResult] = useState<ConnectionTestResult | null>(null);
+  const [gitTokenGenerating, setGitTokenGenerating] = useState(false);
+  const [gitTokenGenerateError, setGitTokenGenerateError] = useState<string | null>(null);
 
   useEffect(() => {
     void probeShareBackend(shareBackendUrl);
@@ -515,40 +530,106 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         },
         {
           id: "remote-sync",
-          label: "Remote sync — coming soon",
-          keywords: "remote url https token sync auth push pull ssh key",
+          label: "Remote sync",
+          keywords: "remote url https token sync auth push pull ssh key test connection generate",
           content: (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-fg)" }}>Remote sync</span>
-                <Badge variant="neutral" tone="soft">
-                  Coming soon
+                <Badge variant={gitTestResult?.ok ? "success" : "neutral"} tone="soft">
+                  {gitTestResult?.ok ? (gitTestResult.repoExists ? "Connected" : "Connected — repo not created yet") : "Fast-forward only"}
                 </Badge>
               </div>
-              <FormField label="Remote URL (HTTPS)" hint="Real sync isn't wired up yet — stored, not used.">
+              <FormField label="Remote URL (HTTPS)" hint="The Slate backend's git endpoint (server/) — see server/README.md's 'Real git sync' section. Browsers can't speak SSH (no raw TCP), so HTTPS + token only.">
                 <Input
                   size="sm"
-                  disabled
-                  placeholder="https://github.com/you/vault.git"
-                  value={gitRemoteUrl}
-                  onChange={() => {}}
+                  placeholder="http://127.0.0.1:8787/git/vault.git"
+                  value={gitUrlDraft}
+                  onChange={(e) => setGitUrlDraft(e.target.value)}
+                  onBlur={() => setGitRemoteUrl(gitUrlDraft)}
                   aria-label="Remote URL"
                 />
               </FormField>
               <FormField
                 label="Personal access token"
-                hint="HTTPS + token only — browsers can't speak SSH (no raw TCP), so there's no SSH-key management here. Real sync will use isomorphic-git over HTTPS."
+                hint="A Phase 9 API token, scoped 'write' (push) or 'read' (fetch/pull only). Generate one below once signed in under Sharing, or mint one with POST /api/auth/tokens."
               >
-                <Input
-                  size="sm"
-                  type="password"
-                  disabled
-                  placeholder="ghp_••••••••••••••••"
-                  value={gitAuthToken}
-                  onChange={() => {}}
-                  aria-label="Personal access token"
-                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Input
+                    size="sm"
+                    type="password"
+                    placeholder="slt_••••••••••••••••"
+                    value={gitTokenDraft}
+                    onChange={(e) => setGitTokenDraft(e.target.value)}
+                    onBlur={() => setGitAuthToken(gitTokenDraft)}
+                    aria-label="Personal access token"
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={!authenticated || gitTokenGenerating}
+                    data-testid="git-generate-token"
+                    onClick={() => {
+                      setGitTokenGenerating(true);
+                      setGitTokenGenerateError(null);
+                      createApiToken(shareBackendUrl, "slate-git-sync", "write")
+                        .then((created) => {
+                          setGitTokenDraft(created.token);
+                          setGitAuthToken(created.token);
+                        })
+                        .catch((err) => {
+                          setGitTokenGenerateError(err instanceof Error ? err.message : "Could not generate a token.");
+                        })
+                        .finally(() => setGitTokenGenerating(false));
+                    }}
+                  >
+                    {gitTokenGenerating ? <Loader2 size={13} className="animate-spin" /> : "Generate token"}
+                  </Button>
+                </div>
               </FormField>
+              {!authenticated && (
+                <span style={{ fontSize: 12, color: "var(--color-muted)" }}>
+                  Sign in under Sharing below to generate a token here — or paste one you already have.
+                </span>
+              )}
+              {gitTokenGenerateError && (
+                <Alert variant="danger" size="sm">
+                  {gitTokenGenerateError}
+                </Alert>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  data-testid="git-test-connection"
+                  onClick={() => {
+                    setGitRemoteUrl(gitUrlDraft);
+                    setGitAuthToken(gitTokenDraft);
+                    setGitTesting(true);
+                    setGitTestResult(null);
+                    void testGitConnection({ url: gitUrlDraft, token: gitTokenDraft })
+                      .then(setGitTestResult)
+                      .finally(() => setGitTesting(false));
+                  }}
+                >
+                  {gitTesting ? <Loader2 size={13} className="animate-spin" /> : "Test connection"}
+                </Button>
+                {gitTestResult && !gitTesting && (
+                  <span
+                    data-testid="git-test-result"
+                    style={{ fontSize: 12.5, color: gitTestResult.ok ? "var(--color-muted)" : "var(--git-deleted)" }}
+                  >
+                    {gitTestResult.ok
+                      ? gitTestResult.repoExists
+                        ? "Reachable — repo exists."
+                        : "Reachable — repo will be created on first push."
+                      : gitTestResult.message}
+                  </span>
+                )}
+              </div>
             </div>
           ),
         },

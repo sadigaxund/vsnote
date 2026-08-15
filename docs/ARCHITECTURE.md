@@ -354,6 +354,63 @@ CURRENT working-tree content for a `live: true` share — both `GET` handlers in
 doesn't render one; snapshot-by-default (the backend's actual behavior) is exactly what
 the roadmap specs as the safe default anyway.
 
+## Real sync (Phase 11)
+
+Server hosts real bare git repos over smart-HTTP; the client talks to them with real
+isomorphic-git `fetch`/`push` (a real `git.fastForward`-shaped fast-forward, hand-rolled
+— see Deviations). Full server-side contract (auth header shapes, scope rules, path
+safety, CORS) lives in `server/README.md`'s "Real git sync" section — not duplicated
+here. This section is the "how it's built" summary across both sides.
+
+**Server** (`server/app/gitrepo.py`, `server/app/routers/git_http.py`): bare repos live
+under `SLATE_GIT_ROOT` (`{root}/{repo}.git`), one directory per repo name, created on
+demand on first authorized WRITE. `gitrepo.py`'s `resolve_repo_path` validates the repo
+name against `^[A-Za-z0-9_-]{1,64}$` *before* it's ever joined onto a filesystem path
+(traversal is structurally unrepresentable, same posture as `policy.py`'s share-slug
+validation) and double-checks the resolved path stays inside `SLATE_GIT_ROOT`.
+`git_http.py`'s `GitAuthMiddleware` is a plain ASGI middleware — NOT a FastAPI
+`Depends` chain, because the thing it's guarding (`dulwich.web.HTTPGitApplication`, a
+WSGI app bridged into ASGI via `a2wsgi.WSGIMiddleware`) is opaque to FastAPI's DI —
+that parses `Authorization` (Basic, token in either slot, or Bearer), resolves it
+against the EXACT SAME `ApiToken` table Phase 9 built (`auth.resolve_bearer_token` —
+never a second token system), and enforces `read` (or higher) for fetch/clone,
+`write`/`share-admin` for push, on both the `info/refs` advertisement and the actual
+service POST. Mounted at `/git` on the ROOT app (alongside `/share/*`) with its OWN
+`CORSMiddleware` instance (browser isomorphic-git needs it; `/share/*`'s zero-CORS
+posture is untouched — this is a sibling mount, not a change to that app's middleware
+stack).
+
+**Client** (`src/git/remote.ts`, `src/git/syncStatus.ts`): `realFetch`/`realPull`/
+`realPush`/`testGitConnection` replace the old `simulateFetch`/`simulatePull`/
+`simulatePush`. Real ahead/behind (`computeSyncStatus`) walks `git.log`/
+`findMergeBase` comparing local HEAD against `refs/remotes/origin/<branch>` — pure
+local ref reads, no network I/O, so `useGitStore.refresh()` recomputes it on every
+commit/save/tree-change for free, safely even with the backend down. Divergence
+classification (`syncStatus.ts::classifyDivergence` — up-to-date / ahead-only /
+behind-only / diverged) drives the fast-forward-only policy: push only ever fires for
+ahead-only (refuses outright on diverged, never attempts `git.push`, `force` always
+`false`); pull only ever fast-forwards for behind-only (refuses on diverged; also
+refuses — a real, honest error, not a silent skip — if the working tree has
+uncommitted changes a fast-forward checkout could clobber). Every failure surfaces as
+a real `SyncError` with a `code` (`not-configured`/`offline`/`auth`/`diverged`/`dirty`/
+`http`/`unknown`) and a specific message; `useGitStore`'s actions catch every one into
+`syncError` state rather than letting it propagate, so a down/misconfigured backend
+never produces an unhandled rejection or a stuck `syncing` flag (CLAUDE.md rule 3).
+`SourceControlPanel.tsx`'s Pull/Push buttons and `App.tsx`'s `handleSyncNow` (status
+bar + command palette) both surface success/failure via toast, reading the same
+`syncError` state back after the action resolves.
+
+**Settings → Git & Sync** (`SettingsView.tsx`): Remote URL (defaults to the local
+backend's own `/git/vault.git`, `useSettingsStore::DEFAULT_GIT_REMOTE_URL`) and
+Personal access token are real, enabled fields now — no more "coming soon" disabled
+placeholders. A "Generate token" action mints a real `write`-scoped Phase 9 API token
+(`POST /api/auth/tokens`, reusing the Sharing category's existing sign-in session) so
+a user can get sync working entirely from the UI. "Test connection"
+(`testGitConnection`) does a real `git.getRemoteInfo` round-trip that touches neither
+the local repo nor the working tree — a `404` (repo not created yet) is reported as
+reachable/authenticated, not an error, since Phase 11 repos are created on demand on
+first push.
+
 ## Deviations
 
 Real friction points found while building against the actual `my-you-eye@0.4.0` npm
@@ -1355,3 +1412,82 @@ stack choices in this doc.
   test passes green with the lazy version, and the full committed e2e suite
   (`tests/e2e/share-*.spec.ts`) still passes — the three real entry points
   still probe reachability exactly when they need to.
+- **(Phase 11, real sync) dulwich requires the `thin-pack` capability by default;
+  isomorphic-git's `fetch()` never sends it — every real fetch/pull from the browser
+  client failed, silently.** Found during this phase's own manual verification (a
+  Node script exercising `git/remote.ts` against a live server): `git.fetch()`
+  resolved "successfully" (ref discovery/`fetchHead` worked fine — that's a separate
+  earlier request) but wrote ZERO pack objects locally, so the very next
+  `git.log`/`readObject` against the fetched oid threw `NotFoundError`. Root cause,
+  found by logging isomorphic-git's actual request and replaying it with `curl`:
+  `dulwich.server.UploadPackHandler.required_capabilities()` hardcodes `thin-pack` as
+  REQUIRED; isomorphic-git's want-line never includes it
+  (`multi_ack_detailed no-done side-band-64k ofs-delta` — confirmed by logging).
+  dulwich raises `GitProtocolError` for the missing capability, but only AFTER the
+  HTTP response already started (`200 OK` + real headers sent), so the failure is
+  invisible on the wire — a raw `curl` replay of the exact negotiation showed `200`,
+  `chunked` encoding, and a `0`-byte body, with the real traceback only visible in
+  server logs. `thin-pack` is a pure wire-optimization (server may omit base objects
+  the client is assumed to have; it is not required for correctness), so
+  `server/app/routers/git_http.py`'s `BrowserCompatibleUploadPackHandler` drops it
+  from the required set — dulwich now always sends a complete, non-thin pack, which
+  isomorphic-git parses fine; system `git` still requests `thin-pack` on its own and
+  is unaffected. Regression-locked by `server/tests/test_git_sync.py::
+  test_live_fetch_without_thin_pack_capability_returns_real_objects`, which replays
+  the exact thin-pack-less negotiation shape over raw HTTP and asserts a non-empty,
+  real-pack-magic response — confirmed to fail RED (the exact `GitProtocolError`
+  above) with the handler override removed, then GREEN with it restored.
+- **(Phase 11) `git.fetch()` refuses to run without a `remote.origin.fetch` git-config
+  entry, even when `url` is passed explicitly — and `git.fastForward()`'s own internal
+  re-fetch triggered a separate, real isomorphic-git bug.** First: `fetch()`'s
+  `GitRefManager.updateRemoteRefs` always reads `remote.${remote}.fetch` from the
+  repo's own config to know where to write remote-tracking refs, with no override in
+  the public API — passing `url` is enough for the network request but not enough to
+  satisfy that later step, so a repo that never had `git.addRemote()` called on it hit
+  `NoRefspecError` on its very first fetch. Fixed with `git/remote.ts::ensureOrigin`
+  — an idempotent `git.addRemote({remote: "origin", url, force: true})` at the top of
+  every `realFetch`, so a changed Settings URL always wins on the next sync. Second,
+  found immediately after fixing the first issue: `realPull`'s fast-forward step
+  originally called the library's own `git.fastForward()` (the obvious, "reuse proven
+  code" choice per CLAUDE.md rule 7) — but that helper always does its OWN internal
+  `_fetch` (see `_pull({..., fastForwardOnly: true})` in isomorphic-git's source),
+  which is both a redundant second network round-trip on top of the `realFetch` call
+  immediately before it AND, confirmed the hard way in the same manual verification
+  session, an outright bug trigger: the redundant fetch's own object negotiation left
+  the VERY NEXT `computeSyncStatus` call unable to find the commit object that same
+  fetch was supposed to have just written (`NotFoundError`, reproduced twice with two
+  different synthetic "someone else pushed" scenarios). Fixed by not calling
+  `git.fastForward()` at all: `realPull` already knows exactly which oid to
+  fast-forward to (the remote-tracking ref its OWN `realFetch` call just updated), so
+  it moves `refs/heads/<branch>` there directly (`git.writeRef`) and checks out
+  (`git.checkout({force: true})`) — no second fetch, bug sidestepped entirely. Both
+  fixes verified via standalone Node scripts driving `git/remote.ts` against a live
+  server (fake-indexeddb + real isomorphic-git, real HTTP to real uvicorn) covering:
+  bootstrap push into a nonexistent repo, fast-forward pull from a genuine
+  "teammate pushed" state (verified via a real second `git clone` + `git push` from
+  system git), divergence refusal in both directions, and auth/offline/not-configured
+  error mapping — then re-verified end to end via `tests/e2e/git-sync.spec.ts`
+  (Playwright driving a real browser) and `server/tests/test_git_sync.py` (pytest).
+- **(Phase 11) ASGI `root_path`/`path` convention: this project's installed Starlette
+  version does NOT pre-strip a mount's prefix off `scope["path"]`** — it follows the
+  ASGI spec literally (`path` stays the full original request path; `root_path`
+  is the prefix already consumed), which is the opposite of an older Starlette
+  convention some code examples assume. `git_http.py`'s `GitAuthMiddleware` initially
+  assumed a stripped `path` (matching `/{repo}.git/...` directly) and got a `404` for
+  every single request, mounted or not — confirmed by a one-off debug print of
+  `scope["path"]`/`scope["root_path"]` showing `/git/foo.git/info/refs` /
+  `/git` respectively. Fixed by stripping `root_path` off `path` explicitly inside the
+  middleware before matching `GIT_REQUEST_RE`; `a2wsgi.WSGIMiddleware` downstream
+  already handles this translation correctly on its own for the WSGI environ it
+  builds, so this only affected this middleware's OWN routing logic.
+- **(Phase 11) dulwich's `FileSystemBackend` was deliberately NOT used, even though it
+  looks like the obvious built-in for "serve bare repos from a directory".** Its
+  `open_repository` does `os.path.join(self.root, path)` where `path` (dulwich's own
+  `url_prefix()` output) always starts with a leading `/` — and `os.path.join` throws
+  away its first argument entirely whenever the second is itself absolute
+  (`os.path.join("/a/b/", "/c") == "/c"`, confirmed at a Python prompt before writing
+  around it — a real stdlib quirk, not a dulwich bug). Left alone, this would silently
+  ignore `SLATE_GIT_ROOT` and resolve every repo relative to the real filesystem root
+  instead. `gitrepo.py`'s `BareRepoBackend` does its own name extraction + validation
+  (`resolve_repo_path`, shared with the pre-push bare-init check) instead of trusting
+  that class — see that module's docstring for the full account.

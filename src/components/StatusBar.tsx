@@ -72,7 +72,11 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
   const cursor = activeTabMode === "source" || activeTabMode === "diff" ? (rawCursor ?? { line: 1, column: 1 }) : { line: 1, column: 1 };
 
   const syncedLabel = formatSyncedLabel(git.lastSyncedAt);
-  const syncLabelText = git.syncing ? `${git.syncing === "push" ? "pushing" : git.syncing === "pull" ? "pulling" : "syncing"}…` : syncedLabel;
+  const syncLabelText = git.syncing
+    ? `${git.syncing === "push" ? "pushing" : git.syncing === "pull" ? "pulling" : "syncing"}…`
+    : git.syncError
+      ? "sync failed"
+      : syncedLabel;
 
   return (
     <StatusBarShell
@@ -86,13 +90,20 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
           />
           <StatusBarItem
             label={`↑${git.ahead} ↓${git.behind}`}
-            tooltip="Ahead / behind remote — click to sync"
+            tooltip="Ahead / behind remote (real — see Settings → Git & Sync) — click to sync"
             onClick={onSync}
           />
           <StatusBarItem
-            icon={git.syncing ? <Spinner size="sm" aria-label="Syncing" /> : <Cloud size={12} />}
+            icon={
+              git.syncing ? (
+                <Spinner size="sm" aria-label="Syncing" />
+              ) : (
+                <Cloud size={12} color={git.syncError ? "var(--git-deleted)" : undefined} />
+              )
+            }
             label={syncLabelText}
-            tooltip="Click to sync now"
+            tooltip={git.syncError ?? "Click to sync now"}
+            tone={git.syncError ? "danger" : undefined}
             onClick={onSync}
           />
           <StatusBarItem label={<DiffStatChip added={git.diff.added} removed={git.diff.removed} />} />

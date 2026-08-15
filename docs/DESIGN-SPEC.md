@@ -212,11 +212,16 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
       per-file-type DEFAULT MODE (label it explicitly, e.g. "Default view when
       opening Markdown: Rendered | Source" — this is the setting that confused the
       user; name it "Default view mode", never just "mode").
-    - *Git & Sync*: branch/repo info (read-only), plus remote-URL and HTTPS
-      auth-token fields presented as "Remote sync — coming soon" placeholders
-      (disabled inputs, stored but unused). NO SSH-key management in v1: browsers
-      cannot speak SSH (no raw TCP); real sync will use HTTPS + token via
-      isomorphic-git, and SSH keys only become meaningful with the v2 backend.
+    - *Git & Sync*: branch/repo info (read-only, real ahead/behind), plus a
+      remote-URL and HTTPS auth-token field pair. **v1**: presented as
+      "Remote sync — coming soon" placeholders (disabled inputs, stored but
+      unused). **v2 Phase 11 (current)**: wired up for real — enabled
+      inputs, a "Generate token" action, and a "Test connection" action
+      reporting a real result; see `docs/ARCHITECTURE.md`'s "Real sync
+      (Phase 11)" section and `docs/IMPLEMENTATION-PLAN-V2.md`'s Phase 11.
+      NO SSH-key management, in v1 or v2: browsers cannot speak SSH (no raw
+      TCP) — sync uses HTTPS + token via isomorphic-git, against the v2
+      backend's `/git/*` smart-HTTP endpoint.
     - *Storage*: persistence status (storage.persist() result), Export vault as
       .zip, Reset demo vault.
     - *Keyboard*: read-only shortcut reference.

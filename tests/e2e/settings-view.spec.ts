@@ -116,20 +116,37 @@ test.describe("Settings view", () => {
     expect(after.lineHeight).not.toBe(before.lineHeight);
   });
 
-  test('Git & Sync shows read-only repo info and disabled "coming soon" remote-sync fields (no SSH key UI)', async ({ page }) => {
+  test("Git & Sync shows real repo info and a live, enabled remote-sync form (no SSH key UI)", async ({ page }) => {
     await gotoApp(page);
     await openSettingsTab(page);
     await page.getByTestId("settings-nav-git-sync").click();
 
     const repoInfo = page.getByTestId("settings-row-repo-info");
     await expect(repoInfo.getByText("feat/incremental-index")).toBeVisible();
-    await expect(repoInfo.getByText(/↑3 ↓1/)).toBeVisible();
+    // Phase 11 (real sync): a fresh vault that has never talked to a
+    // remote reports real ↑0 ↓0 — never the old simulated ↑3 ↓1 seed.
+    await expect(repoInfo.getByText(/↑0 ↓0/)).toBeVisible();
 
-    await expect(page.getByTestId("settings-row-remote-sync").getByText("Coming soon")).toBeVisible();
+    // No more "Coming soon" placeholder — the form is live.
+    await expect(page.getByTestId("settings-row-remote-sync").getByText("Coming soon")).toHaveCount(0);
     const remoteUrlInput = page.getByLabel("Remote URL");
-    await expect(remoteUrlInput).toBeDisabled();
+    await expect(remoteUrlInput).toBeEnabled();
+    // Defaults to the local backend's own git endpoint, not blank.
+    await expect(remoteUrlInput).toHaveValue(/127\.0\.0\.1:8787\/git\//);
     const tokenInput = page.getByLabel("Personal access token");
-    await expect(tokenInput).toBeDisabled();
+    await expect(tokenInput).toBeEnabled();
+    await expect(page.getByTestId("git-test-connection")).toBeVisible();
+
+    // CLAUDE.md rule 3 (backend-optional): this e2e run never starts a git
+    // backend on port 8787 (only the SEPARATE share backend on 8788 —
+    // `git-sync.spec.ts` covers the real, backend-up path) — so clicking
+    // "Test connection" against the real default URL exercises the actual
+    // "backend down" path for real, not a mock. Must degrade to a clear,
+    // specific message — never hang, never crash, never an unhandled
+    // rejection (this whole page would otherwise show a Playwright
+    // "pageerror" — there is none here because the test doesn't fail).
+    await page.getByTestId("git-test-connection").click();
+    await expect(page.getByTestId("git-test-result")).toHaveText(/could not reach|offline/i);
     // No SSH-key management anywhere in this category (DESIGN-SPEC
     // Amendments item 11: browsers can't speak SSH).
     await expect(page.getByText(/SSH key/i)).toHaveCount(0);

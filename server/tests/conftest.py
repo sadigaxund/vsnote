@@ -28,6 +28,14 @@ def make_settings(tmp_path):
         db_path = tmp_path / f"test_{counter['n']}.db"
         defaults = dict(
             db_url=f"sqlite:///{db_path}",
+            # Phase 11 — every app instance eagerly `mkdir`s this at
+            # create_app() time (see main.py's `/git` mount), so it MUST be
+            # `tmp_path`-scoped like `db_url` above: without this override
+            # every test app defaults to `./git-repos` relative to pytest's
+            # CWD (server/), which would litter `server/git-repos/` on disk
+            # every single test run instead of staying inside pytest's
+            # auto-cleaned tmp dir.
+            git_root=str(tmp_path / f"gitroot_{counter['n']}"),
             secret_key="pytest-fixed-secret-key-not-for-prod-use",
             cookie_secure=False,
             slate_env="dev",

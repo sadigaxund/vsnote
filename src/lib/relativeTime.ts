@@ -6,7 +6,10 @@
  * page reload — IMPLEMENTATION-PLAN.md Phase 5: "'synced Xm ago' relative
  * timestamp ticking").
  */
-export function formatSyncedLabel(lastSyncedAt: number, now: number = Date.now()): string {
+export function formatSyncedLabel(lastSyncedAt: number | null, now: number = Date.now()): string {
+  // Phase 11 (real sync) — `null` means "never synced yet" (a fresh vault
+  // with no persisted sync history), distinct from any real elapsed time.
+  if (lastSyncedAt === null) return "not synced yet";
   const deltaMs = Math.max(0, now - lastSyncedAt);
   const minutes = Math.floor(deltaMs / 60_000);
   if (minutes < 1) return "synced just now";

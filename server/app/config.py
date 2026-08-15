@@ -45,6 +45,16 @@ class Settings(BaseSettings):
 
     max_blob_bytes: int = Field(default=5 * 1024 * 1024, validation_alias="SLATE_MAX_BLOB_BYTES")
 
+    # Phase 11 (real sync) — where bare git repos live, one directory per
+    # repo name (`{SLATE_GIT_ROOT}/{repo}.git`), created on demand. Relative
+    # paths are resolved against the CWD the process is started from (same
+    # convention as `SLATE_DB_URL`'s sqlite path) — `npm run server` runs
+    # uvicorn with `--app-dir server`, so the default lands at
+    # `server/git-repos/`. See `app/gitrepo.py`'s module docstring for the
+    # path-safety contract every repo name is validated against before this
+    # setting is ever joined with user input.
+    git_root: str = Field(default="./git-repos", validation_alias="SLATE_GIT_ROOT")
+
     # slowapi/`limits`-syntax strings, e.g. "60/minute". Kept as plain
     # strings (not parsed here) so a Limiter can consume them directly.
     rate_limit_default: str = Field(default="120/minute", validation_alias="SLATE_RATE_LIMIT_DEFAULT")

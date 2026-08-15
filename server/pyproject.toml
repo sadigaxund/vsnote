@@ -12,6 +12,8 @@ dependencies = [
     "slowapi==0.1.10",
     "python-multipart==0.0.32",
     "pydantic-settings==2.15.0",
+    "dulwich==1.2.12",
+    "a2wsgi==1.10.10",
 ]
 
 [project.optional-dependencies]

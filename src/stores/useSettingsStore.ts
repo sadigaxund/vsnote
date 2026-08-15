@@ -70,6 +70,13 @@ export const DEFAULT_EDITOR_LINE_SPACING = 1.6;
 export const DEFAULT_RENDERED_CONTENT_WIDTH_CH = 54;
 export const DEFAULT_RENDERED_MARGIN_PX = 32;
 export const DEFAULT_RENDERED_LINE_SPACING = 1.8;
+/** Phase 11 (real sync) — the local backend's own `/git/{repo}.git`
+ * endpoint (`server/README.md`'s "Real git sync" section), matching
+ * `DEFAULT_SHARE_BACKEND_URL`'s `127.0.0.1:8787` convention. `vault` is an
+ * arbitrary but fixed repo name — the server creates it on demand on first
+ * push (`server/app/gitrepo.py::ensure_bare_repo`), so this default just
+ * needs to be *a* valid, stable name, not a pre-existing one. */
+export const DEFAULT_GIT_REMOTE_URL = "http://127.0.0.1:8787/git/vault.git";
 export const DEFAULT_SIDEBAR_WIDTH = 288;
 export const MIN_SIDEBAR_WIDTH = 180;
 /** DESIGN-SPEC Amendments round 3 item 20: dragging the sidebar's right
@@ -122,12 +129,17 @@ interface SettingsState {
    * stays collapsed across a reload. */
   sidebarCollapsed: boolean;
 
-  /** Git & Sync category — "Remote sync — coming soon" placeholders
-   * (DESIGN-SPEC Amendments item 11): stored so the fields aren't stateless
-   * dead controls, but the inputs themselves render `disabled` and nothing
-   * reads these for real sync (no v2 backend yet — see
-   * docs/ROADMAP-SHARING-AUTH.md). HTTPS + token only, deliberately no
-   * SSH-key field: browsers can't speak raw TCP/SSH. */
+  /** Git & Sync category (Phase 11 — real sync, DESIGN-SPEC Amendments item
+   * 11's original placeholders now wired up for real): `gitRemoteUrl`
+   * defaults to the local backend's own git endpoint
+   * (`DEFAULT_GIT_REMOTE_URL`) so a fresh install has a sensible starting
+   * point rather than an empty field; `gitAuthToken` has no sensible
+   * default (a Phase 9 API token, scoped `write` for push — mintable from
+   * this same Settings view's "Sharing" category once signed in, or via
+   * `POST /api/auth/tokens`). Both are read directly by
+   * `src/git/remote.ts`'s real push/pull/fetch (via `useGitStore`) — no
+   * longer stored-but-unused. HTTPS + token only, deliberately no SSH-key
+   * field: browsers can't speak raw TCP/SSH. */
   gitRemoteUrl: string;
   gitAuthToken: string;
 
@@ -180,7 +192,7 @@ export const useSettingsStore = create<SettingsState>()(
       renderedLineSpacing: DEFAULT_RENDERED_LINE_SPACING,
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       sidebarCollapsed: false,
-      gitRemoteUrl: "",
+      gitRemoteUrl: DEFAULT_GIT_REMOTE_URL,
       gitAuthToken: "",
       shareBackendUrl: DEFAULT_SHARE_BACKEND_URL,
       setTheme: (theme) => set({ theme }),
@@ -223,11 +235,23 @@ export const useSettingsStore = create<SettingsState>()(
       // other persisted field is untouched (zustand's `persist` merges the
       // migrated partial over the store's own defaults for anything this
       // function doesn't return).
-      version: 1,
+      //
+      // v2 (Phase 11): a pre-Phase-11 session's `gitRemoteUrl` was always
+      // `""` (the field was disabled/unused — see that field's doc above),
+      // never a real value a user typed. Carrying an empty string forward
+      // as-is would leave an upgraded session's now-ENABLED Remote URL
+      // field blank instead of landing on the new local-backend default —
+      // remap ONLY the untouched empty-string case, so a session that
+      // somehow already had a real value (there is no way to get one
+      // pre-Phase-11, but never say never) is left alone.
+      version: 2,
       migrate: (persisted, version) => {
-        const state = persisted as Partial<SettingsState> | undefined;
+        let state = persisted as Partial<SettingsState> | undefined;
         if (version < 1 && state?.uiDensity === "comfortable") {
-          return { ...state, uiDensity: "default" };
+          state = { ...state, uiDensity: "default" };
+        }
+        if (version < 2 && !state?.gitRemoteUrl) {
+          state = { ...state, gitRemoteUrl: DEFAULT_GIT_REMOTE_URL };
         }
         return state;
       },

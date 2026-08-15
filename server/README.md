@@ -1,10 +1,11 @@
-# Slate backend (Phase 9)
+# Slate backend (Phase 9 + Phase 11)
 
-FastAPI + SQLite backend providing sharing, auth, and (later, Phase 11) real
-git sync for the Slate SPA. Spec: `../docs/ROADMAP-SHARING-AUTH.md` (the
+FastAPI + SQLite backend providing sharing, auth (Phase 9), and real git sync
+(Phase 11) for the Slate SPA. Spec: `../docs/ROADMAP-SHARING-AUTH.md` (the
 security posture in §1 is binding) and `../docs/IMPLEMENTATION-PLAN-V2.md`'s
-"Phase 9" section. See `../docs/ARCHITECTURE.md`'s "Backend (v2)" section for
-how this maps onto the rest of the project's docs.
+"Phase 9"/"Phase 11" sections. See `../docs/ARCHITECTURE.md`'s "Backend (v2)"
+and "Real sync (Phase 11)" sections for how this maps onto the rest of the
+project's docs.
 
 The SPA (`src/`) must remain fully usable with this backend down — see
 CLAUDE.md rule 3. Nothing in this directory is required for `npm run dev`.
@@ -55,6 +56,69 @@ Env-driven, see `.env.example` for the full annotated list (loaded from
 | `SLATE_RATE_LIMIT_DEFAULT` / `_SHARE` / `_SHARE_AUTH` | `120/minute` / `60/minute` / `5/minute` | slowapi limit strings; `_SHARE_AUTH` is the brute-force throttle on `POST /share/{id}/auth` and `POST /api/auth/login` |
 | `SLATE_SESSION_TTL_MIN` | `30` | both the app session cookie and per-share password session cookie |
 | `SLATE_COOKIE_SECURE` | `True` | set `False` only to test over plain `http://` locally |
+| `SLATE_GIT_ROOT` | `./git-repos` | Phase 11 — where bare git repos live, `{root}/{repo}.git`, created on demand |
+
+## Real git sync (Phase 11)
+
+`/git/{repo}.git/...` serves a completely ordinary bare git repo per name over
+the git **smart-HTTP** protocol (`info/refs`, `git-upload-pack`,
+`git-receive-pack`) — `git clone`/`push`/`fetch`/`pull` all work against it
+with **any** git client, not just this app's isomorphic-git client. Built on
+[dulwich](https://www.dulwich.io/) (`dulwich.web.HTTPGitApplication`, a WSGI
+app) bridged into this app's ASGI stack with
+[`a2wsgi`](https://github.com/abersheeran/a2wsgi) (the non-deprecated
+replacement for `starlette.middleware.wsgi`, which the installed
+starlette/fastapi version still has but flags as deprecated).
+
+**Auth reuses the exact Phase 9 API tokens** (`security.hash_token`, the same
+`ApiToken` table) — no second token system. Git clients speak HTTP Basic
+(`Authorization: Basic base64(user:token)`, the token in either the password
+or username slot — both are tried) or `Authorization: Bearer <token>`. Scope
+enforcement: `read` (or higher) is enough for fetch/clone (`git-upload-pack`,
+including the `info/refs?service=git-upload-pack` advertisement);
+`write`/`share-admin` is required for push (`git-receive-pack` and its
+advertisement) — a `read`-scoped token attempting to push gets `403`. No
+token, or a token that doesn't resolve at all (unknown/revoked/expired), gets
+`401` with `WWW-Authenticate: Basic realm="slate-git"` so real git clients
+know to prompt/retry with credentials — this is a genuine auth challenge
+surface, unlike `/share/*`'s deliberate uniform-404 no-oracle posture (roadmap
+§1); the two are not the same kind of endpoint and are not held to the same
+response-shape rule.
+
+**Path safety**: the repo name is user input straight off the URL. It's
+validated against `^[A-Za-z0-9_-]{1,64}$` (`app/gitrepo.py::REPO_NAME_RE`)
+*before* ever being joined onto a filesystem path — that alone makes `..` and
+`/` structurally unrepresentable in a valid name — plus a second check that
+the resolved path is still inside `SLATE_GIT_ROOT`, in case `SLATE_GIT_ROOT`
+itself is ever misconfigured. See `app/gitrepo.py`'s module docstring for why
+this is a bespoke `Backend` rather than dulwich's own
+`FileSystemBackend` (that class's `open_repository` silently ignores its own
+`root` whenever the derived path is absolute — a real `os.path.join` quirk,
+confirmed by hand against dulwich 1.2.12 before writing around it).
+
+**Repos are created on demand** — bare, empty, HEAD pointed at this app's own
+default branch name (`feat/incremental-index` — see `client.ts`'s
+`DEFAULT_BRANCH`) — the first time an authorized WRITE request touches a name
+that doesn't exist yet. A read-only request against a repo that was never
+pushed to gets a normal
+`404` (dulwich's own "no such repo" response) — nothing is auto-created for
+reads.
+
+**CORS** is enabled on `/git/*` (unlike `/share/*`, which deliberately has
+none) — browser isomorphic-git needs it: `Authorization` is a non-simple
+header and the upload-pack/receive-pack request bodies use non-simple content
+types, so the browser preflights with `OPTIONS` before every real request.
+Locked to `SLATE_CORS_ORIGINS` (never a wildcard), same list `/api` uses, via
+its own `CORSMiddleware` instance — `/share/*`'s zero-CORS posture is
+untouched.
+
+**Fast-forward-only is enforced client-side**, not here: this server has no
+opinion about non-fast-forward pushes at the protocol level (plain dulwich
+`receive-pack` doesn't reject them the way e.g. GitHub's `receive.
+denyNonFastforwards` policy would). The Slate client (`src/git/remote.ts`)
+refuses to attempt a push at all once it detects local/remote have diverged —
+see `docs/ARCHITECTURE.md`'s "Real sync (Phase 11)" section for the exact
+policy and how it's surfaced in the UI.
 
 ## Data model, policy gate, auth model
 

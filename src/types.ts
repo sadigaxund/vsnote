@@ -80,14 +80,22 @@ export interface DiffStat {
 
 export interface GitSummary {
   branch: string;
+  /** Real ahead/behind, from actual refs (Phase 11 — see
+   * `useGitStore`/`git/remote.ts`'s docs) — never a simulated counter. */
   ahead: number;
   behind: number;
-  /** Epoch ms of the last successful sync — `StatusBar.tsx` formats +
-   * ticks this into "synced Xm ago" itself (see `useGitStore`'s doc). */
-  lastSyncedAt: number;
-  /** Which simulated-remote operation (if any) is in flight — drives the
-   * status bar's syncing spinner. */
+  /** Epoch ms of the last successful sync, or `null` if this vault has
+   * never synced with a remote yet — `StatusBar.tsx` formats + ticks this
+   * into "synced Xm ago" / "not synced yet" itself (see `useGitStore`'s
+   * doc). */
+  lastSyncedAt: number | null;
+  /** Which sync operation (if any) is in flight — drives the status bar's
+   * syncing spinner. */
   syncing: false | "push" | "pull" | "fetch";
+  /** The most recent sync failure's message, or `null` — see
+   * `useGitStore`'s doc. `StatusBar.tsx` surfaces this via its sync
+   * segment's tooltip/tone instead of a spinner once a sync has failed. */
+  syncError: string | null;
   diff: DiffStat;
   untracked: number;
   changedCount: number;

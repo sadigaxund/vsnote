@@ -131,6 +131,19 @@ export interface ShareContentOut {
   hit_count: number;
 }
 
+export interface TokenCreateOut {
+  id: number;
+  name: string;
+  prefix: string;
+  scope: string;
+  /** The plaintext secret — returned ONLY here, at creation time (the
+   * server never stores or re-serves it — `server/app/security.py::
+   * hash_token`). Callers must show/copy it immediately. */
+  token: string;
+  created_at: number;
+  expires_at?: number | null;
+}
+
 export class ShareApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -237,6 +250,25 @@ export async function regenerateShare(baseUrl: string, id: number): Promise<Shar
     credentials: "include",
   });
   return parseJsonOrThrow<ShareOut>(res);
+}
+
+/** `POST /api/auth/tokens` — mints a new scoped API token for the
+ * currently-authenticated owner (session cookie, `credentials: "include"`
+ * — same pattern as every other owner-side call here). Used by Settings →
+ * "Git & Sync"'s "Generate token" action (Phase 11) as a real, in-app way
+ * to get a `write`-scoped token for `gitAuthToken` without leaving the
+ * app — the same token model `/git/*` (Phase 11) and `/api/shares` (Phase
+ * 9) both already authenticate with, never a second token system. */
+export type ApiTokenScope = "read" | "write" | "share-admin";
+
+export async function createApiToken(baseUrl: string, name: string, scope: ApiTokenScope): Promise<TokenCreateOut> {
+  const res = await fetch(`${trimBase(baseUrl)}/api/auth/tokens`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, scope }),
+  });
+  return parseJsonOrThrow<TokenCreateOut>(res);
 }
 
 export async function deleteShare(baseUrl: string, id: number): Promise<void> {

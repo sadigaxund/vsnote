@@ -47,6 +47,15 @@
  * the SAME process that spawned the backend (in-memory `handle` is used),
  * or called cold from `globalTeardown.ts` (falls back to reading that file).
  * Either path kills EXACTLY that one PID — never a broad `pkill`/`killall`.
+ *
+ * Phase 11 (real sync) — `git-sync.spec.ts` reuses this EXACT backend
+ * instance (same port 8788, same process) rather than spawning a second
+ * one: it's the same `app.main:app` FastAPI app, which now also serves
+ * `/git/*` (Phase 11's router) alongside `/api`/`/share`, so there's
+ * nothing extra to start. `SLATE_GIT_ROOT` below points bare repos at a
+ * subdirectory of this fixture's own `dbDir`, so they're created fresh and
+ * cleaned up by the exact same `rmSync(dbDir, ...)` call the sqlite file
+ * already relied on — no separate teardown path to maintain.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -138,6 +147,9 @@ export async function startShareBackend(): Promise<void> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     SLATE_DB_URL: dbUrl,
+    // Phase 11 — see module docstring. tmp_path-scoped alongside the sqlite
+    // file, so it's cleaned up by this fixture's own `rmSync(dbDir, ...)`.
+    SLATE_GIT_ROOT: path.join(dbDir, "git-repos"),
     SLATE_COOKIE_SECURE: "false",
     SLATE_ENV: "dev",
     SLATE_SECRET_KEY: "e2e-fixed-secret-key-not-for-prod-use",

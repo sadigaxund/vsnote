@@ -5,8 +5,9 @@
  * Commit button (a real commit via `git/commit.ts`'s `commitAll`, then
  * `useGitStore.refresh()` — the same refresh every other file op already
  * calls, so the tree letters/badge/chip/status-bar all clear together, not
- * through a separate code path), and push/pull buttons driving the
- * simulated remote (`git/remote.ts`, already wired into `useGitStore`).
+ * through a separate code path), and push/pull buttons driving the REAL
+ * remote (Phase 11 — `git/remote.ts`'s `realPush`/`realPull` over
+ * isomorphic-git + smart-HTTP, wired into `useGitStore`).
  *
  * Renders inside the shared `local/SidebarContainer` region shell (DESIGN-
  * SPEC Amendments round 3 item 20's course-correction — see that file's
@@ -16,7 +17,7 @@
  * the shared `lib/gitStatusColor` map (also used by `ExplorerTree`).
  */
 import { useState } from "react";
-import { Button, ScrollArea, Textarea, Tooltip } from "my-you-eye";
+import { Button, ScrollArea, Textarea, Tooltip, useToast } from "my-you-eye";
 import { ArrowDownToLine, ArrowUpFromLine, GitCommitHorizontal } from "lucide-react";
 import { FileIcon } from "./local/FileIcon";
 import { SidebarContainer } from "./local/SidebarContainer";
@@ -41,8 +42,30 @@ export function SourceControlPanel({ onOpenDiff, width, onWidthChange, collapsed
   const syncing = useGitStore((s) => s.syncing);
   const [message, setMessage] = useState("");
   const [committing, setCommitting] = useState(false);
+  const { toast } = useToast();
 
   const files = Object.entries(statuses).sort(([a], [b]) => a.localeCompare(b));
+
+  // Phase 11 (real sync) — Pull/Push here call the SAME `useGitStore`
+  // actions the status bar's sync segment does, but as direct one-shot
+  // buttons rather than through `App.tsx`'s `handleSyncNow` — so this
+  // panel needs its own honest failure surface (a toast) instead of
+  // silently relying on someone else clicking the status bar next. Every
+  // sync action already guarantees `syncing` clears and `syncError` is set
+  // on failure (see `useGitStore`'s doc) — this just reads that back.
+  async function handleSyncAction(kind: "pull" | "push") {
+    await useGitStore.getState()[kind]();
+    const { syncError, ahead: aheadNow, behind: behindNow } = useGitStore.getState();
+    if (syncError) {
+      toast({ title: kind === "pull" ? "Pull failed" : "Push failed", description: syncError, variant: "danger" });
+      return;
+    }
+    toast({
+      title: kind === "pull" ? "Pulled from remote" : "Pushed to remote",
+      description: `↑${aheadNow} ↓${behindNow}`,
+      variant: "success",
+    });
+  }
 
   async function handleCommit() {
     const trimmed = message.trim();
@@ -70,7 +93,7 @@ export function SourceControlPanel({ onOpenDiff, width, onWidthChange, collapsed
               size="icon-sm"
               aria-label="Pull"
               disabled={!!syncing}
-              onClick={() => void useGitStore.getState().pull()}
+              onClick={() => void handleSyncAction("pull")}
               style={{ width: 22, height: 22, color: "var(--color-muted)" }}
             >
               <ArrowDownToLine size={14} />
@@ -83,7 +106,7 @@ export function SourceControlPanel({ onOpenDiff, width, onWidthChange, collapsed
               size="icon-sm"
               aria-label="Push"
               disabled={!!syncing}
-              onClick={() => void useGitStore.getState().push()}
+              onClick={() => void handleSyncAction("push")}
               style={{ width: 22, height: 22, color: "var(--color-muted)" }}
             >
               <ArrowUpFromLine size={14} />

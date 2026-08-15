@@ -38,6 +38,7 @@ from .auth import JWKSFetcher, build_auth_deps
 from .config import Settings, resolve_secret_key
 from .db import Base, make_engine, make_sessionmaker
 from .routers import auth as auth_router
+from .routers import git_http as git_http_router
 from .routers import share_public as share_public_router
 from .routers import shares as shares_router
 
@@ -71,6 +72,15 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
     app.include_router(share_public_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
+
+    # Phase 11 (real sync) — bare git repos over smart-HTTP, `/git/{repo}.git/...`.
+    # Mounted on the ROOT app (alongside `/share/*`) but with its OWN CORS
+    # middleware (see `git_http.build_git_app`'s docstring) — `/share/*`
+    # itself stays exactly as CORS-less as before; this is a sibling mount,
+    # not a change to the app-wide middleware stack. Auth is Phase 9 API
+    # tokens (Basic/Bearer), never cookies/CF-Access, so it doesn't need
+    # `allow_credentials`.
+    app.mount("/git", git_http_router.build_git_app(settings, SessionLocal))
 
     # --- /api sub-app: CORS-enabled -------------------------------------
     api_app = FastAPI(title="Slate API")
