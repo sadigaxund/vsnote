@@ -1,7 +1,9 @@
-# Roadmap v2 — sharing, auth, backend (QUEUED — do not build yet)
+# Roadmap v2 — sharing, auth, backend
 
-Status: requirements captured 2026-08-15. Nothing here is part of phases 1–5.
-v1 ships fully client-side. This doc exists so v2 starts from an agreed spec.
+Status: requirements captured 2026-08-15; v2 approved and IN SCOPE the same day
+(see `docs/IMPLEMENTATION-PLAN-V2.md`). §5 records the second round of user
+decisions (folder shares, sync merge policy, commit templates) — it amends and
+overrides earlier sections where they touch the same topic.
 
 ## 1. Publish/share a file
 
@@ -109,3 +111,70 @@ templates, saved searches, quick capture / web clipper. Do not build.
   `git clone` of the sync remote must remain fully readable without the app.
   Never introduce vault-at-rest encryption (git-crypt/age or similar); it breaks
   the "files are accessible without the app" guarantee the owner requires.
+
+## 5. Amendments 2026-08-15 (evening) — user decisions round 2
+
+### 5.1 Folder ("group") shares — approved
+- Publishing a **folder** creates ONE share with ONE opaque slug:
+  `/share/<slug>/` is the subtree root, and files resolve at their vault-relative
+  paths beneath it (`/share/<slug>/notes/queue.md`). NEVER expose real vault
+  paths at the URL root (no `share/group/<real-path>` scheme — leaks vault
+  structure, guessable). Custom alias remains available, same rules as files.
+- **One policy per share, covering the whole subtree** (user decision): password /
+  expiry / role / revoke apply uniformly; there are NO per-file auth overrides
+  inside a folder share. A file needing different auth gets its own separate
+  share. This keeps the single deny-by-default gate from §1 intact — the gate
+  evaluates the slug's policy once, then resolves the relative path *within that
+  share's snapshot manifest only*. Paths not in the manifest → the same
+  indistinguishable 404 as a missing slug.
+- **Name exposure**: file/dir names inside the shared subtree are visible by
+  design (they are the navigation). The control is at publish time: the publish
+  dialog shows the subtree as a checkbox tree and the owner **excludes** entries;
+  excluded entries are absent from the snapshot manifest (not hidden — absent).
+  Nothing outside the subtree is ever reachable.
+- **Visitor UI** (user decision: "slim, tree + content, no README logic"): a
+  read-only reader page — slim file tree left, rendered/raw content right, no
+  shell chrome. Folder URLs show a plain file listing; `README.md` gets NO
+  special landing treatment. Raw mode per file follows §1 rules unchanged
+  (`text/plain` + nosniff).
+- **Snapshot semantics** identical to single-file shares: publish pins a
+  content-addressed snapshot of the subtree (blob per file + one manifest);
+  "Update share" republishes to the same slug.
+- Owner-side affordances: shares (file and folder) get a **tree indicator** in
+  the explorer (link glyph, right-aligned like git letters; muted inherited
+  variant on files inside a shared folder; tooltip = link + policy + hits;
+  context menu: copy link / manage) and appear in the **Shared registry view**
+  (activity bar; also linked from Settings).
+
+### 5.2 Real-sync merge policy — approved (replaces "refuse + explain" as v2.0 final)
+User verdict: refuse-only "makes the app useless". Requirements: never lose
+changes, never add friction. Policy, in order:
+- **Sync pipeline** (one button): fetch → purely behind ⇒ fast-forward → purely
+  ahead ⇒ push → diverged ⇒ auto-merge (below). Periodic background fetch
+  (~60s while the backend is reachable) keeps real ahead/behind counters —
+  replaces the v1 simulated drift.
+- **Backup ref before any merge/pull mutation**: tag local HEAD as
+  `refs/backup/pre-sync-<timestamp>` (keep last 5). Recovery is structural,
+  not hopeful.
+- **Auto-merge**: three-way from the merge base; remote-only-changed files take
+  remote, local-only keep local, both-changed get content-level diff3
+  (isomorphic-git `merge`). Clean result ⇒ merge commit (template, §5.3) ⇒ push.
+- **True conflicts** (same lines changed both sides) open an in-app resolver
+  built on the existing `@codemirror/merge` stack: per-file "take mine / take
+  theirs / keep both" + per-chunk accept. Nothing is pushed or discarded until
+  resolved.
+- **Never force-push**; the server's bare repo rejects non-fast-forward pushes
+  as the backstop. Whole-branch, single-branch sync (user accepts: no per-file
+  sync granularity; access = repo-level via write-scoped API token).
+
+### 5.3 Commit message template — approved
+Settings → Git & Sync: `Default commit message`, a template string, default
+`Synced from {device}: {timestamp}`. Variables:
+- `{device}` — a device-name **setting** (browsers cannot read the hostname),
+  auto-defaulted from UA (e.g. `chrome-linux`), user-editable.
+- `{timestamp}` — local `YYYY-MM-DD HH:mm`; also `{date}` and `{time}` parts.
+- `{files}` — `"N files"`, or the single filename when one file changed.
+- `{branch}` — current branch name.
+Used to prefill the Source Control commit box (editable per-commit) and by
+one-click Sync auto-commits and merge commits. Unknown `{vars}` pass through
+literally (no errors).

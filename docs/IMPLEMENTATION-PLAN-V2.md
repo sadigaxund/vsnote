@@ -64,20 +64,53 @@ Exit: every item demonstrable; suite green; visual pass.
 - Exit: e2e spec (server spawned in test fixture): publish→open in second browser
   context→revoke→404; UI states verified.
 
-## Phase 11 — Real remote sync
+## Phase 10.5 — Folder ("group") shares  [added 2026-08-15 evening, roadmap §5.1]
+- Server: share records gain a kind (file|folder); folder shares store a snapshot
+  manifest (relative path → content-addressed blob). `/share/<slug>/<relpath>`
+  resolves ONLY within the manifest; unknown relpath → the same indistinguishable
+  404 as a missing slug, through the same single policy gate. ONE policy per
+  share for the whole subtree — no per-file auth overrides (user decision).
+- Publish dialog on a folder: checkbox tree of the subtree with per-entry
+  exclusion; excluded entries are absent from the manifest. Same policy controls
+  as file shares (access, expiry, password, alias, revoke); "Update share"
+  republishes the subtree to the same slug.
+- Visitor reader page (user decision: slim): read-only tree left + content right,
+  no shell chrome, no README special-casing — folder URLs show a plain listing.
+  Raw mode per file unchanged (`text/plain` + nosniff).
+- Owner UI: explorer tree share indicator (link glyph like git letters; muted
+  inherited variant inside shared folders; tooltip link+policy+hits; context
+  menu copy/manage) and folder shares listed in the Shared registry view.
+- pytest: manifest path resolution matrix (in-manifest, excluded, traversal
+  attempts `..`/absolute/encoded, unknown) all deny paths byte-identical to the
+  Phase 9 fingerprint. E2e: publish folder → browse tree in second context →
+  excluded file 404s → revoke → subtree 404s.
+- Exit: gates green; oracle equivalence holds with the new routes included.
+
+## Phase 11 — Real remote sync  [merge policy amended 2026-08-15 evening, roadmap §5.2–5.3]
 - Server hosts bare git repos (pygit2 or dulwich) exposed over smart-HTTP,
   authenticated with the Phase 9 API tokens; client uses isomorphic-git
   push/pull/fetch against it (roadmap §3 option b).
 - Settings Git & Sync section goes live: remote URL (default = local server),
-  token field, "Test connection". Status-bar sync becomes real: real ahead/behind
-  from refs, push/pull actions, conflicts surfaced honestly (fast-forward only in
-  v2.0 — refuse + explain on divergence).
+  token field, "Test connection", device name + default commit message template
+  per roadmap §5.3 (`{device}` `{timestamp}` `{date}` `{time}` `{files}`
+  `{branch}`; prefills commit box; used by Sync auto-commits and merge commits).
+- Sync pipeline per roadmap §5.2: fetch → fast-forward when purely behind →
+  push when purely ahead → on divergence auto-merge (backup ref
+  `refs/backup/pre-sync-<ts>` first, keep 5; three-way with diff3; clean ⇒
+  merge commit ⇒ push). True conflicts open the @codemirror/merge-based
+  resolver (take mine / take theirs / keep both, per-chunk accept); nothing
+  pushed or discarded until resolved. NEVER force-push; server rejects
+  non-fast-forward as backstop. Periodic fetch (~60s) drives real ahead/behind;
+  the simulated drift in `src/git/remote.ts` is deleted.
 - "Real sync isn't wired up yet" placeholder removed everywhere.
 - Exit: e2e: edit→commit→push; clone the bare repo with system git and see the
-  commit; pull side works; token-less push rejected.
+  commit; pull side works; token-less push rejected; divergence with disjoint
+  file edits auto-merges and pushes; same-line conflict opens the resolver and
+  resolving pushes a merge commit; backup ref exists afterwards.
 
 ## Sequencing & ownership
-8 → 9 → 10 → 11, strictly sequential, same orchestrator/worker pattern as v1.
+8 → 9 → 10 → 10.5 → 11, strictly sequential, same orchestrator/worker pattern
+as v1.
 Python work needs a venv under `server/.venv` (never global installs).
 Deployment (Cloudflare, domains) stays out of scope — local uvicorn only, with a
 `server/README.md` section sketching the intended CF Access production topology.
