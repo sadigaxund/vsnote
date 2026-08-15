@@ -1,14 +1,21 @@
-# Slate backend (Phase 9 + Phase 11)
+# Slate backend (Phase 9 + Phase 10.5a + Phase 11)
 
 FastAPI + SQLite backend providing sharing, auth (Phase 9), and real git sync
-(Phase 11) for the Slate SPA. Spec: `../docs/ROADMAP-SHARING-AUTH.md` (the
-security posture in §1 is binding) and `../docs/IMPLEMENTATION-PLAN-V2.md`'s
-"Phase 9"/"Phase 11" sections. See `../docs/ARCHITECTURE.md`'s "Backend (v2)"
-and "Real sync (Phase 11)" sections for how this maps onto the rest of the
-project's docs.
+(Phase 11) for the Slate SPA — and, as of Phase 10.5a's single-origin
+refactor (`../docs/ROADMAP-SHARING-AUTH.md` §5.4), the SPA's own web server.
+Spec: `../docs/ROADMAP-SHARING-AUTH.md` (the security posture in §1 is
+binding) and `../docs/IMPLEMENTATION-PLAN-V2.md`'s "Phase 9"/"Phase
+10.5"/"Phase 11" sections. See `../docs/ARCHITECTURE.md`'s "Backend (v2)",
+"Single-origin deployment (Phase 10.5a)", and "Real sync (Phase 11)"
+sections for how this maps onto the rest of the project's docs.
 
-The SPA (`src/`) must remain fully usable with this backend down — see
-CLAUDE.md rule 3. Nothing in this directory is required for `npm run dev`.
+The SPA (`src/`) must remain fully usable with this backend down IF it's
+already loaded or PWA-installed — see CLAUDE.md rule 3 (amended for Phase
+10.5a: since this process is now also the SPA's web server, a *cold*
+uncached load genuinely needs it running; share/sync affordances always
+degrade gracefully, and the SPA bundle itself never requires the API to
+boot, render, or edit). `npm run dev`/`npm run build` never need this
+directory.
 
 ## Running it
 
@@ -16,14 +23,38 @@ CLAUDE.md rule 3. Nothing in this directory is required for `npm run dev`.
 python3 -m venv server/.venv
 server/.venv/bin/pip install -r server/requirements.txt
 cp server/.env.example server/.env   # optional — sane defaults without it
+npm run build                         # from the repo root — builds dist/ for this server to serve
 npm run server                        # from the repo root
 ```
 
 `npm run server` runs:
 
 ```sh
-server/.venv/bin/python -m uvicorn app.main:app --reload --port 8787 --app-dir server
+server/.venv/bin/python -m uvicorn app.main:app --reload --port 8787 --app-dir server \
+  --proxy-headers --forwarded-allow-ips='*'
 ```
+
+`--proxy-headers --forwarded-allow-ips='*'` (Phase 10.5a, roadmap §5.4):
+trusts `X-Forwarded-Proto`/`X-Forwarded-Host` from whatever's in front of
+this process (a Cloudflare tunnel, in the intended deployment — see
+"Single-origin deployment" below) so anything this app ever derives from the
+request's scheme/host reflects the real external `https://` origin, not
+`http://127.0.0.1:8787`. `forwarded-allow-ips='*'` (rather than uvicorn's
+default, which only trusts `127.0.0.1`) is a deliberate, local-single-host
+choice: a tunnel client can connect from a container/bridge IP that isn't
+literally `127.0.0.1` depending on how it's run, and this process has no
+other untrusted network path in front of it to worry about spoofing from.
+
+Serves three things from one process/port, single-origin:
+- `/api/*`, `/share/*`, `/git/*` — the JSON/policy/git APIs (unchanged
+  contracts, see below).
+- Everything else — the built SPA (`../dist/`, i.e. `npm run build`'s
+  output): static assets at their real paths, an SPA fallback to
+  `index.html` for anything else GET, `text/html`. Missing `dist/` (no
+  build yet) degrades to a one-line startup log + a plain 404 there, never a
+  crash — the API surfaces stay fully usable regardless (see `main.py`'s
+  "Single-origin SPA serving" doc for the exact route-ordering argument for
+  why this can never swallow an `/api/*`/`/share/*`/`/git/*` 404).
 
 Interactive API docs: `http://127.0.0.1:8787/docs` (owner/`/api` routes only
 — `/share/*` isn't a documented-schema surface on purpose, it's raw/JSON
@@ -49,7 +80,6 @@ Env-driven, see `.env.example` for the full annotated list (loaded from
 |---|---|---|
 | `SLATE_DB_URL` | `sqlite:///./slate.db` | SQLAlchemy URL |
 | `SLATE_SECRET_KEY` | *(none)* | **Required** when `SLATE_ENV=prod`; auto-generated ephemeral + loud warning in dev |
-| `SLATE_CORS_ORIGINS` | `http://127.0.0.1:5290,http://localhost:5290` | `/api/*` only, never `/share/*`, never a wildcard |
 | `SLATE_PORT` | `8787` | reserved for this backend across the project — never 5173/5174/8000/5290 |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | *(unset)* | leaving these unset disables the Cf-Access path entirely (not an implicit allow) |
 | `SLATE_MAX_BLOB_BYTES` | `5242880` (5 MiB) | `POST /api/blobs` and `PUT /share/{id}` both enforce this → 413 |
@@ -104,13 +134,12 @@ pushed to gets a normal
 `404` (dulwich's own "no such repo" response) — nothing is auto-created for
 reads.
 
-**CORS** is enabled on `/git/*` (unlike `/share/*`, which deliberately has
-none) — browser isomorphic-git needs it: `Authorization` is a non-simple
-header and the upload-pack/receive-pack request bodies use non-simple content
-types, so the browser preflights with `OPTIONS` before every real request.
-Locked to `SLATE_CORS_ORIGINS` (never a wildcard), same list `/api` uses, via
-its own `CORSMiddleware` instance — `/share/*`'s zero-CORS posture is
-untouched.
+**No CORS** on `/git/*` (Phase 10.5a, roadmap §5.4) — same as `/api` and
+`/share/*`. The browser's own isomorphic-git client now talks to this
+same-origin (the sync remote is implicitly `<origin>/git/vault.git`), so it
+never needs a cross-origin preflight; external git clients (system `git`,
+scripts) were never same-origin browser `fetch()` calls in the first place
+and never needed CORS headers to read a response.
 
 **Fast-forward-only is enforced client-side**, not here: this server has no
 opinion about non-fast-forward pushes at the protocol level (plain dulwich
@@ -132,8 +161,8 @@ cookies, constant-time compares).
 
 ## Public share contract (for the Phase 10 client)
 
-`GET /share/{identifier}` (mounted on the root app, **no CORS** — see
-below) content-negotiates:
+`GET /share/{identifier}` (mounted on the root app, **no CORS**)
+content-negotiates:
 
 - **Default (no special `Accept`)**: raw bytes of the pinned blob.
   `Content-Type: text/plain; charset=utf-8` **always**, regardless of the
@@ -142,7 +171,19 @@ below) content-negotiates:
   `Content-Security-Policy`, `Content-Disposition: inline`. This is true
   for BOTH `render_mode="raw"` and `render_mode="rendered"` shares —
   `render_mode` is metadata the client uses to decide how to *display* the
-  content, not something this endpoint enforces on the wire format.
+  content, not something this endpoint enforces on the wire format. The one
+  exception (Phase 10.5a, roadmap §5.4): a real browser navigation
+  (`Accept: text/html`) instead gets the built SPA's `index.html` — for a
+  `render_mode="rendered"` file share, ANY folder share, AND every DENIED
+  request (bogus/revoked/expired/restricted/password-required/unresolvable
+  relpath — see "Every deny reason is the SAME 404" below: this is a
+  navigation-level widening of that section, not an exception to it, since
+  the shell bytes returned are identical across every one of those reasons
+  and carry no information about which one applied). The SPA then
+  re-fetches this exact content itself via the JSON branch below, which
+  makes the real access decision. RAW-mode file shares are excluded from
+  the HTML-shell branch entirely — they always get raw bytes, browser or
+  not (never `text/html`, full stop).
 - **`Accept: application/json`**: returns the `ShareContentOut` JSON
   contract (see `app/schemas.py`) — `slug`, `alias`, `source_path`,
   `render_mode`, `media_type_hint`, `blob_id`, `size`, `live`, `content`
@@ -152,13 +193,15 @@ below) content-negotiates:
   into an HTML document itself.
 
 `GET /api/share/{identifier}/content` — **the same JSON contract**, always
-(no content negotiation needed), but mounted under the CORS-enabled `/api`
-sub-app instead of the root app. Use this one from the SPA's rendered-share
-page (Phase 10) so a cross-origin `fetch(..., {credentials: "include"})`
-from `http://127.0.0.1:5290` actually gets `Access-Control-Allow-Origin`
-back. Both routes go through the exact same policy gate
-(`app/policy.py::resolve_share`) — same denial shape, same audit trail —
-the only difference is CORS eligibility.
+(no content negotiation needed), mounted under `/api` instead of the root
+app. Both routes go through the exact same policy gate
+(`app/policy.py::resolve_share`) — same denial shape, same audit trail.
+Pre-Phase-10.5a this was the CORS-enabled twin route for a genuinely
+cross-origin SPA deployment; single-origin (roadmap §5.4) made that
+scenario out of scope for now, so today this is just a second, equally
+valid path to the same JSON — `share/ShareApp.tsx` uses the root route's own
+`Accept: application/json` branch instead (a same-origin, relative fetch
+either way).
 
 `POST /share/{identifier}/auth` — `{"password": "..."}` → `200 {"ok": true}`
 + sets a signed, `HttpOnly`/`Secure`/`SameSite=Lax` session cookie scoped to
@@ -192,6 +235,18 @@ docstring, `tests/test_folder_shares.py`, and `docs/ARCHITECTURE.md`'s
 "Folder shares (Phase 10.5)" section.
 
 ### Every deny reason is the SAME 404 — read this before building the share page
+
+**Phase 10.5a scoping note**: this section describes the JSON contract — every
+claim below holds exactly as written for `Accept: application/json` (or no
+`Accept` header at all). A real BROWSER NAVIGATION (`Accept: text/html`) to
+`GET /share/{id}[/{relpath}]` gets the built SPA's `index.html` instead, for
+every deny reason listed below AND for a successful rendered-mode/folder
+share alike — see "Public share contract" above's first bullet and
+`docs/ARCHITECTURE.md`'s "Single-origin deployment (Phase 10.5a)" section for
+why that's a widening of this section's own uniformity guarantee (one MORE
+class collapsed into the identical shell), not an exception to it. The SPA
+then re-fetches the identical URL with `Accept: application/json`, which is
+exactly the request/response pair everything below describes.
 
 **There is exactly one deny response, for every GET/HEAD/PUT/PATCH request to
 either `/share/{id}` or `/api/share/{id}/content`, for every reason:**
@@ -242,12 +297,46 @@ the rendered-share page to reflect that directly:
   distinguish these, since the caller is already proven to be the owner) —
   not a change to the public endpoint's response shape.
 
+## Single-origin deployment (Phase 10.5a, roadmap §5.4)
+
+Front + back ship as ONE origin: this process serves the built SPA
+alongside `/api`, `/share/*`, `/git/*` (see "Running it" above). The owner
+reaches it from outside `localhost` via a Cloudflare **tunnel** (`cloudflared`,
+a reverse proxy — a different thing from Cloudflare *Access*, the SSO layer
+described below; a tunnel can run with or without Access in front of it).
+Reachability itself is the owner's concern, config-only, outside this repo —
+this backend's job is to work flawlessly BEHIND that proxy:
+
+- **No settable/configurable origin anywhere.** Every client call
+  (`src/share/api.ts`, `src/git/remote.ts`) is relative to
+  `window.location.origin` — no `baseUrl` parameter, no Settings field for
+  one. There is nothing to misconfigure into pointing at the wrong host.
+- **`--proxy-headers --forwarded-allow-ips='*'`** (see "Running it" above) —
+  uvicorn trusts `X-Forwarded-Proto`/`X-Forwarded-Host` from the tunnel, so
+  `request.url.scheme`/`.hostname` (and anything derived from them) reflect
+  the real external `https://slate.example.com`, never the local
+  `http://127.0.0.1:8787` this process actually binds.
+- **Cookies**: `Secure` (gated by `SLATE_COOKIE_SECURE`, default `True`) +
+  `SameSite=Lax` on both the app session cookie (`app/routers/auth.py`) and
+  the per-share password session cookie (`app/routers/share_public.py`) —
+  set `SLATE_COOKIE_SECURE=False` ONLY for plain-`http://localhost` dev, per
+  `.env.example`'s doc. The share session cookie keeps its
+  `Path=/share/<slug>` scoping (unchanged by this phase — see "Public share
+  contract" above).
+- **No mixed content**: everything (API, share, git, static assets) is
+  same-origin and same-scheme as the page itself by construction — there is
+  no second host/port for a browser to flag.
+- **PWA/service worker**: unaffected by any of the above — it precaches the
+  app shell + hashed assets it's always precached (`vite.config.ts`'s
+  `VitePWA` config), which still works identically whether served by `vite
+  preview` or this backend, since both serve the exact same `dist/` output.
+
 ## Cloudflare Access production topology (sketch — not deployed this phase)
 
 Local `uvicorn` only, per `docs/IMPLEMENTATION-PLAN-V2.md`'s explicit
 sequencing note ("Deployment (Cloudflare, domains) stays out of scope").
-This section sketches the intended shape so a later phase doesn't have to
-re-derive it:
+This section sketches the intended SSO shape (layered on top of the tunnel
+above) so a later phase doesn't have to re-derive it:
 
 ```
                      ┌─────────────────────────────┐

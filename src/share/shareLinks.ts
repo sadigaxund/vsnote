@@ -2,24 +2,19 @@
  * Share-link URL construction — pure logic, unit-tested
  * (`tests/unit/shareLinks.test.ts`).
  *
- * A share's `render_mode` picks which ORIGIN the copied link points at, not
- * a query param on a shared path shape:
- *  - `"raw"` → the backend's own origin, `GET /share/{slug}` (root app,
- *    `text/plain`, never touched by the SPA — see `server/README.md`'s
- *    "Public share contract").
- *  - `"rendered"` → THIS APP's own origin, `/share/{slug}` — routed by
- *    `main.tsx` to `share/ShareApp.tsx` (no shell chrome, no vault access),
- *    which fetches the real content from the backend itself via the
- *    CORS-enabled `GET /api/share/{id}/content`.
- * This is also why raw mode needs no proxy/CORS consideration at all: the
- * recipient's browser talks to the backend directly, never through this
- * app's origin.
+ * Single-origin refactor (Phase 10.5a, roadmap §5.4): front + back are ONE
+ * origin now, so every share link — raw or rendered, file or folder —
+ * points at THIS app's own origin, `/share/{slug}`. There's no more
+ * "backend origin" distinct from "app origin" to pick between: a real
+ * browser navigation to that URL is content-negotiated server-side
+ * (`server/app/routers/share_public.py`'s `_wants_html`) into either raw
+ * `text/plain` (raw-mode file shares — never touches the SPA at all) or the
+ * SPA shell (rendered-mode file shares and every folder share, which then
+ * fetches the real content itself via `Accept: application/json`) — see
+ * that module's doc for the exact rule. This function no longer needs to
+ * know `render_mode` at all to build the correct link.
  */
 import type { RenderMode } from "./api";
-
-function trimBase(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, "");
-}
 
 /** The identifier to put in the link — the custom alias if one is set
  * (nicer for humans to read/share), else the random slug. Both resolve
@@ -29,25 +24,23 @@ export function shareIdentifier(share: { slug: string; alias?: string | null }):
 }
 
 export function buildShareLink(
-  share: { slug: string; alias?: string | null; render_mode: string | RenderMode },
-  backendBaseUrl: string,
+  share: { slug: string; alias?: string | null; render_mode?: string | RenderMode },
   appOrigin: string = typeof window !== "undefined" ? window.location.origin : "",
 ): string {
   const id = shareIdentifier(share);
-  return share.render_mode === "rendered" ? `${appOrigin}/share/${id}` : `${trimBase(backendBaseUrl)}/share/${id}`;
+  return `${appOrigin}/share/${id}`;
 }
 
 /**
  * Phase 10.5 — a folder share's link (and any deep link to a file/
- * directory inside its subtree). Unlike `buildShareLink`, this ALWAYS
- * points at this app's own origin regardless of `render_mode`: a folder
- * share needs the visitor reader page's tree UI to browse the subtree at
- * all (`share/ShareApp.tsx`'s folder-browsing mode) — `render_mode` only
- * decides how an individual FILE's content is displayed once you're
- * already there (raw = plain-text pane, rendered = the real markdown/HTML
- * pipeline), not which origin owns the URL. `relpath` segments are
- * `encodeURIComponent`d individually so a relpath containing `/` still
- * round-trips as a real path rather than a single escaped segment.
+ * directory inside its subtree), same single-origin URL shape as
+ * `buildShareLink` above, extended with an optional `relpath` so a deep
+ * link into the subtree round-trips as a real path (each segment
+ * `encodeURIComponent`d individually, so a relpath containing `/` isn't
+ * collapsed into one escaped segment). A folder share's own `render_mode`
+ * only decides how an individual FILE's content is displayed once you're
+ * already inside the reader page (raw = plain-text pane, rendered = the
+ * real markdown/HTML pipeline), never which URL the link itself uses.
  */
 export function buildFolderShareLink(
   share: { slug: string; alias?: string | null },

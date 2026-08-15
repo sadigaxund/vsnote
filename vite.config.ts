@@ -53,11 +53,27 @@ function computeExcludedIconChunkNames(): Set<string> {
 const EXCLUDED_ICON_CHUNKS = computeExcludedIconChunkNames();
 
 /**
- * Phase 10 (sharing) — dev/preview-only proxy for backend routes that need
- * to be reached SAME-ORIGIN from the SPA. `server/` is frozen (Phase 9);
- * everything below is a client-side accommodation for real constraints
- * found while building against its actual (correct, not-to-be-changed)
- * behavior — never a workaround for a bug in this app's own code.
+ * Phase 10 (sharing), extended Phase 10.5a (single-origin refactor, roadmap
+ * §5.4) — dev/preview-only proxy for backend routes that need to be reached
+ * SAME-ORIGIN from the SPA. In production this is moot: `server/app/
+ * main.py` IS the SPA's web server, so every one of these paths is
+ * genuinely same-origin with no proxy involved at all. In dev/preview,
+ * `vite`/`vite preview` are a SEPARATE process from the backend
+ * (`npm run server`, port 8787, or the e2e suite's own spawned instance on
+ * 8788 — see `tests/e2e/shareFixtures.ts`), so this proxy exists purely to
+ * make that split invisible to the client code, which as of Phase 10.5a
+ * never has a configurable backend URL to fall back on — every one of its
+ * `/api`, `/share`, `/git` calls is relative, full stop, and therefore
+ * MUST reach a real backend through whatever origin served the page.
+ *
+ * `/api(/.*)?` and `/git(/.*)?` (Phase 10.5a — new this phase) are
+ * unconditional proxies: both are pure JSON/git-protocol APIs with no
+ * client-side route of their own to protect (unlike `/share/*` below), so
+ * there's no bypass logic needed.
+ *
+ * `/share/*` below predates this phase and keeps its existing bypass logic
+ * verbatim — everything below this paragraph is unchanged from Phase 10/
+ * 10.5's own doc, still accurate:
  *
  * **Rule 1 — `POST /share/{slug}/auth` always needs the proxy.** This route
  * is mounted on the backend's ROOT app (`server/app/main.py`), which has NO
@@ -126,6 +142,16 @@ const EXCLUDED_ICON_CHUNKS = computeExcludedIconChunkNames();
  */
 const SHARE_AUTH_PROXY_TARGET = process.env.SLATE_SHARE_PROXY_TARGET ?? "http://127.0.0.1:8787";
 const shareAuthProxy = {
+  // Phase 10.5a — /api and /git are plain APIs, no client-side route to
+  // protect, so an unconditional proxy (no bypass) is correct as-is.
+  "^/api(/.*)?$": {
+    target: SHARE_AUTH_PROXY_TARGET,
+    changeOrigin: true,
+  },
+  "^/git(/.*)?$": {
+    target: SHARE_AUTH_PROXY_TARGET,
+    changeOrigin: true,
+  },
   "^/share/[^/]+/auth$": {
     target: SHARE_AUTH_PROXY_TARGET,
     changeOrigin: true,

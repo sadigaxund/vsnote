@@ -177,13 +177,18 @@ def test_basic_auth_with_token_as_username_accepted(client, owner, db_session):
     assert r.status_code == 404
 
 
-def test_git_routes_have_cors_headers_for_configured_origin(client, owner, db_session):
+def test_git_routes_have_no_cors_headers_for_spa_origin(client, owner, db_session):
+    # Single-origin refactor (roadmap §5.4): `/git/*` is same-origin from the
+    # browser now (the sync remote is implicitly `<origin>/git/vault.git`),
+    # so it carries NO CORS headers at all — not even for the SPA's own
+    # origin. Mirrors `test_raw_mode.py::test_no_cors_on_raw_even_for_
+    # allowed_spa_origin`'s reasoning for `/share/*`.
     token = _read_token(db_session)
     r = client.get(
         "/git/never-created.git/info/refs?service=git-upload-pack",
         headers={"Authorization": f"Bearer {token}", "Origin": "http://127.0.0.1:5290"},
     )
-    assert r.headers.get("access-control-allow-origin") == "http://127.0.0.1:5290"
+    assert not any(k.lower().startswith("access-control-") for k in r.headers.keys())
 
 
 def test_git_routes_deny_cors_for_unconfigured_origin(client, owner, db_session):
@@ -192,7 +197,7 @@ def test_git_routes_deny_cors_for_unconfigured_origin(client, owner, db_session)
         "/git/never-created.git/info/refs?service=git-upload-pack",
         headers={"Authorization": f"Bearer {token}", "Origin": "http://evil.example.com"},
     )
-    assert "access-control-allow-origin" not in {k.lower() for k in r.headers.keys()}
+    assert not any(k.lower().startswith("access-control-") for k in r.headers.keys())
 
 
 # --- Real round-trip: a live uvicorn server + real system git --------------

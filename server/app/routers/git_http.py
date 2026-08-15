@@ -24,20 +24,15 @@ standard way to gate an arbitrary mounted ASGI/WSGI app is a wrapping ASGI
 middleware that either short-circuits with its own `Response` or calls
 through to the inner app, which is exactly `GitAuthMiddleware` below.
 
-**CORS**: browser isomorphic-git needs `Access-Control-Allow-Origin` (and,
-because `Authorization` is a non-simple header and the upload-pack/
-receive-pack requests are non-simple POST bodies, a passing CORS
-*preflight*) to read the response at all — confirmed empirically per this
-phase's report by driving a real cross-origin `fetch` from the SPA's own
-`vite preview` origin against a live instance of this router and observing
-the browser actually receive the response instead of a CORS-blocked
-`TypeError: Failed to fetch`. `CORSMiddleware` is applied HERE, wrapping
-`GitAuthMiddleware`, scoped to `settings.cors_origin_list` (same
-never-a-wildcard list `/api` uses) — never the `/share/*` root app, whose
-zero-CORS posture (`main.py`'s docstring, `tests/test_raw_mode.py::
-test_no_cors_on_raw`) this phase does not touch. `CORSMiddleware` answers
-the OPTIONS preflight itself, before `GitAuthMiddleware` ever runs, so a
-preflight never needs credentials.
+**No CORS (Phase 10.5a, roadmap §5.4)**: the single-origin refactor made the
+browser's own isomorphic-git client talk to `/git/*` SAME-origin (the sync
+remote is implicitly `<origin>/git/vault.git` — see `useGitStore.ts`), so
+the cross-origin preflight this router used to need (Phase 11's original
+CORSMiddleware, scoped to `SLATE_CORS_ORIGINS`) no longer applies and has
+been removed entirely — same "CORS: none, anywhere" posture as `/api` and
+`/share/*`. External git clients (system `git`, scripts) were never
+same-origin browser `fetch()` calls in the first place and never needed
+CORS headers to read the response.
 """
 
 from __future__ import annotations
@@ -52,7 +47,6 @@ from a2wsgi import WSGIMiddleware
 from dulwich.server import CAPABILITY_OFS_DELTA, CAPABILITY_SIDE_BAND_64K, UploadPackHandler
 from dulwich.web import HTTPGitApplication
 from starlette.datastructures import Headers
-from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -230,12 +224,11 @@ class GitAuthMiddleware:
 
 
 def build_git_app(settings: Settings, session_local) -> ASGIApp:
-    """Builds the full `/git` sub-app: CORS -> auth -> dulwich WSGI bridge.
-    Mounted verbatim by `main.py::create_app` as `app.mount("/git", ...)` on
-    the ROOT app (not `/api`) — git repo names are validated on their own
-    terms (`gitrepo.REPO_NAME_RE`), so this doesn't need to share `/api`'s
-    CORS instance, and keeping it off the root app's own middleware stack
-    means `/share/*`'s zero-CORS posture is untouched either way."""
+    """Builds the full `/git` sub-app: auth -> dulwich WSGI bridge. Mounted
+    verbatim by `main.py::create_app` as `app.mount("/git", ...)` on the
+    ROOT app (not `/api`) — git repo names are validated on their own terms
+    (`gitrepo.REPO_NAME_RE`). No CORS (see module docstring) — nothing here
+    wraps the auth middleware anymore."""
     git_root = Path(settings.git_root)
     git_root.mkdir(parents=True, exist_ok=True)
 
@@ -244,13 +237,4 @@ def build_git_app(settings: Settings, session_local) -> ASGIApp:
         backend, dumb=False, handlers={b"git-upload-pack": BrowserCompatibleUploadPackHandler}
     )
     wsgi_bridge = WSGIMiddleware(dulwich_app)
-    authed = GitAuthMiddleware(wsgi_bridge, session_local=session_local, git_root=git_root)
-
-    return CORSMiddleware(
-        authed,
-        allow_origins=settings.cors_origin_list,  # never "*" — config.py has no wildcard escape hatch
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
-        expose_headers=["Content-Type"],
-        max_age=600,
-    )
+    return GitAuthMiddleware(wsgi_bridge, session_local=session_local, git_root=git_root)

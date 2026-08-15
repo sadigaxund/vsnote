@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "icons": "node scripts/generate-pwa-icons.mjs",
-    "server": "server/.venv/bin/python -m uvicorn app.main:app --reload --port 8787 --app-dir server",
+    "server": "server/.venv/bin/python -m uvicorn app.main:app --reload --port 8787 --app-dir server --proxy-headers --forwarded-allow-ips='*'",
     "test:unit": "vitest run",
     "test:e2e": "SLATE_SHARE_PROXY_TARGET=http://127.0.0.1:8788 vite build && SLATE_SHARE_PROXY_TARGET=http://127.0.0.1:8788 playwright test",
     "test": "npm run test:unit && npm run test:e2e"

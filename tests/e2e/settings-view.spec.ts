@@ -129,24 +129,28 @@ test.describe("Settings view", () => {
 
     // No more "Coming soon" placeholder — the form is live.
     await expect(page.getByTestId("settings-row-remote-sync").getByText("Coming soon")).toHaveCount(0);
-    const remoteUrlInput = page.getByLabel("Remote URL");
-    await expect(remoteUrlInput).toBeEnabled();
-    // Defaults to the local backend's own git endpoint, not blank.
-    await expect(remoteUrlInput).toHaveValue(/127\.0\.0\.1:8787\/git\//);
+    // Phase 10.5a (single-origin refactor, roadmap §5.4): no more editable
+    // Remote URL field — the sync remote is implicit (`<origin>/git/
+    // vault.git`), shown read-only in the Repository DataList above.
+    await expect(page.getByLabel("Remote URL")).toHaveCount(0);
+    await expect(repoInfo.getByText(/\/git\/vault\.git$/)).toBeVisible();
     const tokenInput = page.getByLabel("Personal access token");
     await expect(tokenInput).toBeEnabled();
     await expect(page.getByTestId("git-test-connection")).toBeVisible();
 
-    // CLAUDE.md rule 3 (backend-optional): this e2e run never starts a git
-    // backend on port 8787 (only the SEPARATE share backend on 8788 —
-    // `git-sync.spec.ts` covers the real, backend-up path) — so clicking
-    // "Test connection" against the real default URL exercises the actual
-    // "backend down" path for real, not a mock. Must degrade to a clear,
-    // specific message — never hang, never crash, never an unhandled
-    // rejection (this whole page would otherwise show a Playwright
-    // "pageerror" — there is none here because the test doesn't fail).
+    // This test deliberately never signs in first (see `git-sync.spec.ts`
+    // for the real, signed-in/token-generated/backend-up path) — clicking
+    // "Test connection" with an empty token exercises the real
+    // "reachable, but the credentials are rejected" path against the e2e
+    // run's actual shared backend (port 8788, proxied same-origin — see
+    // `vite.config.ts`): a real 401 from `GET /git/vault.git/info/refs`,
+    // mapped by `git/remote.ts::mapError` to `SyncError("auth", ...)`. Must
+    // degrade to a clear, specific message — never hang, never crash, never
+    // an unhandled rejection (this whole page would otherwise show a
+    // Playwright "pageerror" — there is none here because the test doesn't
+    // fail).
     await page.getByTestId("git-test-connection").click();
-    await expect(page.getByTestId("git-test-result")).toHaveText(/could not reach|offline/i);
+    await expect(page.getByTestId("git-test-result")).toHaveText(/credentials|auth/i);
     // No SSH-key management anywhere in this category (DESIGN-SPEC
     // Amendments item 11: browsers can't speak SSH).
     await expect(page.getByText(/SSH key/i)).toHaveCount(0);

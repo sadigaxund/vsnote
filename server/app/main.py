@@ -13,22 +13,66 @@ happens to be importable in the current process, which would misfire for
 any OTHER tool that imports this module without needing the instance.
 
 Two nested ASGI apps, deliberately:
-  - `app` (root): `/share/*` only. NO CORSMiddleware — a raw share response
-    must carry zero CORS headers (roadmap §1; see
-    tests/test_raw_mode.py::test_no_cors_on_raw).
+  - `app` (root): `/share/*`, `/git/*` (mounted below), and — as of Phase
+    10.5a's single-origin refactor (roadmap §5.4) — the built SPA itself
+    (static assets + fallback, see "Single-origin SPA serving" below). NO
+    CORSMiddleware anywhere on this app — a raw share response must carry
+    zero CORS headers (roadmap §1; see tests/test_raw_mode.py::
+    test_no_cors_on_raw), and neither `/git/*` nor the SPA assets need it
+    once the browser talks to all of it same-origin.
   - `api_app` (mounted at `/api`): everything else, INCLUDING the public
     `GET /api/share/{id}/content` route (see routers/share_public.py's
     `build_content_router` docstring for why that one specific public route
-    lives here instead of on the root app) — CORS locked to the configured
-    SPA origins, `allow_credentials=True`, never a wildcard.
+    lives here instead of on the root app). Also NO CORSMiddleware as of
+    Phase 10.5a — same-origin needs none, and the roadmap's "CORS: none,
+    anywhere" is now literal, not "none except /api".
+
+--- Phase 10.5a: single-origin SPA serving (roadmap §5.4) -------------------
+
+FastAPI is now the ONLY server: it serves the built SPA (`../dist`, i.e.
+the repo-root `dist/` produced by `npm run build`) alongside `/api`,
+`/share/*`, and `/git/*`, so a Cloudflare tunnel (or anything else) only
+ever has to point at one process/port. Two pieces, both registered on the
+ROOT app AFTER `/share/*` and the `/git` mount so those keep matching
+first (Starlette tries routes/mounts in registration order — a more
+specific match registered earlier always wins over a catch-all registered
+later):
+
+1. `app.state.spa_index_html` — the built `dist/index.html`'s bytes, read
+   once at `create_app()` time, or `None` if `dist/` hasn't been built yet
+   (fresh checkout). `routers/share_public.py` reads this directly off
+   `request.app.state` to serve the SPA shell for a real browser
+   navigation (`Accept: text/html`) to an already-AUTHORIZED rendered-mode
+   file share or ANY folder share — see that module's `_spa_shell_response`
+   doc for why this lives in the SUCCESS path only, never the denial path
+   (that split is what keeps `/share/<bogus>` returning the byte-identical
+   JSON 404 instead of ever handing out the app shell — the whole point of
+   this split, and the thing an independent oracle probe checks for).
+2. `_spa_catch_all` (this file) — registered dead last, matches literally
+   any path Starlette hasn't already claimed (`/`, `/assets/*.js`,
+   `/favicon.svg`, any client-side path). Serves the matching file straight
+   off `dist/` when one exists at that path (hashed JS/CSS chunks, PWA
+   icons, `manifest.webmanifest`, `sw.js`, ...), else falls back to
+   `index.html` (SPA client-side "routing" — this app has none beyond
+   `/share/*`, which is never reached here, but a stray deep link should
+   still get *something* coherent rather than a bare 404). Never reached
+   for `/api/*` (claimed by the `/api` mount above) or `/git/*`/`/share/*`
+   (claimed earlier) — a truly unmatched `/api/xyz` still gets FastAPI's
+   own 404 from inside `api_app`, never this fallback's `index.html`.
+   Missing `dist/` degrades to a plain 404 here with a one-line startup log
+   explaining why, rather than crashing the process — the API (and, for an
+   already-loaded/PWA-cached client, the whole app) stays fully usable with
+   no build present (CLAUDE.md rule 3).
 """
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -41,6 +85,13 @@ from .routers import auth as auth_router
 from .routers import git_http as git_http_router
 from .routers import share_public as share_public_router
 from .routers import shares as shares_router
+
+logger = logging.getLogger(__name__)
+
+# repo root's `dist/` — `server/app/main.py` -> `server/app` -> `server` ->
+# repo root, so `parents[2]`. Vite's build output (`npm run build`), never
+# committed, so this genuinely may not exist (fresh checkout, no build yet).
+DIST_DIR = Path(__file__).resolve().parents[2] / "dist"
 
 
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
@@ -62,7 +113,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     jwks_fetcher = JWKSFetcher(settings.cf_access_team_domain)
     auth_deps = build_auth_deps(get_db, settings, secret_key, jwks_fetcher)
 
-    # --- root app: /share/* only, no CORS -----------------------------
+    # --- root app: /share/*, /git/*, the SPA — no CORS anywhere --------
     app = FastAPI(title="Slate backend")
     app.state.settings = settings
     app.state.secret_key = secret_key
@@ -74,15 +125,13 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(share_public_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
 
     # Phase 11 (real sync) — bare git repos over smart-HTTP, `/git/{repo}.git/...`.
-    # Mounted on the ROOT app (alongside `/share/*`) but with its OWN CORS
-    # middleware (see `git_http.build_git_app`'s docstring) — `/share/*`
-    # itself stays exactly as CORS-less as before; this is a sibling mount,
-    # not a change to the app-wide middleware stack. Auth is Phase 9 API
-    # tokens (Basic/Bearer), never cookies/CF-Access, so it doesn't need
-    # `allow_credentials`.
+    # Mounted on the ROOT app (alongside `/share/*`). No CORS (Phase 10.5a,
+    # roadmap §5.4) — the browser now talks to this same-origin, and
+    # external git clients never needed CORS headers in the first place
+    # (see `git_http.py`'s module docstring).
     app.mount("/git", git_http_router.build_git_app(settings, SessionLocal))
 
-    # --- /api sub-app: CORS-enabled -------------------------------------
+    # --- /api sub-app: no CORS (Phase 10.5a, roadmap §5.4) --------------
     api_app = FastAPI(title="Slate API")
     api_app.state.settings = settings
     api_app.state.secret_key = secret_key
@@ -91,18 +140,46 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     api_app.state.cf_jwks_fetcher = jwks_fetcher
     api_app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     api_app.add_middleware(SlowAPIMiddleware)
-    api_app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origin_list,  # never "*" — config.py has no wildcard escape hatch
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
     api_app.include_router(auth_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(shares_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(share_public_router.build_content_router(get_db, limiter, settings, secret_key, auth_deps))
 
     app.mount("/api", api_app)
+
+    # --- Single-origin SPA serving (Phase 10.5a, roadmap §5.4) ----------
+    # Registered LAST and deliberately as a plain catch-all route (not a
+    # `StaticFiles` mount at "/") so it can never shadow `/share/*`/`/git/*`
+    # (registered above — Starlette matches routes/mounts in registration
+    # order, so those already-registered, more specific matches always win)
+    # or `/api/*` (a separate mounted sub-app — an unmatched path under it
+    # never reaches anything outside that mount, so it keeps returning
+    # api_app's own 404 untouched, never this fallback's index.html).
+    index_html = DIST_DIR / "index.html"
+    if index_html.is_file():
+        app.state.spa_index_html = index_html.read_bytes()
+        logger.info("Serving built SPA from %s", DIST_DIR)
+    else:
+        app.state.spa_index_html = None
+        logger.warning(
+            "No built SPA found at %s (run `npm run build` from the repo root) — "
+            "the API/share/git surfaces still work; only static serving is unavailable.",
+            DIST_DIR,
+        )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_catch_all(full_path: str) -> Response:
+        if app.state.spa_index_html is None:
+            return Response(status_code=404, content="Not found")
+        # Real file at that path under dist/ (hashed JS/CSS chunks, PWA
+        # icons, manifest.webmanifest, sw.js, favicon, ...) — resolved and
+        # re-checked against DIST_DIR so a `full_path` containing `..`
+        # can't escape it (belt-and-suspenders; Starlette's own `path`
+        # converter already rejects `..` segments, this doesn't rely on
+        # that alone).
+        candidate = (DIST_DIR / full_path).resolve()
+        if candidate.is_file() and DIST_DIR in candidate.parents:
+            return FileResponse(candidate)
+        return Response(content=app.state.spa_index_html, media_type="text/html; charset=utf-8")
 
     # Exposed for tests/introspection: tests override the JWKS fetch via
     # `app.state.cf_jwks_fetcher.override = lambda: FAKE_JWKS` (both app and

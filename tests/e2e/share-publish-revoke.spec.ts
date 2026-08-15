@@ -6,7 +6,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { gotoApp } from "./fixtures";
-import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME, SHARE_BACKEND_BASE_URL } from "./shareFixtures";
+import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 import { publishFileViaContextMenu, revokeShareByLink, signInToShareBackend } from "./shareUiHelpers";
 
 // The share backend (port 8788) is started once for the whole run by
@@ -17,7 +17,7 @@ import { publishFileViaContextMenu, revokeShareByLink, signInToShareBackend } fr
 test.describe("publish → view → revoke (exit criterion)", () => {
   test("a published rendered-mode share is viewable from a fresh context, then dies on revoke", async ({ page, browser }) => {
     await gotoApp(page);
-    await signInToShareBackend(page, SHARE_BACKEND_BASE_URL, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 
     const link = await publishFileViaContextMenu(page, {
       treePath: "vault/notes/architecture.md",

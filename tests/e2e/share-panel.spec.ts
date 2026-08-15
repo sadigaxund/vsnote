@@ -4,7 +4,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { gotoApp } from "./fixtures";
-import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME, SHARE_BACKEND_BASE_URL } from "./shareFixtures";
+import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 import { publishFileViaContextMenu, revokeShareByLink, signInToShareBackend } from "./shareUiHelpers";
 
 // The share backend (port 8788) is started once for the whole run by
@@ -15,7 +15,7 @@ import { publishFileViaContextMenu, revokeShareByLink, signInToShareBackend } fr
 test.describe("Shared panel", () => {
   test("hit count increments after a fetch; revoke removes the row", async ({ page, context }) => {
     await gotoApp(page);
-    await signInToShareBackend(page, SHARE_BACKEND_BASE_URL, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 
     const link = await publishFileViaContextMenu(page, {
       treePath: "vault/notes/architecture.md",

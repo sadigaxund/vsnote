@@ -27,6 +27,26 @@ Contract for Phase 10 (client sharing UI): see server/README.md's "Public
 share contract" section for the full request/response shapes documented for
 the client team.
 
+--- Phase 10.5a: single-origin SPA serving, roadmap §5.4 --------------------
+
+A real browser navigation (`Accept: text/html`) to `GET /share/{id}` or
+`GET /share/{id}/{relpath}` gets the built SPA's `index.html` instead of this
+route's raw/JSON response — for EVERY outcome: a successful rendered-mode
+file share, ANY folder share (success), AND every deny reason (bogus slug,
+revoked, expired, restricted, password-required-with-no-session, an
+unresolvable relpath — see `_deny_response`'s doc for why widening this to
+cover denials too, rather than keeping denials JSON-only, is what makes
+password-protected/private links actually usable through a cold browser
+navigation, and why it makes the navigation-level oracle STRICTLY narrower,
+not wider). The ONE exception, non-negotiable: a successful RAW-mode file
+share always returns `text/plain` unconditionally, browser or not, per
+roadmap §1's "a raw share must never execute" — `_wants_html` is checked
+there but the branch is gated on `render_mode == "raw"` failing, not on
+`Accept`. A non-browser caller that never sends `Accept: text/html` (no
+header, `Accept: application/json`, curl's plain `*/*`) is completely
+unaffected either way — same raw/JSON responses as before this phase,
+including the byte-identical uniform 404 for every deny reason.
+
 --- Phase 10.5: folder ("group") shares, roadmap §5.1 -----------------------
 
 A `kind=="folder"` Share has no single `blob_id`; its content is a snapshot
@@ -98,6 +118,97 @@ JSON_SECURITY_HEADERS = {
 def _wants_json(request: Request) -> bool:
     accept = request.headers.get("accept", "")
     return "application/json" in accept
+
+
+def _wants_html(request: Request) -> bool:
+    """A real browser navigation (`Accept: text/html,...`) — the signal
+    `_spa_shell_response` below uses to decide whether to hand back the
+    built SPA's `index.html` instead of this route's normal raw/JSON
+    response. Deliberately NOT "absence of `application/json`": a plain
+    curl/script with no `Accept` header at all must keep getting the
+    documented default (raw bytes for a file, the JSON listing for a
+    folder — see `server/README.md`'s "Public share contract") exactly as
+    before this phase. Only an explicit `text/html` preference is treated
+    as "this is a page load, hand back the app shell.\""""
+    accept = request.headers.get("accept", "")
+    return "text/html" in accept
+
+
+def _spa_shell_response(request: Request) -> Optional[Response]:
+    """Single-origin refactor (Phase 10.5a, roadmap §5.4): FastAPI is now
+    also the SPA's own web server (`main.py`'s `app.state.spa_index_html`),
+    so a real browser navigating to `/share/<slug>[/<relpath>]` needs to
+    land on the app shell (which then re-fetches this exact same content
+    via `share/ShareApp.tsx`'s own `Accept: application/json` request), not
+    the raw bytes / JSON this route serves to non-browser callers.
+
+    Called from BOTH the success path (`get_share`/`get_share_path`/
+    `_render_folder_resolution`, for a rendered-mode file share or ANY
+    folder share) AND the deny path (`_deny_response` below, for EVERY
+    deny reason — bogus slug, revoked, expired, password-required-with-no-
+    session, wrong role, unresolvable relpath). Content-independent: the
+    exact same `app.state.spa_index_html` bytes are returned in every case,
+    with no slug/policy/error detail ever baked into it — see
+    `_deny_response`'s doc for why serving this UNCONDITIONALLY for
+    `Accept: text/html` is what actually closes the existence oracle for
+    navigation, rather than reopening one.
+
+    Returns `None` (never raises) when the SPA hasn't been built yet
+    (`app.state.spa_index_html` unset — `main.py` logs this at startup) so
+    every caller falls back to its normal raw/JSON response instead of
+    crashing — the API stays fully usable with no `dist/` present."""
+    html = getattr(request.app.state, "spa_index_html", None)
+    if html is None:
+        return None
+    return Response(content=html, media_type="text/html; charset=utf-8", headers={"X-Content-Type-Options": "nosniff"})
+
+
+def _deny_response(request: Request, exc: "Optional[policy.PolicyDenied]") -> Response:
+    """The single place every deny reason on `GET /share/{id}[/{relpath}]`
+    becomes an HTTP response (bogus/malformed slug, revoked, expired,
+    restricted-no-identity, wrong role, password-required-with-no-session,
+    an unresolvable folder relpath — literally every branch that used to
+    call `policy.denial_response(exc)`/`policy.not_found_response()`
+    directly). Two possible outcomes, chosen ONLY by `Accept`, never by the
+    deny reason itself:
+
+    - A real browser navigation (`_wants_html`, and NOT also asking for
+      JSON) gets the SPA shell — UNCONDITIONALLY, the identical bytes for
+      every single deny reason, exactly the same bytes a SUCCESSFUL
+      rendered-mode/folder share's navigation gets too (`_spa_shell_
+      response` above). This is a deliberate widening from this phase's
+      original, more conservative design (deny always JSON, no exceptions)
+      — caught in review: that design made password-protected/revoked/
+      expired/bogus links literally unusable in the single-origin
+      deployment, since a cold browser navigation could never reach the
+      SPA's own password-prompt UI at all (`ShareApp.tsx`'s "unavailable,
+      or it requires a password" state — see that file's doc — never gets
+      a chance to mount). Serving the shell here instead makes navigation
+      STRICTLY MORE private, not less: previously a plain
+      `curl -H 'Accept: text/html'` could distinguish "real, accessible,
+      rendered/folder share" (200 HTML) from "anything denied" (404 JSON)
+      from "real raw-mode share" (200 text/plain) — three classes. Now
+      every deny reason AND every rendered/folder success collapse into
+      ONE identical 200-HTML class; only a successful RAW-mode share still
+      stands apart (200 text/plain — see `get_share`'s own doc for why
+      that one case is excluded, non-negotiably, on its own terms).
+    - Every other request (no `Accept` at all — the documented default —
+      or an explicit `Accept: application/json`) gets the byte-identical
+      JSON `404 {"detail":"Not found"}`, UNCHANGED from before this
+      widening: `tests/test_policy_gate.py`'s equivalence-matrix tests
+      (httpx's default carries no `Accept` header at all) exercise exactly
+      this branch and are completely unaffected by the change above.
+
+    `exc=None` covers the "access already granted, but this specific
+    relpath/kind doesn't resolve" family (unresolvable folder relpath, a
+    file share hit with a sub-path) — same treatment, no distinct shape."""
+    if _wants_html(request) and not _wants_json(request):
+        shell = _spa_shell_response(request)
+        if shell is not None:
+            return shell
+    if exc is None:
+        return policy.not_found_response()
+    return policy.denial_response(exc)
 
 
 def _share_session_cookie_name(slug_or_alias: str) -> str:
@@ -240,6 +351,20 @@ def _render_folder_resolution(
     (not-found) case so callers fall through to the uniform 404."""
     if resolution is None:
         return None
+    # Single-origin refactor (Phase 10.5a) — a real browser navigation into
+    # ANY part of a folder share (root listing, a subdirectory, or an
+    # individual file) needs the SPA's slim tree+content reader page
+    # (roadmap §5.1), not this route's raw/JSON response — that page then
+    # re-fetches this exact URL itself via `Accept: application/json`. Only
+    # applies once access is already granted (see `_spa_shell_response`'s
+    # doc) and only when the SPA has actually been built; otherwise this is
+    # a no-op and every existing non-browser caller (curl, the documented
+    # API contract, this file's own test suite) sees byte-identical
+    # behavior to before this phase.
+    if not _wants_json(request) and _wants_html(request):
+        shell = _spa_shell_response(request)
+        if shell is not None:
+            return shell
     kind, payload = resolution
     if kind == "file":
         entry = payload
@@ -301,7 +426,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         try:
             access = _resolve_get(identifier, request, db, secret_key=secret_key, auth_deps=auth_deps)
         except policy.PolicyDenied as exc:
-            return policy.denial_response(exc)
+            return _deny_response(request, exc)
 
         share = access.share
 
@@ -314,10 +439,10 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             # get_share_path below.
             resolution = _resolve_folder_path(db, share, "")
             if resolution is None:
-                return policy.not_found_response()
+                return _deny_response(request, None)
             _record_access(db, share, access, request)
             resp = _render_folder_resolution(resolution, share, db, request, "")
-            return resp if resp is not None else policy.not_found_response()
+            return resp if resp is not None else _deny_response(request, None)
 
         blob = db.get(models.Blob, share.blob_id)
         _record_access(db, share, access, request)
@@ -328,6 +453,19 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
                 content=_content_payload(share, blob),
                 headers=dict(JSON_SECURITY_HEADERS),
             )
+
+        # Single-origin refactor (Phase 10.5a) — a real browser navigation
+        # to a RENDERED-mode file share needs the SPA's fullscreen rendered
+        # view (roadmap §1), which re-fetches this exact content itself via
+        # JSON. RAW-mode shares NEVER take this branch, full stop — they
+        # keep returning `text/plain` unconditionally regardless of Accept,
+        # exactly as before (roadmap §1: "never text/html — a raw share
+        # must never execute"; see `tests/test_raw_mode.py::
+        # test_raw_never_html_even_for_html_payload_with_script_tag`).
+        if share.render_mode == models.RenderMode.rendered and _wants_html(request):
+            shell = _spa_shell_response(request)
+            if shell is not None:
+                return shell
 
         return Response(content=blob.content, media_type=RAW_CONTENT_TYPE, headers=dict(RAW_SECURITY_HEADERS))
 
@@ -345,20 +483,20 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         try:
             access = _resolve_get(identifier, request, db, secret_key=secret_key, auth_deps=auth_deps)
         except policy.PolicyDenied as exc:
-            return policy.denial_response(exc)
+            return _deny_response(request, exc)
 
         share = access.share
         if share.kind != models.ShareKind.folder:
             # File shares have no sub-paths — same uniform 404 as any other
             # deny, not a distinct "wrong kind" shape.
-            return policy.not_found_response()
+            return _deny_response(request, None)
 
         resolution = _resolve_folder_path(db, share, relpath)
         if resolution is None:
-            return policy.not_found_response()
+            return _deny_response(request, None)
         _record_access(db, share, access, request)
         resp = _render_folder_resolution(resolution, share, db, request, relpath)
-        return resp if resp is not None else policy.not_found_response()
+        return resp if resp is not None else _deny_response(request, None)
 
     @router.post("/share/{identifier}/auth")
     @limiter.limit(settings.rate_limit_share_auth)

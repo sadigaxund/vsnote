@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import secrets
 import warnings
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,11 +32,6 @@ class Settings(BaseSettings):
     # Required in prod. Auto-generated (ephemeral, per-process, with a loud
     # warning) in dev so `npm run server` works out of the box locally.
     secret_key: Optional[str] = Field(default=None, validation_alias="SLATE_SECRET_KEY")
-
-    cors_origins: str = Field(
-        default="http://127.0.0.1:5290,http://localhost:5290",
-        validation_alias="SLATE_CORS_ORIGINS",
-    )
 
     port: int = Field(default=8787, validation_alias="SLATE_PORT")
 
@@ -66,17 +61,6 @@ class Settings(BaseSettings):
     # Defaults True (real HTTPS deployments). server/README.md documents
     # setting this False for local http:// testing only.
     cookie_secure: bool = Field(default=True, validation_alias="SLATE_COOKIE_SECURE")
-
-    @property
-    def cors_origin_list(self) -> List[str]:
-        """Never returns "*" — even if SLATE_CORS_ORIGINS is misconfigured
-        to contain one, it's dropped here before it can ever reach
-        CORSMiddleware(allow_origins=...), where starlette treats a literal
-        "*" specially (echoes back ANY request Origin). This makes a
-        wildcard structurally impossible regardless of operator
-        misconfiguration — see tests/test_raw_mode.py::
-        test_cors_wildcard_is_structurally_impossible."""
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip() and o.strip() != "*"]
 
 
 def resolve_secret_key(settings: Settings) -> str:

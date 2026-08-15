@@ -36,6 +36,22 @@ export interface RemoteConfig {
   token: string;
 }
 
+/** Phase 10.5a (single-origin refactor, roadmap §5.4) — the sync remote is
+ * implicitly `<origin>/git/vault.git`: no Settings field, nothing
+ * persisted, nothing configurable. `vault` is a fixed repo name — the
+ * server creates it on demand on first push
+ * (`server/app/gitrepo.py::ensure_bare_repo`), so it just needs to be *a*
+ * valid, stable name, not a pre-existing one. `window.location.origin`
+ * (rather than a relative path) because `isomorphic-git`'s `fetch`/`push`/
+ * `getRemoteInfo` all need a real, absolute URL — it's still never a
+ * hardcoded host/port: whatever origin actually served this page (the
+ * built SPA served by `server/app/main.py` in production, `vite dev`/
+ * `preview` in local dev — both proxy `/git/*` to the real backend, see
+ * `vite.config.ts`) is exactly the right same-origin target either way. */
+export function computeGitRemoteUrl(): string {
+  return `${window.location.origin}/git/vault.git`;
+}
+
 export interface SyncStatus extends AheadBehind {
   /** Whether `refs/remotes/origin/<branch>` exists at all yet — false
    * before the very first fetch/pull/push against this remote (or if the

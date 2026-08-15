@@ -16,11 +16,13 @@
  *      app/decryption involved (roadmap §4: the vault stays plaintext).
  *   4. Show a token-less push being rejected by the same real server.
  *
- * Re-runnable: every test picks a fresh, randomized repo name, so re-runs
- * never collide with a previous run's bare repo (`SLATE_GIT_ROOT` is
- * tmp_path-scoped per backend process anyway — see `shareFixtures.ts` — but
- * this also protects against two workers in the SAME run picking the same
- * name).
+ * Re-runnable: the repo name is fixed ("vault", Phase 10.5a — the app's own
+ * `git/remote.ts::computeGitRemoteUrl` has no configurable Remote URL field
+ * anymore, roadmap §5.4), but that's still collision-free across runs
+ * because `SLATE_GIT_ROOT` is a fresh `mkdtempSync` directory per backend
+ * PROCESS (see `shareFixtures.ts`) — every whole e2e run starts with an
+ * empty `git-repos/`, so "vault.git" never carries state from a previous
+ * run.
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -29,13 +31,19 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { DEFAULT_ACTIVE_PATH, gotoApp, tab } from "./fixtures";
 import { signInToShareBackend } from "./shareUiHelpers";
-import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME, SHARE_BACKEND_BASE_URL, SHARE_BACKEND_PORT } from "./shareFixtures";
+import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME, SHARE_BACKEND_PORT } from "./shareFixtures";
 
 const DEFAULT_BRANCH = "feat/incremental-index";
 
-function freshRepoName(): string {
-  return `e2e-sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
+// Phase 10.5a (single-origin refactor, roadmap §5.4): the sync remote is no
+// longer a Settings-configurable URL — it's implicitly `<origin>/git/
+// vault.git`, a FIXED repo name ("vault"), same as the app's own
+// `git/remote.ts::computeGitRemoteUrl`. This is still collision-free across
+// re-runs: `shareFixtures.ts`'s `SLATE_GIT_ROOT` is a fresh `mkdtempSync`
+// directory per e2e RUN (never reused across runs), so "vault.git" starts
+// empty every time this whole suite starts, regardless of how many times
+// it's been run before.
+const REPO_NAME = "vault";
 
 function runGit(args: string[], cwd: string): string {
   return execFileSync("git", args, {
@@ -64,18 +72,17 @@ test.describe("Real git sync (Phase 11)", () => {
   test("edit -> commit -> push in the app; system git clone proves the commit is really there; token-less push is rejected", async ({
     page,
   }) => {
-    const repoName = freshRepoName();
-    const remoteUrl = `${SHARE_BACKEND_BASE_URL}/git/${repoName}.git`;
     const marker = `sync-proof-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // --- 1. Sign in + generate a real write-scoped token, from the UI ----
     await gotoApp(page);
-    await signInToShareBackend(page, SHARE_BACKEND_BASE_URL, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 
     await page.getByTestId("settings-nav-git-sync").click();
-    const remoteUrlInput = page.getByLabel("Remote URL");
-    await remoteUrlInput.fill(remoteUrl);
-    await remoteUrlInput.blur();
+    // No more Remote URL field to fill (Phase 10.5a, roadmap §5.4) — the
+    // remote is implicitly `<origin>/git/vault.git`, visible read-only in
+    // the Repository DataList above this row.
+    await expect(page.getByText(/\/git\/vault\.git$/)).toBeVisible();
 
     await page.getByTestId("git-generate-token").click();
     const tokenInput = page.getByLabel("Personal access token");
@@ -125,7 +132,7 @@ test.describe("Real git sync (Phase 11)", () => {
     const workDir = mkdtempSync(path.join(tmpdir(), "slate-git-sync-e2e-"));
     try {
       const cloneDir = path.join(workDir, "clone");
-      runGit(["clone", `http://x:${token}@127.0.0.1:${SHARE_BACKEND_PORT}/git/${repoName}.git`, cloneDir], workDir);
+      runGit(["clone", `http://x:${token}@127.0.0.1:${SHARE_BACKEND_PORT}/git/${REPO_NAME}.git`, cloneDir], workDir);
 
       const log = runGit(["log", "--oneline", `origin/${DEFAULT_BRANCH}`], cloneDir);
       expect(log).toContain(`Phase 11 sync proof: ${marker}`);
@@ -144,7 +151,7 @@ test.describe("Real git sync (Phase 11)", () => {
       runGit(["config", "user.name", "E2E"], cloneDir);
       runGit(["commit", "--allow-empty", "-q", "-m", "should never reach the remote"], cloneDir);
       const rejected = runGitExpectFailure(
-        ["push", `http://x:@127.0.0.1:${SHARE_BACKEND_PORT}/git/${repoName}.git`, DEFAULT_BRANCH],
+        ["push", `http://x:@127.0.0.1:${SHARE_BACKEND_PORT}/git/${REPO_NAME}.git`, DEFAULT_BRANCH],
         cloneDir,
       );
       expect(rejected.stderr.toLowerCase()).toMatch(/401|authentication/);

@@ -1,8 +1,8 @@
 /**
- * `share/shareLinks.ts` — which ORIGIN a share link points at (raw =
- * backend origin; rendered = this app's own origin) and identifier
- * preference (alias over slug). See that module's doc for why the mode
- * picks an origin rather than a query param.
+ * `share/shareLinks.ts` — single-origin share link construction (Phase
+ * 10.5a, roadmap §5.4: front + back are one origin, so every link — raw or
+ * rendered, file or folder — points at this app's own origin) and
+ * identifier preference (alias over slug).
  */
 import { describe, expect, it } from "vitest";
 import { buildFolderShareLink, buildShareLink, shareIdentifier } from "../../src/share/shareLinks";
@@ -23,30 +23,17 @@ describe("shareIdentifier()", () => {
 });
 
 describe("buildShareLink()", () => {
-  const backend = "http://127.0.0.1:8787/";
+  it("points at the app's own origin regardless of render_mode", () => {
+    const raw = buildShareLink({ slug: "abc12345", render_mode: "raw" }, "http://127.0.0.1:5290");
+    expect(raw).toBe("http://127.0.0.1:5290/share/abc12345");
 
-  it("raw mode points at the BACKEND origin", () => {
-    const link = buildShareLink({ slug: "abc12345", render_mode: "raw" }, backend, "http://127.0.0.1:5290");
-    expect(link).toBe("http://127.0.0.1:8787/share/abc12345");
-  });
-
-  it("rendered mode points at the APP's own origin, not the backend", () => {
-    const link = buildShareLink({ slug: "abc12345", render_mode: "rendered" }, backend, "http://127.0.0.1:5290");
-    expect(link).toBe("http://127.0.0.1:5290/share/abc12345");
+    const rendered = buildShareLink({ slug: "abc12345", render_mode: "rendered" }, "http://127.0.0.1:5290");
+    expect(rendered).toBe("http://127.0.0.1:5290/share/abc12345");
   });
 
   it("uses the alias in the link when present", () => {
-    const link = buildShareLink(
-      { slug: "abc12345", alias: "my-note", render_mode: "rendered" },
-      backend,
-      "http://127.0.0.1:5290",
-    );
+    const link = buildShareLink({ slug: "abc12345", alias: "my-note", render_mode: "rendered" }, "http://127.0.0.1:5290");
     expect(link).toBe("http://127.0.0.1:5290/share/my-note");
-  });
-
-  it("trims a trailing slash from the backend base URL", () => {
-    const link = buildShareLink({ slug: "abc12345", render_mode: "raw" }, "http://127.0.0.1:8787///", "http://127.0.0.1:5290");
-    expect(link).toBe("http://127.0.0.1:8787/share/abc12345");
   });
 });
 

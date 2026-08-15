@@ -111,10 +111,13 @@ is a build/runtime dependency of `src/`.
   lives under `/api`).
 
 **App factory / two nested ASGI apps** (`main.py::create_app`): a root `FastAPI`
-app serving `/share/*` with **no** `CORSMiddleware` at all, and a `/api`-mounted
-sub-app with `CORSMiddleware` locked to `SLATE_CORS_ORIGINS` (default the SPA's own
-`http://127.0.0.1:5290` / `http://localhost:5290`, `allow_credentials=True`, never a
-wildcard). Both share one `slowapi.Limiter` instance and one `JWKSFetcher`. Every
+app serving `/share/*` and `/git/*` and, since Phase 10.5a, the built SPA itself
+(static files + fallback — see "Single-origin deployment" below), plus a
+`/api`-mounted sub-app. **Neither has `CORSMiddleware` anymore** (Phase 10.5a,
+roadmap §5.4 — "CORS: none, anywhere"; this paragraph originally described the
+`/api` sub-app as CORS-enabled and locked to `SLATE_CORS_ORIGINS`, both since
+deleted — see "Single-origin deployment" for the full account and why). Both apps
+share one `slowapi.Limiter` instance and one `JWKSFetcher`. Every
 pytest test builds its own app via `create_app(settings)` against a `tmp_path`
 SQLite file — see `server/tests/conftest.py`.
 
@@ -161,20 +164,17 @@ Phase 9 backend (`server/`, not touched this phase). Full requirements:
 
 **Modules** (`src/share/`):
 - `api.ts` — typed `fetch` client for every `/api/*` and `/share/*` endpoint the client
-  needs. Every `/api/*` call takes an explicit `baseUrl` (the persisted, user-editable
-  backend URL — see below) and sends `credentials: "include"`. Two calls are
-  deliberately RELATIVE (no `baseUrl` parameter at all): `postShareAuth` (`POST
-  /share/{id}/auth`) and `getShareContentSameOrigin` (`GET /share/{id}` with `Accept:
-  application/json`) — see their doc comments and "The `/share/*` same-origin
-  requirement" below for why. `whoami()` never throws (fail-closed reachability probe —
-  see CLAUDE.md rule 3).
+  needs. As of Phase 10.5a (roadmap §5.4), EVERY call here is a plain relative fetch —
+  no `baseUrl` parameter anywhere in this file (originally, `/api/*` calls took an
+  explicit, persisted `baseUrl` while `postShareAuth`/`getShareContentSameOrigin` were
+  the two deliberate relative-URL exceptions; see "Single-origin deployment" below for
+  why that whole distinction collapsed). `whoami()` never throws (fail-closed
+  reachability probe — see CLAUDE.md rule 3).
 - `useShareStore.ts` — ephemeral zustand store (NOT persisted): backend reachability
   (`"unknown" | "checking" | "online" | "offline"`), auth status, the owner's share
-  list, in-flight/error flags. The backend base URL itself lives in
-  `stores/useSettingsStore.ts` (`shareBackendUrl`, persisted, default
-  `http://127.0.0.1:8787`) — every action here takes it as a parameter rather than
-  reading it directly, keeping this store usable from `ShareApp.tsx` without pulling in
-  the settings store there too.
+  list, in-flight/error flags. No backend base URL parameter anywhere in this store
+  either as of Phase 10.5a — `api.ts`'s functions are relative now, so every action
+  here just calls straight through.
 - `sharePolicy.ts` — pure `shareCreatePayload()`: shapes the Publish dialog's UI input
   into the exact `POST /api/shares` body. Extracted specifically so it's unit-testable
   without mocking `fetch` (`tests/unit/sharePolicy.test.ts`).
@@ -244,47 +244,30 @@ component never branches on response body/message content — only `err.status =
 (generic unavailable) vs. anything else (a genuine unreachable-backend state, which
 carries no oracle risk since it says nothing about whether the slug is real).
 
-**Two link shapes — `render_mode` picks an ORIGIN, not a query param
-(`shareLinks.ts::buildShareLink`).** `raw` → the backend's own origin,
-`{backendBaseUrl}/share/{slug}` (root app, `text/plain`, never touched by this app at
-all — the recipient's browser talks to the backend directly). `rendered` →
-`{window.location.origin}/share/{slug}` (this app's own origin, routed to `ShareApp.tsx`
-above). This is also why raw mode needs no CORS/proxy consideration: it's never fetched
-by this app's own JS, only linked to.
+**Two link shapes, historical (Phase 10) — superseded by Phase 10.5a's single origin,
+kept for context.** `render_mode` used to pick an ORIGIN, not a query param
+(`shareLinks.ts::buildShareLink`): `raw` → the backend's own origin
+(`{backendBaseUrl}/share/{slug}`), `rendered` → `{window.location.origin}/share/{slug}`
+(this app's own, then-DIFFERENT, origin). Roadmap §5.4 made front + back one origin, so
+that distinction collapsed to nothing — both `render_mode`s now build the exact same
+URL (`buildShareLink` no longer even takes a `backendBaseUrl` parameter), and which
+response a real browser gets there (raw `text/plain` vs. the SPA shell) is decided
+server-side by content negotiation instead — see "Single-origin deployment" below for
+the full mechanism.
 
-**The `/share/*` same-origin requirement (the phase's real deviation from the brief).**
-`server/README.md` names `GET /api/share/{id}/content` (CORS-enabled) as the route to
-use from the SPA, and says the password-auth POST goes to `/share/{id}/auth`. Building
-against the real, frozen Phase 9 backend surfaced a genuine incompatibility between
-those two instructions when followed literally with the SPA on a different port than the
-backend (this app's own dev/test setup): `POST /share/{id}/auth`'s success response sets
-a session cookie scoped `Path=/share/{slug}` (`server/app/routers/share_public.py`) — a
-cookie's Path only covers that literal prefix, so a subsequent fetch to
-`/api/share/{id}/content` (a DIFFERENT path prefix) never carries it, and a correctly-
-entered password would 404 forever on the content re-fetch. Separately, `POST
-/share/{id}/auth` itself is mounted on the backend's root app, which has **no**
-`CORSMiddleware` at all (by design — a raw share response must carry zero CORS
-headers), so a cross-origin `fetch()` to it is structurally unreadable regardless of the
-cookie question.
-
-Both problems have the same fix, and it's the one the production topology
-(`server/README.md`'s Cloudflare Access diagram: SPA static assets + `/api` + `/share/*`
-all served by "this backend," one origin) already assumes: talk to `/share/*` SAME-
-ORIGIN. `share/api.ts`'s `getShareContentSameOrigin`/`postShareAuth` are both relative-
-URL fetches (`/share/{id}` with `Accept: application/json`, and `/share/{id}/auth`) —
-same-origin natively in production, and standing in for that locally via
-`vite.config.ts`'s dev/preview-only proxy (`shareAuthProxy`, both `server.proxy` and
-`preview.proxy` — a separate Vite option from `server.proxy`, both needed). The proxy is
-scoped as narrowly as possible: `^/share/[^/]+/auth$` unconditionally, and
-`^/share/[^/]+$` ONLY for requests carrying `Accept: application/json` (a `bypass`
-function inspects the header) — a bare page navigation to that exact path is THIS APP'S
-OWN route for rendered shares, and must keep hitting the SPA's `index.html`, not the
-backend. Target is `SLATE_SHARE_PROXY_TARGET` (env, default `http://127.0.0.1:8787`) so
-`package.json`'s `test:e2e` script can point it at the e2e fixture backend's port 8788
-without touching this file. `share/api.ts`'s `getShareContent` (the documented `/api/
-.../content` CORS route) stays exported and correct for a deployment where the SPA is
-genuinely cross-origin from the backend — `ShareApp.tsx` itself just doesn't use it, for
-the concrete reason above.
+**The `/share/*` same-origin requirement — still true, now for a different, permanent
+reason.** `POST /share/{id}/auth`'s success response sets a session cookie scoped
+`Path=/share/{slug}` (`server/app/routers/share_public.py`) — a cookie's Path only
+covers that literal prefix, so a fetch to any OTHER path prefix (e.g. `/api/share/{id}/
+content`) never carries it, and a correctly-entered password would 404 forever on the
+content re-fetch. Phase 10 originally worked around this (and around `POST
+/share/{id}/auth`'s complete absence of `CORSMiddleware`) with a narrow, deliberately-
+scoped dev/preview proxy standing in for "same origin in production." As of Phase
+10.5a, "same origin in production" isn't an assumption anymore — it's literally true
+(`server/app/main.py` serves the SPA itself) — but the dev/preview proxy
+(`vite.config.ts`'s `shareAuthProxy`) still exists and is now MORE broadly used (not
+just this one path — see "Single-origin deployment" below), because `vite`/`vite
+preview` remain genuinely separate processes from the backend locally.
 
 **Rendered-mode sandbox** (roadmap §1's security bullet, explicitly left to this phase
 since it's client-side): HTML renders ONLY inside `renderers/HtmlPreview.tsx`'s existing
@@ -405,9 +388,9 @@ landing page). `GET /share/{id}/{relpath:path}` resolves a relpath to either a
 file (raw `text/plain`+nosniff by default, `ShareContentOut` JSON on `Accept:
 application/json` — identical content-negotiation to a file share) or a
 directory (always JSON `ShareListingOut`, since a listing has no meaningful raw-
-bytes form). Both twinned under `/api/share/{id}/content[/relpath]` for the
-CORS-enabled route the SPA's same-origin trick (see "The `/share/*` same-origin
-requirement" above) still needs for folder browsing. `PUT /share/{id}` on a
+bytes form). Both twinned under `/api/share/{id}/content[/relpath]`, mounted
+under `/api` (no CORS there either as of Phase 10.5a — see "Single-origin
+deployment"). `PUT /share/{id}` on a
 folder share 404s (uniform, not a distinct error) — public editor write-back for
 folders is out of this phase's scope, same "documented flow only" posture Phase
 10's file-share write-back already has.
@@ -499,10 +482,11 @@ that parses `Authorization` (Basic, token in either slot, or Bearer), resolves i
 against the EXACT SAME `ApiToken` table Phase 9 built (`auth.resolve_bearer_token` —
 never a second token system), and enforces `read` (or higher) for fetch/clone,
 `write`/`share-admin` for push, on both the `info/refs` advertisement and the actual
-service POST. Mounted at `/git` on the ROOT app (alongside `/share/*`) with its OWN
-`CORSMiddleware` instance (browser isomorphic-git needs it; `/share/*`'s zero-CORS
-posture is untouched — this is a sibling mount, not a change to that app's middleware
-stack).
+service POST. Mounted at `/git` on the ROOT app (alongside `/share/*`). Originally had
+its own `CORSMiddleware` instance (browser isomorphic-git needed it — a different
+origin than the SPA); removed in Phase 10.5a (roadmap §5.4) once the sync remote
+became implicitly same-origin (`git/remote.ts::computeGitRemoteUrl`) — see
+"Single-origin deployment" below.
 
 **Client** (`src/git/remote.ts`, `src/git/syncStatus.ts`): `realFetch`/`realPull`/
 `realPush`/`testGitConnection` replace the old `simulateFetch`/`simulatePull`/
@@ -524,16 +508,154 @@ never produces an unhandled rejection or a stuck `syncing` flag (CLAUDE.md rule 
 bar + command palette) both surface success/failure via toast, reading the same
 `syncError` state back after the action resolves.
 
-**Settings → Git & Sync** (`SettingsView.tsx`): Remote URL (defaults to the local
-backend's own `/git/vault.git`, `useSettingsStore::DEFAULT_GIT_REMOTE_URL`) and
-Personal access token are real, enabled fields now — no more "coming soon" disabled
-placeholders. A "Generate token" action mints a real `write`-scoped Phase 9 API token
-(`POST /api/auth/tokens`, reusing the Sharing category's existing sign-in session) so
-a user can get sync working entirely from the UI. "Test connection"
-(`testGitConnection`) does a real `git.getRemoteInfo` round-trip that touches neither
-the local repo nor the working tree — a `404` (repo not created yet) is reported as
-reachable/authenticated, not an error, since Phase 11 repos are created on demand on
-first push.
+**Settings → Git & Sync** (`SettingsView.tsx`): Personal access token is a real,
+enabled field — no more "coming soon" disabled placeholder. A "Generate token" action
+mints a real `write`-scoped Phase 9 API token (`POST /api/auth/tokens`, reusing the
+Sharing category's existing sign-in session) so a user can get sync working entirely
+from the UI. "Test connection" (`testGitConnection`) does a real `git.getRemoteInfo`
+round-trip that touches neither the local repo nor the working tree — a `404` (repo
+not created yet) is reported as reachable/authenticated, not an error, since Phase 11
+repos are created on demand on first push. **Phase 10.5a note:** there is no more
+Remote URL field at all — see "Single-origin deployment" below; the Repository
+DataList shows the implicit remote URL read-only instead.
+
+## Single-origin deployment (Phase 10.5a)
+
+Supersedes this doc's earlier "Two link shapes" / "The `/share/*` same-origin
+requirement" framing above (Sharing (Phase 10) section) and the per-app CORS
+description in "Backend (v2)" — both described a genuinely cross-origin SPA/backend
+split with a configurable base URL bridging them. Roadmap §5.4's user decision
+replaced that entirely: front + back ship as ONE origin, one process
+(`server/app/main.py`), reached from outside `localhost` via a Cloudflare tunnel (the
+owner's concern, config-only, out of scope here).
+
+**Client: no configurable origin, anywhere.** `share/api.ts` (every `/api/*` and
+`/share/*` call), `share/shareLinks.ts` (`buildShareLink`/`buildFolderShareLink`,
+which no longer need to pick between "backend origin" and "app origin" — both are the
+same origin now, so there's nothing left to pick), and `git/remote.ts`
+(`computeGitRemoteUrl()`, replacing the old `useSettingsStore::gitRemoteUrl`/
+`DEFAULT_GIT_REMOTE_URL` settable field) all either fetch a bare relative path or
+build `${window.location.origin}/...` on demand. `useSettingsStore`'s `gitRemoteUrl`
+and `shareBackendUrl` fields are gone (`version: 3`'s `migrate` step deletes either
+key from a returning user's persisted blob if present — never errors, never leaves
+stale-but-unread data forever). Settings no longer has a "Sharing base URL" or
+"Remote URL" field; the Sharing category's "Test connection" is a same-origin
+reachability re-probe, and Git & Sync's "Test connection" is a same-origin health
+check against the implicit remote.
+
+**Server: no CORSMiddleware anywhere.** `main.py`'s root app (`/share/*`, `/git/*`)
+and the `/api`-mounted sub-app both dropped `CORSMiddleware` entirely — same-origin
+needs none. `SLATE_CORS_ORIGINS`/`Settings.cors_origin_list` are deleted from
+`config.py`, `.env.example`, and this doc's earlier "App factory" paragraph is stale
+in describing a CORS-enabled `/api` sub-app (kept above for the historical record of
+Phase 9's design, not because it's still accurate). `git_http.py`'s `build_git_app`
+dropped its own `CORSMiddleware` wrap the same way — the browser's isomorphic-git
+client is same-origin now too. Tests flip from asserting CORS-header presence to
+asserting absence: `server/tests/test_share_public.py`, `test_git_sync.py`,
+`test_raw_mode.py` (`assert not any(k.lower().startswith("access-control-") for k in
+r.headers.keys())` — the whole prefix, not just `access-control-allow-origin`, since
+starlette's OWN default behavior emits `access-control-allow-credentials: true` on
+every response through machinery this app doesn't control unless CORSMiddleware is
+present at all, which it now never is).
+
+**Server serves the SPA — static mount + fallback, route ORDER is the whole safety
+argument.** `main.py::create_app` reads `../dist/index.html` once at startup into
+`app.state.spa_index_html` (`None`, with a one-line startup log, if `dist/` hasn't
+been built yet — never a crash; `npm run build` produces it). Two pieces, both
+registered on the root app strictly AFTER `/share/*`'s explicit routes and the `/git`
+mount:
+1. A catch-all `GET /{full_path:path}` route, registered LAST — Starlette tries
+   routes/mounts in registration order, so anything registered earlier (the `/api`
+   mount, the `/git` mount, every `/share/*` route) always wins its own path space
+   first; this handler is only ever REACHED for a path none of those claimed. It
+   serves a real file straight off `dist/` when one exists there (hashed JS/CSS
+   chunks, PWA icons, `manifest.webmanifest`, `sw.js`, favicon — all the "loose"
+   top-level build outputs), else falls back to `index.html` (this app has no
+   client-side route besides `/share/*`, which never reaches this handler at all —
+   see point 2 — so literally everything else, including `/` itself, is meant to
+   land on the app shell).
+2. `routers/share_public.py`'s existing GET handlers (`get_share`/`get_share_path`)
+   gained a new branch, gated on a new `_wants_html()` check (`"text/html" in
+   Accept` — deliberately NOT "absence of `application/json`", so a plain
+   curl/script with no `Accept` header at all keeps getting the exact
+   pre-Phase-10.5a documented default: raw bytes for a file, JSON listing for a
+   folder). Two sub-cases, both funneled through this check:
+   - **Success** (`policy.resolve_share` granted access): a `render_mode="rendered"`
+     file share or ANY folder share, wanting HTML, gets `app.state.spa_index_html`
+     (`_spa_shell_response()`) instead of the raw/JSON response — the SPA then
+     mounts and re-fetches the identical URL itself with `Accept:
+     application/json`, taking the unchanged JSON branch. RAW-mode file shares are
+     excluded from this branch entirely (checked on `render_mode`, not `Accept`) —
+     they always return `text/plain`, browser or not, preserving roadmap §1's "a
+     raw share must never execute" absolutely, with no exception.
+   - **Denial** (`policy.PolicyDenied`, or an "access granted but this relpath/kind
+     doesn't resolve" case): ALSO gets the identical shell for `Accept: text/html`
+     — see the paragraph below for why this widening (not part of this phase's
+     original design) is required and is a strict privacy IMPROVEMENT, not a
+     weakening.
+
+**Every deny reason gets the shell for HTML navigation too — `_deny_response()`,
+replacing the old direct `policy.denial_response()`/`policy.not_found_response()`
+calls in `get_share`/`get_share_path` only (not `put_share`, not the `/api/share/
+.../content` twin routes — neither is ever browser-navigated).** This phase's
+original design kept denials JSON-only regardless of `Accept`, reasoning that
+serving the shell for a bogus slug would "hand the app shell to unauthenticated
+visitors." That reasoning turned out to be backwards, caught by an independent
+review against the REAL production topology (`uvicorn` alone, `vite preview`'s
+dev-only `bypass` proxy rule not in the loop): a password-protected, revoked, or
+expired share opened via a cold browser navigation got a bare JSON 404 body
+instead of ever reaching `ShareApp.tsx`'s "this link is unavailable, or it requires
+a password" UI — the SPA was never loaded at all, so its whole password-prompt
+contract (`server/README.md`'s "Every deny reason is the SAME 404" section) could
+never execute. Worse, the original design was ITSELF a (smaller, HTML-Accept-only)
+oracle: a plain `curl -H 'Accept: text/html'` could already distinguish "real,
+accessible, rendered/folder share" (200 HTML) from "denied for any reason" (404
+JSON) from "real raw-mode share" (200 text/plain) — three classes reachable
+without ever sending `Accept: application/json`. `_deny_response()` fixes both:
+`GET /share/<bogus-slug>` (or revoked, expired, password-required, wrong role,
+unresolvable relpath — EVERY deny reason, uniformly) with `Accept: text/html` now
+returns the exact same `app.state.spa_index_html` bytes a SUCCESSFUL rendered-mode/
+folder share's navigation gets — content-independent, no slug/policy/error detail
+baked in — collapsing what used to be three navigation-visible classes into ONE
+(a successful RAW-mode share is the sole remaining exception, on its own separate,
+non-negotiable terms). The actual authorization decision — and the byte-identical
+JSON `404 {"detail":"Not found"}` the uniform-404 fingerprint requires — moved
+entirely to the DATA fetch: `Accept: application/json` (what `ShareApp.tsx`'s own
+re-fetch always sends, and what `tests/test_policy_gate.py`'s equivalence-matrix
+tests exercise via httpx's default-no-`Accept`-header requests) is completely
+unaffected by `_deny_response()` — `_wants_html()` requires `text/html` specifically
+present, so neither of those ever takes the new branch. Proven directly:
+`server/tests/test_policy_gate.py::test_html_navigation_gets_shell_for_every_deny_
+reason_and_success_alike` asserts the shell bytes are IDENTICAL across bogus/
+revoked/expired/password-required/rendered-success, and that `Accept: */*`/
+`application/json` still get the untouched byte-identical JSON 404 — see that
+test's own doc for the RED/GREEN proof it was written against (temporarily
+reverting `_deny_response`'s HTML branch reproduces exactly the bug this fixes: a
+real 404 body where the test expects the shell). The §5.4 exit demo (this phase's
+final report) separately curls `/share/<bogus>` and a real password-protected share
+directly against a built `dist/` + running uvicorn (the actual production
+topology, not `vite preview`) and shows both.
+
+**Proxy-header handling (uvicorn, `package.json`'s `server` script).**
+`--proxy-headers --forwarded-allow-ips='*'` — uvicorn's `ProxyHeadersMiddleware`
+rewrites `scope["scheme"]`/`scope["client"]` from `X-Forwarded-Proto`/
+`X-Forwarded-Host` when the connecting peer is in `forwarded-allow-ips`; `'*'` (not
+uvicorn's own default, which only trusts `127.0.0.1`) is a deliberate choice for this
+single-host deployment shape — a Cloudflare tunnel client can connect from a
+container/bridge address that isn't literally `127.0.0.1` depending on how
+`cloudflared` is run, and this process has no other untrusted network path in front
+of it. See `server/README.md`'s "Single-origin deployment" section for the full
+rationale and the cookie `Secure`/`SameSite=Lax` posture (unchanged by this phase —
+already correct since Phase 9).
+
+**Dev/preview**: `vite.config.ts`'s proxy config (`shareAuthProxy`, kept as the
+variable name for continuity) gained two new unconditional entries,
+`^/api(/.*)?$` and `^/git(/.*)?$`, alongside the pre-existing `/share/*` entries
+(unchanged logic — still needs the `bypass` content-negotiation trick for the bare
+`/share/{id}` path, which is ALSO this app's own client-side route). Both proxy to
+`SLATE_SHARE_PROXY_TARGET` (env, default `http://127.0.0.1:8787`; `8788` for the e2e
+suite) — the same target variable Phase 10 already established, just applied more
+broadly now that the client has no `baseUrl` fallback of its own to reach for.
 
 ## Deviations
 

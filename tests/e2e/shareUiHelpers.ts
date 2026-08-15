@@ -7,17 +7,17 @@
 import { expect, type Page } from "@playwright/test";
 import { openSettingsTab, treeRow } from "./fixtures";
 
-/** Opens Settings → Sharing, points it at `backendBaseUrl`, waits for
- * "Online", and signs in. Leaves the Settings tab open (Sharing category
- * active) — callers that need the Explorer sidebar don't need to switch
- * away from it first, since the sidebar is independent of which editor tab
- * is focused. */
-export async function signInToShareBackend(page: Page, backendBaseUrl: string, username: string, password: string): Promise<void> {
+/** Opens Settings → Sharing, waits for "Online" (single-origin refactor,
+ * Phase 10.5a: no more Backend URL field to fill — `/api/*` is a relative
+ * fetch that reaches the real backend via `vite.config.ts`'s proxy in this
+ * dev/preview e2e run, same as it does same-origin in production), and
+ * signs in. Leaves the Settings tab open (Sharing category active) —
+ * callers that need the Explorer sidebar don't need to switch away from it
+ * first, since the sidebar is independent of which editor tab is focused. */
+export async function signInToShareBackend(page: Page, username: string, password: string): Promise<void> {
   await openSettingsTab(page);
   await page.getByTestId("settings-nav-sharing").click();
-  await page.getByTestId("share-backend-url").fill(backendBaseUrl);
-  await page.getByTestId("share-backend-test").click();
-  await expect(page.getByTestId("share-backend-status")).toHaveText("Online");
+  await expect(page.getByTestId("share-backend-status")).toHaveText("Online", { timeout: 10_000 });
   await page.getByTestId("share-login-username").fill(username);
   await page.getByTestId("share-login-password").fill(password);
   await page.getByTestId("share-login-submit").click();

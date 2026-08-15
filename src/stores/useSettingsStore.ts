@@ -15,7 +15,6 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { DEFAULT_SHARE_BACKEND_URL } from "../share/api";
 import type { EditorMode, FileKind } from "../types";
 
 export const THEME_OPTIONS = [
@@ -70,13 +69,6 @@ export const DEFAULT_EDITOR_LINE_SPACING = 1.6;
 export const DEFAULT_RENDERED_CONTENT_WIDTH_CH = 54;
 export const DEFAULT_RENDERED_MARGIN_PX = 32;
 export const DEFAULT_RENDERED_LINE_SPACING = 1.8;
-/** Phase 11 (real sync) — the local backend's own `/git/{repo}.git`
- * endpoint (`server/README.md`'s "Real git sync" section), matching
- * `DEFAULT_SHARE_BACKEND_URL`'s `127.0.0.1:8787` convention. `vault` is an
- * arbitrary but fixed repo name — the server creates it on demand on first
- * push (`server/app/gitrepo.py::ensure_bare_repo`), so this default just
- * needs to be *a* valid, stable name, not a pre-existing one. */
-export const DEFAULT_GIT_REMOTE_URL = "http://127.0.0.1:8787/git/vault.git";
 export const DEFAULT_SIDEBAR_WIDTH = 288;
 export const MIN_SIDEBAR_WIDTH = 180;
 /** DESIGN-SPEC Amendments round 3 item 20: dragging the sidebar's right
@@ -129,29 +121,20 @@ interface SettingsState {
    * stays collapsed across a reload. */
   sidebarCollapsed: boolean;
 
-  /** Git & Sync category (Phase 11 — real sync, DESIGN-SPEC Amendments item
-   * 11's original placeholders now wired up for real): `gitRemoteUrl`
-   * defaults to the local backend's own git endpoint
-   * (`DEFAULT_GIT_REMOTE_URL`) so a fresh install has a sensible starting
-   * point rather than an empty field; `gitAuthToken` has no sensible
-   * default (a Phase 9 API token, scoped `write` for push — mintable from
-   * this same Settings view's "Sharing" category once signed in, or via
-   * `POST /api/auth/tokens`). Both are read directly by
-   * `src/git/remote.ts`'s real push/pull/fetch (via `useGitStore`) — no
-   * longer stored-but-unused. HTTPS + token only, deliberately no SSH-key
-   * field: browsers can't speak raw TCP/SSH. */
-  gitRemoteUrl: string;
+  /** Git & Sync category (Phase 11 — real sync). `gitAuthToken` has no
+   * sensible default (a Phase 9 API token, scoped `write` for push —
+   * mintable from this same Settings view's "Sharing" category once signed
+   * in, or via `POST /api/auth/tokens`); read directly by
+   * `src/git/remote.ts`'s real push/pull/fetch (via `useGitStore`). HTTPS +
+   * token only, deliberately no SSH-key field: browsers can't speak raw
+   * TCP/SSH. There is no `gitRemoteUrl` setting anymore (Phase 10.5a,
+   * roadmap §5.4): the sync remote is implicitly `<origin>/git/vault.git` —
+   * see `git/remote.ts`'s `computeGitRemoteUrl`. A pre-Phase-10.5a session's
+   * persisted `gitRemoteUrl` value (if any) is simply ignored: it's not
+   * part of this interface anymore, so zustand's `persist` rehydration
+   * leaves it as an inert, unread key on the persisted blob rather than
+   * erroring or overwriting anything real. */
   gitAuthToken: string;
-
-  /** Phase 10 (sharing) — the Slate backend's (`server/`) base URL, e.g.
-   * `http://127.0.0.1:8787`. Persisted here (not in `share/useShareStore.ts`,
-   * which is ephemeral request/probe state) so it's a normal, user-editable
-   * Settings field ("Sharing" category) that every share-related surface
-   * (Publish dialog, Shared panel, boot-time reachability probe) reads from
-   * the same place. Never trusted blindly — every consumer still calls
-   * `share/api.ts`'s functions, which fail closed (a down/unreachable
-   * backend never throws unhandled — see that module's `whoami` doc). */
-  shareBackendUrl: string;
 
   setTheme: (theme: SlateTheme) => void;
   /** Cycles to the next theme in `THEME_OPTIONS` — the command palette's
@@ -171,9 +154,7 @@ interface SettingsState {
   setSidebarWidth: (width: number) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebarCollapsed: () => void;
-  setGitRemoteUrl: (url: string) => void;
   setGitAuthToken: (token: string) => void;
-  setShareBackendUrl: (url: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -192,9 +173,7 @@ export const useSettingsStore = create<SettingsState>()(
       renderedLineSpacing: DEFAULT_RENDERED_LINE_SPACING,
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       sidebarCollapsed: false,
-      gitRemoteUrl: DEFAULT_GIT_REMOTE_URL,
       gitAuthToken: "",
-      shareBackendUrl: DEFAULT_SHARE_BACKEND_URL,
       setTheme: (theme) => set({ theme }),
       cycleTheme: () => {
         const idx = THEME_OPTIONS.indexOf(get().theme);
@@ -219,9 +198,7 @@ export const useSettingsStore = create<SettingsState>()(
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
-      setGitRemoteUrl: (gitRemoteUrl) => set({ gitRemoteUrl }),
       setGitAuthToken: (gitAuthToken) => set({ gitAuthToken }),
-      setShareBackendUrl: (shareBackendUrl) => set({ shareBackendUrl }),
     }),
     {
       name: "slate-settings",
@@ -236,22 +213,29 @@ export const useSettingsStore = create<SettingsState>()(
       // migrated partial over the store's own defaults for anything this
       // function doesn't return).
       //
-      // v2 (Phase 11): a pre-Phase-11 session's `gitRemoteUrl` was always
-      // `""` (the field was disabled/unused — see that field's doc above),
-      // never a real value a user typed. Carrying an empty string forward
-      // as-is would leave an upgraded session's now-ENABLED Remote URL
-      // field blank instead of landing on the new local-backend default —
-      // remap ONLY the untouched empty-string case, so a session that
-      // somehow already had a real value (there is no way to get one
-      // pre-Phase-11, but never say never) is left alone.
-      version: 2,
+      // v3 (Phase 10.5a, single-origin refactor, roadmap §5.4): removes
+      // `gitRemoteUrl` and `shareBackendUrl` from this store entirely —
+      // both are now implicit/relative to `window.location.origin` (see
+      // `share/api.ts` and `git/remote.ts::computeGitRemoteUrl`), so there
+      // is no longer a Settings field to persist either into. A returning
+      // user's old persisted value for either key would otherwise just sit
+      // there as inert, unread data forever (harmless — neither key is part
+      // of `SettingsState` anymore, so nothing in the app ever reads it
+      // back), but this migration deletes them outright for a clean
+      // persisted blob rather than leaving stale fields around. This is a
+      // pure cleanup step (deleting fields the current shape never reads),
+      // not a functional migration like v1/v2 below, so it applies
+      // unconditionally for `version < 3`, not gated on the old value.
+      version: 3,
       migrate: (persisted, version) => {
-        let state = persisted as Partial<SettingsState> | undefined;
+        let state = persisted as (Partial<SettingsState> & { gitRemoteUrl?: string; shareBackendUrl?: string }) | undefined;
         if (version < 1 && state?.uiDensity === "comfortable") {
           state = { ...state, uiDensity: "default" };
         }
-        if (version < 2 && !state?.gitRemoteUrl) {
-          state = { ...state, gitRemoteUrl: DEFAULT_GIT_REMOTE_URL };
+        if (version < 3 && state) {
+          state = { ...state };
+          delete state.gitRemoteUrl;
+          delete state.shareBackendUrl;
         }
         return state;
       },

@@ -153,7 +153,6 @@ export async function startShareBackend(): Promise<void> {
     SLATE_COOKIE_SECURE: "false",
     SLATE_ENV: "dev",
     SLATE_SECRET_KEY: "e2e-fixed-secret-key-not-for-prod-use",
-    SLATE_CORS_ORIGINS: "http://127.0.0.1:5290,http://localhost:5290",
     SLATE_SESSION_TTL_MIN: "30",
     // Widened well past `server/app/config.py`'s defaults (5/min, 60/min):
     // one backend now serves every spec file in the run instead of each

@@ -132,10 +132,6 @@ export default function App() {
   // Targeted selector, same discipline as `sidebarWidth` above — DESIGN-SPEC
   // Amendments round 3 item 20 ("Sidebar collapse/expand").
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
-  // Phase 10 (sharing) — targeted selector so a Settings "Sharing" edit
-  // (changing the backend URL) re-renders the Publish dialog/Shared panel
-  // with the new URL immediately, same discipline as `sidebarWidth` above.
-  const shareBackendUrl = useSettingsStore((s) => s.shareBackendUrl);
   // Phase 10.5 — the Explorer tree's share indicator glyph (roadmap §5.1)
   // reads whatever `useShareStore.shares` currently holds. That list is
   // populated lazily (Settings → Sharing's mount effect, or the first
@@ -676,7 +672,7 @@ export default function App() {
     // dialog reads `useShareStore`'s reactive `reachability`/`authenticated`
     // fields, so it re-renders once this resolves regardless of whether
     // the dialog is already open by then.
-    void useShareStore.getState().probe(useSettingsStore.getState().shareBackendUrl);
+    void useShareStore.getState().probe();
     setEditingShare(undefined);
     if (node.type === "folder") {
       // Phase 10.5 — folder publish. Reads the CURRENT vault subtree
@@ -701,7 +697,7 @@ export default function App() {
   // vault subtree (fresh content, in case files changed since publish) so
   // "Update share" republishes what's on disk now, not a stale snapshot.
   const handleManageShare = async (node: FileNode, shareRow: ExplorerShareRow) => {
-    void useShareStore.getState().probe(useSettingsStore.getState().shareBackendUrl);
+    void useShareStore.getState().probe();
     const share = useShareStore.getState().shares.find((s) => s.id === shareRow.id);
     if (!share) return;
     if (node.type === "folder" && share.kind === "folder") {
@@ -718,7 +714,7 @@ export default function App() {
   const handleCopyShareLink = (_node: FileNode, shareRow: ExplorerShareRow) => {
     const share = useShareStore.getState().shares.find((s) => s.id === shareRow.id);
     if (!share) return;
-    const link = share.kind === "folder" ? buildFolderShareLink(share) : buildShareLink(share, shareBackendUrl);
+    const link = share.kind === "folder" ? buildFolderShareLink(share) : buildShareLink(share);
     navigator.clipboard?.writeText(link).catch(() => {});
     toast({ title: "Link copied", variant: "success" });
   };
@@ -1037,7 +1033,6 @@ export default function App() {
                 setEditingShare(undefined);
               }
             }}
-            backendBaseUrl={shareBackendUrl}
             filePath={publishTarget?.type === "file" ? publishTarget.path : undefined}
             fileKind={publishTarget?.type === "file" ? publishTarget.kind : undefined}
             content={publishContent}

@@ -28,28 +28,31 @@ def test_no_cors_on_raw(owner_client, anon_client):
     share = publish_share(owner_client, content=b"anything")
     r = anon_client.get(f"/share/{share['slug']}", headers={"Origin": "http://evil.example"})
     assert r.status_code == 200
-    assert "access-control-allow-origin" not in {k.lower() for k in r.headers.keys()}
+    assert not any(k.lower().startswith("access-control-") for k in r.headers.keys())
 
 
 def test_no_cors_on_raw_even_for_allowed_spa_origin(owner_client, anon_client):
-    # Even the SPA's OWN allowed origin gets no CORS headers on /share/* —
-    # CORS is scoped exclusively to /api/* (roadmap §1 + §2).
+    # Single-origin refactor (roadmap §5.4): there is no more "allowed SPA
+    # origin" allow-list at all — CORSMiddleware is gone from every route,
+    # not just scoped away from /share/*. Even the SPA's own real origin
+    # gets zero access-control-* headers here (nor anywhere else — see
+    # `test_share_public.py`/`test_git_sync.py`'s equivalent assertions for
+    # the former /api and /git surfaces).
     share = publish_share(owner_client, content=b"anything")
     r = anon_client.get(f"/share/{share['slug']}", headers={"Origin": "http://127.0.0.1:5290"})
-    assert "access-control-allow-origin" not in {k.lower() for k in r.headers.keys()}
+    assert not any(k.lower().startswith("access-control-") for k in r.headers.keys())
 
 
-def test_cors_wildcard_is_structurally_impossible(make_app, make_settings):
-    # Even a misconfigured SLATE_CORS_ORIGINS="*" must never produce a real
-    # wildcard: config.py's cors_origin_list drops a literal "*" before it
-    # can reach CORSMiddleware. Prove it by hitting the CORS-enabled /api
-    # surface from a totally arbitrary, untrusted Origin and confirming no
-    # Access-Control-Allow-Origin is echoed back for it.
-    settings = make_settings(cors_origins="*")
-    assert settings.cors_origin_list == []
-    app = make_app(settings=settings)
+def test_no_cors_headers_anywhere_even_for_arbitrary_origin(make_app, make_settings):
+    # Single-origin refactor (roadmap §5.4): CORSMiddleware was removed
+    # entirely (no more configurable allow-list to misconfigure into a
+    # wildcard — this test used to prove that narrower property; the
+    # property it proves now is strictly stronger). Hit the /api surface
+    # from a totally arbitrary, untrusted Origin and confirm NO
+    # access-control-* header of any kind comes back.
+    app = make_app(settings=make_settings())
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
     r = client.get("/api/auth/whoami", headers={"Origin": "http://totally-untrusted.example"})
-    assert "access-control-allow-origin" not in {k.lower() for k in r.headers.keys()}
+    assert not any(k.lower().startswith("access-control-") for k in r.headers.keys())

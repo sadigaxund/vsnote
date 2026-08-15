@@ -1,28 +1,41 @@
 /**
  * Backend-down degradation (CLAUDE.md rule 3 + this phase's brief): with NO
- * server running at all, the app boots normally, the vault works, and
- * share affordances are visible but disabled with a "backend not running"
- * hint. Deliberately does NOT import `shareFixtures.ts` / spawn anything —
- * this spec's first three tests rely on the app's DEFAULT configured share
- * backend URL (`http://127.0.0.1:8787`, `npm run server`'s port) being
- * genuinely unreachable, which holds regardless of the rest of the e2e
- * run: `tests/e2e/globalSetup.ts` only ever starts a backend on 8788 (the
- * `share-*.spec.ts` files' dedicated e2e port), never 8787.
+ * server reachable, the app boots normally, the vault works, and share
+ * affordances are visible but disabled with a "backend not running" hint.
  *
- * The fourth test is different: the app's own `/share/<slug>` route proxies
- * through to `SLATE_SHARE_PROXY_TARGET` (8788, baked in at build time for
- * this whole run — see `vite.config.ts`'s `shareAuthProxy` doc), and since
- * Phase 10's global setup now keeps ONE real backend alive on 8788 for the
- * ENTIRE run (so the four `share-*.spec.ts` files stop racing each other
- * over that port), 8788 is never actually down during this test. A
- * `page.route()` network-level abort simulates the "genuinely unreachable"
- * case that test needs instead — see that test for detail.
+ * Single-origin refactor (Phase 10.5a, roadmap §5.4) changed HOW this is
+ * simulated: pre-Phase-10.5a, the app had a Settings-configurable "Sharing
+ * base URL" that defaulted to `http://127.0.0.1:8787` — a port this e2e run
+ * never starts anything on (only 8788, the `share-*.spec.ts` files'
+ * dedicated backend) — so the first three tests below got "genuinely
+ * unreachable" for free, with no test-side simulation needed at all. That
+ * default no longer exists: `/api/*` is now a plain RELATIVE fetch, proxied
+ * same-origin by `vite.config.ts` to the e2e run's actual shared backend
+ * (port 8788, which IS up for this whole run — see `tests/e2e/
+ * globalSetup.ts`). All four tests below therefore now use the SAME
+ * technique — a `page.route()` network-level abort of `/api/**` (this
+ * file's own `abortApiRequests` helper) — that the pre-existing fourth test
+ * already used for `/share/**`, simulating a genuinely unreachable backend
+ * without needing a real down port to exploit.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { gotoApp, treeRow } from "./fixtures";
+
+/** Aborts every `/api/**` request at the network level — real page
+ * navigations (`resourceType() === "document"`) pass through untouched, so
+ * the SPA shell itself still loads fine; only the backend calls fail,
+ * simulating a genuinely unreachable backend. Must be registered BEFORE
+ * `gotoApp()` so the very first boot-time probe is already caught. */
+async function abortApiRequests(page: Page): Promise<void> {
+  await page.route("**/api/**", (route) => {
+    if (route.request().resourceType() === "document") return route.continue();
+    return route.abort("connectionrefused");
+  });
+}
 
 test.describe("backend-down degradation", () => {
   test("the app boots and the vault works with no share backend running", async ({ page }) => {
+    await abortApiRequests(page);
     await gotoApp(page);
     // Ordinary vault features stay fully functional.
     await treeRow(page, "vault/notes/architecture.md").click();
@@ -30,6 +43,7 @@ test.describe("backend-down degradation", () => {
   });
 
   test("Settings → Sharing shows the offline hint, not a crash", async ({ page }) => {
+    await abortApiRequests(page);
     await gotoApp(page);
     await page.getByTestId("app-titlebar").getByRole("button", { name: "Settings" }).click();
     await page.getByTestId("settings-nav-sharing").click();
@@ -40,6 +54,7 @@ test.describe("backend-down degradation", () => {
   });
 
   test("the Publish dialog stays reachable but shows the offline hint instead of the form", async ({ page }) => {
+    await abortApiRequests(page);
     await gotoApp(page);
     await treeRow(page, "vault/notes/architecture.md").click({ button: "right" });
     await expect(page.getByRole("menuitem", { name: "Publish…" })).toBeVisible();
@@ -55,12 +70,12 @@ test.describe("backend-down degradation", () => {
   test("the share route itself degrades to the unreachable state, not a crash", async ({ page }) => {
     // `ShareApp.tsx` fetches its content via a relative, same-origin
     // `/share/<slug>` request (`Accept: application/json`), proxied to the
-    // e2e run's single shared backend on 8788 — which, unlike port 8787
-    // above, IS up for this whole run (see this file's module doc). Abort
-    // just that JSON fetch at the network level to simulate a genuinely
-    // unreachable backend, while letting the plain page navigation to this
-    // same URL through untouched (`resourceType() === "document"`) so the
-    // SPA's own client-side router still serves `ShareApp.tsx` normally.
+    // e2e run's single shared backend on 8788 — same technique as
+    // `abortApiRequests` above, scoped to this one `/share/*` path instead
+    // of `/api/**` (this is the ONE path a plain page navigation must NOT
+    // be aborted on, since it's ALSO this app's own client-side route for
+    // the rendered-share page — see this file's module doc and `vite.
+    // config.ts`'s `shareAuthProxy` doc for the same distinction).
     await page.route("**/share/some-nonexistent-slug-abcdefgh", (route) => {
       if (route.request().resourceType() === "document") return route.continue();
       return route.abort("connectionrefused");

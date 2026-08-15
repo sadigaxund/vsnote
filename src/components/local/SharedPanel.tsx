@@ -26,7 +26,6 @@ import { buildFolderShareLink, buildShareLink } from "../../share/shareLinks";
 import type { ShareOut } from "../../share/api";
 
 export interface SharedPanelProps {
-  backendBaseUrl: string;
   authenticated: boolean;
   onEditShare: (share: ShareOut) => void;
 }
@@ -36,7 +35,7 @@ function formatEpoch(epoch: number | null | undefined): string {
   return new Date(epoch * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-export function SharedPanel({ backendBaseUrl, authenticated, onEditShare }: SharedPanelProps) {
+export function SharedPanel({ authenticated, onEditShare }: SharedPanelProps) {
   const { toast } = useToast();
   const shares = useShareStore((s) => s.shares);
   const loading = useShareStore((s) => s.sharesLoading);
@@ -47,9 +46,9 @@ export function SharedPanel({ backendBaseUrl, authenticated, onEditShare }: Shar
   const [revokeTarget, setRevokeTarget] = useState<ShareOut | null>(null);
 
   useEffect(() => {
-    if (authenticated) void refreshShares(backendBaseUrl);
+    if (authenticated) void refreshShares();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authenticated, backendBaseUrl]);
+  }, [authenticated]);
 
   if (!authenticated) {
     return (
@@ -65,7 +64,7 @@ export function SharedPanel({ backendBaseUrl, authenticated, onEditShare }: Shar
 
   async function handleCopy(share: ShareOut) {
     try {
-      const link = share.kind === "folder" ? buildFolderShareLink(share) : buildShareLink(share, backendBaseUrl);
+      const link = share.kind === "folder" ? buildFolderShareLink(share) : buildShareLink(share);
       await navigator.clipboard.writeText(link);
       toast({ title: "Link copied", variant: "success" });
     } catch {
@@ -76,7 +75,7 @@ export function SharedPanel({ backendBaseUrl, authenticated, onEditShare }: Shar
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }} data-testid="shared-panel">
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Button type="button" variant="ghost" size="sm" onClick={() => refreshShares(backendBaseUrl)} data-testid="shared-refresh">
+        <Button type="button" variant="ghost" size="sm" onClick={() => refreshShares()} data-testid="shared-refresh">
           <RefreshCcw size={13} /> Refresh
         </Button>
       </div>
@@ -158,7 +157,7 @@ export function SharedPanel({ backendBaseUrl, authenticated, onEditShare }: Shar
                           size="icon-sm"
                           aria-label="Regenerate link"
                           onClick={async () => {
-                            await regenerate(backendBaseUrl, share.id);
+                            await regenerate(share.id);
                             toast({ title: "Link regenerated", variant: "success" });
                           }}
                         >
@@ -197,7 +196,7 @@ export function SharedPanel({ backendBaseUrl, authenticated, onEditShare }: Shar
           if (!revokeTarget) return;
           const target = revokeTarget;
           setRevokeTarget(null);
-          void revoke(backendBaseUrl, target.id).then(() => toast({ title: "Share revoked", variant: "success" }));
+          void revoke(target.id).then(() => toast({ title: "Share revoked", variant: "success" }));
         }}
       />
     </div>

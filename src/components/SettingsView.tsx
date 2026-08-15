@@ -68,7 +68,7 @@ import {
 } from "../stores/useSettingsStore";
 import { defaultModeFor } from "../filetypes/registry";
 import { useGitStore } from "../stores/useGitStore";
-import { testGitConnection, type ConnectionTestResult } from "../git/remote";
+import { computeGitRemoteUrl, testGitConnection, type ConnectionTestResult } from "../git/remote";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
 import { useShareStore } from "../share/useShareStore";
 import { SharedPanel } from "./local/SharedPanel";
@@ -160,12 +160,8 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const renderedMargin = useSettingsStore((s) => s.renderedMargin);
   const renderedLineSpacing = useSettingsStore((s) => s.renderedLineSpacing);
   const readingViewDefaultMode = useSettingsStore((s) => s.readingViewDefaultMode);
-  const gitRemoteUrl = useSettingsStore((s) => s.gitRemoteUrl);
   const gitAuthToken = useSettingsStore((s) => s.gitAuthToken);
-  const setGitRemoteUrl = useSettingsStore((s) => s.setGitRemoteUrl);
   const setGitAuthToken = useSettingsStore((s) => s.setGitAuthToken);
-  const shareBackendUrl = useSettingsStore((s) => s.shareBackendUrl);
-  const setShareBackendUrl = useSettingsStore((s) => s.setShareBackendUrl);
 
   const setTheme = useSettingsStore((s) => s.setTheme);
   const setAccent = useSettingsStore((s) => s.setAccent);
@@ -201,7 +197,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const probeShareBackend = useShareStore((s) => s.probe);
   const loginShareBackend = useShareStore((s) => s.login);
   const logoutShareBackend = useShareStore((s) => s.logout);
-  const [shareUrlDraft, setShareUrlDraft] = useState(shareBackendUrl);
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [editingShare, setEditingShare] = useState<ShareOut | null>(null);
@@ -211,7 +206,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   // feedback for one button in one view, same reasoning `loginError`/
   // `loggingIn` would get if they weren't ALSO needed by the boot-time
   // probe effect above (they are, hence useShareStore; this isn't).
-  const [gitUrlDraft, setGitUrlDraft] = useState(gitRemoteUrl);
   const [gitTokenDraft, setGitTokenDraft] = useState(gitAuthToken);
   const [gitTesting, setGitTesting] = useState(false);
   const [gitTestResult, setGitTestResult] = useState<ConnectionTestResult | null>(null);
@@ -219,11 +213,12 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const [gitTokenGenerateError, setGitTokenGenerateError] = useState<string | null>(null);
 
   useEffect(() => {
-    void probeShareBackend(shareBackendUrl);
-    // Only re-probe when the SAVED url changes (Test connection below saves
-    // + probes together) — not on every keystroke in the draft field.
+    // Single-origin refactor (Phase 10.5a) — there's no more configurable
+    // backend URL to gate a re-probe on; a plain mount-once probe (Settings
+    // "Sharing" category mounting) is all this ever needs.
+    void probeShareBackend();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shareBackendUrl]);
+  }, []);
 
   // Boot's `navigator.storage.persist()` request (App.tsx) usually resolves
   // long before anyone opens Settings; this is only a fallback for the rare
@@ -522,6 +517,10 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                   { label: "Repository", value: "vault" },
                   { label: "Branch", value: branch },
                   { label: "Ahead / behind", value: `↑${ahead} ↓${behind}` },
+                  // Phase 10.5a (single-origin refactor, roadmap §5.4) — the
+                  // sync remote is implicit (`<origin>/git/vault.git`), so
+                  // this is informational/read-only, not an editable field.
+                  { label: "Remote URL", value: computeGitRemoteUrl() },
                 ]}
                 density="compact"
               />
@@ -540,16 +539,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                   {gitTestResult?.ok ? (gitTestResult.repoExists ? "Connected" : "Connected — repo not created yet") : "Fast-forward only"}
                 </Badge>
               </div>
-              <FormField label="Remote URL (HTTPS)" hint="The Slate backend's git endpoint (server/) — see server/README.md's 'Real git sync' section. Browsers can't speak SSH (no raw TCP), so HTTPS + token only.">
-                <Input
-                  size="sm"
-                  placeholder="http://127.0.0.1:8787/git/vault.git"
-                  value={gitUrlDraft}
-                  onChange={(e) => setGitUrlDraft(e.target.value)}
-                  onBlur={() => setGitRemoteUrl(gitUrlDraft)}
-                  aria-label="Remote URL"
-                />
-              </FormField>
               <FormField
                 label="Personal access token"
                 hint="A Phase 9 API token, scoped 'write' (push) or 'read' (fetch/pull only). Generate one below once signed in under Sharing, or mint one with POST /api/auth/tokens."
@@ -574,7 +563,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     onClick={() => {
                       setGitTokenGenerating(true);
                       setGitTokenGenerateError(null);
-                      createApiToken(shareBackendUrl, "slate-git-sync", "write")
+                      createApiToken("slate-git-sync", "write")
                         .then((created) => {
                           setGitTokenDraft(created.token);
                           setGitAuthToken(created.token);
@@ -606,11 +595,12 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                   size="sm"
                   data-testid="git-test-connection"
                   onClick={() => {
-                    setGitRemoteUrl(gitUrlDraft);
                     setGitAuthToken(gitTokenDraft);
                     setGitTesting(true);
                     setGitTestResult(null);
-                    void testGitConnection({ url: gitUrlDraft, token: gitTokenDraft })
+                    // Phase 10.5a — same-origin health check: no Remote URL
+                    // field to read anymore, the remote is implicit.
+                    void testGitConnection({ url: computeGitRemoteUrl(), token: gitTokenDraft })
                       .then(setGitTestResult)
                       .finally(() => setGitTesting(false));
                   }}
@@ -648,34 +638,13 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {reachability === "offline" && (
                 <Alert variant="warning" size="sm" title="Backend not running">
-                  Start it with <code>npm run server</code> from the repo root — it listens on{" "}
-                  <code>127.0.0.1:8787</code>. The rest of Slate works fine without it; only sharing needs it.
+                  Start it with <code>npm run server</code> from the repo root. The rest of Slate works fine
+                  without it; only sharing needs it.
                 </Alert>
               )}
-              <FormField label="Backend URL" hint="The Slate backend (server/) — sharing, auth, and (later) real sync.">
-                <div style={{ display: "flex", gap: 8 }}>
-                  <Input
-                    size="sm"
-                    value={shareUrlDraft}
-                    onChange={(e) => setShareUrlDraft(e.target.value)}
-                    aria-label="Share backend URL"
-                    data-testid="share-backend-url"
-                    style={{ flex: 1 }}
-                  />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    data-testid="share-backend-test"
-                    onClick={() => {
-                      setShareBackendUrl(shareUrlDraft);
-                      void probeShareBackend(shareUrlDraft);
-                    }}
-                  >
-                    {reachability === "checking" ? <Loader2 size={13} className="animate-spin" /> : "Test connection"}
-                  </Button>
-                </div>
-              </FormField>
+              {/* Phase 10.5a (single-origin refactor, roadmap §5.4) — no more
+                  Backend URL field: the backend is same-origin, so "Test
+                  connection" is just a re-probe. */}
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Badge
                   variant={reachability === "online" ? "success" : reachability === "offline" ? "danger" : "neutral"}
@@ -684,6 +653,9 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                 >
                   {reachability === "online" ? "Online" : reachability === "offline" ? "Offline" : reachability === "checking" ? "Checking…" : "Unknown"}
                 </Badge>
+                <Button type="button" variant="secondary" size="sm" data-testid="share-backend-test" onClick={() => void probeShareBackend()}>
+                  {reachability === "checking" ? <Loader2 size={13} className="animate-spin" /> : "Test connection"}
+                </Button>
                 {reachability === "online" && authenticated && (
                   <>
                     <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>Signed in as {shareUsername}</span>
@@ -692,7 +664,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                       variant="ghost"
                       size="sm"
                       data-testid="share-signout"
-                      onClick={() => void logoutShareBackend(shareBackendUrl)}
+                      onClick={() => void logoutShareBackend()}
                     >
                       Sign out
                     </Button>
@@ -724,7 +696,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                       size="sm"
                       disabled={loggingIn}
                       data-testid="share-login-submit"
-                      onClick={() => void loginShareBackend(shareBackendUrl, loginUser, loginPass)}
+                      onClick={() => void loginShareBackend(loginUser, loginPass)}
                     >
                       {loggingIn ? <Loader2 size={13} className="animate-spin" /> : "Sign in"}
                     </Button>
@@ -743,7 +715,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           id: "shared-panel",
           label: "Shared",
           keywords: "shares links published revoke regenerate hits audit expiry password access",
-          content: <SharedPanel backendBaseUrl={shareBackendUrl} authenticated={authenticated} onEditShare={setEditingShare} />,
+          content: <SharedPanel authenticated={authenticated} onEditShare={setEditingShare} />,
         },
       ],
     },
@@ -929,7 +901,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         <PublishDialog
           open={editingShare !== null}
           onOpenChange={(open) => !open && setEditingShare(null)}
-          backendBaseUrl={shareBackendUrl}
           existingShare={editingShare}
         />
       </Suspense>

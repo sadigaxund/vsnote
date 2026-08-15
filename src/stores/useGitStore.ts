@@ -42,13 +42,13 @@ import * as git from "isomorphic-git";
 import { fs, GIT_DIR, DEFAULT_BRANCH } from "../git/client";
 import { computeStatus, type FileStatusMap } from "../git/status";
 import { diffFileVsHead, EMPTY_DIFF, type FileDiffResult } from "../git/diff";
-import { computeSyncStatus, realFetch, realPull, realPush, SyncError, type RemoteConfig } from "../git/remote";
+import { computeGitRemoteUrl, computeSyncStatus, realFetch, realPull, realPush, SyncError, type RemoteConfig } from "../git/remote";
 import { useSettingsStore } from "./useSettingsStore";
 import type { GitStatus } from "../types";
 
 function remoteConfig(): RemoteConfig {
-  const { gitRemoteUrl, gitAuthToken } = useSettingsStore.getState();
-  return { url: gitRemoteUrl, token: gitAuthToken };
+  const { gitAuthToken } = useSettingsStore.getState();
+  return { url: computeGitRemoteUrl(), token: gitAuthToken };
 }
 
 function errorMessage(err: unknown): string {

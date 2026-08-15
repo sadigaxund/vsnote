@@ -68,7 +68,6 @@ import type { FileKind } from "../../types";
 export interface PublishDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  backendBaseUrl: string;
   /** The vault display path being published, e.g. `vault/notes/x.md` —
    * omitted only while the dialog is closing/reused, never while `open`. */
   filePath?: string;
@@ -122,7 +121,6 @@ function epochSecondsToDateInput(epoch: number | null | undefined): string {
 export function PublishDialog({
   open,
   onOpenChange,
-  backendBaseUrl,
   filePath,
   fileKind,
   content,
@@ -161,7 +159,7 @@ export function PublishDialog({
   useEffect(() => {
     if (!isFolder || !editMode || !existingShare) return;
     let cancelled = false;
-    getShareManifest(backendBaseUrl, existingShare.id)
+    getShareManifest(existingShare.id)
       .then((manifest) => {
         if (cancelled) return;
         setIncluded(includedSetFromManifest(manifest.entries.map((e) => e.relpath)));
@@ -240,7 +238,7 @@ export function PublishDialog({
     !submitting;
 
   async function handleLogin() {
-    await login(backendBaseUrl, loginUser, loginPass);
+    await login(loginUser, loginPass);
   }
 
   async function handleSubmit() {
@@ -264,14 +262,13 @@ export function PublishDialog({
           // Policy fields (access/expiry/password/alias/mode) via the same
           // PATCH every share type uses, THEN "Update share" — republish
           // the CURRENT subtree to the same slug (roadmap §5.1).
-          await updateShare(backendBaseUrl, existingShare.id, policyPatch);
-          const updated = await updateFolderManifest(backendBaseUrl, existingShare.id, includedEntries);
+          await updateShare(existingShare.id, policyPatch);
+          const updated = await updateFolderManifest(existingShare.id, includedEntries);
           setResult(updated);
           toast({ title: "Share updated", description: `Republished ${includedEntries.length} file(s).`, variant: "success" });
         } else {
           if (!folderPath) throw new Error("No folder selected to publish.");
           const share = await publishFolder(
-            backendBaseUrl,
             {
               sourcePath: folderPath,
               filename: folderName,
@@ -290,11 +287,11 @@ export function PublishDialog({
           toast({ title: "Published", description: `${folderName} (${includedEntries.length} files) is now shared.`, variant: "success" });
         }
       } else if (editMode && existingShare) {
-        const updated = await updateShare(backendBaseUrl, existingShare.id, policyPatch);
+        const updated = await updateShare(existingShare.id, policyPatch);
         setResult(updated);
       } else {
         if (!filePath || content === undefined) throw new Error("No file selected to publish.");
-        const share = await publish(backendBaseUrl, {
+        const share = await publish({
           sourcePath: filePath,
           filename,
           content,
@@ -316,7 +313,7 @@ export function PublishDialog({
     }
   }
 
-  const link = result ? (result.kind === "folder" ? buildFolderShareLink(result) : buildShareLink(result, backendBaseUrl)) : null;
+  const link = result ? (result.kind === "folder" ? buildFolderShareLink(result) : buildShareLink(result)) : null;
 
   async function handleCopy() {
     if (!link) return;
@@ -351,7 +348,7 @@ export function PublishDialog({
         {offline && (
           <Alert variant="warning" title="Backend not running" size="sm">
             Share links need the Slate backend. Start it with <code>npm run server</code> (listens on
-            127.0.0.1:8787), or set a different URL in Settings → Sharing.
+            127.0.0.1:8787).
           </Alert>
         )}
 

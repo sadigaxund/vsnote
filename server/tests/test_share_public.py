@@ -25,11 +25,13 @@ def test_json_contract_via_dedicated_content_route_under_api(owner_client):
     body = r.json()
     assert body["content"] == "plain body text"
 
-    # This route lives under /api — CORS must apply (unlike raw /share/*).
+    # Single-origin refactor (roadmap §5.4): CORS is gone everywhere,
+    # including under /api — this route now carries NO access-control-*
+    # headers for any Origin, same as raw /share/*.
     r2 = owner_client.get(
         f"/api/share/{share['slug']}/content", headers={"Origin": "http://127.0.0.1:5290"}
     )
-    assert r2.headers.get("access-control-allow-origin") == "http://127.0.0.1:5290"
+    assert not any(k.lower().startswith("access-control-") for k in r2.headers.keys())
 
 
 def test_json_contract_binary_content_base64_fallback(owner_client):

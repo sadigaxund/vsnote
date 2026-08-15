@@ -9,7 +9,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { gotoApp } from "./fixtures";
-import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME, SHARE_BACKEND_BASE_URL } from "./shareFixtures";
+import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 import { createFileWithContent, publishFileViaContextMenu, signInToShareBackend } from "./shareUiHelpers";
 
 const MARKDOWN_PAYLOAD = `# XSS probe
@@ -31,7 +31,7 @@ const HTML_PAYLOAD = `<html><body><script>window.__xss = 1;</script><h1>xss prob
 test.describe("rendered-mode sandbox", () => {
   test("markdown: embedded raw HTML never executes or becomes live DOM", async ({ page, browser }) => {
     await gotoApp(page);
-    await signInToShareBackend(page, SHARE_BACKEND_BASE_URL, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 
     const path = await createFileWithContent(page, "vault/notes", "xss-probe.md", MARKDOWN_PAYLOAD);
     const link = await publishFileViaContextMenu(page, { treePath: path, generalAccess: "link", renderMode: "rendered" });
@@ -57,7 +57,7 @@ test.describe("rendered-mode sandbox", () => {
 
   test("html: renders only inside a sandboxed iframe with no allow-scripts", async ({ page, browser }) => {
     await gotoApp(page);
-    await signInToShareBackend(page, SHARE_BACKEND_BASE_URL, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 
     const path = await createFileWithContent(page, "vault/notes", "xss-probe.html", HTML_PAYLOAD);
     const link = await publishFileViaContextMenu(page, { treePath: path, generalAccess: "link", renderMode: "rendered" });
