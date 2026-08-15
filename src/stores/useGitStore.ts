@@ -1,10 +1,18 @@
 /**
  * Git status + simulated sync state. `statuses`/`branch`/`changedCount` are
  * always recomputed live from the real repo (never persisted — they'd go
- * stale); `ahead`/`behind`/`syncedLabel` are the simulated-remote counters
+ * stale); `ahead`/`behind`/`lastSyncedAt` are the simulated-remote counters
  * (ARCHITECTURE.md: "simulated remote... ahead/behind counters"), which
  * have no real git backing so they persist to localStorage like
  * `useSettingsStore`, surviving reloads.
+ *
+ * `lastSyncedAt` is a raw epoch timestamp, not a pre-formatted "synced Xm
+ * ago" string — IMPLEMENTATION-PLAN.md Phase 5's "'synced Xm ago' relative
+ * timestamp ticking" needs the label to keep advancing between syncs
+ * without a store write every tick; `src/lib/relativeTime.ts`'s
+ * `formatSyncedLabel` re-derives the string on demand, and
+ * `StatusBar.tsx`'s tick interval is what makes the *displayed* label
+ * actually count up.
  *
  * Diff results are cached per path (`git/diff.ts` is the single source the
  * chip and status bar both read — ARCHITECTURE.md "Key flows") and
@@ -18,6 +26,12 @@ import { computeStatus, type FileStatusMap } from "../git/status";
 import { diffFileVsHead, EMPTY_DIFF, type FileDiffResult } from "../git/diff";
 import { simulateFetch, simulatePull, simulatePush } from "../git/remote";
 import type { GitStatus } from "../types";
+
+/** Ceiling for the simulated "ahead/behind drift" (`driftIncrement`,
+ * `hooks/useSyncDrift.ts`) — keeps a long-idle tab's behind-count from
+ * climbing forever and reading as broken rather than "someone else is
+ * committing upstream". */
+const MAX_DRIFT_BEHIND = 9;
 
 interface GitStoreState {
   branch: string;
@@ -35,7 +49,8 @@ interface GitStoreState {
   // Persisted (simulated — no real remote backs these).
   ahead: number;
   behind: number;
-  syncedLabel: string;
+  /** Epoch ms of the last successful sync/push/pull — see module doc. */
+  lastSyncedAt: number;
 
   refresh: () => Promise<void>;
   statusFor: (displayPath: string) => GitStatus | undefined;
@@ -49,6 +64,12 @@ interface GitStoreState {
    * usual single-button "sync" semantics, reusing the same simulated-remote
    * calls `push`/`pull` already use rather than a third code path. */
   syncNow: () => Promise<void>;
+  /** Phase 5b "ahead/behind drift" polish (IMPLEMENTATION-PLAN.md Phase 5):
+   * simulates an upstream commit landing while this tab is idle by bumping
+   * `behind`. Called from `hooks/useSyncDrift.ts`'s interval, not on every
+   * render — a no-op while a real sync is in flight (`syncing`) so drift
+   * never races the push/pull counters it's about to overwrite. */
+  driftIncrement: () => void;
 }
 
 export const useGitStore = create<GitStoreState>()(
@@ -64,7 +85,9 @@ export const useGitStore = create<GitStoreState>()(
 
       ahead: 3,
       behind: 1,
-      syncedLabel: "synced 2m ago",
+      // Matches DESIGN-SPEC/seed's "synced 2m ago" boot state without
+      // hardcoding the formatted string (see module doc).
+      lastSyncedAt: Date.now() - 2 * 60_000,
 
       refresh: async () => {
         const [{ statuses, changedCount, untrackedCount }, branch] = await Promise.all([
@@ -99,19 +122,19 @@ export const useGitStore = create<GitStoreState>()(
       push: async () => {
         set({ syncing: "push" });
         const next = await simulatePush({ ahead: get().ahead, behind: get().behind });
-        set({ ...next, syncing: false, syncedLabel: "synced just now" });
+        set({ ...next, syncing: false, lastSyncedAt: Date.now() });
       },
 
       pull: async () => {
         set({ syncing: "pull" });
         const next = await simulatePull({ ahead: get().ahead, behind: get().behind });
-        set({ ...next, syncing: false, syncedLabel: "synced just now" });
+        set({ ...next, syncing: false, lastSyncedAt: Date.now() });
       },
 
       fetch: async () => {
         set({ syncing: "fetch" });
         const next = await simulateFetch({ ahead: get().ahead, behind: get().behind });
-        set({ ...next, syncing: false, syncedLabel: "synced just now" });
+        set({ ...next, syncing: false, lastSyncedAt: Date.now() });
       },
 
       syncNow: async () => {
@@ -119,15 +142,39 @@ export const useGitStore = create<GitStoreState>()(
         const afterPull = await simulatePull({ ahead: get().ahead, behind: get().behind });
         set({ ahead: afterPull.ahead, behind: afterPull.behind, syncing: "push" });
         const afterPush = await simulatePush({ ahead: afterPull.ahead, behind: afterPull.behind });
-        set({ ahead: afterPush.ahead, behind: afterPush.behind, syncing: false, syncedLabel: "synced just now" });
+        set({ ahead: afterPush.ahead, behind: afterPush.behind, syncing: false, lastSyncedAt: Date.now() });
+      },
+
+      driftIncrement: () => {
+        const { syncing, behind } = get();
+        if (syncing || behind >= MAX_DRIFT_BEHIND) return;
+        set({ behind: behind + 1 });
       },
     }),
     {
       name: "slate-git-sync",
+      // v1: `syncedLabel` (a pre-formatted string) replaced by `lastSyncedAt`
+      // (an epoch timestamp — see module doc). `migrate` best-effort parses
+      // a v0 persisted string back into a timestamp so an existing session's
+      // "synced Xm ago" doesn't visibly jump to "synced just now" the first
+      // time it loads post-upgrade; any shape that doesn't parse just falls
+      // through to the current boot default.
+      version: 1,
+      migrate: (persisted) => {
+        const raw = persisted as { ahead?: number; behind?: number; syncedLabel?: string; lastSyncedAt?: number };
+        if (typeof raw.lastSyncedAt === "number") {
+          return { ahead: raw.ahead ?? 3, behind: raw.behind ?? 1, lastSyncedAt: raw.lastSyncedAt };
+        }
+        const match = /synced (\d+)([mh]) ago/.exec(raw.syncedLabel ?? "");
+        const lastSyncedAt = match
+          ? Date.now() - Number(match[1]) * (match[2] === "h" ? 3_600_000 : 60_000)
+          : Date.now();
+        return { ahead: raw.ahead ?? 3, behind: raw.behind ?? 1, lastSyncedAt };
+      },
       partialize: (state) => ({
         ahead: state.ahead,
         behind: state.behind,
-        syncedLabel: state.syncedLabel,
+        lastSyncedAt: state.lastSyncedAt,
       }),
     },
   ),

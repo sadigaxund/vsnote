@@ -9,6 +9,9 @@ import { EditorHeader } from "./components/EditorHeader";
 import { EditorContent } from "./components/EditorContent";
 import { AppStatusBar } from "./components/StatusBar";
 import { ensureSeeded, resetDemoVault } from "./fs/seed";
+import { requestPersistentStorage, type StoragePersistenceStatus } from "./fs/persistence";
+import { downloadBlob, exportVaultZip, vaultZipFilename } from "./fs/exportZip";
+import { SYNC_DRIFT_INTERVAL_MS, SYNC_DRIFT_PROBABILITY } from "./git/remote";
 import { useFsStore, inferFileKind } from "./stores/useFsStore";
 import { useGitStore } from "./stores/useGitStore";
 import { useTabsStore } from "./stores/useTabsStore";
@@ -74,6 +77,11 @@ export default function App() {
   const [zenMode, setZenMode] = useState(false);
   const [zenPillHovered, setZenPillHovered] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  // Phase 5b durability: result of the boot-time `navigator.storage.persist()`
+  // request (see `fs/persistence.ts`) — undefined until that resolves, so
+  // the status-bar warning only ever appears once we actually know it was
+  // denied, never as a flash-of-warning before the request settles.
+  const [storagePersistence, setStoragePersistence] = useState<StoragePersistenceStatus | undefined>(undefined);
   const [pendingJump, setPendingJump] = useState<{ path: string; line: number } | null>(null);
   // Snapshot of whichever CM6 view was registered at the moment a jump was
   // requested — see the polling effect below for why this matters (it lets
@@ -104,6 +112,25 @@ export default function App() {
       }
       setBooted(true);
     })();
+
+    // Phase 5b durability safeguard (IMPLEMENTATION-PLAN.md Phase 5):
+    // request persistent storage for the IndexedDB-backed vault. Runs
+    // independently of the seed/tab-restore chain above — it never blocks
+    // first paint, and a denial only ever produces the muted status-bar
+    // warning (`fs/persistence.ts`'s doc), never a dialog or toast.
+    void requestPersistentStorage().then(setStoragePersistence);
+  }, []);
+
+  // Phase 5b "ahead/behind drift" (IMPLEMENTATION-PLAN.md Phase 5 sync-
+  // lifecycle polish) — see `git/remote.ts`'s doc on the interval/
+  // probability constants. Skips a tick while the tab is hidden so a
+  // backgrounded session doesn't rack up drift the user never sees land.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (Math.random() < SYNC_DRIFT_PROBABILITY) useGitStore.getState().driftIncrement();
+    }, SYNC_DRIFT_INTERVAL_MS);
+    return () => clearInterval(id);
   }, []);
 
   const pane = tabs.panes[tabs.activePaneId];
@@ -216,6 +243,30 @@ export default function App() {
       description: ahead === 0 && behind === 0 ? "Up to date." : `↑${ahead} ↓${behind}`,
       variant: "success",
     });
+  }
+
+  // Phase 5b "Export vault as .zip" (IMPLEMENTATION-PLAN.md Phase 5
+  // durability bullet) — reads the real vault off lightning-fs and zips it
+  // client-side (`fs/exportZip.ts`; `fflate` is dynamically imported inside
+  // that module so it never touches the boot bundle). A toast either way:
+  // success reports the file count, failure surfaces the error instead of
+  // failing silently on what's explicitly a backup/safety feature.
+  async function handleExportVaultZip(): Promise<void> {
+    try {
+      const { blob, fileCount } = await exportVaultZip();
+      downloadBlob(blob, vaultZipFilename());
+      toast({
+        title: "Vault exported",
+        description: `${fileCount} file${fileCount === 1 ? "" : "s"} zipped and downloaded.`,
+        variant: "success",
+      });
+    } catch (err) {
+      toast({
+        title: "Export failed",
+        description: err instanceof Error ? err.message : "Could not build the vault archive.",
+        variant: "danger",
+      });
+    }
   }
 
   async function handleResetVaultConfirmed(): Promise<void> {
@@ -524,6 +575,7 @@ export default function App() {
     { id: "toggle-theme", label: "Toggle theme" },
     { id: "sync", label: "Sync now (push & pull)" },
     { id: "new-file", label: "New file" },
+    { id: "export-zip", label: "Export vault as .zip" },
     { id: "reset-vault", label: "Reset demo vault…" },
     { id: "zen", label: "Toggle zen mode", shortcut: "⌘⇧Z" },
     { id: "search", label: "Search in files" },
@@ -545,6 +597,9 @@ export default function App() {
         break;
       case "new-file":
         void handleCreateFile();
+        break;
+      case "export-zip":
+        void handleExportVaultZip();
         break;
       case "reset-vault":
         setResetConfirmOpen(true);
@@ -704,7 +759,8 @@ export default function App() {
             branch: git.branch,
             ahead: git.ahead,
             behind: git.behind,
-            syncedLabel: git.syncedLabel,
+            lastSyncedAt: git.lastSyncedAt,
+            syncing: git.syncing,
             diff: activeDiff,
             untracked: git.untrackedCount,
             changedCount: git.changedCount,
@@ -716,6 +772,7 @@ export default function App() {
           eol="LF"
           language={fileTypeFor(activeTab?.kind)?.languageId ?? "PLAIN"}
           onSync={() => void handleSyncNow()}
+          storagePersistence={storagePersistence}
         />
       )}
 

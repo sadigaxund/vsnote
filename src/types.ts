@@ -64,7 +64,12 @@ export interface GitSummary {
   branch: string;
   ahead: number;
   behind: number;
-  syncedLabel: string;
+  /** Epoch ms of the last successful sync — `StatusBar.tsx` formats +
+   * ticks this into "synced Xm ago" itself (see `useGitStore`'s doc). */
+  lastSyncedAt: number;
+  /** Which simulated-remote operation (if any) is in flight — drives the
+   * status bar's syncing spinner. */
+  syncing: false | "push" | "pull" | "fetch";
   diff: DiffStat;
   untracked: number;
   changedCount: number;

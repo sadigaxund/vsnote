@@ -2,9 +2,41 @@ import { Buffer } from "buffer";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { TooltipProvider, Toaster } from "my-you-eye";
+import { registerSW } from "virtual:pwa-register";
 import "./index.css";
 import App from "./App";
 import { applyDomSettings, useSettingsStore } from "./stores/useSettingsStore";
+
+// Phase 5b PWA (IMPLEMENTATION-PLAN.md Phase 5): explicit `virtual:pwa-
+// register` registration, not `vite.config.ts`'s `injectRegister: 'auto'`
+// default — that default only injects a bare `.register()` call with no
+// update-detection logic, so `registerType: 'autoUpdate'` would silently
+// do nothing (see vite.config.ts's comment on `injectRegister: false` for
+// how this was actually caught: a rebuilt bundle stayed unreloaded in an
+// already-open tab under the bare-register default). This `workbox-
+// window`-backed client listens for the browser's own SW-update lifecycle
+// and calls `window.location.reload()` itself once the new SW activates —
+// no prompt, matching `registerType: 'autoUpdate'`'s no-user-interaction
+// contract. A no-op outside a built PWA context (dev's `devOptions.enabled`
+// stays false per `vite.config.ts`'s doc), so this is safe to call
+// unconditionally rather than gating on `import.meta.env.PROD`.
+registerSW({
+  immediate: true,
+  onRegisteredSW(_swUrl, registration) {
+    // A long-lived SPA tab (this app is meant to stay open all day) never
+    // navigates again on its own, and the browser's automatic "check sw.js
+    // for changes" step only runs around navigation/registration — without
+    // an explicit poll, a tab left open would never notice a deploy until
+    // the user closes and reopens it, defeating "never serve a stale
+    // index.html after a deploy". `registerType: 'autoUpdate'`'s generated
+    // client (`register.js`, this module's `registerSW` import) already
+    // auto-reloads with no prompt the instant it DOES detect one; this
+    // just makes sure detection itself actually happens periodically for a
+    // tab that's simply been sitting open.
+    if (!registration) return;
+    setInterval(() => void registration.update(), 60 * 60 * 1000);
+  },
+});
 
 declare global {
   var Buffer: typeof import("buffer").Buffer;

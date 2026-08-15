@@ -340,3 +340,82 @@ stack choices in this doc.
   object by design). Verified for both the same-tab mode-switch path
   (Rendered→Source on the already-active file) and the cross-tab path
   (jumping into a different, not-yet-open file).
+- **`vite-plugin-pwa`'s default `injectRegister: 'auto'` does not implement
+  `registerType: 'autoUpdate'`'s documented "no stale index.html after a
+  deploy" behavior at all — it only injects a bare
+  `navigator.serviceWorker.register('/sw.js')` call with zero update-
+  detection logic.** IMPLEMENTATION-PLAN.md Phase 5's PWA bullet ("cache
+  strategy must never serve a stale index.html after a deploy (standard
+  autoUpdate registration)") reads as if setting `registerType: 'autoUpdate'`
+  alone is sufficient; it isn't — that option only changes which template
+  the `virtual:pwa-register` *client* module generates
+  (`node_modules/vite-plugin-pwa/dist/client/build/register.js`: an `auto`
+  branch that listens for the SW's `activated` event and calls
+  `window.location.reload()` itself with no prompt, vs. a `prompt` branch
+  that waits for the app to call `updateServiceWorker()`). Nothing calls
+  that module at all under the default `injectRegister: 'auto'` bare
+  snippet, so `registerType` had no observable effect. Caught empirically,
+  not by reading docs first: a Playwright repro that rebuilt the app while
+  a tab stayed open, then reloaded that tab once, kept loading the OLD
+  bundle (`scriptSrc` unchanged, a build-time `console.info` marker never
+  fired) — the new service worker had installed and activated in the
+  background (`clientsClaim`/`skipWaiting` both fired correctly), but
+  nothing ever told the open page to reload onto it. Fixed by setting
+  `injectRegister: false` (`vite.config.ts`) and explicitly registering via
+  `import { registerSW } from "virtual:pwa-register"` in `src/main.tsx`
+  (`registerSW({ immediate: true, onRegisteredSW })`), which pulls in the
+  real `workbox-window`-backed client with the `autoUpdate` reload listener.
+  A second, related gap the same repro surfaced: this app is a long-lived
+  SPA tab that may never navigate again on its own, and a browser's
+  automatic "check sw.js for changes" step is tied to registration/
+  navigation, not a background timer — so `onRegisteredSW` also starts an
+  hourly `registration.update()` poll, otherwise a tab left open for days
+  would never notice a deploy at all. Verified with Playwright: rebuild
+  while a tab is open, force one update check (`registration.update()`,
+  standing in for the hourly poll so the test doesn't wait an hour), and
+  the tab reloads itself with NO manual reload from the test — new script
+  hash, new build marker in the console, zero manual intervention. Also
+  confirmed (same script family) that `context.setOffline(true)` + reload
+  renders the full app shell with zero console errors, and that
+  `navigator.storage.persist()` is called exactly once at boot regardless
+  of outcome (stubbed both `true`/`false` via `page.addInitScript`).
+- **The naive `globPatterns: "**\/*.{js,css,html,...}"` precached all
+  ~1250 of `materialIconLoader.ts`'s `import.meta.glob` per-icon chunks —
+  1315 precache entries, 3.4MB — even though that loader's entire design
+  (see its own header comment, `FileIcon.tsx`'s two-tier doc, and the
+  `FileIcon` row in `docs/COMPONENT-BACKLOG.md`) exists specifically so a
+  cold boot never fetches that pack.** Caught in review (a peer session
+  measured the settled Cache Storage total, not just page-load
+  `networkidle` bytes — a real blind spot in this doc's own earlier
+  "cold boot payload" measurement recipe, which stops listening before a
+  service worker's background precache install is observable at all).
+  Unconditional precaching defeated the loader's entire reason to exist,
+  and spent ~1300 Cache Storage entries of the very origin quota
+  `navigator.storage.persist()` (this same phase) is meant to protect on
+  icons that tier is designed to almost never fetch. Fixed with a
+  `manifestTransforms` filter in `vite.config.ts`: `computeExcludedIconChunkNames()`
+  reads the *actual installed* `material-icon-theme` package's icon
+  directory and `materialIcons.curated.ts`'s real import specifiers (not a
+  hardcoded count) to compute "every icon name NOT in the curated ~96",
+  plus the two full-manifest chunks (`materialIconLoader`, the ~450KB
+  `material-icons.json` chunk) — and drops precache entries whose
+  build-output basename (hash stripped via a small regex) is in that set.
+  Every curated icon (the ones the demo vault's own tree/tabs actually
+  render), every lazy view/panel chunk (`SettingsDialog`, `SearchPanel`,
+  `DiffView`, `CsvTable`, `JsonView`, `HtmlPreview`, `ImageView`,
+  `CodeMirrorEditor`), and every CM6 per-language highlighter chunk (Source
+  mode needs to work offline for any vault file type, not just the boot
+  file) stay precached — this is a real, if smaller than initially built,
+  app-shell cache, not `NetworkOnly`. Verified: precache dropped to 134
+  manifest entries / 129 unique Cache Storage entries at ~1.55MB (measured
+  via `caches.open(name).keys()` + summing each cached response's real
+  blob size after `navigator.serviceWorker.ready` — the deterministic sync
+  point, since Workbox's precache write runs inside `install`, which must
+  finish before `activate`/`ready` can fire); a fresh-context
+  `context.setOffline(true)` cold boot still rendered the complete UI
+  (Explorer, branch, the default file's Rendered markdown) with zero
+  console errors; the rebuild-doesn't-serve-stale-index.html repro above
+  still passed unchanged. `vite.config.ts`'s Node-side helper needed
+  `@types/node` added as a devDependency (`tsconfig.node.json` gained
+  `"types": ["node"]`) — this repo's `vite.config.ts` had never touched a
+  Node builtin before this phase.
