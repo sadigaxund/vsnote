@@ -94,6 +94,14 @@ export async function openFromTree(page: Page, displayPath: string, opts?: { pin
   }
 }
 
+/** Opens the Settings tab (Phase 6.5c, DESIGN-SPEC Amendments item 11) via
+ * the title bar's gear icon — scoped to `app-titlebar` since the activity
+ * bar's footer button carries the exact same `aria-label="Settings"`. */
+export async function openSettingsTab(page: Page): Promise<void> {
+  await page.getByTestId("app-titlebar").getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByTestId("settings-view")).toBeVisible();
+}
+
 /** Resets in-page state that must not leak across a single spec file's
  * tests when they intentionally share a context (most specs don't — each
  * `test()` gets Playwright's default fresh context/page — but a couple of

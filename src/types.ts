@@ -22,7 +22,14 @@ export type FileKind =
   | "csv"
   | "image"
   | "folder"
-  | "unknown";
+  | "unknown"
+  /** Phase 6.5c (DESIGN-SPEC Amendments item 11): the Settings VIEW, opened
+   * as a tab like any file per `useTabsStore.ts`'s existing "content keyed
+   * by FILE (well, by `path`), view state per PANE" shape — not a real fs
+   * node (never appears in the Explorer tree, never routed through
+   * `useFsStore.inferFileKind`). `SettingsView.tsx`'s `SETTINGS_TAB_PATH`
+   * is the one path that ever carries this kind. */
+  | "settings";
 
 export interface FileNode {
   id: string;

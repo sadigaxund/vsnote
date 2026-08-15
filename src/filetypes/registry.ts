@@ -179,7 +179,13 @@ export function defaultModeFor(kind: FileKind | undefined): EditorMode {
  * EditorHeader segmented control (App.tsx) — "folder"/no-kind (no tab, or a
  * tree folder row) has no editor surface at all, so it gets no modes. */
 export function modeAvailabilityFor(kind: FileKind | undefined, hasDiff: boolean): EditorMode[] {
-  if (!kind || kind === "folder") return [];
+  // "settings" (Phase 6.5c, DESIGN-SPEC Amendments item 11) is a VIEW tab,
+  // not a file with Rendered/Source/Diff representations — same "no editor
+  // surface at all" treatment as "folder"/no-kind, so `EditorHeader`'s mode
+  // toggle never renders for it (see `EditorPane.tsx`, which hides the
+  // whole header row for this kind rather than showing an all-disabled
+  // segmented control).
+  if (!kind || kind === "folder" || kind === "settings") return [];
   const entry = fileTypeForOrPlain(kind);
   const modes = [...entry.baseModes];
   if (hasDiff && entry.supportsDiff) modes.push("diff");

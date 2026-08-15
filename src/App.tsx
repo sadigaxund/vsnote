@@ -26,18 +26,20 @@ import { pathExists } from "./fs/operations";
 import { displayToFsPath } from "./fs/paths";
 import { flattenFiles } from "./lib/flattenTree";
 import { probeRender } from "./lib/renderProbe";
+import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
 import type { FileKind, FileNode } from "./types";
 
-// Phase 5a: CommandPalette / Settings / Search are all overlay/panel UI a
-// user may never open in a given session (⌘K/⌘P, the gear icon, the Search
-// activity-rail icon) — `React.lazy` keeps their imports (the library's
-// `CommandPalette`/`Select`/`Slider`/`RadioGroup`/`Switch`/`FormField`, and
-// the vault-search walk) out of the cold-boot bundle until first opened,
-// matching `EditorContent.tsx`'s existing lazy-surface pattern.
+// Phase 5a: CommandPalette / Search are overlay/panel UI a user may never
+// open in a given session (⌘K/⌘P, the Search activity-rail icon) —
+// `React.lazy` keeps their imports out of the cold-boot bundle until first
+// opened, matching `EditorContent.tsx`'s existing lazy-surface pattern.
+// Settings (Phase 6.5c, DESIGN-SPEC Amendments item 11) is no longer a
+// dialog opened this way — it's a real tab, lazy-loaded the same way every
+// other Rendered-mode renderer is (`EditorContent.tsx`'s own `SettingsView`
+// import), not a special case here.
 const CommandPaletteHost = lazy(() =>
   import("./components/CommandPaletteHost").then((m) => ({ default: m.CommandPaletteHost })),
 );
-const SettingsDialog = lazy(() => import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
 const SearchPanel = lazy(() => import("./components/SearchPanel").then((m) => ({ default: m.SearchPanel })));
 
 const ACTIVE_ON_BOOT = "vault/notes/architecture.md";
@@ -70,12 +72,13 @@ export default function App() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
 
-  // Phase 5a UI state — palette (⌘K grouped / ⌘P file-jump), Settings
-  // dialog, Zen mode (DESIGN-SPEC Amendments item 4), the "Reset demo
-  // vault" confirm step, and a pending line to jump to once a search
-  // result's target file/mode has finished opening (see the effect below).
+  // Phase 5a UI state — palette (⌘K grouped / ⌘P file-jump), Zen mode
+  // (DESIGN-SPEC Amendments item 4), the "Reset demo vault" confirm step,
+  // and a pending line to jump to once a search result's target file/mode
+  // has finished opening (see the effect below). Settings (Phase 6.5c) no
+  // longer needs its own open/close boolean here — it's a tab, opened via
+  // `handleOpenSettings` below the same way any other file open is.
   const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [zenMode, setZenMode] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   // Phase 5b durability: result of the boot-time `navigator.storage.persist()`
@@ -94,6 +97,12 @@ export default function App() {
   const tree = useDecoratedTree();
   const git = useGitStore();
   const tabs = useTabsStore();
+  // Targeted selector (DESIGN-SPEC Amendments item 10) — only re-renders App
+  // while the sidebar is actually being dragged, never on an unrelated
+  // settings change (every other `useSettingsStore` field is read via
+  // `.getState()` at the point of use, same discipline as `fs`/`buffers`
+  // below).
+  const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
   // DESIGN-SPEC Amendments item 16 (typing-latency bug): `useFsStore()`/
   // `useBufferStore()` used to be called here with NO selector — the
   // zustand anti-pattern of subscribing to an entire store's state, which
@@ -429,6 +438,17 @@ export default function App() {
     void useBufferStore.getState().ensureLoaded(node.path);
   };
 
+  // DESIGN-SPEC Amendments item 11 — Settings is a real tab now (gear icon
+  // in the title bar / activity bar footer, ⌘K's "Open settings…" command),
+  // opened exactly like any other file open: `useTabsStore.openFile` with
+  // `kind: "settings"` (never a real fs path — see `lib/settingsTab.ts`).
+  // No `useBufferStore.ensureLoaded` call (unlike `handleSelectFile` above)
+  // — `EditorPane.tsx` deliberately skips buffer/diff fetching entirely for
+  // this kind, since there's no fs content behind it.
+  const handleOpenSettings = () => {
+    tabs.openFile({ path: SETTINGS_TAB_PATH, name: SETTINGS_TAB_NAME, kind: "settings" }, { pin: true });
+  };
+
   // Source Control panel row click: opens (or focuses) the file pinned,
   // straight into Diff mode — every changed file the panel lists has a
   // nonzero diff by construction, so Diff is always a valid mode for it.
@@ -609,7 +629,7 @@ export default function App() {
         closeActiveTab();
         break;
       case "settings":
-        setSettingsOpen(true);
+        handleOpenSettings();
         break;
     }
   };
@@ -626,7 +646,7 @@ export default function App() {
         overflow: "hidden",
       }}
     >
-      <AppTitleBar vaultName="vault" onOpenSettings={() => setSettingsOpen(true)} />
+      <AppTitleBar vaultName="vault" onOpenSettings={handleOpenSettings} />
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         {/* DESIGN-SPEC Amendments item 4 ("Zen mode ... hides activity bar,
@@ -638,7 +658,7 @@ export default function App() {
             active={activePanel}
             onSelect={setActivePanel}
             changedCount={git.changedCount}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={handleOpenSettings}
           />
         )}
 
@@ -657,6 +677,8 @@ export default function App() {
             onCopyPath={handleCopyPath}
             onMove={handleMove}
             onRefresh={() => void useFsStore.getState().refresh()}
+            width={sidebarWidth}
+            onWidthChange={(w) => useSettingsStore.getState().setSidebarWidth(w)}
           />
         )}
 
@@ -673,6 +695,9 @@ export default function App() {
           onEnterZen={enterZenMode}
           onExitZen={exitZenMode}
           onOpenLink={(paneId, href) => void handlePaneOpenLink(paneId, href)}
+          storagePersistence={storagePersistence}
+          onExportVault={() => void handleExportVaultZip()}
+          onRequestResetVault={() => setResetConfirmOpen(true)}
         />
       </div>
 
@@ -726,12 +751,6 @@ export default function App() {
             onSelectFile={handlePaletteFileSelect}
             onSelectCommand={handlePaletteCommand}
           />
-        </Suspense>
-      )}
-
-      {settingsOpen && (
-        <Suspense fallback={null}>
-          <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
         </Suspense>
       )}
 

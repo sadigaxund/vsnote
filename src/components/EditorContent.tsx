@@ -32,6 +32,7 @@ import type { DiffLayout, EditorMode, FileKind } from "../types";
 import { readHeadFileContent, type FileDiffResult } from "../git/diff";
 import { fileTypeForOrPlain } from "../filetypes/registry";
 import type { CursorPos } from "../editor/CodeMirrorEditor";
+import type { StoragePersistenceStatus } from "../fs/persistence";
 
 const CodeMirrorEditor = lazy(() =>
   import("../editor/CodeMirrorEditor").then((m) => ({ default: m.CodeMirrorEditor })),
@@ -44,6 +45,12 @@ const HtmlPreview = lazy(() => import("../renderers/HtmlPreview").then((m) => ({
 const CsvTable = lazy(() => import("../renderers/CsvTable").then((m) => ({ default: m.CsvTable })));
 const JsonView = lazy(() => import("../renderers/JsonView").then((m) => ({ default: m.JsonView })));
 const ImageView = lazy(() => import("../renderers/ImageView").then((m) => ({ default: m.ImageView })));
+// Phase 6.5c (DESIGN-SPEC Amendments item 11) — the Settings VIEW. Lazy the
+// same way as every renderer above: it's a tab a session may never open, and
+// pulls in a real slice of the library (`Select`/`Slider`/`Switch`/
+// `RadioGroup`/`Input`/`Button`/`DataList`/`Kbd`) that shouldn't cost the
+// cold-boot bundle anything until someone actually clicks the gear.
+const SettingsView = lazy(() => import("./SettingsView").then((m) => ({ default: m.SettingsView })));
 
 export interface EditorContentProps {
   /** Which pane this content belongs to (Phase 6) — threaded to every CM6
@@ -63,6 +70,11 @@ export interface EditorContentProps {
   /** Diff mode's unified/split toggle (DESIGN-SPEC Amendments item 13) —
    * owned by `EditorPane.tsx`, rendered by `EditorHeader`. */
   diffLayout?: DiffLayout;
+  /** Threaded through to `SettingsView` for its Storage category — see
+   * `EditorArea.tsx`'s doc. Unused for every other kind. */
+  storagePersistence?: StoragePersistenceStatus;
+  onExportVault?: () => void;
+  onRequestResetVault?: () => void;
 }
 
 export function EditorContent({
@@ -79,6 +91,9 @@ export function EditorContent({
   onCursorChange,
   onOpenLink,
   diffLayout = "split",
+  storagePersistence,
+  onExportVault,
+  onRequestResetVault,
 }: EditorContentProps) {
   const [headContent, setHeadContent] = useState("");
   useEffect(() => {
@@ -98,6 +113,24 @@ export function EditorContent({
       <Centered>
         <EmptyState icon={<FileQuestion size={28} />} title="No file open" description="Select a file from the explorer to start editing." />
       </Centered>
+    );
+  }
+
+  // Phase 6.5c (DESIGN-SPEC Amendments item 11) — the Settings tab ignores
+  // mode/loaded/missing/diff entirely (it's not a file, `EditorPane.tsx`
+  // hides the mode-toggle header for this kind, and the buffer/diff-fetch
+  // effects are skipped there too), so this branch short-circuits before
+  // any of the file-shaped logic below ever runs — same pattern as the
+  // `!hasTab` early return just above.
+  if (kind === "settings") {
+    return (
+      <Suspense fallback={<EditorLoading />}>
+        <SettingsView
+          storagePersistence={storagePersistence}
+          onExportVault={onExportVault}
+          onRequestResetVault={onRequestResetVault}
+        />
+      </Suspense>
     );
   }
 

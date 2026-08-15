@@ -10,11 +10,22 @@
  *
  * No `fontSize` here (Phase 5a removed the `"&": {fontSize: "17px"}}` rule
  * that used to live in this block): `LivePreviewEditor.tsx` now supplies it
- * via a `Prec.highest`-wrapped `fontSizeCompartment` so the Settings
- * dialog's font-size slider can reconfigure it live — a hardcoded rule here
+ * via a `Prec.highest`-wrapped `fontSizeCompartment` so the Settings view's
+ * font-size slider can reconfigure it live — a hardcoded rule here
  * would always lose that precedence fight anyway (dead, misleading weight).
  * `LivePreviewEditor.tsx`'s `RENDERED_BASE_FONT_SIZE` (17, unchanged from
  * this line) is the one place that number is defined now.
+ *
+ * Phase 6.5c (DESIGN-SPEC Amendments item 11, "Rendered view" category):
+ * `.cm-content`'s `maxWidth`/`padding` (content column width + left/right
+ * margins) and `.cm-scroller`'s `lineHeight` are gone from this static
+ * block for the same reason `fontSize` already was — `LivePreviewEditor.tsx`'s
+ * `renderedLayoutCompartment` is now their sole source, so the Settings
+ * view's content-width/margin/line-spacing sliders take effect immediately
+ * with no remount and no precedence fight (unlike `fontSize`, nothing else
+ * in this file competes for these two selectors' remaining properties —
+ * `.cm-content`'s `caretColor` and `.cm-scroller`'s `fontFamily` stay here
+ * — so no `Prec.highest` wrapping is needed for this compartment either).
  */
 import { EditorView } from "@codemirror/view";
 
@@ -27,12 +38,9 @@ export const livePreviewTheme = EditorView.theme(
     },
     ".cm-scroller": {
       fontFamily: "var(--font-sans)",
-      lineHeight: "1.8",
     },
     ".cm-content": {
-      maxWidth: "54ch",
       margin: "0 auto",
-      padding: "56px 32px 160px",
       caretColor: "var(--color-primary)",
     },
     "&.cm-focused": { outline: "none" },

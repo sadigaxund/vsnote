@@ -8,9 +8,9 @@
  * `fflate` is dynamically imported inside `exportVaultZip()`, not at module
  * top level, so it never enters the cold-boot bundle — this command is a
  * command-palette action a session may never invoke (same reasoning
- * `App.tsx` already applies to `CommandPaletteHost`/`SettingsDialog`/
- * `SearchPanel` via `React.lazy`; this is the non-component equivalent for
- * a plain library import).
+ * `App.tsx` already applies to `CommandPaletteHost`/`SearchPanel` and
+ * `EditorContent.tsx` applies to `SettingsView` via `React.lazy`; this is
+ * the non-component equivalent for a plain library import).
  */
 import { pfs } from "./client";
 import { readTree, type RawTreeNode } from "./operations";

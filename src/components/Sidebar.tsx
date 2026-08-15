@@ -8,9 +8,11 @@
  */
 import { Button, ConfirmDialog, Input, ScrollArea, Tooltip } from "my-you-eye";
 import { FilePlus, FolderPlus, ListFilter, RefreshCw, Search } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { ExplorerTree } from "./local/ExplorerTree";
+import { ResizeHandle } from "./local/PaneGroup";
 import { filterTree } from "../lib/filterTree";
+import { MAX_SIDEBAR_WIDTH_FALLBACK, MIN_SIDEBAR_WIDTH } from "../stores/useSettingsStore";
 import type { FileNode } from "../types";
 
 export interface SidebarProps {
@@ -27,6 +29,11 @@ export interface SidebarProps {
   onCopyPath: (node: FileNode) => void;
   onMove: (sourcePath: string, newParentPath: string) => void;
   onRefresh: () => void;
+  /** Persisted sidebar width (DESIGN-SPEC Amendments item 10) —
+   * `useSettingsStore`'s `sidebarWidth`, so it survives a reload the same
+   * way every other setting does. */
+  width: number;
+  onWidthChange: (width: number) => void;
 }
 
 export function Sidebar({
@@ -43,25 +50,33 @@ export function Sidebar({
   onCopyPath,
   onMove,
   onRefresh,
+  width,
+  onWidthChange,
 }: SidebarProps) {
   const [filter, setFilter] = useState("");
   const [pendingDelete, setPendingDelete] = useState<FileNode | null>(null);
+  // Snapshot of the width this drag gesture started from — see
+  // `local/PaneGroup.tsx`'s `ResizeHandle` doc: `onDrag` receives the
+  // CUMULATIVE delta from gesture start, so the clamp math below needs a
+  // fixed starting point, not the (changing mid-drag) `width` prop.
+  const dragStartWidthRef = useRef(width);
 
   const filtered = useMemo(() => filterTree(tree, filter), [tree, filter]);
 
   return (
-    <aside
-      data-testid="explorer-sidebar"
-      style={{
-        width: 288,
-        flexShrink: 0,
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--app-sidebar-bg)",
-        borderRight: "1px solid var(--app-chrome-border)",
-        minHeight: 0,
-      }}
-    >
+    <div style={{ display: "flex", flexShrink: 0, minHeight: 0 }}>
+      <aside
+        data-testid="explorer-sidebar"
+        style={{
+          width,
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          background: "var(--app-sidebar-bg)",
+          borderRight: "1px solid var(--app-chrome-border)",
+          minHeight: 0,
+        }}
+      >
       <div
         style={{
           display: "flex",
@@ -135,6 +150,26 @@ export function Sidebar({
           />
         </div>
       </ScrollArea>
+      </aside>
+
+      {/* DESIGN-SPEC Amendments item 10: drag the file-tree's right edge to
+          resize — reuses `local/PaneGroup.tsx`'s `ResizeHandle` (the same
+          drag mechanics/visual affordance as a pane divider) instead of a
+          second, hand-rolled drag implementation. */}
+      <ResizeHandle
+        direction="row"
+        title="Drag to resize the explorer"
+        aria-label="Resize explorer sidebar"
+        data-testid="sidebar-resize-handle"
+        onDragStart={() => {
+          dragStartWidthRef.current = width;
+        }}
+        onDrag={(deltaPx) => {
+          const maxWidth = typeof window !== "undefined" ? window.innerWidth * 0.5 : MAX_SIDEBAR_WIDTH_FALLBACK;
+          const next = Math.min(maxWidth, Math.max(MIN_SIDEBAR_WIDTH, dragStartWidthRef.current + deltaPx));
+          onWidthChange(next);
+        }}
+      />
 
       <ConfirmDialog
         title={pendingDelete ? `Delete "${pendingDelete.name}"?` : "Delete?"}
@@ -154,7 +189,7 @@ export function Sidebar({
           setPendingDelete(null);
         }}
       />
-    </aside>
+    </div>
   );
 }
 

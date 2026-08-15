@@ -54,12 +54,12 @@ test.describe("palette + settings + zen + durability", () => {
 
   test("settings persist across a reload", async ({ page }) => {
     // Drives the "Toggle theme" command-palette action rather than the
-    // Settings surface itself — DESIGN-SPEC.md's in-flight "Amendments
-    // round 2" (item 11) turns Settings from a modal into a full editor
-    // tab, so a spec built on today's dialog DOM would need an immediate
-    // rewrite. `useSettingsStore.cycleTheme()` (App.tsx's "toggle-theme"
-    // palette command) is untouched by that redesign and still proves the
-    // same thing: a setting change survives a reload.
+    // Settings view itself (that's `tests/e2e/settings-view.spec.ts`'s job
+    // now — DESIGN-SPEC Amendments item 11 turned Settings from a modal
+    // into a full editor tab, built in Phase 6.5c). Kept here as-is because
+    // it proves a DIFFERENT thing than the Settings-view spec does: a
+    // setting changed via the command palette (not the Settings UI at all)
+    // still round-trips through the same `useSettingsStore` persistence.
     await gotoApp(page);
     await page.keyboard.press("Control+k");
     const dialog = page.getByRole("dialog");

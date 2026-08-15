@@ -21,6 +21,8 @@ import {
   baseExtensions,
   fontSizeCompartment,
   fontSizeTheme,
+  lineHeightCompartment,
+  lineHeightTheme,
   tabSizeCompartment,
   wordWrapCompartment,
 } from "./baseExtensions";
@@ -83,6 +85,7 @@ export function CodeMirrorEditor({
   const wordWrap = useSettingsStore((s) => s.wordWrap);
   const tabSize = useSettingsStore((s) => s.tabSize);
   const fontSize = useSettingsStore((s) => s.editorFontSize);
+  const lineSpacing = useSettingsStore((s) => s.editorLineSpacing);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -92,7 +95,7 @@ export function CodeMirrorEditor({
     const state = EditorState.create({
       doc: content,
       extensions: [
-        ...baseExtensions({ wordWrap, tabSize, fontSize }),
+        ...baseExtensions({ wordWrap, tabSize, fontSize, lineSpacing }),
         ...editorExtensions(),
         gitGutter(),
         languageCompartment.of([]),
@@ -174,6 +177,10 @@ export function CodeMirrorEditor({
   useEffect(() => {
     viewRef.current?.dispatch({ effects: fontSizeCompartment.reconfigure(fontSizeTheme(fontSize)) });
   }, [fontSize]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: lineHeightCompartment.reconfigure(lineHeightTheme(lineSpacing)) });
+  }, [lineSpacing]);
 
   return <div ref={containerRef} style={{ height: "100%" }} />;
 }

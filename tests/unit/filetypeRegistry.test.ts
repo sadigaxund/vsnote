@@ -57,4 +57,8 @@ describe("filetypes/registry modeAvailabilityFor", () => {
       expect(modeAvailabilityFor(kind, false)).toEqual(["rendered", "source"]);
     }
   });
+
+  it("the settings view tab (Phase 6.5c) gets no modes, even with a diff", () => {
+    expect(modeAvailabilityFor("settings", true)).toEqual([]);
+  });
 });

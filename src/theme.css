@@ -35,6 +35,22 @@
   --font-sans:
     ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
+
+  /* ---- UI density (DESIGN-SPEC Amendments item 11, Settings' Appearance
+     category) ---- Deliberately NOT the amendment-3 `--app-chrome-*-h`
+     band-thickness tokens below ("Don't 'improve' either" per this app's
+     own house rules) — density instead scales row/tab horizontal padding
+     only (`local/ExplorerTree.tsx`'s tree row, `local/EditorTabBar.tsx`'s
+     tab), a real, visible, low-risk effect that doesn't touch the
+     pixel-sampled chrome heights. Theme-independent, same as the chrome
+     band tokens. */
+  --app-density-row-pad-x: 8px;
+  --app-density-tab-pad-x: 10px;
+}
+
+:root[data-ui-density="compact"] {
+  --app-density-row-pad-x: 5px;
+  --app-density-tab-pad-x: 7px;
 }
 
 /* ---- Phase 5a: Settings dialog theme switching (DESIGN-SPEC "Misc /

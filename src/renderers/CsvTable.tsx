@@ -7,9 +7,20 @@
  * The parser is intentionally small: split on commas/newlines with just
  * enough quoted-field handling (`"a, b"`, doubled `""` for a literal quote)
  * to be correct for real CSV, not a byte-for-byte RFC 4180 implementation —
- * this app's demo data (`metrics.csv`) and any hand-authored vault CSV are
- * simple `key,value`-shaped tables, not spreadsheet exports with embedded
- * newlines.
+ * this app's demo data (`metrics.csv`, Phase 6.5c's 13-column/40+-row
+ * representative fixture, DESIGN-SPEC Amendments item 15) and any
+ * hand-authored vault CSV are ordinary tables, not spreadsheet exports with
+ * embedded newlines.
+ *
+ * Column type inference (Phase 6.5c) goes beyond plain numeric-vs-text:
+ * a column where every value matches an ISO `YYYY-MM-DD` date or an
+ * `http(s)://` URL gets `DataTableColumn`'s `"date-human"`/`"url"` `CellType`
+ * treatment instead of falling back to `"text"` — real coverage for the
+ * "mixed types (dates, URLs, floats, long text cells)" fixture requirement,
+ * not just numbers. `layout="auto"` (below, at the `DataTable` call site)
+ * sizes columns to content and enables horizontal scroll, since a table with
+ * both a `notes` column (long text) and short numeric columns is exactly
+ * the "divergent content widths" case that prop's own doc names.
  */
 import { useMemo } from "react";
 import { DataTable, EmptyState, ScrollArea, type DataTableColumn } from "my-you-eye";
@@ -63,19 +74,35 @@ function isNumeric(value: string): boolean {
   return value.trim() !== "" && !Number.isNaN(Number(value));
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const URL_RE = /^https?:\/\//i;
+
+/** Every non-empty value in a column must agree on a type for that column
+ * to get anything other than plain `"text"` — a single stray value that
+ * doesn't fit (e.g. one blank cell) just falls the whole column back to
+ * text rather than guessing per-cell, which would make a column's own
+ * alignment/formatting inconsistent row to row. */
+function inferColumnType(values: string[]): { type: DataTableColumn["type"]; align: "left" | "right" } {
+  const nonEmpty = values.filter((v) => v !== "");
+  if (nonEmpty.length === 0) return { type: "text", align: "left" };
+  // "date-system" (an absolute `Intl.DateTimeFormat`-formatted date, e.g.
+  // "Jan 05, 2026"), not "date-human" (a relative "6 months ago" string,
+  // library's `DateHumanDisplay`) — a metrics table's historical rows read
+  // far better as absolute dates than as a moving-target relative time.
+  if (nonEmpty.every((v) => ISO_DATE_RE.test(v))) return { type: "date-system", align: "left" };
+  if (nonEmpty.every((v) => URL_RE.test(v))) return { type: "url", align: "left" };
+  if (nonEmpty.every(isNumeric)) return { type: "number", align: "right" };
+  return { type: "text", align: "left" };
+}
+
 export function CsvTable({ content }: CsvTableProps) {
   const { columns, rows } = useMemo(() => {
     const parsed = parseCsv(content);
     if (parsed.length === 0) return { columns: [] as DataTableColumn[], rows: [] as Record<string, unknown>[] };
     const [header, ...dataRows] = parsed;
     const columns: DataTableColumn[] = header.map((name, i) => {
-      const numeric = dataRows.length > 0 && dataRows.every((r) => isNumeric(r[i] ?? ""));
-      return {
-        key: `c${i}`,
-        header: name,
-        type: numeric ? "number" : "text",
-        align: numeric ? "right" : "left",
-      };
+      const { type, align } = inferColumnType(dataRows.map((r) => r[i] ?? ""));
+      return { key: `c${i}`, header: name, type, align };
     });
     const rows = dataRows.map((r) => {
       const record: Record<string, unknown> = {};
@@ -103,7 +130,14 @@ export function CsvTable({ content }: CsvTableProps) {
           even though the app-wide default is `user-select: none` — see
           `index.css`'s `[data-selectable-content]` rule. */}
       <div data-selectable-content style={{ padding: 20 }}>
-        <DataTable columns={columns} rows={rows} stickyHeader rowKey={(_, i) => i} />
+        {/* `layout="auto"` (Phase 6.5c, DESIGN-SPEC Amendments item 15):
+            the representative `metrics.csv` fixture mixes short numeric/date
+            columns with a long free-text `notes` column — "fixed" (the
+            default) would clip the long column at an equal-share width;
+            "auto" sizes each column to its content and enables horizontal
+            scroll, which is the actual truncation/scrolling behavior this
+            fixture exists to exercise. */}
+        <DataTable columns={columns} rows={rows} stickyHeader layout="auto" rowKey={(_, i) => i} />
       </div>
     </ScrollArea>
   );

@@ -97,6 +97,7 @@ function MergeViewport({ paneId, layout, head, working, loadLanguage }: MergeVie
   const containerRef = useRef<HTMLDivElement>(null);
   const wordWrap = useSettingsStore((s) => s.wordWrap);
   const fontSize = useSettingsStore((s) => s.editorFontSize);
+  const lineSpacing = useSettingsStore((s) => s.editorLineSpacing);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -106,7 +107,11 @@ function MergeViewport({ paneId, layout, head, working, loadLanguage }: MergeVie
 
     void loadLanguage().then((lang) => {
       if (destroyed || !containerRef.current) return;
-      const shared: Extension[] = [...readOnlyBaseExtensions({ wordWrap, fontSize }), ...editorExtensions(), lang ?? []];
+      const shared: Extension[] = [
+        ...readOnlyBaseExtensions({ wordWrap, fontSize, lineSpacing }),
+        ...editorExtensions(),
+        lang ?? [],
+      ];
 
       if (layout === "split") {
         mergeView = new MergeView({
@@ -150,9 +155,9 @@ function MergeViewport({ paneId, layout, head, working, loadLanguage }: MergeVie
     // `head`/`working`/`layout` all key the `MergeViewport` remount at the
     // call site already (see the `key={...}` in `DiffView`); `loadLanguage`
     // is a stable registry function reference. Re-running only on
-    // `wordWrap`/`fontSize` here would need reconfigure plumbing that isn't
-    // worth it for a read-only view — those settings simply apply on the
-    // next remount.
+    // `wordWrap`/`fontSize`/`lineSpacing` here would need reconfigure
+    // plumbing that isn't worth it for a read-only view — those settings
+    // simply apply on the next remount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

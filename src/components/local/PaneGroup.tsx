@@ -15,10 +15,116 @@
  * whichever pane the user is currently dragging a tab across, sized/
  * positioned to the edge (or center, for "merge into this pane's tabs")
  * the cursor is currently over.
+ *
+ * `ResizeHandle` (same file, exported) is `PaneDivider`'s pointer-drag
+ * mechanics — capture-on-pointerdown, live cumulative delta on move,
+ * hover-tinted 1px line over a wide invisible hit-area, release on
+ * pointerup — pulled out from underneath `PaneDivider` so DESIGN-SPEC
+ * Amendments item 10 ("resizable sidebar ... reuse the PaneDivider
+ * affordance") has one real drag primitive to reuse instead of a second,
+ * parallel pointer-event implementation. `PaneDivider` below is now a thin
+ * wrapper: it owns the two-sibling-`sizes`-array math (`onDragStart`
+ * snapshots the two neighboring fractions once per drag, `onDrag` receives
+ * the cumulative px delta from that snapshot and redistributes it between
+ * them), `ResizeHandle` owns nothing about panes at all — `Sidebar.tsx`
+ * uses the exact same component for a single width value with its own
+ * min/max clamp, no pane-tree knowledge required.
  */
 import { useRef, useState } from "react";
 import type { PaneNode } from "../../stores/useTabsStore";
 import type { DockEdge } from "../../types";
+
+export interface ResizeHandleProps {
+  /** Matches `PaneBranch.direction`: "row" = siblings arranged left-to-right
+   * (a vertical bar, `col-resize`, horizontal dragging); "column" = stacked
+   * top-to-bottom (a horizontal bar, `row-resize`, vertical dragging). */
+  direction: "row" | "column";
+  /** Fired once, synchronously, on pointerdown — before any `onDrag` call —
+   * so a caller can snapshot whatever state its delta math needs to stay
+   * fixed for the whole gesture (matches the pre-extraction `PaneDivider`'s
+   * own `a0`/`b0` capture). */
+  onDragStart?: () => void;
+  /** Fired on every pointermove with the CUMULATIVE px delta from the
+   * gesture's start position (not an incremental per-frame delta) — the
+   * same "capture once, apply the running total" shape the original
+   * `PaneDivider` used, which avoids compounding rounding/clamping drift
+   * across many small moves. */
+  onDrag: (deltaPx: number) => void;
+  onDragEnd?: () => void;
+  onDoubleClick?: () => void;
+  title?: string;
+  "aria-label"?: string;
+  "data-testid"?: string;
+}
+
+export function ResizeHandle({
+  direction,
+  onDragStart,
+  onDrag,
+  onDragEnd,
+  onDoubleClick,
+  title,
+  "aria-label": ariaLabel,
+  "data-testid": testId,
+}: ResizeHandleProps) {
+  const [hovered, setHovered] = useState(false);
+  const isRow = direction === "row";
+
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    onDragStart?.();
+    const startPos = isRow ? e.clientX : e.clientY;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+
+    function onMove(ev: PointerEvent) {
+      const pos = isRow ? ev.clientX : ev.clientY;
+      onDrag(pos - startPos);
+    }
+    function onUp(ev: PointerEvent) {
+      target.releasePointerCapture(ev.pointerId);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      onDragEnd?.();
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation={isRow ? "vertical" : "horizontal"}
+      aria-label={ariaLabel}
+      data-testid={testId}
+      title={title}
+      onPointerDown={handlePointerDown}
+      onDoubleClick={onDoubleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        flexShrink: 0,
+        position: "relative",
+        cursor: isRow ? "col-resize" : "row-resize",
+        zIndex: 3,
+        ...(isRow ? { width: 6, marginLeft: -3, marginRight: -3 } : { height: 6, marginTop: -3, marginBottom: -3 }),
+      }}
+    >
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          pointerEvents: "none",
+          background: hovered ? "var(--color-primary)" : "var(--app-chrome-border)",
+          transition: "background 100ms ease",
+          ...(isRow
+            ? { left: "50%", top: 0, bottom: 0, width: 1, transform: "translateX(-0.5px)" }
+            : { top: "50%", left: 0, right: 0, height: 1, transform: "translateY(-0.5px)" }),
+        }}
+      />
+    </div>
+  );
+}
 
 export interface PaneGroupProps {
   node: PaneNode;
@@ -90,80 +196,47 @@ interface PaneDividerProps {
 }
 
 function PaneDivider({ containerRef, direction, sizes, index, branchId, onResize, onEqualize }: PaneDividerProps) {
-  const [hovered, setHovered] = useState(false);
   const isRow = direction === "row";
-
-  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    e.preventDefault();
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const size = isRow ? rect.width : rect.height;
-    if (size <= 0) return;
-    const startPos = isRow ? e.clientX : e.clientY;
-    const a0 = sizes[index];
-    const b0 = sizes[index + 1];
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-
-    function onMove(ev: PointerEvent) {
-      const pos = isRow ? ev.clientX : ev.clientY;
-      const delta = (pos - startPos) / size;
-      let a = a0 + delta;
-      let b = a0 + b0 - a;
-      if (a < MIN_FRACTION) {
-        a = MIN_FRACTION;
-        b = a0 + b0 - a;
-      }
-      if (b < MIN_FRACTION) {
-        b = MIN_FRACTION;
-        a = a0 + b0 - b;
-      }
-      const next = sizes.slice();
-      next[index] = a;
-      next[index + 1] = b;
-      onResize(branchId, next);
-    }
-    function onUp(ev: PointerEvent) {
-      target.releasePointerCapture(ev.pointerId);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    }
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }
+  // Snapshot of the two neighboring fractions + container size, taken once
+  // per drag gesture (`onDragStart`) — see `ResizeHandle`'s doc for why the
+  // per-move callback needs a fixed starting point rather than the (mutating
+  // mid-drag) `sizes` prop.
+  const startRef = useRef({ a0: 0, b0: 0, size: 0 });
 
   return (
-    <div
-      role="separator"
-      aria-orientation={isRow ? "vertical" : "horizontal"}
-      data-branch-id={branchId}
-      data-divider-index={index}
+    <ResizeHandle
+      direction={direction}
       title="Drag to resize · double-click to equalize"
-      onPointerDown={handlePointerDown}
-      onDoubleClick={() => onEqualize(branchId)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        flexShrink: 0,
-        position: "relative",
-        cursor: isRow ? "col-resize" : "row-resize",
-        zIndex: 3,
-        ...(isRow ? { width: 6, marginLeft: -3, marginRight: -3 } : { height: 6, marginTop: -3, marginBottom: -3 }),
+      data-testid={`pane-divider-${branchId}-${index}`}
+      onDragStart={() => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        startRef.current = {
+          a0: sizes[index],
+          b0: sizes[index + 1],
+          size: rect ? (isRow ? rect.width : rect.height) : 0,
+        };
       }}
-    >
-      <div
-        aria-hidden
-        style={{
-          position: "absolute",
-          pointerEvents: "none",
-          background: hovered ? "var(--color-primary)" : "var(--app-chrome-border)",
-          transition: "background 100ms ease",
-          ...(isRow
-            ? { left: "50%", top: 0, bottom: 0, width: 1, transform: "translateX(-0.5px)" }
-            : { top: "50%", left: 0, right: 0, height: 1, transform: "translateY(-0.5px)" }),
-        }}
-      />
-    </div>
+      onDrag={(deltaPx) => {
+        const { a0, b0, size } = startRef.current;
+        if (size <= 0) return;
+        const delta = deltaPx / size;
+        let a = a0 + delta;
+        let b = a0 + b0 - a;
+        if (a < MIN_FRACTION) {
+          a = MIN_FRACTION;
+          b = a0 + b0 - a;
+        }
+        if (b < MIN_FRACTION) {
+          b = MIN_FRACTION;
+          a = a0 + b0 - b;
+        }
+        const next = sizes.slice();
+        next[index] = a;
+        next[index + 1] = b;
+        onResize(branchId, next);
+      }}
+      onDoubleClick={() => onEqualize(branchId)}
+    />
   );
 }
 

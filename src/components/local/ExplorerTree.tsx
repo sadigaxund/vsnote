@@ -379,8 +379,12 @@ function TreeRow({
         alignItems: "center",
         gap: 6,
         minHeight: "var(--app-chrome-tree-row-h)",
-        paddingLeft: 8 + depth * 16,
-        paddingRight: 8,
+        // Density (DESIGN-SPEC Amendments item 11): base inline padding is
+        // the `--app-density-row-pad-x` token, not a fixed `8px` — the
+        // depth-based indent stays a plain px offset (indentation semantics,
+        // not density).
+        paddingLeft: `calc(var(--app-density-row-pad-x) + ${depth * 16}px)`,
+        paddingRight: "var(--app-density-row-pad-x)",
         cursor: isDragging ? "grabbing" : "pointer",
         position: "relative",
         borderRadius: "var(--radius-ui-sm)",

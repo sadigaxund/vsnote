@@ -98,7 +98,14 @@ test.describe("split grid", () => {
     await splitTab(page, ARCH, "Split right");
     await expect(panes(page)).toHaveCount(2);
 
-    const divider = page.locator('[role="separator"]').first();
+    // `[role="separator"]` alone is ambiguous as of Phase 6.5c (DESIGN-SPEC
+    // Amendments item 10): the Explorer sidebar's own resize handle
+    // (`Sidebar.tsx`, reusing `local/PaneGroup.tsx`'s extracted
+    // `ResizeHandle`) is the SAME role and comes first in DOM order (App.tsx
+    // renders the Sidebar before the EditorArea), so a bare `.first()` would
+    // grab the sidebar handle instead of the pane divider. `PaneDivider`'s
+    // own `data-testid="pane-divider-<branchId>-<index>"` disambiguates.
+    const divider = page.locator('[data-testid^="pane-divider-"]').first();
     await expect(divider).toBeVisible();
 
     async function widthFraction(): Promise<number> {

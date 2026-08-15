@@ -30,9 +30,12 @@ export const editorTheme = EditorView.theme(
       caretColor: "var(--color-primary)",
       padding: "12px 0",
     },
+    // No `lineHeight` here (Phase 6.5c, DESIGN-SPEC Amendments item 11's
+    // "Editor" line-spacing setting) — `baseExtensions.ts`'s
+    // `lineHeightCompartment` is the sole source now, so a fresh setting
+    // change always wins with no precedence fight (see that file's doc).
     ".cm-scroller": {
       fontFamily: "var(--font-mono)",
-      lineHeight: "1.6",
     },
     "&.cm-focused": { outline: "none" },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--color-primary)" },

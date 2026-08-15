@@ -47,9 +47,17 @@
  * coordinates. The offset keeps the default (unconfigured) boot state
  * pixel-identical to Phase 4 while the slider still visibly scales the
  * Rendered view up/down by the same delta it applies to Source.
+ *
+ * Phase 6.5c (DESIGN-SPEC Amendments item 11, "Rendered view" category)
+ * adds `renderedLayoutCompartment`: content column max-width (ch),
+ * left/right margin (px), and line height (multiplier) — all three settings
+ * DIRECT (not offset) values, unlike font size, since `livepreview/theme.ts`
+ * never hardcoded a competing rule for any of them in the first place (see
+ * that file's own doc) — no regression risk from a raw-value default the
+ * way font size had.
  */
 import { useEffect, useRef } from "react";
-import { EditorState, Prec, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
 import { EditorView, drawSelection, dropCursor, keymap, rectangularSelection, crosshairCursor } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
@@ -69,6 +77,19 @@ const RENDERED_BASE_FONT_SIZE = 17;
 
 function renderedFontSize(settingFontSize: number): number {
   return RENDERED_BASE_FONT_SIZE + (settingFontSize - DEFAULT_EDITOR_FONT_SIZE);
+}
+
+/** Phase 6.5c — see this file's module doc. Direct (non-offset) values:
+ * content column max-width (ch), left/right margin (px, matching the
+ * removed `"56px {margin}px 160px"` shape — top/bottom stay fixed), and
+ * line height (a `.cm-scroller` multiplier). */
+const renderedLayoutCompartment = new Compartment();
+
+function renderedLayoutTheme(contentWidthCh: number, marginPx: number, lineSpacing: number) {
+  return EditorView.theme({
+    ".cm-content": { maxWidth: `${contentWidthCh}ch`, padding: `56px ${marginPx}px 160px` },
+    ".cm-scroller": { lineHeight: String(lineSpacing) },
+  });
 }
 
 // Same reasoning as `baseExtensions.ts`: we own Ctrl/Cmd+F globally
@@ -121,6 +142,9 @@ export function LivePreviewEditor({ paneId, path, content, readOnly = false, onC
   });
 
   const fontSize = useSettingsStore((s) => s.editorFontSize);
+  const contentWidth = useSettingsStore((s) => s.renderedContentWidth);
+  const margin = useSettingsStore((s) => s.renderedMargin);
+  const lineSpacing = useSettingsStore((s) => s.renderedLineSpacing);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -158,6 +182,7 @@ export function LivePreviewEditor({ paneId, path, content, readOnly = false, onC
       // needs guaranteed precedence), so the Settings dialog's font-size
       // slider keeps working after every later reconfigure too.
       Prec.highest(fontSizeCompartment.of(fontSizeTheme(renderedFontSize(fontSize)))),
+      renderedLayoutCompartment.of(renderedLayoutTheme(contentWidth, margin, lineSpacing)),
       EditorView.editable.of(!readOnly),
       EditorState.readOnly.of(readOnly),
       EditorView.updateListener.of((update) => {
@@ -209,6 +234,12 @@ export function LivePreviewEditor({ paneId, path, content, readOnly = false, onC
   useEffect(() => {
     viewRef.current?.dispatch({ effects: fontSizeCompartment.reconfigure(fontSizeTheme(renderedFontSize(fontSize))) });
   }, [fontSize]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: renderedLayoutCompartment.reconfigure(renderedLayoutTheme(contentWidth, margin, lineSpacing)),
+    });
+  }, [contentWidth, margin, lineSpacing]);
 
   return <div ref={containerRef} style={{ height: "100%" }} />;
 }

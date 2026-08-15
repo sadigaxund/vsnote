@@ -401,9 +401,10 @@ stack choices in this doc.
   `material-icons.json` chunk) — and drops precache entries whose
   build-output basename (hash stripped via a small regex) is in that set.
   Every curated icon (the ones the demo vault's own tree/tabs actually
-  render), every lazy view/panel chunk (`SettingsDialog`, `SearchPanel`,
-  `DiffView`, `CsvTable`, `JsonView`, `HtmlPreview`, `ImageView`,
-  `CodeMirrorEditor`), and every CM6 per-language highlighter chunk (Source
+  render), every lazy view/panel chunk (`SettingsView` — Phase 6.5c's tab
+  replacement for the earlier `SettingsDialog`, `SearchPanel`, `DiffView`,
+  `CsvTable`, `JsonView`, `HtmlPreview`, `ImageView`, `CodeMirrorEditor`),
+  and every CM6 per-language highlighter chunk (Source
   mode needs to work offline for any vault file type, not just the boot
   file) stay precached — this is a real, if smaller than initially built,
   app-shell cache, not `NetworkOnly`. Verified: precache dropped to 134
@@ -617,3 +618,70 @@ stack choices in this doc.
   that cycle. Verified with a Playwright repro that right-clicks Rename and
   types immediately via `page.keyboard.type()` — no `.fill()` workaround,
   no extra click — in `tests/e2e/fs-git.spec.ts`.
+- **The Settings view (Phase 6.5c, DESIGN-SPEC Amendments item 11) fits into
+  `useTabsStore`'s existing "content keyed by FILE, view state per PANE"
+  shape with a zero-width change to `OpenTab`, by treating it as a file
+  whose "content" happens not to live on disk.** `OpenTab` already only
+  needed `path`/`name`/`kind` (plus `mode`/`preview`/`pinned`, none of which
+  the Settings tab uses meaningfully) — a virtual, never-real path
+  (`lib/settingsTab.ts`'s `SETTINGS_TAB_PATH = "settings"`, deliberately not
+  `vault/`-prefixed, the one prefix every real `fs/`/`git/` call expects per
+  `fs/paths.ts`) plus a new `FileKind = "settings"` was enough. The two
+  places that would otherwise treat it like a real file are guarded
+  narrowly rather than reworked: `EditorPane.tsx`'s buffer-load/diff-fetch
+  effects skip `kind === "settings"` (no fs content, no diff, would
+  otherwise mark it spuriously "missing"), and `filetypes/registry.ts`'s
+  `modeAvailabilityFor` returns `[]` for it (same treatment as
+  "folder"/no-kind) so `EditorPane.tsx` knows to hide the Rendered/Source/
+  Diff header entirely rather than show an all-disabled segmented control.
+  Because it's a plain tab, the tab-tree's existing `persist` middleware
+  restores an open Settings tab across a reload for free — no new
+  persistence code was needed, confirmed by reloading with the tab open and
+  it reopening still selected. `EditorContent.tsx`'s `kind === "settings"`
+  branch is checked before any mode/loaded/missing logic runs, mirroring
+  how the pre-existing `kind === "image"` branch already short-circuits
+  that same function for a different "not really file-shaped content" case.
+- **Two settings-driven CM6 layout properties (`.cm-scroller`'s
+  `line-height` for Source/Diff, and `.cm-content`'s `max-width`/`padding` +
+  `.cm-scroller`'s `line-height` for Rendered) were made reconfigurable by
+  DELETING the hardcoded static rule, not by adding a second, higher-
+  precedence one.** The established pattern for a live-reconfigurable CM6
+  style value in this codebase (`editorFontSize`'s `fontSizeCompartment`,
+  Phase 5a) needed `Prec.highest` specifically because a competing static
+  `EditorView.theme()` rule for the exact same property already existed
+  (`livepreview/theme.ts`'s old `"&": {fontSize: "17px"}}`) and CM6's
+  `StyleModule` doesn't resolve two same-specificity `EditorView.theme()`
+  calls by array/registration order the way a plain stylesheet would (see
+  this doc's own earlier entry on that). Phase 6.5c's three new settings
+  (`editorLineSpacing`, `renderedContentWidth`/`renderedMargin`,
+  `renderedLineSpacing`) sidestep that precedence question entirely: the
+  properties they control were simply removed from `editor/theme.ts`'s and
+  `editor/livepreview/theme.ts`'s static blocks (previously the only place
+  those properties were set at all), so the new `lineHeightCompartment`
+  (`editor/baseExtensions.ts`) / `renderedLayoutCompartment`
+  (`editor/LivePreviewEditor.tsx`) become the SOLE source with nothing left
+  to out-rank. Confirmed no visual regression at each setting's default
+  (`DEFAULT_EDITOR_LINE_SPACING = 1.6`, `DEFAULT_RENDERED_CONTENT_WIDTH_CH =
+  54`, `DEFAULT_RENDERED_MARGIN_PX = 32`, `DEFAULT_RENDERED_LINE_SPACING =
+  1.8` — every one copied verbatim from the value it replaced) by comparing
+  a fresh boot's Rendered-mode screenshot against the pre-6.5c baseline.
+- **`fs/seed.ts`'s Phase 6.5c `metrics.csv` regeneration (DESIGN-SPEC
+  Amendments item 15) keeps the working-tree `M` status via the same
+  mechanism the original toy fixture used — HEAD content and WORKING
+  content are simply different strings — not by preserving any particular
+  value.** `generateMetricsCsv(variant)` is one deterministic (no
+  `Math.random()`) generator called twice, `"head"` (40 rows, committed)
+  and `"working"` (42 rows plus a small per-row price delta, written
+  uncommitted); the row-count AND price differences are both real, so the
+  two outputs can never accidentally collide even if one delta were
+  changed later. `vault.config.json`'s deep-nesting rewrite (same change)
+  needed no equivalent care — it was never part of the working-tree diff
+  set to begin with (committed once, untouched), so there is no git-status
+  invariant riding on its exact content, only that it stays valid JSON
+  (checked with `JSON.parse`). Neither file's own git-status letter is
+  hardcoded anywhere; both are recomputed live by `git/status.ts`'s real
+  `statusMatrix()` walk, so this change was verified correct the same way
+  the original seed was: `npm test`'s `fs-git.spec.ts` (`metrics.csv`'s `M`,
+  6 changed files, 1 untracked) and `diffStat.test.ts`
+  (`architecture.md`'s exact +12/-5, untouched by this change) passing
+  unmodified.

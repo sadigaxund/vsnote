@@ -41,6 +41,7 @@ import { useGitStore } from "../stores/useGitStore";
 import { EMPTY_DIFF } from "../git/diff";
 import { modeAvailabilityFor } from "../filetypes/registry";
 import { probeRender } from "../lib/renderProbe";
+import type { StoragePersistenceStatus } from "../fs/persistence";
 import type { DiffLayout, DockEdge, EditorMode, TabItem } from "../types";
 
 export interface EditorPaneProps {
@@ -53,6 +54,11 @@ export interface EditorPaneProps {
   zenPillHovered: boolean;
   onZenHoverChange: (hovered: boolean) => void;
   onOpenLink: (paneId: string, href: string) => void;
+  /** Passed straight through to `EditorContent`'s Settings-view branch
+   * (Phase 6.5c) — see `EditorArea.tsx`'s doc. */
+  storagePersistence?: StoragePersistenceStatus;
+  onExportVault: () => void;
+  onRequestResetVault: () => void;
 }
 
 function computeEdge(e: React.DragEvent): DockEdge {
@@ -67,7 +73,18 @@ function computeEdge(e: React.DragEvent): DockEdge {
   return "center";
 }
 
-export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered, onZenHoverChange, onOpenLink }: EditorPaneProps) {
+export function EditorPane({
+  paneId,
+  zen,
+  onEnterZen,
+  onExitZen,
+  zenPillHovered,
+  onZenHoverChange,
+  onOpenLink,
+  storagePersistence,
+  onExportVault,
+  onRequestResetVault,
+}: EditorPaneProps) {
   // DESIGN-SPEC Amendments item 16 (typing-latency bug) instrumentation —
   // see `lib/renderProbe.ts`'s doc.
   probeRender(`EditorPane:${paneId}`);
@@ -113,7 +130,13 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
   // `react-hooks/exhaustive-deps` warnings this codebase already accepted in
   // App.tsx before this phase, now here instead.
   useEffect(() => {
-    if (activeTab) void useBufferStore.getState().ensureLoaded(activeTab.path);
+    // Phase 6.5c: the Settings tab has no fs content behind it — `path` is
+    // a virtual identifier (`lib/settingsTab.ts`), never a real vault path,
+    // so `ensureLoaded` would just do a wasted `pathExists` round-trip and
+    // mark it "missing" for nothing (harmless, but pointless — and it would
+    // fight `EditorContent.tsx`'s own kind==="settings" branch, which never
+    // reads `missing`/`loaded` for this kind anyway).
+    if (activeTab && activeTab.kind !== "settings") void useBufferStore.getState().ensureLoaded(activeTab.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab?.path]);
 
@@ -124,7 +147,9 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
   // wouldn't re-trigger this fetch and the chip would go stale/blank until
   // the user switched tabs and back.
   useEffect(() => {
-    if (activeTab) void useGitStore.getState().diffFor(activeTab.path);
+    // Same reasoning as the buffer-load effect above — no real file, no
+    // diff to compute.
+    if (activeTab && activeTab.kind !== "settings") void useGitStore.getState().diffFor(activeTab.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab?.path, gitRefreshGeneration]);
 
@@ -211,19 +236,28 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
             onDropExternalTab={handleDropExternalTab}
             onSplitTab={handleSplitTab}
           />
-          <EditorHeader
-            breadcrumb={activeTab ? activeTab.path.split("/") : ["vault"]}
-            diff={activeDiff}
-            mode={activeTab?.mode ?? "source"}
-            onModeChange={(mode: EditorMode) => activeTab && setMode(activeTab.path, mode, paneId)}
-            availableModes={availableModes}
-            diffLayout={diffLayout}
-            onDiffLayoutChange={setDiffLayout}
-            onEnterZen={() => {
-              focusPane(paneId);
-              onEnterZen();
-            }}
-          />
+          {/* DESIGN-SPEC Amendments item 11: the Settings tab is a real VIEW,
+              not a document with Rendered/Source/Diff representations — the
+              breadcrumb + diff chip + mode toggle this header exists for
+              would either be empty or misleadingly show a disabled,
+              never-usable segmented control. `SettingsView` owns its own
+              heading/search row instead (rendered by `EditorContent` below),
+              so the tab strip above is the only chrome this tab gets. */}
+          {activeTab?.kind !== "settings" && (
+            <EditorHeader
+              breadcrumb={activeTab ? activeTab.path.split("/") : ["vault"]}
+              diff={activeDiff}
+              mode={activeTab?.mode ?? "source"}
+              onModeChange={(mode: EditorMode) => activeTab && setMode(activeTab.path, mode, paneId)}
+              availableModes={availableModes}
+              diffLayout={diffLayout}
+              onDiffLayoutChange={setDiffLayout}
+              onEnterZen={() => {
+                focusPane(paneId);
+                onEnterZen();
+              }}
+            />
+          )}
         </>
       )}
       <div
@@ -249,6 +283,9 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
           onCursorChange={handleCursorChange}
           onOpenLink={(href) => onOpenLink(paneId, href)}
           diffLayout={diffLayout}
+          storagePersistence={storagePersistence}
+          onExportVault={onExportVault}
+          onRequestResetVault={onRequestResetVault}
         />
         {dockPreview && <DockOverlay edge={dockPreview} />}
       </div>

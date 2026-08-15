@@ -17,19 +17,36 @@ import { useState } from "react";
 import { PaneGroup } from "./local/PaneGroup";
 import { EditorPane } from "./EditorPane";
 import { useTabsStore } from "../stores/useTabsStore";
+import type { StoragePersistenceStatus } from "../fs/persistence";
 
 export interface EditorAreaProps {
   zenMode: boolean;
   onEnterZen: () => void;
   onExitZen: () => void;
   onOpenLink: (paneId: string, href: string) => void;
+  /** Threaded down to the Settings view (Phase 6.5c, DESIGN-SPEC Amendments
+   * item 11's "Storage"/"Storage" category) — same three values `App.tsx`
+   * already owns for the status bar's storage warning and the command
+   * palette's export/reset actions, just also reachable from wherever the
+   * Settings tab happens to be mounted. */
+  storagePersistence?: StoragePersistenceStatus;
+  onExportVault: () => void;
+  onRequestResetVault: () => void;
 }
 
 // DESIGN-SPEC Amendments item 16: cursor position no longer flows through
 // props here — `EditorPane` writes directly to `stores/useCursorStore.ts`.
 // See that store's module doc for why (lifting it into App.tsx's state was
 // the main cause of the typing-latency bug).
-export function EditorArea({ zenMode, onEnterZen, onExitZen, onOpenLink }: EditorAreaProps) {
+export function EditorArea({
+  zenMode,
+  onEnterZen,
+  onExitZen,
+  onOpenLink,
+  storagePersistence,
+  onExportVault,
+  onRequestResetVault,
+}: EditorAreaProps) {
   const tree = useTabsStore((s) => s.tree);
   const activePaneId = useTabsStore((s) => s.activePaneId);
   const resizeBranch = useTabsStore((s) => s.resizeBranch);
@@ -46,6 +63,9 @@ export function EditorArea({ zenMode, onEnterZen, onExitZen, onOpenLink }: Edito
         onEnterZen={onEnterZen}
         onExitZen={onExitZen}
         onOpenLink={onOpenLink}
+        storagePersistence={storagePersistence}
+        onExportVault={onExportVault}
+        onRequestResetVault={onRequestResetVault}
       />
     );
   }
@@ -64,6 +84,9 @@ export function EditorArea({ zenMode, onEnterZen, onExitZen, onOpenLink }: Edito
           onEnterZen={onEnterZen}
           onExitZen={onExitZen}
           onOpenLink={onOpenLink}
+          storagePersistence={storagePersistence}
+          onExportVault={onExportVault}
+          onRequestResetVault={onRequestResetVault}
         />
       )}
     />

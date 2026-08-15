@@ -29,7 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "my-you-eye";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, MoreHorizontal, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, MoreHorizontal, Settings as SettingsIcon, X } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "./ContextMenu";
 import { FileIcon } from "./FileIcon";
 import type { DockEdge, TabItem } from "../../types";
@@ -117,7 +117,9 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                     display: "flex",
                     alignItems: "center",
                     gap: 6,
-                    padding: "0 10px",
+                    // Density (DESIGN-SPEC Amendments item 11): see
+                    // `theme.css`'s `--app-density-tab-pad-x` doc.
+                    padding: "0 var(--app-density-tab-pad-x)",
                     minWidth: 120,
                     maxWidth: 220,
                     borderRight: "1px solid var(--app-chrome-border)",
@@ -130,7 +132,18 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                     flexShrink: 0,
                   }}
                 >
-                  <FileIcon kind={tab.kind} name={tab.name} size={14} />
+                  {/* The Settings view tab (DESIGN-SPEC Amendments item 11)
+                      isn't a real fs file — `FileIcon` resolves file/folder
+                      *identity* icons (Material Icon Theme), which has no
+                      meaningful entry for a virtual view; the gear is UI
+                      chrome, so it comes from lucide (DESIGN-SPEC Amendments
+                      item 1: "lucide-react stays for everything that isn't
+                      file/folder identity ... gear"). */}
+                  {tab.kind === "settings" ? (
+                    <SettingsIcon size={14} color="var(--color-muted)" aria-hidden />
+                  ) : (
+                    <FileIcon kind={tab.kind} name={tab.name} size={14} />
+                  )}
                   <span
                     style={{
                       flex: 1,
