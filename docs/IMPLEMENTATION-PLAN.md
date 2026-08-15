@@ -69,6 +69,10 @@ before writing code.
 - PWA (approved): manifest + icons + service worker (vite-plugin-pwa), installable,
   app shell loads offline; cache strategy must never serve a stale index.html after
   a deploy (standard autoUpdate registration).
+- Durability safeguards: request `navigator.storage.persist()` at boot and show a
+  muted status-bar warning if denied (vault subject to browser eviction);
+  "Export vault as .zip" palette command (client-side, e.g. fflate) as a
+  one-click full backup independent of any server.
 - Exit: keyboard-only session possible; final pixel pass vs `app-preview.png`.
 
 ## Phase 6 — Grid split view
