@@ -84,6 +84,28 @@ before writing code.
 - Exit: split same file source|rendered side-by-side; arrange 2×2 grid of four
   files; resize + equalize dividers; reload restores the exact layout.
 
+## Phase 7 — Committed test suite (deterministic re-verification)
+- Promote the session's Playwright verification scripts into a committed e2e suite:
+  `tests/e2e/` with one spec per phase's exit criteria (shell, fs/git, editor+diff,
+  live preview, palette/settings/zen/PWA-durability, split grid) plus the targeted
+  probes worth keeping (offline cold start, stale-index, storage persistence, zip
+  export, settled-traffic precache budget). Use `@playwright/test` proper (fixtures,
+  auto-waiting assertions — no bare timeouts; the Phase 6 selector-timeout failure is
+  the anti-pattern), fresh browser context per spec, seeded demo vault as the fixture
+  baseline via the existing reset mechanism.
+- Vitest unit tests for the pure logic: git status→letter mapping, diff-stat
+  computation, pane-tree ops (split/collapse/persist round-trip — must pin down the
+  layout-JSON identity question from Phase 6 verification), filetype registry, draft
+  checkpoint/restore, icon curated-table resolution order.
+- Wiring: `npm test` = unit + e2e (e2e builds then runs against `vite preview`);
+  `npm run test:unit` / `test:e2e` individually. CI-ready (no interactive steps,
+  deterministic exit codes). Precache-budget assertion fails the suite if the
+  never-fetched icon tier re-enters the service worker manifest.
+- Exit: `npm test` passes twice in a row from a clean checkout (`rm -rf node_modules`
+  not required, but no reliance on scratchpad state or prior session artifacts);
+  intentionally breaking a feature (e.g. comment out the reveal decoration) makes the
+  matching spec fail.
+
 ## Verification protocol (orchestrator)
 After each phase: run gates, review the diff against this plan and the spec, exercise
 the app (dev server + browser/screenshot when available), file concrete fix tasks back
