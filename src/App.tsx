@@ -17,6 +17,10 @@ import { useDecoratedTree } from "./stores/useDecoratedTree";
 import { EMPTY_DIFF } from "./git/diff";
 import { fileTypeFor } from "./filetypes/registry";
 import { openSearchInActiveView } from "./editor/activeView";
+import { resolveMarkdownLink } from "./editor/livepreview/links";
+import { modeAvailabilityFor } from "./filetypes/registry";
+import { pathExists } from "./fs/operations";
+import { displayToFsPath } from "./fs/paths";
 import type { CursorPos } from "./editor/CodeMirrorEditor";
 import type { EditorMode, FileKind, FileNode, TabItem } from "./types";
 
@@ -33,14 +37,6 @@ const DEFAULT_TABS: Array<{ path: string; name: string; kind: FileKind; pin: boo
   { path: "vault/metrics.csv", name: "metrics.csv", kind: "csv", pin: true },
   { path: "vault/assets/cover.png", name: "cover.png", kind: "image", pin: false },
 ];
-
-function modeAvailabilityFor(kind: FileKind | undefined, hasDiff: boolean): EditorMode[] {
-  if (!kind || kind === "image" || kind === "folder") return [];
-  const modes: EditorMode[] = ["source"];
-  if (kind === "md") modes.push("rendered");
-  if (hasDiff) modes.push("diff");
-  return modes;
-}
 
 function parentOf(path: string): string {
   const idx = path.lastIndexOf("/");
@@ -131,6 +127,17 @@ export default function App() {
       } else if (key === "f") {
         e.preventDefault();
         void openSearchInActiveView();
+      } else if (key === "e") {
+        // DESIGN-SPEC "⌘E toggle Rendered/Source (Obsidian muscle memory)".
+        // Only meaningful when the active file actually has both — a code
+        // file with Rendered disabled just keeps ⌘E a no-op rather than
+        // toggling into a mode the segmented control wouldn't offer.
+        e.preventDefault();
+        const tab = useTabsStore.getState().activePane().tabs.find((t) => t.path === activeTab?.path);
+        if (!tab) return;
+        const modes = modeAvailabilityFor(tab.kind, false);
+        if (!modes.includes("rendered")) return;
+        useTabsStore.getState().setMode(tab.path, tab.mode === "rendered" ? "source" : "rendered");
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -227,6 +234,12 @@ export default function App() {
     const newPath = await fs.renameNode(node.path, newName);
     tabs.renamePrefix(node.path, newPath);
     buffers.rekeyPrefix(node.path, newPath);
+    // A folder rename remaps many descendant tab paths whose own filenames
+    // (and therefore kind) never changed — only a file rename can change
+    // its own extension, so `setKind` only ever applies to that one tab.
+    if (node.type === "file") {
+      tabs.setKind(newPath, inferFileKind(newName));
+    }
     setSelectedId((prev) => (prev && (prev === node.path || prev.startsWith(`${node.path}/`)) ? newPath + prev.slice(node.path.length) : prev));
     await git.refresh();
   };
@@ -249,6 +262,26 @@ export default function App() {
 
   const handleCopyPath = (node: FileNode) => {
     navigator.clipboard?.writeText(node.path).catch(() => {});
+  };
+
+  // DESIGN-SPEC "Internal links [text](file.ext) ... open that file in a
+  // tab when clicked" — the live-preview `LinkWidget`'s click handler
+  // (editor/livepreview/widgets.ts) calls this with the raw href; external
+  // links (http(s)://, mailto:, …) open in a real browser tab instead.
+  const handleOpenLink = async (href: string) => {
+    if (!activeTab) return;
+    const resolved = resolveMarkdownLink(activeTab.path, href);
+    if (resolved.kind === "external") {
+      window.open(resolved.href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const fsPath = displayToFsPath(resolved.path);
+    if (!(await pathExists(fsPath))) return;
+    const name = resolved.path.slice(resolved.path.lastIndexOf("/") + 1);
+    const kind = inferFileKind(name);
+    tabs.openFile({ path: resolved.path, name, kind });
+    setSelectedId(resolved.path);
+    void useBufferStore.getState().ensureLoaded(resolved.path);
   };
 
   const availableModes = modeAvailabilityFor(activeTab?.kind, activeDiff.added > 0 || activeDiff.removed > 0);
@@ -321,6 +354,7 @@ export default function App() {
               if (activeTab) useBufferStore.getState().setContent(activeTab.path, value);
             }}
             onCursorChange={setCursor}
+            onOpenLink={(href) => void handleOpenLink(href)}
           />
         </div>
       </div>

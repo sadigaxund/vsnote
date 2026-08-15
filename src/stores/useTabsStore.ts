@@ -16,6 +16,7 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defaultModeFor, modeAvailabilityFor } from "../filetypes/registry";
 import type { EditorMode, FileKind } from "../types";
 
 export interface OpenTab {
@@ -37,10 +38,6 @@ export interface PaneState {
 }
 
 const ROOT_PANE_ID = "root";
-
-function defaultModeFor(kind: FileKind): EditorMode {
-  return kind === "md" ? "rendered" : "source";
-}
 
 function emptyPane(id: string): PaneState {
   return { id, tabs: [], activeTabId: undefined };
@@ -64,6 +61,15 @@ interface TabsStoreState {
   closeTab: (path: string, paneId?: string) => void;
   setActiveTab: (path: string, paneId?: string) => void;
   setMode: (path: string, mode: EditorMode, paneId?: string) => void;
+  /** Updates a single tab's `kind` (e.g. a rename that changed the file's
+   * extension — `App.tsx`'s `handleRenameCommit`, not `renamePrefix`'s job
+   * since a folder rename remaps many descendant paths whose *own*
+   * extensions never changed). If the tab's current mode isn't valid for
+   * the new kind (registry `modeAvailabilityFor`) — e.g. a `.md` renamed to
+   * `.ts` was sitting in Rendered — it's reset to the new kind's default
+   * mode rather than left pointing at a segment the header would show
+   * disabled. */
+  setKind: (path: string, kind: FileKind, paneId?: string) => void;
   reorderTab: (fromIndex: number, toIndex: number, paneId?: string) => void;
   /** Remaps every open tab whose path is `oldPrefix` or starts with
    * `oldPrefix/` to the equivalent path under `newPrefix` — used after a
@@ -175,6 +181,27 @@ export const useTabsStore = create<TabsStoreState>()(
             panes: {
               ...state.panes,
               [id]: { ...pane, tabs: pane.tabs.map((t) => (t.path === path ? { ...t, mode } : t)) },
+            },
+          };
+        });
+      },
+
+      setKind: (path, kind, paneId) => {
+        const id = paneId ?? get().activePaneId;
+        set((state) => {
+          const pane = state.panes[id];
+          if (!pane) return state;
+          return {
+            panes: {
+              ...state.panes,
+              [id]: {
+                ...pane,
+                tabs: pane.tabs.map((t) => {
+                  if (t.path !== path || t.kind === kind) return t;
+                  const stillValid = modeAvailabilityFor(kind, false).includes(t.mode);
+                  return { ...t, kind, mode: stillValid ? t.mode : defaultModeFor(kind) };
+                }),
+              },
             },
           };
         });

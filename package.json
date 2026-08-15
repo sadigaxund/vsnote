@@ -25,6 +25,7 @@
     "@isomorphic-git/lightning-fs": "^4.7.0",
     "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
+    "@lezer/markdown": "^1.7.2",
     "@radix-ui/react-context-menu": "^2.3.7",
     "buffer": "^6.0.3",
     "isomorphic-git": "^1.41.4",

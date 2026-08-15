@@ -1,0 +1,145 @@
+/**
+ * Rendered-markdown typography — DESIGN-SPEC "Rendered markdown typography
+ * (match image)", reproduced from the same token values Phase 1's static
+ * placeholder used in `EditorContent.tsx` (H1 `#d8dfe6` bold, H2 teal body
+ * `#bac1c8` relaxed line-height, lime-green bare inline/fenced code with no
+ * chip/border, italic muted blockquote with an accent left border) so the
+ * live editor built this phase matches exactly what was already validated
+ * against `app-preview.png`, just applied to CM6's DOM instead of static
+ * JSX. No hex is invented here — every color is a `var(--...)` token.
+ */
+import { EditorView } from "@codemirror/view";
+
+export const livePreviewTheme = EditorView.theme(
+  {
+    "&": {
+      color: "var(--markdown-body)",
+      backgroundColor: "var(--app-editor-bg)",
+      height: "100%",
+      fontSize: "17px",
+    },
+    ".cm-scroller": {
+      fontFamily: "var(--font-sans)",
+      lineHeight: "1.8",
+    },
+    ".cm-content": {
+      maxWidth: "54ch",
+      margin: "0 auto",
+      padding: "56px 32px 160px",
+      caretColor: "var(--color-primary)",
+    },
+    "&.cm-focused": { outline: "none" },
+    ".cm-line": { padding: "0" },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
+      backgroundColor: "color-mix(in oklab, var(--color-primary) 25%, transparent)",
+    },
+    ".cm-cursor": { borderLeftColor: "var(--color-primary)" },
+    ".cm-panels": {
+      backgroundColor: "var(--app-titlebar-bg)",
+      color: "var(--color-fg)",
+      fontFamily: "var(--font-sans)",
+    },
+    ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--app-chrome-border)" },
+    ".cm-panel": { fontSize: "12px" },
+    ".cm-panel input": {
+      background: "var(--color-surface)",
+      color: "var(--color-fg)",
+      border: "1px solid var(--color-border)",
+      borderRadius: "var(--radius-ui-sm)",
+    },
+    ".cm-panel button": {
+      backgroundColor: "var(--color-surface)",
+      color: "var(--color-fg)",
+      border: "1px solid var(--color-border)",
+      borderRadius: "var(--radius-ui-sm)",
+    },
+    ".cm-panel button:hover": { backgroundColor: "var(--color-surface-hover)" },
+
+    // ---- Headings ----
+    ".cm-md-h1": {
+      fontSize: "32px",
+      fontWeight: "700",
+      color: "var(--color-fg)",
+      lineHeight: "1.3",
+      letterSpacing: "-0.01em",
+      marginTop: "4px",
+    },
+    ".cm-md-h2": { fontSize: "19px", fontWeight: "700", color: "var(--color-primary)", lineHeight: "1.4", marginTop: "10px" },
+    ".cm-md-h3": { fontSize: "17px", fontWeight: "700", color: "var(--color-primary)", lineHeight: "1.4", marginTop: "8px" },
+    ".cm-md-h4, .cm-md-h5, .cm-md-h6": { fontSize: "17px", fontWeight: "700", color: "var(--color-primary)" },
+
+    // ---- Inline marks (kept small/muted while raw so the "smallest
+    // enclosing region" reveal reads as syntax, not more prose). ----
+    ".cm-md-mark": { color: "var(--color-muted)", opacity: 0.75 },
+
+    // ---- Emphasis ----
+    ".cm-md-strong": { color: "var(--color-fg)", fontWeight: "700" },
+    ".cm-md-em": { fontStyle: "italic" },
+
+    // ---- Inline code — bare, no chip/border (DESIGN-SPEC correction). ----
+    ".cm-md-code": {
+      fontFamily: "var(--font-mono)",
+      fontSize: "0.88em",
+      color: "var(--markdown-code-color)",
+    },
+
+    // ---- Links ----
+    ".cm-md-link": {
+      color: "var(--color-primary)",
+      textDecoration: "underline",
+      textUnderlineOffset: "2px",
+      cursor: "pointer",
+    },
+
+    // ---- Lists ----
+    ".cm-md-list-item": {
+      position: "relative",
+      paddingLeft: "1.1em",
+    },
+    ".cm-md-list-item::before": {
+      content: '"•"',
+      position: "absolute",
+      left: "0",
+      color: "var(--color-primary)",
+    },
+    ".cm-md-task-item": { paddingLeft: "0.1em" },
+    ".cm-md-ordered-item": { paddingLeft: "0.2em" },
+    ".cm-md-strike": { textDecoration: "line-through", color: "var(--color-muted)" },
+    ".cm-md-checkbox": {
+      accentColor: "var(--color-primary)",
+      marginRight: "8px",
+      verticalAlign: "middle",
+      cursor: "pointer",
+      position: "relative",
+      top: "-1px",
+    },
+
+    // ---- Blockquote ----
+    ".cm-md-quote": {
+      borderLeft: "3px solid var(--color-primary)",
+      paddingLeft: "13px",
+      fontStyle: "italic",
+      color: "var(--color-muted)",
+    },
+
+    // ---- Fenced code block — flush on the editor background, no raised
+    // surface/border (DESIGN-SPEC correction). ----
+    ".cm-md-fence": {
+      fontFamily: "var(--font-mono)",
+      fontSize: "15px",
+      color: "var(--markdown-code-color)",
+      whiteSpace: "pre",
+    },
+    ".cm-md-fence-first": { marginTop: "6px" },
+    ".cm-md-fence-last": { marginBottom: "6px" },
+
+    // ---- Horizontal rule ----
+    ".cm-md-hr": {
+      borderTop: "1px solid var(--app-chrome-border)",
+      display: "block",
+      height: "0",
+      margin: "20px 0",
+    },
+  },
+  { dark: true },
+);

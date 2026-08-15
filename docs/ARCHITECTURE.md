@@ -187,3 +187,80 @@ stack choices in this doc.
   the seeded `indexer.ts` diff (a near-total rewrite): chip `+20 -3` vs. the unified diff
   view's own `.cm-changedLine`/`.cm-deletedLine` counts on the working/HEAD sides — `20`
   and `3` respectively, an exact match, both before and after a live ⌘S-triggered edit.
+- **The live-preview decoration set (`editor/livepreview/`) is provided from a
+  `StateField`, not a `ViewPlugin`.** The first implementation used a `ViewPlugin`
+  (decorations recomputed in `update()`, following the same shape as every other
+  CM6 extension in this codebase) and crashed on mount with CM6's own
+  `"Decorations that replace line breaks may not be specified via plugins"` —
+  hiding a fenced-code fence line (marks *and* its trailing newline, so the line
+  disappears instead of leaving a blank row) is a `Decoration.replace` that spans
+  a line break, and CM6 only allows that from state-derived sources. Fixed by
+  moving decoration computation into a `StateField<DecorationSet>` (provided via
+  `EditorView.decorations.from(field, ...)`), which is exempt from the
+  restriction since it's computed synchronously with the document rather than
+  during view measurement. Confirmed fixed: no console/page errors on mount, and
+  a fenced code block's fence lines collapse cleanly (see the Rendered-mode
+  screenshots taken for the Phase 4 exit criteria).
+- **Reveal-on-cursor is gated on DOM focus, not just selection overlap.**
+  DESIGN-SPEC's Phase 4 exit criterion is explicit that blur — not just moving
+  the selection elsewhere — re-hides a revealed span ("moving the cursor away
+  (blur) re-renders it immediately"). Selection alone isn't enough: CM6 gives a
+  freshly-created, unfocused `EditorState` a selection at document position 0 by
+  default, which would otherwise permanently reveal the first heading's `#`
+  before a user ever clicks into the note (confirmed empirically — the first
+  cursor-reveal screenshot showed exactly this). `editor/livepreview/index.ts`
+  tracks focus via `EditorView.focusChangeEffect` into the same `StateField`, and
+  `plugin.ts`'s `overlapsSelection` short-circuits to "hidden" whenever
+  `!focused`. Verified with Playwright: unfocused boot render is clean (matches
+  `app-preview.png` exactly), clicking into `**append-only**` reveals only that
+  span (`editorText` extracted from `.cm-content` showed every other heading/
+  bullet/quote/code block untouched), and clicking a sidebar input (a real blur)
+  restores the clean render immediately — both the screenshot and the extracted
+  text before/after blur are identical to the never-focused baseline.
+- **List bullet markers (`-`) are always hidden, not cursor-gated** — unlike
+  headings/bold/italic/inline-code/links, which DESIGN-SPEC explicitly calls out
+  as revealing at the cursor. A markdown list's `-` is structural formatting
+  Obsidian itself keeps rendered as a bullet glyph even while the cursor sits in
+  that list item's text; revealing raw `-` characters while editing bullet text
+  would contradict "never dump ... raw text" for content the user isn't actually
+  looking at. Ordered-list markers (`1.`, `2.`, …) are the one exception kept
+  always-visible regardless of focus — they carry real sequence information a
+  bullet glyph would destroy, confirmed via `@lezer/markdown`'s `ListMark` node
+  covering the whole `"1."` token (not just a delimiter character) for
+  `OrderedList` children.
+- **`.html`/`.csv` default to Rendered mode; DESIGN-SPEC's Modes table only
+  marks a default explicitly for `.md` (Rendered), `.json` (Source), and code
+  (Source), leaving `.html`/`.csv` unmarked.** Resolved as "Rendered is the
+  default whenever a renderer exists, unless the table explicitly names a
+  different default" — html gets a live iframe preview and csv a `DataTable` by
+  default, the same reasoning already applied to md, while json (a config
+  format usually edited directly) and code keep the table's explicit Source
+  default. `filetypes/registry.ts`'s module doc flags this interpretation
+  inline; worth confirming against DESIGN-SPEC in review since the table's
+  silence on those two rows is genuinely ambiguous rather than a clear "same as
+  md" implication.
+- **A file rename that changes extension now updates the open tab's `kind`
+  (`useTabsStore.setKind`, called from `App.tsx`'s `handleRenameCommit`) — a
+  pre-existing Phase 2 gap surfaced by Phase 4's renderer wiring.** Before this
+  phase, `kind` staleness after a cross-extension rename only cost Source-mode
+  syntax highlighting (CM6 language didn't update either, a latent bug of its
+  own); now that `kind` also selects the Rendered-mode renderer and the set of
+  enabled mode segments, a stale `kind` after renaming e.g. `untitled.md` to
+  `notes.html` would silently keep routing to the live-preview markdown editor
+  instead of the iframe preview. Fixed narrowly: `setKind` only fires for the
+  exact file being renamed (never for a folder rename's remapped descendants,
+  whose own filenames/extensions don't change), and resets `mode` to the new
+  kind's default only if the tab's current mode isn't in the new kind's
+  `modeAvailabilityFor` list. Verified with Playwright: create a file, rename it
+  to `.html`, and both the status-bar language id and the Rendered segment
+  (iframe showing real DOM content) update correctly.
+- **Phase 4's renderers only got a live, in-browser Playwright pass for
+  markdown/csv/json/image/html; `.html` needed a hand-created demo file since
+  the seeded vault has none (ARCHITECTURE.md's Phase 3 Deviations note already
+  records why: no demo `.js`/`.jsx`/`.html` file was added to the seed).**
+  Exercised by creating a file via the Explorer's "New file" action, renaming
+  it to `preview-test.html` (see the `setKind` fix above, which this same test
+  exposed), typing a small HTML document in Source mode, and switching to
+  Rendered — the sandboxed iframe (`sandbox=""`, `srcDoc`) rendered the real
+  heading/paragraph with its own isolated dark styling, confirming both the
+  renderer and the sandbox attribute are wired correctly end-to-end.
