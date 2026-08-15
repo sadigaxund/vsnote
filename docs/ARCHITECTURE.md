@@ -98,3 +98,55 @@ stack choices in this doc.
   trade-off — losing the ability to use Tailwind utilities in our own source — was
   never needed here); it's a one-line addition to the source-CSS pipeline described in
   the stack table above.
+
+- **`isomorphic-git` needs Node's `Buffer` global.** `node_modules/isomorphic-git/index.js`'s
+  `GitIndex` (the `.git/index` reader/writer used by every `add`/`commit`) calls
+  `Buffer.from`/`Buffer.alloc`/`Buffer.concat`/`Buffer.isBuffer` directly — there is no
+  browser-native equivalent. Confirmed by the exact runtime error (`Buffer is not
+  defined`, thrown from inside `isomorphic-git`) the first time `git.add` ran in the
+  browser. Fixed with the `buffer` npm package (the standard browser polyfill) and a
+  four-line shim at the very top of `src/main.tsx` that sets `globalThis.Buffer` before
+  any `fs/`/`git/` module runs — not a bundler-wide `vite-plugin-node-polyfills`, since
+  `Buffer` was the only Node global anything in this stack actually touches.
+- **lightning-fs's own internal write debounce vs. "reload must never lose unsaved
+  work."** `@isomorphic-git/lightning-fs`'s README documents that its in-memory
+  directory/inode structure (the "superblock") is flushed to IndexedDB on its own
+  ~500ms idle debounce, separate from and in addition to this app's 300ms draft
+  checkpoint debounce (`fs/drafts.ts`, DESIGN-SPEC Amendments item 6). Reproduced while
+  testing that amendment: a draft wrote successfully and read back correctly *within
+  the same tab* (which hits the same instance's in-memory cache), then vanished after
+  an immediate `page.reload()` because the superblock update hadn't reached IndexedDB
+  yet. Fixed by calling `pfs.flush()` after every mutating call in `fs/operations.ts`
+  (`writeFile`/`removeFile`/`removePath`/`renamePath`, which `fs/drafts.ts` now routes
+  through instead of calling `pfs` directly) — see the long comment on `flush()` there.
+  Confirmed fixed with a Playwright repro: type into a file, wait for the 300ms
+  checkpoint, `page.reload()`, and the draft is present with the tab still dirty.
+- **Status bar's `+A -R` figure is the *active tab's* diff, not a sum across every
+  changed file.** ARCHITECTURE.md's "Key flows" says the chip and status bar read the
+  same `git/diff.ts` call "so numbers always agree" but doesn't specify which file's
+  diff the status bar shows when several files are changed at once (this repo's demo
+  vault has three: `architecture.md`, `indexer.ts`, `metrics.csv`). Summing all of them
+  would make the status bar disagree with the header chip whenever the two differ (e.g.
+  the screenshot's `+12 -5` is `architecture.md` alone) and has no clean definition once
+  no tab is active. Resolved as "the active tab's diff, cached and invalidated via
+  `useGitStore`'s `diffCache`/`refreshGeneration`" — the same single call, just scoped
+  to one file at a time, which is what makes the two numbers provably equal rather than
+  coincidentally equal.
+- **Mode availability this phase covers `.md` (Rendered) + every type (Source); the
+  full DESIGN-SPEC "Modes" table (json tree view, csv `DataTable`, html iframe, image
+  viewer) waits for Phase 4's renderers.** Building throwaway renderers now to satisfy
+  the full per-type matrix would contradict IMPLEMENTATION-PLAN.md Phase 2's own
+  instruction to keep Phase 1's static Rendered placeholder rather than build a second
+  markdown renderer — the same reasoning extends to json/csv/html. Diff is enabled
+  whenever the active file's real computed diff is nonzero; images get no mode this
+  phase (no renderer, no meaningful text source) and show an `EmptyState` instead.
+- **Drag-and-drop "drop between two rows" targets their shared parent folder — same
+  operation as "drop onto that folder" — rather than a persisted sibling position.**
+  DESIGN-SPEC Amendments item 7 asks for an insertion-line affordance between rows for
+  "precise placement," but a real git-backed filesystem has no field to store "this
+  file is 3rd of 7 in its folder": `readTree`'s sibling order is derived (canonical
+  demo order, then creation time — see `useFsStore.ts`), not stored per-file. The
+  insertion line still renders (precision *feels* real while dragging), but the actual
+  move is identical whether you drop between two rows or directly onto their folder.
+  If per-file manual ordering becomes a real requirement later, it needs an explicit
+  stored order field — recorded here rather than silently faked.

@@ -1,26 +1,153 @@
 /**
- * Static rendered-markdown placeholder for `architecture.md`, matching
- * app-preview.png's typography (DESIGN-SPEC "Rendered markdown typography").
- *
- * This is deliberately NOT routed through the library's `Markdown` display
- * component: `Markdown` has no accent-colored H2 (every heading level
- * renders `text-fg`, hardcoded per level with no token/variant hook), no
- * blockquote block type at all (a `>` line falls through to a plain
- * paragraph), and its inline `<code>` renders a `bg-secondary` chip with a
- * border rather than the bare colored-mono-text treatment app-preview.png
- * actually uses (no chip, no border, fenced blocks flush on the page
- * background) — gaps in the component itself, not something a theme
- * override can reach. It's also explicitly
- * throwaway: IMPLEMENTATION-PLAN.md Phase 1 calls this content "a static
- * placeholder... Phase 4 replaces it with the live-preview editor" (a CM6
- * decoration plugin, not a second markdown-to-HTML renderer), so building
- * a reusable component around today's fixed content wouldn't inform that
- * real architecture. This is content typography, not a UI control — see
- * CLAUDE.md rule 1's scope (buttons/inputs/selects/tables/trees/menus).
+ * Editor content area — mode-aware this phase:
+ *  - **Rendered**: Phase 1's static architecture.md typography placeholder
+ *    (DESIGN-SPEC "Rendered markdown typography"), shown for every `.md`
+ *    tab regardless of which note is open — a real per-file Obsidian-style
+ *    renderer is Phase 4's "Markdown live preview" centerpiece; building a
+ *    second throwaway renderer now would fight that architecture rather
+ *    than inform it (see the placeholder's own file-header note, unchanged
+ *    from Phase 1).
+ *  - **Source**: a plain `Textarea` bound to the real file content via
+ *    `useBufferStore` — IMPLEMENTATION-PLAN.md Phase 2 exit criteria calls
+ *    this out explicitly ("edit (temp via a crude textarea is fine this
+ *    phase)"); CodeMirror replaces it in Phase 3. A `D`-status tab has
+ *    nothing on disk to edit, so it falls back to a read-only view of the
+ *    last committed (HEAD) content instead of an empty box.
+ *  - **Diff**: not a merge view yet (Phase 3) — but the real numbers
+ *    (`git/diff.ts`, the same call the chip/status bar use) are surfaced
+ *    via `EmptyState` so the data pipeline is visibly real, not a mock.
+ *  - No open tab, or an image (no `ImageView` until Phase 4): an
+ *    `EmptyState`.
  */
-import { ScrollArea } from "my-you-eye";
+import { useEffect, useState } from "react";
+import { EmptyState, ScrollArea, Textarea } from "my-you-eye";
+import { FileQuestion, FileWarning, GitCompareArrows } from "lucide-react";
+import type { EditorMode, FileKind } from "../types";
+import { readHeadFileContent, type FileDiffResult } from "../git/diff";
 
-export function EditorContent() {
+export interface EditorContentProps {
+  hasTab: boolean;
+  path?: string;
+  kind?: FileKind;
+  mode: EditorMode;
+  content: string;
+  loaded: boolean;
+  missing: boolean;
+  onChange: (value: string) => void;
+  diff: FileDiffResult;
+}
+
+export function EditorContent({ hasTab, path, kind, mode, content, loaded, missing, onChange, diff }: EditorContentProps) {
+  const [headContent, setHeadContent] = useState("");
+  useEffect(() => {
+    if (missing && path) {
+      let cancelled = false;
+      readHeadFileContent(path).then((c) => {
+        if (!cancelled) setHeadContent(c ?? "");
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [missing, path]);
+
+  if (!hasTab) {
+    return (
+      <Centered>
+        <EmptyState icon={<FileQuestion size={28} />} title="No file open" description="Select a file from the explorer to start editing." />
+      </Centered>
+    );
+  }
+
+  if (kind === "image") {
+    return (
+      <Centered>
+        <EmptyState
+          icon={<FileWarning size={28} />}
+          title="No image preview yet"
+          description="The image viewer (checkerboard, zoom-to-fit) lands in Phase 4. This file's git status and diff still work."
+        />
+      </Centered>
+    );
+  }
+
+  if (mode === "diff") {
+    return (
+      <Centered>
+        <EmptyState
+          icon={<GitCompareArrows size={28} />}
+          title="Diff view arrives in Phase 3"
+          description={
+            diff.added || diff.removed
+              ? `Real computed diff vs HEAD: +${diff.added} / -${diff.removed} lines (git/diff.ts). The merge view renders these same lines in Phase 3.`
+              : "No changes vs HEAD."
+          }
+        />
+      </Centered>
+    );
+  }
+
+  if (mode === "rendered") {
+    return <RenderedPlaceholder />;
+  }
+
+  // Source mode.
+  return (
+    <ScrollArea className="flex-1" style={{ minHeight: 0, background: "var(--app-editor-bg)" }}>
+      {missing ? (
+        <div style={{ padding: 16 }}>
+          <div
+            style={{
+              marginBottom: 10,
+              fontSize: 12,
+              fontFamily: "var(--font-mono)",
+              color: "var(--git-deleted)",
+            }}
+          >
+            Deleted from the working tree — showing the last committed version (read-only).
+          </div>
+          <Textarea readOnly value={headContent} spellCheck={false} style={textareaStyle} />
+        </div>
+      ) : (
+        <div style={{ padding: 16, height: "100%" }}>
+          <Textarea
+            value={loaded ? content : "Loading…"}
+            disabled={!loaded}
+            spellCheck={false}
+            onChange={(e) => onChange(e.target.value)}
+            style={textareaStyle}
+          />
+        </div>
+      )}
+    </ScrollArea>
+  );
+}
+
+const textareaStyle = {
+  width: "100%",
+  minHeight: "calc(100vh - 260px)",
+  resize: "vertical" as const,
+  fontFamily: "var(--font-mono)",
+  fontSize: 13,
+  lineHeight: 1.6,
+  background: "var(--app-editor-bg)",
+  color: "var(--color-fg)",
+  border: "1px solid var(--color-border)",
+};
+
+function Centered({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Unchanged from Phase 1 — see the module doc above for why this stays a
+ * fixed placeholder rather than becoming per-file this phase.
+ */
+function RenderedPlaceholder() {
   return (
     <ScrollArea className="flex-1" style={{ minHeight: 0, background: "var(--app-editor-bg)" }}>
       <div

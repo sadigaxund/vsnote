@@ -10,6 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@isomorphic-git/lightning-fs": "^4.7.0",
+    "@radix-ui/react-context-menu": "^2.3.7",
+    "buffer": "^6.0.3",
+    "isomorphic-git": "^1.41.4",
     "lucide-react": "^0.545.0",
     "my-you-eye": "^0.4.0",
     "react": "^18.3.1",
