@@ -36,6 +36,9 @@ export interface CursorPos {
 }
 
 export interface CodeMirrorEditorProps {
+  /** Which pane this instance belongs to — see `editor/activeView.ts`'s
+   * module doc (Phase 6: one registered view per pane, not one global). */
+  paneId: string;
   path: string;
   content: string;
   loadLanguage: () => Promise<Extension | null>;
@@ -46,6 +49,7 @@ export interface CodeMirrorEditorProps {
 }
 
 export function CodeMirrorEditor({
+  paneId,
   path,
   content,
   loadLanguage,
@@ -103,7 +107,7 @@ export function CodeMirrorEditor({
 
     const view = new EditorView({ state, parent: containerRef.current });
     viewRef.current = view;
-    setActiveEditorView(view);
+    setActiveEditorView(paneId, view);
     dispatchGitDiff(view, diff);
 
     const initialLine = view.state.doc.lineAt(view.state.selection.main.head);
@@ -120,7 +124,7 @@ export function CodeMirrorEditor({
     return () => {
       destroyed = true;
       if (viewRef.current === view) viewRef.current = null;
-      if (getActiveEditorView() === view) setActiveEditorView(null);
+      if (getActiveEditorView(paneId) === view) setActiveEditorView(paneId, null);
       view.destroy();
     };
     // Intentionally scoped to `path` only — this effect owns the mount

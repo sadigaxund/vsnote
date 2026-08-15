@@ -46,6 +46,9 @@ const JsonView = lazy(() => import("../renderers/JsonView").then((m) => ({ defau
 const ImageView = lazy(() => import("../renderers/ImageView").then((m) => ({ default: m.ImageView })));
 
 export interface EditorContentProps {
+  /** Which pane this content belongs to (Phase 6) — threaded to every CM6
+   * mount site so `editor/activeView.ts` registers the right pane's view. */
+  paneId: string;
   hasTab: boolean;
   path?: string;
   kind?: FileKind;
@@ -60,6 +63,7 @@ export interface EditorContentProps {
 }
 
 export function EditorContent({
+  paneId,
   hasTab,
   path,
   kind,
@@ -105,7 +109,7 @@ export function EditorContent({
     if (!path) return null;
     return (
       <Suspense fallback={<EditorLoading />}>
-        <DiffView key={path} path={path} loadLanguage={fileType.loadLanguage} />
+        <DiffView key={path} paneId={paneId} path={path} loadLanguage={fileType.loadLanguage} />
       </Suspense>
     );
   }
@@ -135,6 +139,7 @@ export function EditorContent({
               <Suspense fallback={<EditorLoading />}>
                 <LivePreviewEditor
                   key={path}
+                  paneId={paneId}
                   path={path}
                   content={displayContent}
                   readOnly={missing}
@@ -197,6 +202,7 @@ export function EditorContent({
         <Suspense fallback={<EditorLoading />}>
           <CodeMirrorEditor
             key={path}
+            paneId={paneId}
             path={path ?? ""}
             content={missing ? headContent : content}
             readOnly={missing}

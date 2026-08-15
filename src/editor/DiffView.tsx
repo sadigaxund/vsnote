@@ -36,11 +36,14 @@ import { useSettingsStore } from "../stores/useSettingsStore";
 type DiffLayout = "split" | "unified";
 
 export interface DiffViewProps {
+  /** Which pane this instance belongs to — threaded to `MergeViewport` for
+   * `editor/activeView.ts` registration (Phase 6: per-pane, not global). */
+  paneId: string;
   path: string;
   loadLanguage: () => Promise<Extension | null>;
 }
 
-export function DiffView({ path, loadLanguage }: DiffViewProps) {
+export function DiffView({ paneId, path, loadLanguage }: DiffViewProps) {
   const [layout, setLayout] = useState<DiffLayout>("split");
   const [docs, setDocs] = useState<{ head: string; working: string } | null>(null);
 
@@ -82,6 +85,7 @@ export function DiffView({ path, loadLanguage }: DiffViewProps) {
         {docs && (
           <MergeViewport
             key={`${path}:${layout}`}
+            paneId={paneId}
             layout={layout}
             head={docs.head}
             working={docs.working}
@@ -94,13 +98,14 @@ export function DiffView({ path, loadLanguage }: DiffViewProps) {
 }
 
 interface MergeViewportProps {
+  paneId: string;
   layout: DiffLayout;
   head: string;
   working: string;
   loadLanguage: () => Promise<Extension | null>;
 }
 
-function MergeViewport({ layout, head, working, loadLanguage }: MergeViewportProps) {
+function MergeViewport({ paneId, layout, head, working, loadLanguage }: MergeViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wordWrap = useSettingsStore((s) => s.wordWrap);
   const fontSize = useSettingsStore((s) => s.editorFontSize);
@@ -125,7 +130,7 @@ function MergeViewport({ layout, head, working, loadLanguage }: MergeViewportPro
           highlightChanges: true,
           collapseUnchanged: { margin: 3, minSize: 6 },
         });
-        setActiveEditorView(mergeView.b);
+        setActiveEditorView(paneId, mergeView.b);
       } else {
         unifiedView = new EditorView({
           state: EditorState.create({
@@ -142,15 +147,15 @@ function MergeViewport({ layout, head, working, loadLanguage }: MergeViewportPro
           }),
           parent: containerRef.current,
         });
-        setActiveEditorView(unifiedView);
+        setActiveEditorView(paneId, unifiedView);
       }
     });
 
     return () => {
       destroyed = true;
-      const registered = getActiveEditorView();
-      if (mergeView && registered === mergeView.b) setActiveEditorView(null);
-      if (unifiedView && registered === unifiedView) setActiveEditorView(null);
+      const registered = getActiveEditorView(paneId);
+      if (mergeView && registered === mergeView.b) setActiveEditorView(paneId, null);
+      if (unifiedView && registered === unifiedView) setActiveEditorView(paneId, null);
       mergeView?.destroy();
       unifiedView?.destroy();
     };

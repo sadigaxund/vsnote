@@ -4,9 +4,7 @@ import { AppActivityBar, type ActivityPanel } from "./components/ActivityBar";
 import { AppTitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { SourceControlPanel } from "./components/SourceControlPanel";
-import { AppTabBar } from "./components/TabBar";
-import { EditorHeader } from "./components/EditorHeader";
-import { EditorContent } from "./components/EditorContent";
+import { EditorArea } from "./components/EditorArea";
 import { AppStatusBar } from "./components/StatusBar";
 import { ensureSeeded, resetDemoVault } from "./fs/seed";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "./fs/persistence";
@@ -14,7 +12,7 @@ import { downloadBlob, exportVaultZip, vaultZipFilename } from "./fs/exportZip";
 import { SYNC_DRIFT_INTERVAL_MS, SYNC_DRIFT_PROBABILITY } from "./git/remote";
 import { useFsStore, inferFileKind } from "./stores/useFsStore";
 import { useGitStore } from "./stores/useGitStore";
-import { useTabsStore } from "./stores/useTabsStore";
+import { findLeaf, useTabsStore } from "./stores/useTabsStore";
 import { useBufferStore } from "./stores/useBufferStore";
 import { useSettingsStore } from "./stores/useSettingsStore";
 import { flushDraftSave } from "./fs/drafts";
@@ -28,7 +26,7 @@ import { pathExists } from "./fs/operations";
 import { displayToFsPath } from "./fs/paths";
 import { flattenFiles } from "./lib/flattenTree";
 import type { CursorPos } from "./editor/CodeMirrorEditor";
-import type { EditorMode, FileKind, FileNode, TabItem } from "./types";
+import type { FileKind, FileNode } from "./types";
 
 // Phase 5a: CommandPalette / Settings / Search are all overlay/panel UI a
 // user may never open in a given session (⌘K/⌘P, the gear icon, the Search
@@ -66,7 +64,12 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | undefined>(ACTIVE_ON_BOOT);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
-  const [cursor, setCursor] = useState<CursorPos>({ line: 1, column: 1 });
+  // Phase 6 (grid split view): one cursor readout per pane, keyed by pane
+  // id — the status bar only ever displays the FOCUSED pane's (see
+  // `displayCursor` below), but every pane's `EditorPane` reports its own
+  // via `EditorArea`'s `onCursorChange` regardless of focus so switching
+  // focus shows that pane's real position immediately, not a stale one.
+  const [cursorByPane, setCursorByPane] = useState<Record<string, CursorPos>>({});
 
   // Phase 5a UI state — palette (⌘K grouped / ⌘P file-jump), Settings
   // dialog, Zen mode (DESIGN-SPEC Amendments item 4), the "Reset demo
@@ -75,7 +78,6 @@ export default function App() {
   const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [zenMode, setZenMode] = useState(false);
-  const [zenPillHovered, setZenPillHovered] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   // Phase 5b durability: result of the boot-time `navigator.storage.persist()`
   // request (see `fs/persistence.ts`) — undefined until that resolves, so
@@ -103,8 +105,8 @@ export default function App() {
       await Promise.all([useFsStore.getState().refresh(), useGitStore.getState().refresh()]);
 
       const tabsState = useTabsStore.getState();
-      const pane = tabsState.panes[tabsState.activePaneId];
-      if (pane && pane.tabs.length === 0) {
+      const leaf = findLeaf(tabsState.tree, tabsState.activePaneId);
+      if (leaf && leaf.tabs.length === 0) {
         for (const t of DEFAULT_TABS) {
           useTabsStore.getState().openFile({ path: t.path, name: t.name, kind: t.kind }, { pin: t.pin });
         }
@@ -133,37 +135,33 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  const pane = tabs.panes[tabs.activePaneId];
-  const activeTab = useMemo(() => pane?.tabs.find((t) => t.path === pane.activeTabId), [pane]);
-
-  // Load (or re-use) the active file's buffer whenever it changes — needed
-  // for Source mode, the deleted-file fallback, and eventually save/diff.
-  useEffect(() => {
-    if (activeTab) void useBufferStore.getState().ensureLoaded(activeTab.path);
-  }, [activeTab?.path]);
-
-  // Kick off (and cache) the active file's real diff vs HEAD — the single
-  // git/diff.ts call the chip, the Diff-mode placeholder, and the status
-  // bar all read, so the numbers can never disagree. Depends on
-  // `refreshGeneration`, not just the path: a git refresh triggered by an
-  // unrelated file op (e.g. dragging a different file) clears the whole
-  // diff cache, and the active tab's path doesn't change in that case, so
-  // the path alone wouldn't re-trigger this fetch and the chip would go
-  // stale/blank until the user switched tabs and back.
-  const gitRefreshGeneration = useGitStore((s) => s.refreshGeneration);
-  useEffect(() => {
-    if (activeTab) void useGitStore.getState().diffFor(activeTab.path);
-  }, [activeTab?.path, gitRefreshGeneration]);
+  // Phase 6: "the active tab" is now the FOCUSED pane's active tab —
+  // `tabs.activePaneId` doubles as "which pane the user last interacted
+  // with" (see `useTabsStore.ts`'s module doc). Every pane's own buffer-
+  // load / diff-fetch effects now live in `EditorPane.tsx` (each pane runs
+  // them for its own active tab, idempotently, against the SAME shared
+  // `useBufferStore`/`useGitStore` caches this file used to fetch into
+  // directly) — the focused pane is always mounted (in the grid, or alone
+  // in zen mode), so its fetch always runs and `activeDiff` below reads a
+  // cache that's already warm by the time this component needs it.
+  const focusedLeaf = useMemo(() => findLeaf(tabs.tree, tabs.activePaneId), [tabs.tree, tabs.activePaneId]);
+  const activeTab = useMemo(() => focusedLeaf?.tabs.find((t) => t.path === focusedLeaf.activeTabId), [focusedLeaf]);
 
   const activeDiff = useGitStore((s) => (activeTab ? (s.diffCache[activeTab.path] ?? EMPTY_DIFF) : EMPTY_DIFF));
-  const activeBuffer = useBufferStore((s) => (activeTab ? s.buffers[activeTab.path] : undefined));
 
   // The status bar's cursor readout is only meaningful with a real CM6
-  // selection behind it (Source/Diff modes) — `onCursorChange` keeps
-  // `cursor` current while one is mounted. Derived (not reset via an
-  // effect) so switching to Rendered mode/no tab shows the neutral value
-  // without a render lag.
-  const displayCursor: CursorPos = activeTab && (activeTab.mode === "source" || activeTab.mode === "diff") ? cursor : { line: 1, column: 1 };
+  // selection behind it (Source/Diff modes), and only for the FOCUSED pane
+  // — `handlePaneCursorChange` below keeps `cursorByPane` current for every
+  // mounted pane regardless of focus, so switching focus shows that pane's
+  // real position immediately. Derived (not reset via an effect) so
+  // switching to Rendered mode/no tab shows the neutral value without a
+  // render lag.
+  const focusedCursor = cursorByPane[tabs.activePaneId] ?? { line: 1, column: 1 };
+  const displayCursor: CursorPos = activeTab && (activeTab.mode === "source" || activeTab.mode === "diff") ? focusedCursor : { line: 1, column: 1 };
+
+  const handlePaneCursorChange = (paneId: string, pos: CursorPos) => {
+    setCursorByPane((prev) => ({ ...prev, [paneId]: pos }));
+  };
 
   // DESIGN-SPEC "⌘E toggle Rendered/Source (Obsidian muscle memory)" — a
   // named function (not inlined in the keydown handler below) since both
@@ -173,11 +171,10 @@ export default function App() {
   // a no-op rather than toggling into a mode the segmented control
   // wouldn't offer.
   function toggleRenderedSource(): void {
-    const tab = useTabsStore.getState().activePane().tabs.find((t) => t.path === activeTab?.path);
-    if (!tab) return;
-    const modes = modeAvailabilityFor(tab.kind, false);
+    if (!activeTab) return;
+    const modes = modeAvailabilityFor(activeTab.kind, false);
     if (!modes.includes("rendered")) return;
-    useTabsStore.getState().setMode(tab.path, tab.mode === "rendered" ? "source" : "rendered");
+    useTabsStore.getState().setMode(activeTab.path, activeTab.mode === "rendered" ? "source" : "rendered");
   }
 
   // Best-effort ⌘W (DESIGN-SPEC Amendments item 5: "⌘W is best-effort —
@@ -279,7 +276,7 @@ export default function App() {
     useBufferStore.setState({ buffers: {} });
     await Promise.all([useFsStore.getState().refresh(), useGitStore.getState().refresh()]);
     useTabsStore.setState({
-      panes: { root: { id: "root", tabs: [], activeTabId: undefined } },
+      tree: { type: "leaf", id: "root", tabs: [], activeTabId: undefined },
       activePaneId: "root",
     });
     for (const t of DEFAULT_TABS) {
@@ -287,6 +284,16 @@ export default function App() {
     }
     useTabsStore.getState().setActiveTab(ACTIVE_ON_BOOT);
     setSelectedId(ACTIVE_ON_BOOT);
+    // Pre-existing gap found during Phase 6 verification (unrelated to the
+    // pane-tree work, but a real bug): the library's `ConfirmDialog` only
+    // auto-closes via its "Cancel" button (wrapped in Radix `Dialog.Close`
+    // — see `node_modules/my-you-eye/dist/index.js`'s `ConfirmDialog`); the
+    // confirm button just calls `onConfirm` and leaves `open` alone, so the
+    // caller must close it. Every other `ConfirmDialog` in this app
+    // (`Sidebar.tsx`'s delete confirm) already does this; this one never
+    // did, so the dialog stayed open (with the toast now visible behind it)
+    // after every "Reset" click.
+    setResetConfirmOpen(false);
     toast({ title: "Demo vault reset", description: "Filesystem and git history re-seeded from scratch.", variant: "success" });
   }
 
@@ -416,31 +423,11 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", flushAllDirty);
   }, []);
 
-  const tabItems: TabItem[] = (pane?.tabs ?? []).map((t) => ({
-    id: t.path,
-    name: t.name,
-    path: t.path,
-    kind: t.kind,
-    dirty: buffers.buffers[t.path]?.dirty ?? false,
-    preview: t.preview,
-    status: git.statuses[t.path],
-  }));
-
   const handleSelectFile = (node: FileNode, opts?: { pin?: boolean }) => {
     setSelectedId(node.id);
     if (node.type === "folder") return;
     tabs.openFile({ path: node.path, name: node.name, kind: node.kind }, opts);
     void useBufferStore.getState().ensureLoaded(node.path);
-  };
-
-  const handleCloseTab = (path: string) => tabs.closeTab(path);
-  const handleTabSelect = (path: string) => {
-    tabs.setActiveTab(path);
-    setSelectedId(path);
-  };
-
-  const handleModeChange = (mode: EditorMode) => {
-    if (activeTab) tabs.setMode(activeTab.path, mode);
   };
 
   // Source Control panel row click: opens (or focuses) the file pinned,
@@ -521,9 +508,15 @@ export default function App() {
   // tab when clicked" — the live-preview `LinkWidget`'s click handler
   // (editor/livepreview/widgets.ts) calls this with the raw href; external
   // links (http(s)://, mailto:, …) open in a real browser tab instead.
-  const handleOpenLink = async (href: string) => {
-    if (!activeTab) return;
-    const resolved = resolveMarkdownLink(activeTab.path, href);
+  // Phase 6: resolved relative to the PANE that link was clicked in (not a
+  // single global active tab) and opened in that same pane — clicking a
+  // link in pane B's rendered view opens the target in pane B, not
+  // wherever focus happened to be.
+  const handlePaneOpenLink = async (paneId: string, href: string) => {
+    const leaf = findLeaf(tabs.tree, paneId);
+    const fromTab = leaf?.tabs.find((t) => t.path === leaf.activeTabId);
+    if (!fromTab) return;
+    const resolved = resolveMarkdownLink(fromTab.path, href);
     if (resolved.kind === "external") {
       window.open(resolved.href, "_blank", "noopener,noreferrer");
       return;
@@ -532,12 +525,10 @@ export default function App() {
     if (!(await pathExists(fsPath))) return;
     const name = resolved.path.slice(resolved.path.lastIndexOf("/") + 1);
     const kind = inferFileKind(name);
-    tabs.openFile({ path: resolved.path, name, kind });
+    tabs.openFile({ path: resolved.path, name, kind }, undefined, paneId);
     setSelectedId(resolved.path);
     void useBufferStore.getState().ensureLoaded(resolved.path);
   };
-
-  const availableModes = modeAvailabilityFor(activeTab?.kind, activeDiff.added > 0 || activeDiff.removed > 0);
 
   // Command palette (⌘K/⌘P) file-jump: opens exactly like clicking the file
   // in the Explorer (a pinned tab, since a palette pick is a deliberate
@@ -678,79 +669,13 @@ export default function App() {
           </Suspense>
         )}
 
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            minWidth: 0,
-            minHeight: 0,
-            position: "relative",
-            background: "var(--app-editor-bg)",
-          }}
-          onMouseEnter={() => zenMode && setZenPillHovered(true)}
-          onMouseLeave={() => zenMode && setZenPillHovered(false)}
-        >
-          {!zenMode && (
-            <>
-              <AppTabBar tabs={tabItems} activeId={activeTab?.path} onSelect={handleTabSelect} onClose={handleCloseTab} />
-              <EditorHeader
-                breadcrumb={activeTab ? activeTab.path.split("/") : ["vault"]}
-                diff={activeDiff}
-                mode={activeTab?.mode ?? "source"}
-                onModeChange={handleModeChange}
-                availableModes={availableModes}
-                onEnterZen={enterZenMode}
-              />
-            </>
-          )}
-          <EditorContent
-            hasTab={!!activeTab}
-            path={activeTab?.path}
-            kind={activeTab?.kind}
-            mode={activeTab?.mode ?? "source"}
-            content={activeBuffer?.content ?? ""}
-            loaded={activeBuffer?.loaded ?? false}
-            missing={activeBuffer?.missing ?? false}
-            diff={activeDiff}
-            onChange={(value) => {
-              if (activeTab) useBufferStore.getState().setContent(activeTab.path, value);
-            }}
-            onCursorChange={setCursor}
-            onOpenLink={(href) => void handleOpenLink(href)}
-          />
-
-          {zenMode && (
-            <div
-              role="status"
-              onClick={exitZenMode}
-              style={{
-                position: "absolute",
-                top: 14,
-                left: "50%",
-                transform: "translateX(-50%)",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "6px 14px",
-                borderRadius: 999,
-                background: "color-mix(in oklab, var(--app-titlebar-bg) 88%, transparent)",
-                border: "1px solid var(--app-chrome-border)",
-                color: "var(--color-muted)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 11.5,
-                cursor: "pointer",
-                opacity: zenPillHovered ? 1 : 0,
-                transition: "opacity 150ms ease",
-                pointerEvents: zenPillHovered ? "auto" : "none",
-              }}
-            >
-              <span style={{ color: "var(--color-fg)" }}>{activeTab?.name ?? "vault"}</span>
-              <span>·</span>
-              <span>Esc to exit</span>
-            </div>
-          )}
-        </div>
+        <EditorArea
+          zenMode={zenMode}
+          onEnterZen={enterZenMode}
+          onExitZen={exitZenMode}
+          onCursorChange={handlePaneCursorChange}
+          onOpenLink={(paneId, href) => void handlePaneOpenLink(paneId, href)}
+        />
       </div>
 
       {!zenMode && (

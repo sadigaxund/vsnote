@@ -41,6 +41,11 @@ export interface FileNode {
 
 export type EditorMode = "rendered" | "source" | "diff";
 
+/** Phase 6 grid split view (DESIGN-SPEC Amendments item 8): which edge of a
+ * pane a dragged tab is being docked toward — "center" means "merge into
+ * this pane's tab strip" rather than create a new sibling pane. */
+export type DockEdge = "top" | "bottom" | "left" | "right" | "center";
+
 export interface TabItem {
   id: string;
   name: string;

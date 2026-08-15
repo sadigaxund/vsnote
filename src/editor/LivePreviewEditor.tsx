@@ -79,6 +79,9 @@ const ownedSearchKeymap = searchKeymap.filter((k) => k.key !== "Mod-f" && k.key 
 const markdownLanguage = markdown({ extensions: [TaskList, Strikethrough] });
 
 export interface LivePreviewEditorProps {
+  /** Which pane this instance belongs to — see `editor/activeView.ts`'s
+   * module doc (Phase 6: one registered view per pane, not one global). */
+  paneId: string;
   path: string;
   content: string;
   readOnly?: boolean;
@@ -87,7 +90,7 @@ export interface LivePreviewEditorProps {
   onOpenLink?: (href: string) => void;
 }
 
-export function LivePreviewEditor({ path, content, readOnly = false, onChange, onCursorChange, onOpenLink }: LivePreviewEditorProps) {
+export function LivePreviewEditor({ paneId, path, content, readOnly = false, onChange, onCursorChange, onOpenLink }: LivePreviewEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
 
@@ -152,11 +155,11 @@ export function LivePreviewEditor({ path, content, readOnly = false, onChange, o
     const state = EditorState.create({ doc: content, extensions });
     const view = new EditorView({ state, parent: containerRef.current });
     viewRef.current = view;
-    setActiveEditorView(view);
+    setActiveEditorView(paneId, view);
 
     return () => {
       if (viewRef.current === view) viewRef.current = null;
-      if (getActiveEditorView() === view) setActiveEditorView(null);
+      if (getActiveEditorView(paneId) === view) setActiveEditorView(paneId, null);
       view.destroy();
     };
     // Scoped to `path` only, same rationale as `CodeMirrorEditor.tsx` —
