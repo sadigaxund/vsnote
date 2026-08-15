@@ -187,3 +187,62 @@ buildable detail. When in doubt, open the image and match it.
 Planned-but-not-yet: sharing/publishing + authentication + a Python/FastAPI backend +
 real remote sync (approved) are queued for v2 — see `docs/ROADMAP-SHARING-AUTH.md`.
 Do NOT implement any of it until explicitly scheduled; v1 stays fully client-side.
+
+## Amendments round 2 — user feedback 2026-08-15 (from hands-on use; OVERRIDE above)
+
+9. **Find widget, VSCode-style** (replaces the current CM6 search panel — the user
+   called it "old looking"; reference image `search.png` at repo root). A floating
+   card overlaying the TOP-RIGHT of the focused pane's content area — it must NOT
+   push the text down. Row 1: expand chevron (left edge), find input, toggle icons
+   `Aa` match case / `ab` whole word / `.*` regex, live counter `1 of N` (or
+   "No results" in red), prev/next arrows, close ×. Row 2 (only when chevron
+   expanded): replace input + replace-one and replace-all icon buttons. App tokens,
+   subtle shadow, rounded. Keys: ⌘F opens (prefilled from selection), Enter/⇧Enter
+   next/prev, Esc closes. Implement as a CM6 panel replacement or DOM overlay bound
+   to the pane's search state — either way it drives @codemirror/search queries so
+   match highlighting stays native.
+10. **Resizable sidebar.** Drag the file-tree's right edge (reuse the PaneDivider
+    affordance): min ~180px, sensible max (~50vw), width persisted and restored.
+11. **Settings become a full view, not a modal.** The current dialog "feels slapped
+    in". Open Settings as a TAB in the editor area (VSCode-style): left category
+    nav + searchable content, styled entirely with app tokens. Categories & content:
+    - *Appearance*: theme, accent, UI density.
+    - *Editor*: font size, tab size, word wrap, line spacing.
+    - *Rendered view*: content column max-width / left-right margins, line spacing,
+      per-file-type DEFAULT MODE (label it explicitly, e.g. "Default view when
+      opening Markdown: Rendered | Source" — this is the setting that confused the
+      user; name it "Default view mode", never just "mode").
+    - *Git & Sync*: branch/repo info (read-only), plus remote-URL and HTTPS
+      auth-token fields presented as "Remote sync — coming soon" placeholders
+      (disabled inputs, stored but unused). NO SSH-key management in v1: browsers
+      cannot speak SSH (no raw TCP); real sync will use HTTPS + token via
+      isomorphic-git, and SSH keys only become meaningful with the v2 backend.
+    - *Storage*: persistence status (storage.persist() result), Export vault as
+      .zip, Reset demo vault.
+    - *Keyboard*: read-only shortcut reference.
+12. **Selection discipline.** `user-select: none` on all chrome (tree, tabs, bars,
+    menus, buttons); text remains selectable ONLY in editor/rendered content and
+    form inputs.
+13. **Diff unified/split toggle presentation.** Keep the capability, redesign the
+    control: when Diff mode is active, a compact icon-only SegmentedControl
+    (unified ⧉ / split ⫿⫿ with tooltips) appears in the editor header next to the
+    mode toggle, same visual language. Remove whatever ad-hoc control exists now.
+14. **Image viewer polish.** Images must not be selectable or ghost-draggable:
+    `user-select: none`, `draggable={false}`, `-webkit-user-drag: none` on the img
+    and its container.
+15. **Representative demo data.** Replace the toy CSV/JSON: `metrics.csv` gets 12+
+    columns × 40+ rows with mixed types (dates, URLs, floats, long text cells) to
+    exercise truncation/scrolling/sticky header; `vault.config.json` gets deep
+    nesting, arrays of objects, and long string values. CRITICAL: the seeder must
+    still reproduce the screenshot git states (metrics.csv keeps its `M`, +12 −5 on
+    architecture.md, 6 changes, 1 untracked, ahead 3 / behind 1).
+16. **Typing latency (performance bug, not a feature).** Typing feels subtly
+    delayed. Profile the keystroke path and fix the cause(s); likely suspects:
+    per-keystroke React re-renders of the whole shell (e.g. cursor Ln/Col state
+    lifted into App), store update cascades, draft checkpoint work on the input
+    path, live-preview decoration recompute breadth. Requirements: a keystroke must
+    be handled inside CodeMirror without re-rendering the React shell; Ln/Col
+    updates reach the status bar via a targeted subscription only; draft
+    checkpointing stays debounced AND off the critical path (idle-scheduled).
+    Verify with a performance trace before/after: no long tasks > 16ms per
+    keystroke while typing continuously in a 1k-line markdown doc in Rendered mode.
