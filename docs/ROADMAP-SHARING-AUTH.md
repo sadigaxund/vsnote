@@ -178,3 +178,36 @@ Settings → Git & Sync: `Default commit message`, a template string, default
 Used to prefill the Source Control commit box (editable per-commit) and by
 one-click Sync auto-commits and merge commits. Unknown `{vars}` pass through
 literally (no errors).
+
+### 5.4 Single-origin deployment — approved (supersedes settable server URL + CORS allowlist)
+User decision: front + back ship as ONE origin. The FastAPI process serves the
+built SPA (static mount + SPA fallback for client routes) alongside `/api`,
+`/share/*`, and (Phase 11) `/git/*`. Reachability beyond localhost is the
+owner's concern (Cloudflare tunnel) — the app's job is to work flawlessly
+behind that proxy.
+- **No settable server/base URL.** All client calls are relative to
+  `window.location.origin`. The Settings "Sharing base URL" field and the
+  `SLATE_CORS_ORIGINS` allowlist are REMOVED. Phase 11's sync remote is
+  implicitly `<origin>/git/vault.git` — no remote-URL field; "Test connection"
+  stays as a same-origin health check. (A single optional "share base URL"
+  override may return later ONLY if the owner splits `/share` onto its own
+  subdomain; do not build until asked. Same for external GitHub/Gitea remotes.)
+- **CORS: none, anywhere.** Same-origin needs no CORS headers; the API emits
+  none (drop CORSMiddleware), and `/share/*` stays exactly as CORS-less as §1
+  requires. Tests assert the *absence* of CORS headers on every route.
+- **Auth simplification**: the in-app client authenticates to `/api` and `/git`
+  with the same-origin session (Cf-Access JWT / session cookie). Scoped API
+  tokens remain for scripts/curl and non-browser git clients.
+- **Proxy/tunnel correctness** (the "HTTPS + browser policy bullshit" the app
+  must own): uvicorn runs with proxy headers enabled and honors
+  `X-Forwarded-Proto`/`Host` (correct scheme/host in anything absolute);
+  cookies `Secure` + `SameSite=Lax` (Secure relaxed only on plain-http
+  localhost); zero hardcoded origins or ports in client or server; no mixed
+  content; service worker + PWA function behind the HTTPS origin.
+- **Dev**: `vite dev`/`preview` proxies `/api`, `/share`, `/git` to :8000 —
+  same relative URLs work in every environment, no env-specific client config.
+- **"Backend down" nuance** (amends CLAUDE.md rule 3's intent, not its spirit):
+  since the backend is now also the web server, a cold uncached load needs it
+  running. Local-first survives via the PWA: an installed/precached app opens
+  and edits fully offline; share/sync affordances degrade gracefully. The SPA
+  bundle must still never *require* the API to boot, render, or edit.

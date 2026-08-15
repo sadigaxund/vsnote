@@ -64,7 +64,16 @@ Exit: every item demonstrable; suite green; visual pass.
 - Exit: e2e spec (server spawned in test fixture): publish→open in second browser
   context→revoke→404; UI states verified.
 
-## Phase 10.5 — Folder ("group") shares  [added 2026-08-15 evening, roadmap §5.1]
+## Phase 10.5 — Single-origin refactor + folder ("group") shares  [added 2026-08-15 evening, roadmap §5.1 + §5.4]
+- FIRST, the single-origin refactor per roadmap §5.4: FastAPI serves the built
+  SPA (static mount + SPA fallback) so front+back are one origin; client share
+  API goes relative to `window.location.origin` (drop the `baseUrl` parameter
+  chain and the Settings "Sharing base URL" field); remove `SLATE_CORS_ORIGINS`
+  and CORSMiddleware entirely — tests flip to asserting NO CORS headers on any
+  route; uvicorn proxy-header handling + Secure/SameSite cookie rules for the
+  Cloudflare-tunnel topology; vite dev/preview proxies `/api`, `/share`,
+  (later `/git`) to :8000. Verify: `uvicorn` alone serves the working app at
+  one origin; publish→fetch works with zero CORS headers in every response.
 - Server: share records gain a kind (file|folder); folder shares store a snapshot
   manifest (relative path → content-addressed blob). `/share/<slug>/<relpath>`
   resolves ONLY within the manifest; unknown relpath → the same indistinguishable
@@ -90,8 +99,10 @@ Exit: every item demonstrable; suite green; visual pass.
 - Server hosts bare git repos (pygit2 or dulwich) exposed over smart-HTTP,
   authenticated with the Phase 9 API tokens; client uses isomorphic-git
   push/pull/fetch against it (roadmap §3 option b).
-- Settings Git & Sync section goes live: remote URL (default = local server),
-  token field, "Test connection", device name + default commit message template
+- Settings Git & Sync section goes live: NO remote-URL field (roadmap §5.4 —
+  the sync remote is implicitly `<origin>/git/vault.git`, auth via the
+  same-origin session; API tokens remain for scripts/external git clients);
+  "Test connection" health check, device name + default commit message template
   per roadmap §5.3 (`{device}` `{timestamp}` `{date}` `{time}` `{files}`
   `{branch}`; prefills commit box; used by Sync auto-commits and merge commits).
 - Sync pipeline per roadmap §5.2: fetch → fast-forward when purely behind →

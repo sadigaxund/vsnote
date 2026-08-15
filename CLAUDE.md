@@ -25,8 +25,12 @@ surfaces, teal/cyan accent, mono UI chrome. Read `docs/DESIGN-SPEC.md` before bu
    lightning-fs). No terminal, no code running. As of 2026-08-15 v2 is IN SCOPE
    (`docs/IMPLEMENTATION-PLAN-V2.md`): a FastAPI backend under `server/` provides
    sharing, auth, and real remote sync per `docs/ROADMAP-SHARING-AUTH.md` (its
-   security posture is binding). The SPA must remain fully usable with the backend
-   down — share/sync UI degrades gracefully. Python work uses `server/.venv`.
+   security posture is binding). Front + back deploy as ONE origin: the backend
+   serves the built SPA, all client URLs are relative, no CORS anywhere
+   (roadmap §5.4). "Usable with backend down" means an already-loaded or
+   PWA-cached app keeps editing fully offline with share/sync degrading
+   gracefully — the SPA bundle must never require the API to boot, render, or
+   edit. Python work uses `server/.venv`.
 4. **Docs are law.** `docs/DESIGN-SPEC.md` (what it looks like),
    `docs/ARCHITECTURE.md` (how it's built), `docs/IMPLEMENTATION-PLAN.md` (phases).
    If you must deviate, update the doc in the same commit and say why.
