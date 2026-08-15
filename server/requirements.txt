@@ -1,0 +1,12 @@
+# Pinned, pip-installable. Install into server/.venv only:
+#   python3 -m venv server/.venv && server/.venv/bin/pip install -r server/requirements.txt
+fastapi==0.141.1
+uvicorn[standard]==0.52.3
+sqlalchemy==2.0.52
+argon2-cffi==25.1.0
+pyjwt[crypto]==2.13.0
+slowapi==0.1.10
+pytest==9.1.1
+httpx==0.28.1
+python-multipart==0.0.32
+pydantic-settings==2.15.0

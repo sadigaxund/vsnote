@@ -57,11 +57,91 @@
 Terminal, code execution, real network git, extensions marketplace (icon is a stub),
 collaborative editing. Sharing/publishing, authentication, and the Python/FastAPI
 backend are specced for v2 in `docs/ROADMAP-SHARING-AUTH.md` — out of scope for
-phases 1–5.
+phases 1–5. Phase 9 (2026-08-15) built the backend itself; see "Backend (v2)" below.
+Phases 10 (client sharing UI) and 11 (real git sync) remain unbuilt.
 
 Note: `docs/DESIGN-SPEC.md` has a 2026-08-15 "Amendments" section (Material Icon
 Theme icons, no traffic lights, slimmer chrome, zen mode, browser-shortcut capture,
 persistence of tabs/settings/unsaved buffers) that overrides the base spec.
+
+## Backend (v2)
+
+FastAPI + SQLite under `server/`, built in Phase 9 per `docs/ROADMAP-SHARING-AUTH.md`
+(§1's security posture is binding) and `docs/IMPLEMENTATION-PLAN-V2.md`'s Phase 9
+section. Full run/config/API-contract documentation lives in `server/README.md` —
+this section is the "how it's built" summary CLAUDE.md rule 4 asks for. The SPA
+stays fully usable with this backend down (CLAUDE.md rule 3); nothing under `server/`
+is a build/runtime dependency of `src/`.
+
+**Modules** (`server/app/`):
+- `config.py` — env-driven `Settings` (pydantic-settings), one `resolve_secret_key()`
+  call per app instance (ephemeral + loud warning in dev, required in prod).
+- `db.py` — `Base` + `make_engine`/`make_sessionmaker`. No module-level singleton
+  engine: `main.py::create_app()` builds a fresh engine per app instance so each
+  pytest test gets its own isolated SQLite file.
+- `models.py` — SQLAlchemy ORM: `User`, `ApiToken`, `Blob` (content-addressed,
+  id = sha256 hex), `Share`, `ShareGrant`, `AuditEvent`. `Base.metadata.create_all`,
+  no Alembic yet (schema is still small enough that a migration tool would be
+  premature machinery).
+- `security.py` — argon2id hashing (`argon2-cffi` defaults), base62 slug
+  generation/validation (`SLUG_RE`, `generate_slug` ≥128 bits), SHA-256 token
+  hashing, HMAC-signed expiring cookie values, constant-time compares.
+- `audit.py` — `write_audit_event`: every policy deny and auth failure writes one
+  `AuditEvent` row. `reason` is internal-only by construction — the response-building
+  code (`policy.denial_response`) never reads it.
+- `policy.py` — **the single deny-by-default share policy gate**
+  (`resolve_share()`), used by every `/share/*` route. See its module docstring for
+  the full 6-step order and the uniform-deny rationale (below).
+- `auth.py` — identity resolution for `/api/*`: Cf-Access JWT (verified against a
+  cached JWKS, test-overridable via `JWKSFetcher.override`) → app session cookie →
+  scoped bearer token, in that order. `AuthContext.scope is None` means "full
+  session-derived rights"; a non-`None` scope is a token's declared ceiling.
+- `routers/auth.py`, `routers/shares.py` (owner-side, behind app auth, CORS-enabled),
+  `routers/share_public.py` (public `/share/*`, no CORS, plus one CORS-enabled
+  `GET /api/share/{id}/content` route — see its docstring for why that one route
+  lives under `/api`).
+
+**App factory / two nested ASGI apps** (`main.py::create_app`): a root `FastAPI`
+app serving `/share/*` with **no** `CORSMiddleware` at all, and a `/api`-mounted
+sub-app with `CORSMiddleware` locked to `SLATE_CORS_ORIGINS` (default the SPA's own
+`http://127.0.0.1:5290` / `http://localhost:5290`, `allow_credentials=True`, never a
+wildcard). Both share one `slowapi.Limiter` instance and one `JWKSFetcher`. Every
+pytest test builds its own app via `create_app(settings)` against a `tmp_path`
+SQLite file — see `server/tests/conftest.py`.
+
+**The policy gate, in one paragraph:** `policy.resolve_share()` checks, strictly in
+order: slug format (`SLUG_RE`) → exists (slug or alias) → not revoked → not expired
+→ `general_access`/`auth_mode` requirement satisfied → role allows the HTTP method.
+Every deny raises `PolicyDenied(reason)`; `denial_response()` is the ONLY place
+that turns one into an HTTP response, and there is exactly ONE possible response —
+`404 {"detail": "Not found"}`, always, for every deny reason on every method
+(`/share/{id}`, `/api/share/{id}/content`, and `PUT`) — `reason` (audit-log-only)
+never reaches a client. This INCLUDES a real, live, password-protected share with no
+session: it 404s exactly like a nonexistent slug, a revoked one, or a
+wrong-role attempt. See `policy.py`'s module docstring for the full account of why
+(roadmap §1's literal "404 for missing/revoked/expired/unauthorized-without-identity
+look identical" requirement forbids ANY distinguishable deny shape, not just the one
+pair an earlier draft of this gate happened to equate) and
+`server/README.md`'s dedicated "Every deny reason is the SAME 404" subsection for the
+client-side contract this creates. Proven by
+`tests/test_policy_gate.py::test_deny_state_equivalence_matrix_raw_route` /
+`_content_route`, which fingerprint every deny state and assert they collapse to one
+value — see this doc's Deviations entry below for the RED-then-GREEN evidence that
+test can actually fail.
+
+**Data model** — see `server/README.md`'s table and `models.py`'s field-level
+comments; the two properties worth calling out here since they're easy to get wrong
+by analogy with v1: `Blob.media_type_hint` is informational ONLY (raw-mode responses
+use a hardcoded `RAW_CONTENT_TYPE` constant regardless of it), and `Share.source_path`
+is display-only — there is **no filesystem lookup keyed by user input anywhere in
+this server** (confirmed by inspection: `models.py`, `policy.py`, and both
+`routers/share_public.py` handlers touch only `Blob.content`/`Share` DB columns, never
+a path on disk).
+
+**Auth model** — see `server/README.md`'s "Cloudflare Access production topology"
+section for the intended CF Access deployment shape (not deployed this phase — local
+`uvicorn` only). Magic-link auth is a documented, explicit 501 stub
+(`routers/auth.py`) — deferred, needs email infra.
 
 ## Deviations
 
@@ -909,3 +989,120 @@ stack choices in this doc.
   load instead of keeping the pixels it always had. `migrate` (version 0 →
   1) remaps a persisted `"comfortable"` to `"default"`; `"compact"` passes
   through unchanged (it always meant the same thing).
+- **(Phase 9, backend) `pydantic-settings`' `validation_alias` silently
+  drops the Pythonic constructor kwarg it's supposed to alias, unless
+  `populate_by_name=True` is also set.** `server/app/config.py`'s
+  `Settings` fields each declare `validation_alias="SLATE_DB_URL"` etc. (so
+  the real process reads `SLATE_DB_URL` from the environment); the FIRST
+  version of `tests/conftest.py`'s fixtures constructed
+  `Settings(db_url="sqlite:///...")` directly with the Pythonic field name,
+  which pydantic v2 treats as an unrecognized key once a `validation_alias`
+  is set (aliasing replaces the field name as an accepted input key, it
+  doesn't add to it) — with `extra="ignore"` also set, this failed silently:
+  the kwarg was dropped, `db_url` silently fell back to its
+  `sqlite:///./slate.db` default, and every test's isolated `tmp_path` DB
+  was quietly a lie (confirmed by a two-line repro: `Settings(db_url=...).
+  db_url` printed the DEFAULT, not the passed value). Fixed with
+  `SettingsConfigDict(..., populate_by_name=True)`, which accepts BOTH the
+  alias and the original field name as valid constructor inputs.
+- **(Phase 9, backend) An in-memory SQLite engine (`sqlite:///:memory:`)
+  needs `poolclass=StaticPool`, or two different threads see two different,
+  unrelated empty databases.** `server/app/db.py::make_engine` initially
+  just set `check_same_thread=False` (needed either way, since FastAPI's
+  `TestClient` runs handlers in a worker thread). That's necessary but not
+  sufficient for `:memory:`: SQLAlchemy's default pool checks out a
+  **separate connection per caller** by default, and SQLite's `:memory:`
+  database is scoped to the single connection that created it — a manual
+  repro (`app.db` directly, no HTTP) proved a session opened in the main
+  thread and one opened via `TestClient`'s worker thread saw entirely
+  disjoint schemas (`sqlite3.OperationalError: no such table: users`
+  from the second, despite `create_all` having already run against the
+  first). `StaticPool` pins the engine to exactly one shared connection
+  regardless of thread, which is the standard fix and has no downside for
+  tests (each test already gets its own engine/tmp_path). File-based SQLite
+  (every real test's actual DB, and prod) never needed this — the same file
+  is visible from any connection/thread already.
+- **(Phase 9, backend) Setting a cookie on FastAPI's injected `response:
+  Response` parameter is silently discarded if the same endpoint ALSO
+  returns its own `Response` object instead of a plain value.**
+  `routers/share_public.py`'s `POST /share/{id}/auth` handler originally
+  declared `response: Response` and called `response.set_cookie(...)` on
+  success, matching the pattern `routers/auth.py`'s `/login` uses — but
+  every branch of this specific handler (including the success path)
+  returns an explicit `JSONResponse`/`policy.not_found_response()` object,
+  and FastAPI only merges an injected `response` parameter's mutated
+  headers into the response it BUILDS ITSELF from a plain return value;
+  when the endpoint hands back its own complete `Response` object instead,
+  that object replaces the injected one entirely and the cookie mutation
+  is thrown away. Caught by `tests/test_policy_gate.py::
+  test_password_right_sets_cookie_then_get_200` (first draft: `Set-Cookie`
+  was simply absent from the real response, and a follow-up GET with the
+  cookie jar 401'd instead of 200'ing). Fixed by dropping the separate
+  `response: Response` parameter and calling `.set_cookie(...)` directly on
+  the actual `JSONResponse` instance the handler returns.
+- **(Phase 9, backend) `import app.main` had a real side effect: it built a
+  second, default-settings app and wrote a real `server/slate.db` next to
+  wherever it ran, unless guarded — and the FIRST guard tried
+  (`if "pytest" not in sys.modules`) was itself a heuristic that only
+  covered pytest specifically, not "nobody actually asked for the
+  instance."** `main.py`'s bottom line originally read
+  `app = create_app()` unconditionally, so merely importing the module for
+  its `create_app` factory (all any test needs) executed that line as an
+  ordinary module-level side effect. The `sys.modules` guard fixed pytest's
+  case but would have misfired the same way for ANY other tool that
+  imports `app.main` without needing the default instance (caught during
+  orchestrator review, which ran a standalone verification script that
+  imported the module directly and got a stray `server/slate.db` from it).
+  Replaced with PEP 562 module-level `__getattr__`: `app` is no longer
+  assigned at module scope at all, so plain `import app.main` never
+  references the name — it's only built the first time something does a
+  REAL `getattr(app.main, "app")` (which is exactly what
+  `uvicorn app.main:app` / `uvicorn.importer.import_from_string` does), and
+  the built instance is cached in `globals()` so it's only constructed
+  once per process. This is exact by construction (there's no name to
+  reference until something asks for it), not a heuristic about which
+  importer is currently running. Verified three ways: `python -c
+  "import app.main"` alone writes no file; `from app.main import app`
+  (or `uvicorn.importer.import_from_string("app.main:app")`, uvicorn's own
+  resolution path) does build one and writes `slate.db`, exactly as
+  intended; the full pytest suite still passes with zero stray files.
+- **(Phase 9, backend) The policy gate's original "existence-oracle
+  carve-out" (a distinct 401 password-challenge response for GET, used for
+  BOTH a real password-protected share with no session AND a nonexistent
+  slug) fixed exactly one oracle and left five others wide open — caught by
+  independent orchestrator review, not by this project's own test suite,
+  because `test_no_existence_oracle` only ever compared the one pair that
+  happened to match.** ROADMAP-SHARING-AUTH.md §1 is literal: "404 for
+  missing/revoked/expired/unauthorized-without-identity look identical" —
+  ALL of those reasons, not just "missing vs. password-required." The
+  orchestrator's probe measured the real, deployed behavior across all six
+  GET deny states and found two distinct response classes:
+  ```
+  missing / password_no_session   -> 401 {"detail":"Authentication required"}
+  revoked / expired / restricted /
+    token_required                -> 404 {"detail":"Not found"}
+  ```
+  which is a real, exploitable oracle: a 404 proves the slug names an
+  actual record (something with state to revoke/expire/restrict), a 401
+  proves it doesn't (or is specifically password-gated) — exactly the
+  distinction a capability link's unguessability is supposed to prevent an
+  attacker from learning. Fixed by collapsing the gate to exactly ONE deny
+  response for every reason and every method: `404 {"detail": "Not
+  found"}`, full stop — no second response shape anywhere in `policy.py`
+  (see its module docstring for the complete rationale, including why a
+  real, live, password-protected share also 404s to a bare GET with no
+  session, and `server/README.md`'s "Every deny reason is the SAME 404"
+  subsection for the client-side contract this creates: one generic
+  "unavailable, or requires a password" state on any 404, always offering
+  the password field, never branching on *why* a 404 happened).
+  `tests/test_policy_gate.py::test_no_existence_oracle` (the old, too-narrow
+  test) was replaced with
+  `test_deny_state_equivalence_matrix_raw_route`/`_content_route`, which
+  build all nine deny states (malformed, nonexistent, revoked, expired,
+  restricted×2, token×2, password-required) against BOTH public GET routes,
+  fingerprint every response (status + body + headers minus Date/
+  Content-Length/rate-limit), and assert the fingerprint SET has exactly one
+  element — proven capable of catching this exact bug class by temporarily
+  reintroducing a distinguishable revoked-share response (a 410 instead of
+  404), confirming the new test fails RED with a clear grouped diagnostic,
+  then reverting and confirming GREEN again.

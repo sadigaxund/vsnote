@@ -1,0 +1,29 @@
+[project]
+name = "slate-server"
+version = "0.1.0"
+description = "Slate v2 backend: sharing, auth, real sync (FastAPI). See docs/ROADMAP-SHARING-AUTH.md."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.3",
+    "sqlalchemy==2.0.52",
+    "argon2-cffi==25.1.0",
+    "pyjwt[crypto]==2.13.0",
+    "slowapi==0.1.10",
+    "python-multipart==0.0.32",
+    "pydantic-settings==2.15.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "httpx==0.28.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
