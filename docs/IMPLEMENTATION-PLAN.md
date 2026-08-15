@@ -66,6 +66,9 @@ before writing code.
   EmptyState; full keyboard map from DESIGN-SPEC.
 - Simulated sync lifecycle: ahead/behind drift, syncing spinner in status bar,
   "synced Xm ago" relative timestamp ticking.
+- PWA (approved): manifest + icons + service worker (vite-plugin-pwa), installable,
+  app shell loads offline; cache strategy must never serve a stale index.html after
+  a deploy (standard autoUpdate registration).
 - Exit: keyboard-only session possible; final pixel pass vs `app-preview.png`.
 
 ## Phase 6 — Grid split view

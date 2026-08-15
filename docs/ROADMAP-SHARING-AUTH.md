@@ -77,6 +77,10 @@ Notes from evaluation:
 ## 4. Feature backlog — user decisions 2026-08-15
 
 ### Approved
+- **PWA / offline install** (v1, fold into Phase 5): web manifest + service worker
+  (e.g. vite-plugin-pwa) so the app installs as its own windowed app and the shell
+  loads offline. Vault data is already local (IndexedDB); this makes the app itself
+  offline too. No backend needed.
 - **Real remote sync** (v2, with the backend): push/pull to a real remote. Start with
   the v2 backend hosting a bare git repo (`pygit2`/`dulwich`) the client talks to via
   isomorphic-git HTTP; optionally GitHub/Gitea + PAT later. Turns the simulated
@@ -100,3 +104,8 @@ templates, saved searches, quick capture / web clipper. Do not build.
 - (v2, big) Collaboration: CRDT (Yjs) on shared files with Editor role.
 - (v2) End-to-end encrypted shares: key in URL fragment, server stores ciphertext
   only — content confidentiality survives a full server compromise.
+  **Scope decided 2026-08-15:** E2E applies ONLY to individual share snapshots,
+  opt-in per publish. The vault and its remote git stay PLAINTEXT always — a plain
+  `git clone` of the sync remote must remain fully readable without the app.
+  Never introduce vault-at-rest encryption (git-crypt/age or similar); it breaks
+  the "files are accessible without the app" guarantee the owner requires.
