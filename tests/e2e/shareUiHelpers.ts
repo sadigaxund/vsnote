@@ -104,6 +104,47 @@ export async function createFileWithContent(page: Page, parentPath: string, file
   return finalPath;
 }
 
+export interface PublishFolderOptions {
+  treePath: string;
+  generalAccess?: "restricted" | "link";
+  renderMode?: "raw" | "rendered";
+  /** relpaths (relative to `treePath`) to UNCHECK before submitting —
+   * these must be ABSENT from the resulting share, not merely hidden
+   * (roadmap §5.1). */
+  excludeRelpaths?: string[];
+}
+
+/** Right-click → "Publish…" on a FOLDER row (Phase 10.5), optionally
+ * unchecking entries in the checkbox tree, submit, and return the
+ * resulting share link. */
+export async function publishFolderViaContextMenu(page: Page, opts: PublishFolderOptions): Promise<string> {
+  await treeRow(page, opts.treePath).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Publish…" }).click();
+
+  const dialog = page.getByTestId("publish-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId("checkbox-tree")).toBeVisible();
+
+  if (opts.generalAccess === "link") {
+    await dialog.getByTestId("publish-general-access").click();
+    await page.getByRole("option", { name: "Anyone with the link" }).click();
+  }
+  if (opts.renderMode) {
+    await dialog.getByRole("radio", { name: opts.renderMode === "rendered" ? "Rendered" : "Raw" }).click();
+  }
+  for (const relpath of opts.excludeRelpaths ?? []) {
+    await dialog.getByTestId(`checkbox-tree-toggle-${relpath}`).click();
+  }
+
+  await dialog.getByTestId("publish-submit").click();
+  const linkInput = dialog.getByTestId("publish-result-link");
+  await expect(linkInput).toBeVisible();
+  const link = await linkInput.inputValue();
+  await dialog.getByTestId("publish-done").click();
+  await expect(dialog).toBeHidden();
+  return link;
+}
+
 /** Revokes a share from the Shared panel (Settings → Sharing → Shared),
  * matched by its slug/alias (the identifier segment of `link`). */
 export async function revokeShareByLink(page: Page, link: string): Promise<void> {

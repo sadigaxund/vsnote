@@ -133,6 +133,39 @@ def publish_share(client: TestClient, *, content: bytes = b"hello world", **shar
     return r.json()
 
 
+def publish_folder_share(
+    client: TestClient,
+    *,
+    files: dict | None = None,
+    source_path: str = "notes",
+    **share_kwargs,
+) -> dict:
+    """Publish a folder share via the owner API. `files` maps relpath ->
+    content bytes (default: a small two-file tree). Returns the ShareOut
+    JSON dict (includes `manifest_count`)."""
+    if files is None:
+        files = {"a.md": b"file a", "sub/b.md": b"file b"}
+
+    manifest = []
+    for relpath, content in files.items():
+        r = client.post("/api/blobs", files={"file": (relpath.split("/")[-1], content, "text/markdown")})
+        assert r.status_code == 201, r.text
+        manifest.append({"relpath": relpath, "blob_id": r.json()["id"]})
+
+    payload = {
+        "source_path": source_path,
+        "kind": "folder",
+        "manifest": manifest,
+        "render_mode": "raw",
+        "general_access": "link",
+        "auth_mode": "none",
+    }
+    payload.update(share_kwargs)
+    r = client.post("/api/shares", json=payload)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
 def random_wellformed_slug(length: int = 22) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))

@@ -25,6 +25,18 @@ class RenderMode(str, enum.Enum):
     rendered = "rendered"
 
 
+class ShareKind(str, enum.Enum):
+    """Phase 10.5 (roadmap §5.1). `file` is the original Phase 9/10 shape
+    (one share = one pinned blob at `Share.blob_id`). `folder` shares pin a
+    whole subtree snapshot instead: `Share.blob_id` is NULL and the content
+    lives in `ShareManifestEntry` rows (one per INCLUDED file, keyed by
+    `(share_id, relpath)`). See that model's docstring for why manifest
+    lookup is the entire security boundary for folder shares."""
+
+    file = "file"
+    folder = "folder"
+
+
 class GeneralAccess(str, enum.Enum):
     restricted = "restricted"
     link = "link"
@@ -108,7 +120,13 @@ class Share(Base):
     # snapshot; there is no code path anywhere that opens a file by this
     # string. Keep it that way — see policy.py's module docstring.
     source_path: Mapped[str] = mapped_column(String(1024))
-    blob_id: Mapped[str] = mapped_column(ForeignKey("blobs.id"))
+    kind: Mapped[ShareKind] = mapped_column(_enum_col(ShareKind), default=ShareKind.file)
+    # NULL for kind=="folder" — a folder share has no single "the" blob, its
+    # content lives entirely in ShareManifestEntry rows. Every read path
+    # branches on `share.kind` BEFORE ever touching `blob_id` (see
+    # routers/share_public.py) so this is never dereferenced null for a
+    # folder share.
+    blob_id: Mapped[Optional[str]] = mapped_column(ForeignKey("blobs.id"), nullable=True)
     live: Mapped[bool] = mapped_column(Boolean, default=False)
     render_mode: Mapped[RenderMode] = mapped_column(_enum_col(RenderMode))
     general_access: Mapped[GeneralAccess] = mapped_column(_enum_col(GeneralAccess))
@@ -119,6 +137,40 @@ class Share(Base):
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
     last_access_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     hit_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ShareManifestEntry(Base):
+    """A single INCLUDED file inside a `kind=="folder"` Share's pinned
+    snapshot. `relpath` is the vault-relative path exactly as it appeared
+    under the published subtree root (e.g. `"notes/queue.md"`) — display
+    AND the entire lookup key, never a filesystem path. `(share_id,
+    relpath)` is unique, and this table is the ONLY place a folder share's
+    content is resolved from: `routers/share_public.py`'s manifest
+    resolution does one exact-match query, `WHERE share_id = ? AND relpath
+    = ?`, against these rows — no normalization, no `os.path`/`pathlib`
+    join, no filesystem access. An excluded file (the owner unchecked it in
+    the publish dialog's checkbox tree) simply never gets a row here; a
+    request for its relpath is therefore indistinguishable, at the DB
+    layer, from a request for a relpath that never existed at all, `..`
+    traversal, an absolute path, or a relpath that belongs to a DIFFERENT
+    share's manifest (excluded by the `share_id` half of the WHERE clause)
+    — every one of those is just "no row matched", which resolves to the
+    exact same uniform 404 as every other policy-gate deny (see policy.py's
+    module docstring; ARCHITECTURE.md's "Folder shares" section walks
+    through why this makes traversal structurally impossible rather than
+    merely sanitized-against).
+    """
+
+    __tablename__ = "share_manifest_entries"
+    __table_args__ = (UniqueConstraint("share_id", "relpath", name="uq_share_manifest_relpath"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    share_id: Mapped[int] = mapped_column(ForeignKey("shares.id"), index=True)
+    relpath: Mapped[str] = mapped_column(String(1024), index=True)
+    blob_id: Mapped[str] = mapped_column(ForeignKey("blobs.id"))
+    size: Mapped[int] = mapped_column(Integer)
+    media_type_hint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
 class ShareGrant(Base):

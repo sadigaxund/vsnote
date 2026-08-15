@@ -42,13 +42,15 @@ import {
   type DragEvent,
   type KeyboardEvent,
 } from "react";
-import { Input } from "my-you-eye";
+import { Input, Tooltip } from "my-you-eye";
 import {
   Copy,
   Crosshair,
   FilePlus,
   FolderPlus,
+  Link2,
   Pencil,
+  Settings2,
   Share2,
   Trash2,
 } from "lucide-react";
@@ -62,11 +64,41 @@ import {
 } from "./ContextMenu";
 import { collectDescendantIds } from "../../stores/useFsStore";
 import { STATUS_COLOR } from "../../lib/gitStatusColor";
+import { computeShareIndicator, type ShareIndicatorInput } from "../../share/shareIndicators";
 import type { FileNode } from "../../types";
+
+/** Tooltip text for the share indicator glyph — "link + policy + hits" per
+ * roadmap §5.1. `own` distinguishes "Shared: ..." from "Inside a shared
+ * folder: ..." (the muted variant still names the share it's inherited
+ * from, it just isn't itself the share root). */
+function shareIndicatorTooltip(share: ExplorerShareRow, own: boolean): string {
+  const id = share.alias && share.alias.length > 0 ? share.alias : share.slug;
+  const access = share.general_access === "link" ? "Anyone with the link" : "Restricted";
+  const kindLabel = share.kind === "folder" ? "folder" : "file";
+  const prefix = own ? `Shared ${kindLabel}` : `Inside a shared folder`;
+  return `${prefix}: /share/${id} — ${access} — ${share.hit_count} hit${share.hit_count === 1 ? "" : "s"}`;
+}
 
 function parentOfPath(path: string): string {
   const idx = path.lastIndexOf("/");
   return idx === -1 ? path : path.slice(0, idx);
+}
+
+/**
+ * Phase 10.5 — the share-record shape `ExplorerTree` needs to render the
+ * tree indicator (roadmap §5.1: link glyph right-aligned like the git
+ * status letters, muted "inherited" variant on files inside a shared
+ * folder, tooltip = link + policy + hits). A local structural type rather
+ * than importing `share/api.ts`'s `ShareOut` directly — `App.tsx` passes
+ * `ShareOut[]` straight through (it satisfies this shape), but this file
+ * stays decoupled from the sharing module's full surface, same reasoning
+ * as `share/shareIndicators.ts` itself.
+ */
+export interface ExplorerShareRow extends ShareIndicatorInput {
+  slug: string;
+  alias?: string | null;
+  general_access: string;
+  hit_count: number;
 }
 
 type DropMode = "into" | "before" | "after";
@@ -93,8 +125,16 @@ export interface ExplorerTreeProps {
   onDelete?: (node: FileNode) => void;
   onCopyPath?: (node: FileNode) => void;
   onMove?: (sourcePath: string, newParentPath: string) => void;
-  /** Phase 10 (sharing) — file rows only (see the row menu below). */
+  /** Phase 10 (sharing), extended Phase 10.5 to folders too — "Publish…"
+   * on a not-yet-shared row (see the row menu below). */
   onPublish?: (node: FileNode) => void;
+  /** Phase 10.5 — active shares, for the tree indicator glyph + its
+   * context menu (copy link / manage). Omit or pass `[]` for a caller that
+   * hasn't loaded the share list (e.g. Settings' "Sharing" category never
+   * mounted) — the tree simply shows no indicators. */
+  shares?: ExplorerShareRow[];
+  onCopyShareLink?: (node: FileNode, share: ExplorerShareRow) => void;
+  onManageShare?: (node: FileNode, share: ExplorerShareRow) => void;
   className?: string;
 }
 
@@ -113,6 +153,9 @@ export function ExplorerTree({
   onCopyPath,
   onMove,
   onPublish,
+  shares,
+  onCopyShareLink,
+  onManageShare,
   className,
 }: ExplorerTreeProps) {
   const [dragPath, setDragPath] = useState<string | null>(null);
@@ -203,6 +246,9 @@ export function ExplorerTree({
           onDelete={onDelete}
           onCopyPath={onCopyPath}
           onPublish={onPublish}
+          shares={shares}
+          onCopyShareLink={onCopyShareLink}
+          onManageShare={onManageShare}
           dragPath={dragPath}
           dropTarget={dropTarget}
           autoExpandPath={autoExpandPath}
@@ -231,6 +277,9 @@ interface TreeRowProps {
   onDelete?: (node: FileNode) => void;
   onCopyPath?: (node: FileNode) => void;
   onPublish?: (node: FileNode) => void;
+  shares?: ExplorerShareRow[];
+  onCopyShareLink?: (node: FileNode, share: ExplorerShareRow) => void;
+  onManageShare?: (node: FileNode, share: ExplorerShareRow) => void;
   dragPath: string | null;
   dropTarget: DropTarget | null;
   autoExpandPath: string | null;
@@ -255,6 +304,9 @@ function TreeRow({
   onDelete,
   onCopyPath,
   onPublish,
+  shares,
+  onCopyShareLink,
+  onManageShare,
   dragPath,
   dropTarget,
   autoExpandPath,
@@ -273,6 +325,9 @@ function TreeRow({
   const isRenaming = renamingId === node.id;
   const isDragging = dragPath === node.id;
   const isDropRow = dropTarget?.rowId === node.id;
+  const shareIndicator = useMemo(() => computeShareIndicator(shares ?? [], node.id), [shares, node.id]);
+  const ownShare = shareIndicator.own[0];
+  const inheritedShare = shareIndicator.inherited[0];
   const [draftName, setDraftName] = useState(node.name);
   // Reset the draft to the current name each time a rename session starts —
   // adjusted during render (React's documented pattern for "state that
@@ -482,6 +537,28 @@ function TreeRow({
           {node.name}
         </span>
       )}
+      {!isRenaming && (ownShare || inheritedShare) && (
+        <Tooltip content={shareIndicatorTooltip(ownShare ?? inheritedShare!, !!ownShare)} side="right">
+          <span
+            data-testid={ownShare ? `share-indicator-own-${node.id}` : `share-indicator-inherited-${node.id}`}
+            style={{
+              flexShrink: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              // Right-aligned like the git status letter (DESIGN-SPEC
+              // convention this row already follows) — own shares get the
+              // full accent color, inherited ("this file lives inside a
+              // shared FOLDER, not itself shared") gets the muted variant
+              // per roadmap §5.1.
+              color: ownShare ? "var(--color-primary)" : "var(--color-muted)",
+              opacity: ownShare ? 1 : 0.7,
+              width: 12,
+            }}
+          >
+            <Link2 size={11} aria-hidden />
+          </span>
+        </Tooltip>
+      )}
       {!isRenaming && node.status && (
         <span
           aria-hidden
@@ -532,13 +609,20 @@ function TreeRow({
           <ContextMenuItem onSelect={() => onCopyPath?.(node)}>
             <Copy size={13} /> Copy path
           </ContextMenuItem>
-          {!isFolder && (
+          <ContextMenuSeparator />
+          {ownShare ? (
             <>
-              <ContextMenuSeparator />
-              <ContextMenuItem onSelect={() => onPublish?.(node)}>
-                <Share2 size={13} /> Publish…
+              <ContextMenuItem onSelect={() => onCopyShareLink?.(node, ownShare)}>
+                <Link2 size={13} /> Copy link
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => onManageShare?.(node, ownShare)}>
+                <Settings2 size={13} /> Manage share…
               </ContextMenuItem>
             </>
+          ) : (
+            <ContextMenuItem onSelect={() => onPublish?.(node)}>
+              <Share2 size={13} /> Publish…
+            </ContextMenuItem>
           )}
         </ContextMenuContent>
       </ContextMenu>
@@ -561,6 +645,9 @@ function TreeRow({
               onDelete={onDelete}
               onCopyPath={onCopyPath}
               onPublish={onPublish}
+              shares={shares}
+              onCopyShareLink={onCopyShareLink}
+              onManageShare={onManageShare}
               dragPath={dragPath}
               dropTarget={dropTarget}
               autoExpandPath={autoExpandPath}

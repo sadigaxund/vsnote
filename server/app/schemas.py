@@ -72,9 +72,25 @@ class GrantIn(BaseModel):
     role: Literal["viewer", "editor"]
 
 
+class ManifestEntryIn(BaseModel):
+    """One INCLUDED file in a folder share's snapshot manifest (roadmap
+    §5.1). `relpath` is vault-relative display text ONLY — never used for a
+    filesystem lookup (see models.ShareManifestEntry's docstring); `blob_id`
+    must already exist (client POSTs the blob to `/api/blobs` first, exactly
+    like a file share)."""
+
+    relpath: str
+    blob_id: str
+
+
 class ShareCreateIn(BaseModel):
     source_path: str
-    blob_id: str
+    kind: Literal["file", "folder"] = "file"
+    # Required when kind=="file", ignored when kind=="folder" (folder
+    # content lives entirely in `manifest` below).
+    blob_id: Optional[str] = None
+    # Required (non-empty) when kind=="folder", ignored when kind=="file".
+    manifest: List[ManifestEntryIn] = Field(default_factory=list)
     live: bool = False
     render_mode: Literal["raw", "rendered"] = "raw"
     general_access: Literal["restricted", "link"] = "restricted"
@@ -83,6 +99,15 @@ class ShareCreateIn(BaseModel):
     alias: Optional[str] = None
     expires_at: Optional[float] = None
     grants: List[GrantIn] = Field(default_factory=list)
+
+
+class ManifestUpdateIn(BaseModel):
+    """`PUT /api/shares/{id}/manifest` — "Update share" for a folder share
+    (roadmap §5.1: "Update share republishes the subtree to the SAME
+    slug."). Wholesale-replaces the manifest; the slug/alias/policy are
+    untouched."""
+
+    manifest: List[ManifestEntryIn]
 
 
 class SharePatchIn(BaseModel):
@@ -103,7 +128,11 @@ class ShareOut(BaseModel):
     slug: str
     alias: Optional[str] = None
     source_path: str
-    blob_id: str
+    kind: Literal["file", "folder"] = "file"
+    blob_id: Optional[str] = None
+    # Folder shares only — number of INCLUDED files in the current manifest.
+    # None for file shares.
+    manifest_count: Optional[int] = None
     live: bool
     render_mode: str
     general_access: str
@@ -140,3 +169,52 @@ class ShareContentOut(BaseModel):
     created_at: float
     last_access_at: Optional[float] = None
     hit_count: int
+
+
+# --- Public folder-share endpoints (Phase 10.5, roadmap §5.1) --------------
+
+
+class ShareListingEntryOut(BaseModel):
+    """One row of a folder share's directory listing — either a file
+    (resolved from a `ShareManifestEntry`) or a `dir` entry synthesized
+    purely from the set of relpaths that share a prefix (no real directory
+    row exists; see `routers/share_public.py::_listing_for_prefix`)."""
+
+    name: str
+    kind: Literal["file", "dir"]
+    # relpath is the value the visitor's next request should target
+    # (`GET /share/{id}/{relpath}`) — set for both files and dirs.
+    relpath: str
+    size: Optional[int] = None
+    media_type_hint: Optional[str] = None
+
+
+class ShareListingOut(BaseModel):
+    """`GET /share/{id}` (folder root) or `GET /share/{id}/{relpath}` when
+    `relpath` names a directory prefix rather than a file — a plain listing,
+    never an inlined-into-HTML render (roadmap §5.1: "no README special-
+    casing", "must not inline user content into HTML server-side")."""
+
+    slug: str
+    alias: Optional[str] = None
+    kind: Literal["folder"] = "folder"
+    prefix: str
+    entries: List[ShareListingEntryOut]
+    created_at: float
+    last_access_at: Optional[float] = None
+    hit_count: int
+
+
+class ManifestEntryOut(BaseModel):
+    relpath: str
+    blob_id: str
+    size: int
+    media_type_hint: Optional[str] = None
+
+
+class ShareManifestOut(BaseModel):
+    """`GET /api/shares/{id}/manifest` — owner-only, used by the Publish
+    dialog's "Edit policy…" flow on a folder share to prefill the checkbox
+    tree's excluded state (an entry NOT in this list is excluded)."""
+
+    entries: List[ManifestEntryOut]

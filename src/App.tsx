@@ -27,7 +27,11 @@ import { displayToFsPath } from "./fs/paths";
 import { flattenFiles } from "./lib/flattenTree";
 import { probeRender } from "./lib/renderProbe";
 import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
-import { useShareStore } from "./share/useShareStore";
+import { useShareStore, type FolderPublishEntry } from "./share/useShareStore";
+import { buildFolderShareLink, buildShareLink } from "./share/shareLinks";
+import type { ExplorerShareRow } from "./components/local/ExplorerTree";
+import type { CheckboxTreeNode } from "./components/local/CheckboxTree";
+import type { ShareOut } from "./share/api";
 import type { FileKind, FileNode } from "./types";
 
 // Phase 5a: CommandPalette / Search are overlay/panel UI a user may never
@@ -94,12 +98,21 @@ export default function App() {
   const [pendingJump, setPendingJump] = useState<{ path: string; line: number } | null>(null);
   // Phase 10 (sharing) — Publish dialog state, opened from three places
   // (Explorer row context menu, command palette, title bar share icon).
-  // Always a "publish a new share" instance here — "Edit policy…" (an
-  // EXISTING share) is a separate, local instance owned by
-  // `SettingsView.tsx`'s "Sharing" category (see that component's doc).
+  // Phase 10.5 (folder shares) extended this instance to ALSO handle
+  // "Manage share…" on an already-shared Explorer row (file OR folder) —
+  // `editingShare` set means edit-policy mode, same as
+  // `SettingsView.tsx`'s own separate "Sharing" category instance (that
+  // one stays policy-only; this one additionally supports "Update share"
+  // for folders, since only the Explorer's own instance has live vault
+  // read access to re-flatten the current subtree — see `handleManageShare`).
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
-  const [publishTarget, setPublishTarget] = useState<{ path: string; kind: FileKind } | null>(null);
+  const [publishTarget, setPublishTarget] = useState<
+    | { type: "file"; path: string; kind: FileKind }
+    | { type: "folder"; path: string; tree: CheckboxTreeNode[]; entries: FolderPublishEntry[] }
+    | null
+  >(null);
   const [publishContent, setPublishContent] = useState<string | undefined>(undefined);
+  const [editingShare, setEditingShare] = useState<ShareOut | undefined>(undefined);
   // Snapshot of whichever CM6 view was registered at the moment a jump was
   // requested — see the polling effect below for why this matters (it lets
   // that effect tell "a fresh view mounted" apart from "still reading the
@@ -123,6 +136,15 @@ export default function App() {
   // (changing the backend URL) re-renders the Publish dialog/Shared panel
   // with the new URL immediately, same discipline as `sidebarWidth` above.
   const shareBackendUrl = useSettingsStore((s) => s.shareBackendUrl);
+  // Phase 10.5 — the Explorer tree's share indicator glyph (roadmap §5.1)
+  // reads whatever `useShareStore.shares` currently holds. That list is
+  // populated lazily (Settings → Sharing's mount effect, or the first
+  // Publish/Manage action this session — see the boot effect's doc for why
+  // there is deliberately no unconditional network call at app boot), so a
+  // fresh reload shows no indicators until one of those has run once —
+  // consistent with `useShareStore`'s own "deliberately not persisted"
+  // design (a session cookie, not localStorage, is the source of truth).
+  const shares = useShareStore((s) => s.shares) as ExplorerShareRow[];
   // DESIGN-SPEC Amendments item 16 (typing-latency bug): `useFsStore()`/
   // `useBufferStore()` used to be called here with NO selector — the
   // zustand anti-pattern of subscribing to an entire store's state, which
@@ -649,18 +671,56 @@ export default function App() {
   // this one is the vault-reading side; neither crosses into the other's
   // job).
   const handleOpenPublish = async (node: FileNode) => {
-    if (node.type !== "file") return;
     // Lazy reachability probe — see the boot effect's doc above for why
     // this doesn't happen automatically at app boot. Fire-and-forget: the
     // dialog reads `useShareStore`'s reactive `reachability`/`authenticated`
     // fields, so it re-renders once this resolves regardless of whether
     // the dialog is already open by then.
     void useShareStore.getState().probe(useSettingsStore.getState().shareBackendUrl);
-    await useBufferStore.getState().ensureLoaded(node.path);
-    const buf = useBufferStore.getState().buffers[node.path];
-    setPublishTarget({ path: node.path, kind: node.kind });
-    setPublishContent(buf?.content ?? "");
+    setEditingShare(undefined);
+    if (node.type === "folder") {
+      // Phase 10.5 — folder publish. Reads the CURRENT vault subtree
+      // (`readFolderPublishData` below) the exact same way the file branch
+      // reads a buffer: `PublishDialog` never touches `fs/`/`useBufferStore`
+      // itself, it only ever sees the plain data handed to it here.
+      const { tree: folderTree, entries } = await readFolderPublishData(node);
+      setPublishTarget({ type: "folder", path: node.path, tree: folderTree, entries });
+      setPublishContent(undefined);
+    } else {
+      await useBufferStore.getState().ensureLoaded(node.path);
+      const buf = useBufferStore.getState().buffers[node.path];
+      setPublishTarget({ type: "file", path: node.path, kind: node.kind });
+      setPublishContent(buf?.content ?? "");
+    }
     setPublishDialogOpen(true);
+  };
+
+  // Phase 10.5 — "Manage share…" from the Explorer row context menu on an
+  // ALREADY-shared row: re-opens the SAME PublishDialog instance in
+  // edit-policy mode. For a folder share this also re-reads the CURRENT
+  // vault subtree (fresh content, in case files changed since publish) so
+  // "Update share" republishes what's on disk now, not a stale snapshot.
+  const handleManageShare = async (node: FileNode, shareRow: ExplorerShareRow) => {
+    void useShareStore.getState().probe(useSettingsStore.getState().shareBackendUrl);
+    const share = useShareStore.getState().shares.find((s) => s.id === shareRow.id);
+    if (!share) return;
+    if (node.type === "folder" && share.kind === "folder") {
+      const { tree: folderTree, entries } = await readFolderPublishData(node);
+      setPublishTarget({ type: "folder", path: node.path, tree: folderTree, entries });
+    } else {
+      setPublishTarget(null);
+    }
+    setPublishContent(undefined);
+    setEditingShare(share);
+    setPublishDialogOpen(true);
+  };
+
+  const handleCopyShareLink = (_node: FileNode, shareRow: ExplorerShareRow) => {
+    const share = useShareStore.getState().shares.find((s) => s.id === shareRow.id);
+    if (!share) return;
+    const link = share.kind === "folder" ? buildFolderShareLink(share) : buildShareLink(share, shareBackendUrl);
+    navigator.clipboard?.writeText(link).catch(() => {});
+    toast({ title: "Link copied", variant: "success" });
   };
 
   const handleShareActiveFile = () => {
@@ -859,6 +919,9 @@ export default function App() {
             onCopyPath={handleCopyPath}
             onMove={handleMove}
             onPublish={(node) => void handleOpenPublish(node)}
+            shares={shares}
+            onCopyShareLink={handleCopyShareLink}
+            onManageShare={(node, share) => void handleManageShare(node, share)}
             onRefresh={() => void useFsStore.getState().refresh()}
             width={sidebarWidth}
             onWidthChange={(w) => useSettingsStore.getState().setSidebarWidth(w)}
@@ -971,12 +1034,17 @@ export default function App() {
               if (!open) {
                 setPublishTarget(null);
                 setPublishContent(undefined);
+                setEditingShare(undefined);
               }
             }}
             backendBaseUrl={shareBackendUrl}
-            filePath={publishTarget?.path}
-            fileKind={publishTarget?.kind}
+            filePath={publishTarget?.type === "file" ? publishTarget.path : undefined}
+            fileKind={publishTarget?.type === "file" ? publishTarget.kind : undefined}
             content={publishContent}
+            existingShare={editingShare}
+            folderPath={publishTarget?.type === "folder" ? publishTarget.path : undefined}
+            folderTree={publishTarget?.type === "folder" ? publishTarget.tree : undefined}
+            folderEntries={publishTarget?.type === "folder" ? publishTarget.entries : undefined}
           />
         </Suspense>
       )}
@@ -1003,4 +1071,48 @@ function findNode(nodes: FileNode[], id: string): FileNode | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Phase 10.5 (folder shares) — converts a folder `FileNode` subtree (from
+ * `useDecoratedTree`, already in memory — no extra fs read needed for the
+ * SHAPE) into `PublishDialog`'s vault-agnostic inputs: a `CheckboxTreeNode`
+ * tree keyed by RELPATH (not the full vault path — see `CheckboxTree.tsx`'s
+ * doc) and a flat list of every file's relpath + CURRENT buffer content
+ * (`useBufferStore.ensureLoaded`, same idempotent read every other call
+ * site in this file uses). `PublishDialog` itself never touches `fs/`/
+ * `useBufferStore` — this is the one place that boundary gets crossed for
+ * the folder-publish flow, mirroring `handleOpenPublish`'s existing
+ * single-file `ensureLoaded` call.
+ */
+async function readFolderPublishData(root: FileNode): Promise<{ tree: CheckboxTreeNode[]; entries: FolderPublishEntry[] }> {
+  const prefixLen = root.path.length + 1; // strip "<root.path>/"
+
+  function toCheckboxNodes(nodes: FileNode[]): CheckboxTreeNode[] {
+    return nodes.map((n) => ({
+      id: n.path.slice(prefixLen),
+      name: n.name,
+      type: n.type,
+      kind: n.kind,
+      children: n.type === "folder" ? toCheckboxNodes(n.children ?? []) : undefined,
+    }));
+  }
+
+  const filePaths: { relpath: string; vaultPath: string }[] = [];
+  function collectFiles(nodes: FileNode[]): void {
+    for (const n of nodes) {
+      if (n.type === "file") filePaths.push({ relpath: n.path.slice(prefixLen), vaultPath: n.path });
+      else collectFiles(n.children ?? []);
+    }
+  }
+  collectFiles(root.children ?? []);
+
+  const entries: FolderPublishEntry[] = [];
+  for (const fp of filePaths) {
+    await useBufferStore.getState().ensureLoaded(fp.vaultPath);
+    const buf = useBufferStore.getState().buffers[fp.vaultPath];
+    entries.push({ relpath: fp.relpath, content: buf?.content ?? "" });
+  }
+
+  return { tree: toCheckboxNodes(root.children ?? []), entries };
 }

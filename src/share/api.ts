@@ -53,6 +53,10 @@ export type RenderMode = "raw" | "rendered";
 export type GeneralAccess = "restricted" | "link";
 export type AuthMode = "none" | "password" | "token";
 export type GrantRole = "viewer" | "editor";
+/** Phase 10.5 (roadmap §5.1) — `file` is the original Phase 9/10 shape,
+ * `folder` shares pin a whole subtree snapshot (a manifest of relpath ->
+ * blob, see `ManifestEntryIn`) instead of one `blob_id`. */
+export type ShareKind = "file" | "folder";
 
 export interface WhoAmI {
   authenticated: boolean;
@@ -73,9 +77,24 @@ export interface GrantIn {
   role: GrantRole;
 }
 
+/** One INCLUDED file in a folder share's snapshot manifest — mirrors the
+ * server's `schemas.ManifestEntryIn` (`server/app/schemas.py`).
+ * `blob_id` must already exist (`POST /api/blobs` first, exactly like a
+ * file share). Entries the owner unchecked in the Publish dialog's
+ * checkbox tree are simply absent from this array — see
+ * `share/folderManifest.ts`. */
+export interface ManifestEntryIn {
+  relpath: string;
+  blob_id: string;
+}
+
 export interface ShareCreateIn {
   source_path: string;
-  blob_id: string;
+  kind?: ShareKind;
+  /** Required when kind is "file" (or omitted); ignored for "folder". */
+  blob_id?: string;
+  /** Required (non-empty) when kind is "folder"; ignored for "file". */
+  manifest?: ManifestEntryIn[];
   live?: boolean;
   render_mode: RenderMode;
   general_access: GeneralAccess;
@@ -102,7 +121,11 @@ export interface ShareOut {
   slug: string;
   alias?: string | null;
   source_path: string;
-  blob_id: string;
+  kind: ShareKind;
+  blob_id?: string | null;
+  /** Folder shares only — number of INCLUDED files in the current
+   * manifest. `null`/undefined for file shares. */
+  manifest_count?: number | null;
   live: boolean;
   render_mode: string;
   general_access: string;
@@ -142,6 +165,43 @@ export interface TokenCreateOut {
   token: string;
   created_at: number;
   expires_at?: number | null;
+}
+
+/** One row of a folder share's directory listing — mirrors the server's
+ * `schemas.ShareListingEntryOut`. */
+export interface ShareListingEntryOut {
+  name: string;
+  kind: "file" | "dir";
+  relpath: string;
+  size?: number | null;
+  media_type_hint?: string | null;
+}
+
+/** `GET /share/{id}` (folder root) or `GET /share/{id}/{relpath}` when
+ * `relpath` names a directory — mirrors `schemas.ShareListingOut`. Used by
+ * `share/ShareApp.tsx`'s folder-browsing mode to distinguish "this is a
+ * listing" from a file's `ShareContentOut` (folder listings always carry
+ * `entries`; file content never does). */
+export interface ShareListingOut {
+  slug: string;
+  alias?: string | null;
+  kind: "folder";
+  prefix: string;
+  entries: ShareListingEntryOut[];
+  created_at: number;
+  last_access_at?: number | null;
+  hit_count: number;
+}
+
+export interface ManifestEntryOut {
+  relpath: string;
+  blob_id: string;
+  size: number;
+  media_type_hint?: string | null;
+}
+
+export interface ShareManifestOut {
+  entries: ManifestEntryOut[];
 }
 
 export class ShareApiError extends Error {
@@ -244,6 +304,27 @@ export async function patchShare(baseUrl: string, id: number, payload: SharePatc
   return parseJsonOrThrow<ShareOut>(res);
 }
 
+/** `GET /api/shares/{id}/manifest` — owner-only, the current manifest for a
+ * folder share. Used by the Publish dialog's "Edit policy…" flow to
+ * prefill the checkbox tree's excluded state (an entry NOT in this list is
+ * excluded). */
+export async function getShareManifest(baseUrl: string, id: number): Promise<ShareManifestOut> {
+  const res = await fetch(`${trimBase(baseUrl)}/api/shares/${id}/manifest`, { credentials: "include" });
+  return parseJsonOrThrow<ShareManifestOut>(res);
+}
+
+/** `PUT /api/shares/{id}/manifest` — "Update share" for a folder share
+ * (roadmap §5.1): wholesale-replaces the manifest at the SAME slug. */
+export async function updateShareManifest(baseUrl: string, id: number, manifest: ManifestEntryIn[]): Promise<ShareOut> {
+  const res = await fetch(`${trimBase(baseUrl)}/api/shares/${id}/manifest`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ manifest }),
+  });
+  return parseJsonOrThrow<ShareOut>(res);
+}
+
 export async function regenerateShare(baseUrl: string, id: number): Promise<ShareOut> {
   const res = await fetch(`${trimBase(baseUrl)}/api/shares/${id}/regenerate`, {
     method: "POST",
@@ -314,6 +395,33 @@ export async function getShareContentSameOrigin(identifier: string): Promise<Sha
     headers: { Accept: "application/json" },
   });
   return parseJsonOrThrow<ShareContentOut>(res);
+}
+
+/** Phase 10.5 — the folder-share twin of `getShareContentSameOrigin`, same
+ * relative-URL/cookie-path reasoning (see that function's doc). `relpath`
+ * (`""` for the subtree root) is appended verbatim, `encodeURIComponent`d
+ * per segment so a relpath containing `/` still round-trips correctly —
+ * the server resolves it with an exact manifest match either way (see
+ * `server/app/routers/share_public.py`'s module doc), so there is no
+ * traversal concern in doing this client-side encoding. Resolves to
+ * EITHER a `ShareListingOut` (root or a directory relpath) or a
+ * `ShareContentOut` (a file relpath) — callers discriminate via `"entries"
+ * in result`. */
+export async function getShareFolderPathSameOrigin(
+  identifier: string,
+  relpath: string,
+): Promise<ShareListingOut | ShareContentOut> {
+  const suffix = relpath
+    ? `/${relpath
+        .split("/")
+        .map((seg) => encodeURIComponent(seg))
+        .join("/")}`
+    : "";
+  const res = await fetch(`/share/${encodeURIComponent(identifier)}${suffix}`, {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  return parseJsonOrThrow<ShareListingOut | ShareContentOut>(res);
 }
 
 /** `POST /share/{id}/auth` — see this module's header doc for why this is

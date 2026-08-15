@@ -12,7 +12,7 @@
 import { Button, ConfirmDialog, Input, ScrollArea, Tooltip } from "my-you-eye";
 import { FilePlus, FolderPlus, ListFilter, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { ExplorerTree } from "./local/ExplorerTree";
+import { ExplorerTree, type ExplorerShareRow } from "./local/ExplorerTree";
 import { SidebarContainer } from "./local/SidebarContainer";
 import { filterTree } from "../lib/filterTree";
 import type { FileNode } from "../types";
@@ -32,10 +32,16 @@ export interface SidebarProps {
   onMove: (sourcePath: string, newParentPath: string) => void;
   onRefresh: () => void;
   /** Phase 10 (sharing) — Explorer row "Publish…" context menu item
-   * (roadmap §1). Omitted (item hidden) rather than a no-op for folders —
-   * see `local/ExplorerTree.tsx`'s row menu, which only renders it for
-   * files. */
+   * (roadmap §1), extended Phase 10.5 (roadmap §5.1) to folder rows too —
+   * see `local/ExplorerTree.tsx`'s row menu, which renders "Publish…" for
+   * any not-yet-shared row (file or folder) and "Copy link"/"Manage
+   * share…" instead once a row has its own active share. */
   onPublish?: (node: FileNode) => void;
+  /** Phase 10.5 — active shares for the tree indicator glyph (roadmap
+   * §5.1), and its context menu actions. */
+  shares?: ExplorerShareRow[];
+  onCopyShareLink?: (node: FileNode, share: ExplorerShareRow) => void;
+  onManageShare?: (node: FileNode, share: ExplorerShareRow) => void;
   /** Persisted sidebar-REGION width (DESIGN-SPEC Amendments item 10, round
    * 3 item 20's course-correction) — `useSettingsStore`'s `sidebarWidth`,
    * shared with Search/Source Control/Extensions now, not Explorer-only. */
@@ -60,6 +66,9 @@ export function Sidebar({
   onMove,
   onRefresh,
   onPublish,
+  shares,
+  onCopyShareLink,
+  onManageShare,
   width,
   onWidthChange,
   collapsed,
@@ -130,6 +139,9 @@ export function Sidebar({
               onCopyPath={onCopyPath}
               onMove={onMove}
               onPublish={onPublish}
+              shares={shares}
+              onCopyShareLink={onCopyShareLink}
+              onManageShare={onManageShare}
             />
           </div>
         </ScrollArea>

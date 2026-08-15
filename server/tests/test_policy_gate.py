@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 
-from conftest import OWNER_EMAIL, publish_share, random_wellformed_slug
+from conftest import OWNER_EMAIL, publish_folder_share, publish_share, random_wellformed_slug
 
 NOT_FOUND = {"detail": "Not found"}
 
@@ -248,6 +248,31 @@ def _build_deny_states(owner_client, anon_client):
     password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
     states["password_required"] = anon_client.get(f"/share/{password_share['slug']}")
 
+    # --- Phase 10.5: folder-share manifest-resolution deny states --------
+    # Every one of these is a DIFFERENT reason a folder-share GET should be
+    # denied (roadmap §5.1's "Paths not in the manifest → the same
+    # indistinguishable 404 as a missing slug") — they must fold into the
+    # exact same single fingerprint as every Phase 9 deny state above, not
+    # form a second class of their own. See test_folder_shares.py's own
+    # (more exhaustive) resolution matrix for the full account of each.
+    folder_share = publish_folder_share(owner_client, files={"a.md": b"file a", "sub/b.md": b"file b"})
+    publish_folder_share(owner_client, files={"only-in-other.md": b"x"})  # gives "other_shares_relpath" a real relpath
+    states["folder_unknown_relpath"] = anon_client.get(f"/share/{folder_share['slug']}/nope.md")
+    states["folder_excluded_entry"] = anon_client.get(f"/share/{folder_share['slug']}/excluded.md")
+    states["folder_absolute_path"] = anon_client.get(f"/share/{folder_share['slug']}//etc/passwd")
+    states["folder_url_encoded_traversal"] = anon_client.get(f"/share/{folder_share['slug']}/%2e%2e%2fetc%2fpasswd")
+    states["folder_double_encoded_traversal"] = anon_client.get(
+        f"/share/{folder_share['slug']}/%252e%252e%252fetc%252fpasswd"
+    )
+    states["folder_backslash_variant"] = anon_client.get(f"/share/{folder_share['slug']}/..%5c..%5cetc%5cpasswd")
+    states["folder_other_shares_relpath"] = anon_client.get(f"/share/{folder_share['slug']}/only-in-other.md")
+    # A file share has no manifest at all — a relpath GET against a LIVE,
+    # otherwise-accessible file share is yet another deny reason (the
+    # policy gate itself grants access; it's the kind-mismatch branch in
+    # get_share_path that denies) that must fold into the same fingerprint.
+    live_file_share = publish_share(owner_client, general_access="link", auth_mode="none")
+    states["file_share_relpath_unsupported"] = anon_client.get(f"/share/{live_file_share['slug']}/whatever")
+
     return states
 
 
@@ -290,6 +315,28 @@ def test_deny_state_equivalence_matrix_content_route(owner_client, anon_client):
 
     password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
     states["password_required"] = anon_client.get(f"/api/share/{password_share['slug']}/content")
+
+    # Phase 10.5 — the CORS-enabled twins of the folder-share manifest deny
+    # states above, via GET /api/share/{id}/content/{relpath}.
+    folder_share = publish_folder_share(owner_client, files={"a.md": b"file a"})
+    publish_folder_share(owner_client, files={"only-in-other.md": b"x"})
+    states["folder_unknown_relpath"] = anon_client.get(f"/api/share/{folder_share['slug']}/content/nope.md")
+    states["folder_excluded_entry"] = anon_client.get(f"/api/share/{folder_share['slug']}/content/excluded.md")
+    states["folder_absolute_path"] = anon_client.get(f"/api/share/{folder_share['slug']}/content//etc/passwd")
+    states["folder_url_encoded_traversal"] = anon_client.get(
+        f"/api/share/{folder_share['slug']}/content/%2e%2e%2fetc%2fpasswd"
+    )
+    states["folder_double_encoded_traversal"] = anon_client.get(
+        f"/api/share/{folder_share['slug']}/content/%252e%252e%252fetc%252fpasswd"
+    )
+    states["folder_backslash_variant"] = anon_client.get(
+        f"/api/share/{folder_share['slug']}/content/..%5c..%5cetc%5cpasswd"
+    )
+    states["folder_other_shares_relpath"] = anon_client.get(
+        f"/api/share/{folder_share['slug']}/content/only-in-other.md"
+    )
+    live_file_share = publish_share(owner_client, general_access="link", auth_mode="none")
+    states["file_share_relpath_unsupported"] = anon_client.get(f"/api/share/{live_file_share['slug']}/content/whatever")
 
     fingerprints = {name: _fingerprint(resp) for name, resp in states.items()}
     distinct = set(fingerprints.values())

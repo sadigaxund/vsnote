@@ -36,3 +36,30 @@ export function buildShareLink(
   const id = shareIdentifier(share);
   return share.render_mode === "rendered" ? `${appOrigin}/share/${id}` : `${trimBase(backendBaseUrl)}/share/${id}`;
 }
+
+/**
+ * Phase 10.5 — a folder share's link (and any deep link to a file/
+ * directory inside its subtree). Unlike `buildShareLink`, this ALWAYS
+ * points at this app's own origin regardless of `render_mode`: a folder
+ * share needs the visitor reader page's tree UI to browse the subtree at
+ * all (`share/ShareApp.tsx`'s folder-browsing mode) — `render_mode` only
+ * decides how an individual FILE's content is displayed once you're
+ * already there (raw = plain-text pane, rendered = the real markdown/HTML
+ * pipeline), not which origin owns the URL. `relpath` segments are
+ * `encodeURIComponent`d individually so a relpath containing `/` still
+ * round-trips as a real path rather than a single escaped segment.
+ */
+export function buildFolderShareLink(
+  share: { slug: string; alias?: string | null },
+  appOrigin: string = typeof window !== "undefined" ? window.location.origin : "",
+  relpath = "",
+): string {
+  const id = shareIdentifier(share);
+  const suffix = relpath
+    ? `/${relpath
+        .split("/")
+        .map((seg) => encodeURIComponent(seg))
+        .join("/")}`
+    : "";
+  return `${appOrigin}/share/${id}${suffix}`;
+}

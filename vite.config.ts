@@ -106,6 +106,23 @@ const EXCLUDED_ICON_CHUNKS = computeExcludedIconChunkNames();
  * `tests/e2e/shareFixtures.ts`) via `package.json`'s `test:e2e` script,
  * without touching this file or colliding with a real `npm run dev`
  * session's backend on 8787.
+ *
+ * **Phase 10.5 (folder shares) extended Rule 2's pattern**, not its logic:
+ * `share/ShareApp.tsx`'s folder-browsing mode fetches
+ * `/share/{slug}/{relpath}` (any depth, e.g. `/share/abc/notes/x.md`) the
+ * exact same same-origin, `Accept: application/json` way the root
+ * `/share/{slug}` fetch always has — the ORIGINAL `^/share/[^/]+$` pattern
+ * only ever matched the zero-relpath case, so a folder share's per-file/
+ * per-directory fetch silently fell through to the SPA's own `index.html`
+ * fallback instead of reaching the backend (caught by
+ * `tests/e2e/share-folder.spec.ts`: the listing rendered fine — its own
+ * fetch is the zero-relpath case — but clicking into a file 404'd because
+ * THAT fetch never left this dev server). `(/.*)?` makes the relpath
+ * segment optional, covering both cases with the identical JSON-only
+ * `bypass` rule below — a real browser navigation to a deep folder-share
+ * link (no `Accept: application/json`) still falls through to the SPA
+ * fallback so `main.tsx`'s router can parse the relpath and mount
+ * `ShareApp` itself, exactly as it always has for the root case.
  */
 const SHARE_AUTH_PROXY_TARGET = process.env.SLATE_SHARE_PROXY_TARGET ?? "http://127.0.0.1:8787";
 const shareAuthProxy = {
@@ -113,7 +130,7 @@ const shareAuthProxy = {
     target: SHARE_AUTH_PROXY_TARGET,
     changeOrigin: true,
   },
-  "^/share/[^/]+$": {
+  "^/share/[^/]+(/.*)?$": {
     target: SHARE_AUTH_PROXY_TARGET,
     changeOrigin: true,
     bypass(req: { headers: Record<string, string | string[] | undefined>; url?: string }) {

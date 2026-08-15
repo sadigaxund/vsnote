@@ -26,6 +26,39 @@ path constraint.
 Contract for Phase 10 (client sharing UI): see server/README.md's "Public
 share contract" section for the full request/response shapes documented for
 the client team.
+
+--- Phase 10.5: folder ("group") shares, roadmap §5.1 -----------------------
+
+A `kind=="folder"` Share has no single `blob_id`; its content is a snapshot
+manifest (`models.ShareManifestEntry` rows, one per INCLUDED file, keyed by
+`(share_id, relpath)`). `GET /share/{identifier}/{relpath:path}` (added
+below, `build_folder_router`) resolves a path inside that manifest with ONE
+exact-string-match DB query — `_manifest_entry()` — no normalization
+(`os.path`/`pathlib`), no filesystem access, no path joining of any kind.
+That is the entire security argument for why traversal is structurally
+impossible rather than merely sanitized against: `..`, an absolute path
+(`/etc/passwd`), a URL-encoded or double-encoded traversal string, a
+backslash variant, and a relpath that's real but belongs to a DIFFERENT
+share's manifest all fail for the exact same reason an unknown or excluded
+path does — no row in `share_manifest_entries` has that `(share_id,
+relpath)` pair — and therefore all fall through to the identical
+`policy.not_found_response()` every other deny reason in this module uses.
+See `models.ShareManifestEntry`'s docstring and `docs/ARCHITECTURE.md`'s
+"Folder shares" section for the full writeup, and
+`tests/test_folder_shares.py` for the resolution matrix this claim is tested
+against (extended into `test_policy_gate.py`'s existing equivalence-matrix
+tests too, so the new routes are covered by the same single-fingerprint
+assertion as every Phase 9 deny state).
+
+Directory listings (`_listing_for_prefix`) are the one place this module
+does more than an exact match — enumerating a share's manifest rows that
+share a path prefix, to build a plain listing (roadmap: "no README
+special-casing... folder URLs show a plain listing", "must not inline user
+content into HTML server-side"). This still never leaves the manifest: the
+query is `WHERE share_id = ?`, so it can only ever enumerate rows that
+already belong to the share the caller was granted access to — an unknown
+or excluded prefix (no matching rows) returns `None`, same as an unknown
+file, same uniform 404.
 """
 
 from __future__ import annotations
@@ -33,7 +66,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import time
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -105,6 +138,128 @@ def _content_payload(share: "models.Share", blob: "models.Blob") -> dict:
     return out.model_dump()
 
 
+def _manifest_entry(db: Session, share_id: int, relpath: str) -> Optional["models.ShareManifestEntry"]:
+    """THE security boundary for folder-share content resolution — see this
+    module's header doc. One exact-match query, nothing else."""
+    return (
+        db.query(models.ShareManifestEntry)
+        .filter(models.ShareManifestEntry.share_id == share_id, models.ShareManifestEntry.relpath == relpath)
+        .one_or_none()
+    )
+
+
+def _listing_for_prefix(db: Session, share_id: int, prefix: str) -> Optional[List[Dict[str, Any]]]:
+    """Directory listing for `prefix` (`""` = subtree root), computed purely
+    from this share's own manifest rows. `None` means `prefix` isn't the
+    root and doesn't match anything in the manifest — the caller 404s that
+    exactly like an unknown file (see this module's header doc)."""
+    rows = db.query(models.ShareManifestEntry).filter(models.ShareManifestEntry.share_id == share_id).all()
+    norm_prefix = "" if prefix == "" else prefix.rstrip("/") + "/"
+    matched = [r for r in rows if r.relpath.startswith(norm_prefix)]
+    if prefix != "" and not matched:
+        return None
+
+    children: Dict[str, Dict[str, Any]] = {}
+    for r in matched:
+        rest = r.relpath[len(norm_prefix) :]
+        if not rest:
+            continue
+        if "/" in rest:
+            name = rest.split("/", 1)[0]
+            children.setdefault(name, {"name": name, "kind": "dir", "relpath": f"{norm_prefix}{name}"})
+        else:
+            children[rest] = {
+                "name": rest,
+                "kind": "file",
+                "relpath": r.relpath,
+                "size": r.size,
+                "media_type_hint": r.media_type_hint,
+            }
+    return sorted(children.values(), key=lambda e: (e["kind"] != "dir", e["name"].lower()))
+
+
+def _listing_payload(share: "models.Share", prefix: str, entries: List[Dict[str, Any]]) -> dict:
+    out = schemas.ShareListingOut(
+        slug=share.slug,
+        alias=share.alias,
+        prefix=prefix,
+        entries=[schemas.ShareListingEntryOut(**e) for e in entries],
+        created_at=share.created_at,
+        last_access_at=share.last_access_at,
+        hit_count=share.hit_count,
+    )
+    return out.model_dump()
+
+
+def _folder_file_content_payload(share: "models.Share", entry: "models.ShareManifestEntry", blob: "models.Blob") -> dict:
+    content, encoding = _decode_content(blob)
+    out = schemas.ShareContentOut(
+        slug=share.slug,
+        alias=share.alias,
+        source_path=entry.relpath,
+        render_mode=share.render_mode.value,
+        media_type_hint=entry.media_type_hint,
+        blob_id=entry.blob_id,
+        size=entry.size,
+        live=False,
+        content=content,
+        content_encoding=encoding,  # type: ignore[arg-type]
+        created_at=share.created_at,
+        last_access_at=share.last_access_at,
+        hit_count=share.hit_count,
+    )
+    return out.model_dump()
+
+
+FolderResolution = Union[Tuple[str, "models.ShareManifestEntry"], Tuple[str, List[Dict[str, Any]]], None]
+
+
+def _resolve_folder_path(db: Session, share: "models.Share", relpath: str) -> FolderResolution:
+    """Returns `("file", entry)`, `("dir", entries)`, or `None` (not found —
+    caller 404s). `relpath` is used EXACTLY as received — see this module's
+    header doc for why that's the whole security property."""
+    entry = _manifest_entry(db, share.id, relpath)
+    if entry is not None:
+        return ("file", entry)
+    listing = _listing_for_prefix(db, share.id, relpath)
+    if listing is not None:
+        return ("dir", listing)
+    return None
+
+
+def _render_folder_resolution(
+    resolution: FolderResolution,
+    share: "models.Share",
+    db: Session,
+    request: Request,
+    prefix: str,
+) -> Optional[Response]:
+    """Turns a non-None `_resolve_folder_path` result into the actual HTTP
+    Response (raw bytes / JSON content / JSON listing, content-negotiated
+    the same way the file-share route is). Returns None for the `None`
+    (not-found) case so callers fall through to the uniform 404."""
+    if resolution is None:
+        return None
+    kind, payload = resolution
+    if kind == "file":
+        entry = payload
+        blob = db.get(models.Blob, entry.blob_id)
+        if _wants_json(request):
+            return JSONResponse(
+                status_code=200,
+                content=_folder_file_content_payload(share, entry, blob),
+                headers=dict(JSON_SECURITY_HEADERS),
+            )
+        return Response(content=blob.content, media_type=RAW_CONTENT_TYPE, headers=dict(RAW_SECURITY_HEADERS))
+    # "dir" — always JSON; there is no raw-bytes representation of a listing
+    # (roadmap §5.1: never inline content into HTML server-side).
+    return JSONResponse(
+        status_code=200,
+        content=_listing_payload(share, prefix, payload),
+        headers=dict(JSON_SECURITY_HEADERS),
+    )
+
+
 def _resolve_get(
     identifier: str,
     request: Request,
@@ -149,6 +304,21 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             return policy.denial_response(exc)
 
         share = access.share
+
+        if share.kind == models.ShareKind.folder:
+            # Folder root — always the subtree listing (roadmap §5.1: "no
+            # README special-casing... folder URLs show a plain listing"),
+            # never a specific file's raw bytes. Resolution is never None
+            # for the root prefix (empty manifests still list as "no
+            # entries"), but the check is kept for symmetry with
+            # get_share_path below.
+            resolution = _resolve_folder_path(db, share, "")
+            if resolution is None:
+                return policy.not_found_response()
+            _record_access(db, share, access, request)
+            resp = _render_folder_resolution(resolution, share, db, request, "")
+            return resp if resp is not None else policy.not_found_response()
+
         blob = db.get(models.Blob, share.blob_id)
         _record_access(db, share, access, request)
 
@@ -160,6 +330,35 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             )
 
         return Response(content=blob.content, media_type=RAW_CONTENT_TYPE, headers=dict(RAW_SECURITY_HEADERS))
+
+    @router.get("/share/{identifier}/{relpath:path}")
+    @limiter.limit(settings.rate_limit_share)
+    def get_share_path(identifier: str, relpath: str, request: Request, db: Session = Depends(get_db)):
+        """Folder-share subtree resolution (roadmap §5.1) — see this
+        module's header doc for the exact-match security argument. `GET
+        .../auth` (the one other 2-segment route on this identifier) is a
+        POST-only literal route registered separately, so it never reaches
+        here for its own method; a stray GET to `.../auth` legitimately
+        falls through to manifest resolution for a file literally named
+        "auth", same as any other relpath — nothing structurally special
+        about that string."""
+        try:
+            access = _resolve_get(identifier, request, db, secret_key=secret_key, auth_deps=auth_deps)
+        except policy.PolicyDenied as exc:
+            return policy.denial_response(exc)
+
+        share = access.share
+        if share.kind != models.ShareKind.folder:
+            # File shares have no sub-paths — same uniform 404 as any other
+            # deny, not a distinct "wrong kind" shape.
+            return policy.not_found_response()
+
+        resolution = _resolve_folder_path(db, share, relpath)
+        if resolution is None:
+            return policy.not_found_response()
+        _record_access(db, share, access, request)
+        resp = _render_folder_resolution(resolution, share, db, request, relpath)
+        return resp if resp is not None else policy.not_found_response()
 
     @router.post("/share/{identifier}/auth")
     @limiter.limit(settings.rate_limit_share_auth)
@@ -243,6 +442,14 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         except policy.PolicyDenied as exc:
             return policy.denial_response(exc)
 
+        if access.share.kind == models.ShareKind.folder:
+            # Editor write-back for folder shares is out of Phase 10.5 scope
+            # (roadmap §5.1 only specifies "Update share" via the owner-only
+            # `PUT /api/shares/{id}/manifest`, not a public per-subtree PUT)
+            # — same uniform 404 as any other deny, not a distinct
+            # "unsupported" shape.
+            return policy.not_found_response()
+
         body = await request.body()
         if len(body) > settings.max_blob_bytes:
             raise HTTPException(status_code=413, detail="Blob exceeds maximum size")
@@ -278,11 +485,71 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
             return policy.denial_response(exc)
 
         share = access.share
+
+        if share.kind == models.ShareKind.folder:
+            resolution = _resolve_folder_path(db, share, "")
+            if resolution is None:
+                return policy.not_found_response()
+            _record_access(db, share, access, request)
+            # Always JSON on this route (it's the CORS-enabled JSON twin) —
+            # reuse the same listing/file payload shaping as the root app's
+            # `{relpath:path}` route.
+            kind, payload = resolution
+            if kind == "file":
+                blob = db.get(models.Blob, payload.blob_id)
+                return JSONResponse(
+                    status_code=200,
+                    content=_folder_file_content_payload(share, payload, blob),
+                    headers=dict(JSON_SECURITY_HEADERS),
+                )
+            return JSONResponse(
+                status_code=200,
+                content=_listing_payload(share, "", payload),
+                headers=dict(JSON_SECURITY_HEADERS),
+            )
+
         blob = db.get(models.Blob, share.blob_id)
         _record_access(db, share, access, request)
         return JSONResponse(
             status_code=200,
             content=_content_payload(share, blob),
+            headers=dict(JSON_SECURITY_HEADERS),
+        )
+
+    @router.get("/share/{identifier}/content/{relpath:path}")
+    @limiter.limit(settings.rate_limit_share)
+    def get_share_content_path(identifier: str, relpath: str, request: Request, db: Session = Depends(get_db)):
+        """The CORS-enabled twin of the root app's `GET
+        /share/{identifier}/{relpath:path}` — same policy gate, same
+        manifest resolution, always JSON (this route exists purely for the
+        SPA's cross-origin `fetch(..., {credentials:"include"})`, which
+        needs `Access-Control-Allow-Origin` back; raw bytes make no sense
+        here since the visitor reader page always wants structured JSON)."""
+        try:
+            access = _resolve_get(identifier, request, db, secret_key=secret_key, auth_deps=auth_deps)
+        except policy.PolicyDenied as exc:
+            return policy.denial_response(exc)
+
+        share = access.share
+        if share.kind != models.ShareKind.folder:
+            return policy.not_found_response()
+
+        resolution = _resolve_folder_path(db, share, relpath)
+        if resolution is None:
+            return policy.not_found_response()
+        _record_access(db, share, access, request)
+
+        kind, payload = resolution
+        if kind == "file":
+            blob = db.get(models.Blob, payload.blob_id)
+            return JSONResponse(
+                status_code=200,
+                content=_folder_file_content_payload(share, payload, blob),
+                headers=dict(JSON_SECURITY_HEADERS),
+            )
+        return JSONResponse(
+            status_code=200,
+            content=_listing_payload(share, relpath, payload),
             headers=dict(JSON_SECURITY_HEADERS),
         )
 

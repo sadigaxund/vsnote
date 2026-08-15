@@ -167,7 +167,29 @@ return the identical `404 {"detail": "Not found"}`.
 
 `PUT /share/{identifier}` — editor role only. Body is the raw new content;
 creates a new content-addressed blob and repoints the share at it. Same
-gate, same opaque denial shape for anyone who isn't an editor.
+gate, same opaque denial shape for anyone who isn't an editor. 404s
+unconditionally for a folder share (`kind=="folder"`) — public editor
+write-back for folders isn't built yet, see `docs/ARCHITECTURE.md`'s
+"Folder shares (Phase 10.5)" section.
+
+### Folder shares (Phase 10.5, roadmap §5.1)
+
+`GET /share/{identifier}/{relpath:path}` resolves a path inside a
+`kind=="folder"` share's snapshot manifest — a file (raw/JSON, same
+content-negotiation as above) or a directory (always JSON, a plain
+listing). `GET /share/{identifier}` on a folder share is always the
+subtree ROOT listing, never a specific file. Both twinned under
+`/api/share/{identifier}/content[/relpath]` for the CORS-enabled route.
+Resolution is an EXACT string match against that share's manifest rows
+(`(share_id, relpath)`) — no filesystem access, no path normalization, no
+join — so `..`, an absolute path, an encoded/double-encoded traversal
+string, a backslash variant, an excluded entry, and a relpath from a
+DIFFERENT share all fail for the identical reason ("no row matched") and
+all produce the exact same uniform 404 as every other deny state above.
+Full design + the resolution matrix that proves this: `app/routers/
+share_public.py`'s module docstring, `app/models.py`'s `ShareManifestEntry`
+docstring, `tests/test_folder_shares.py`, and `docs/ARCHITECTURE.md`'s
+"Folder shares (Phase 10.5)" section.
 
 ### Every deny reason is the SAME 404 — read this before building the share page
 

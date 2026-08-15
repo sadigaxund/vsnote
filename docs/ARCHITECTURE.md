@@ -354,6 +354,130 @@ CURRENT working-tree content for a `live: true` share — both `GET` handlers in
 doesn't render one; snapshot-by-default (the backend's actual behavior) is exactly what
 the roadmap specs as the safe default anyway.
 
+## Folder shares (Phase 10.5)
+
+Extends the Phase 9/10 sharing feature to whole subtrees per
+`docs/ROADMAP-SHARING-AUTH.md` §5.1, without touching the Phase 9 policy gate's
+shape (`policy.py::resolve_share` is unmodified — every folder-share route still
+calls it first, unchanged). Full request/response shapes are in the new routes'
+docstrings (`server/app/routers/share_public.py`'s module doc walks the whole
+design); this section is the "how it's built" summary.
+
+**Data model** (`server/app/models.py`): `Share.kind` (`ShareKind.file` |
+`.folder`, default `file`) and `Share.blob_id` is now nullable — `None` for a
+folder share, whose content lives entirely in the new `ShareManifestEntry` table
+(`share_id`, `relpath`, `blob_id`, `size`, `media_type_hint`, unique on
+`(share_id, relpath)`). A file EXCLUDED by the owner in the Publish dialog's
+checkbox tree simply never gets a row — "absent, not hidden" (roadmap §5.1) is
+literal: there is no exclusion flag anywhere, only presence/absence in this
+table.
+
+**Manifest resolution is an exact-match DB query, not a sanitized filesystem
+join — this is the actual security argument, not a description of one.**
+`share_public.py::_manifest_entry(db, share_id, relpath)` is `WHERE share_id = ?
+AND relpath = ?`, full stop — no `os.path`/`pathlib` normalization, no join
+against any real directory, no filesystem access of any kind (the server has
+never read a vault path — see the "Data model" note under "Backend (v2)"
+above — and this doesn't change that). Every attack the phase brief calls out
+(`..` traversal, an absolute path, URL-encoded/double-encoded variants, a
+backslash variant, a relpath that's real but belongs to a DIFFERENT share, an
+excluded entry, a plain unknown path) fails for the exact same reason: no row in
+`share_manifest_entries` has that `(share_id, relpath)` pair, so every one of
+them falls through to `policy.not_found_response()` — the SAME uniform 404 every
+other Phase 9 deny reason produces, not a second, merely-similar-looking 404.
+Directory LISTINGS (`_listing_for_prefix`) are the one place resolution does
+more than an exact match — it enumerates this share's own manifest rows that
+share a path prefix to build a plain listing — but the query is still scoped to
+`WHERE share_id = ?`, so it can only ever enumerate rows already inside the
+share the caller was granted access to; an unknown/excluded prefix (no matching
+rows) returns `None`, 404ing exactly like an unknown file. `_apply_manifest`
+(owner-side, `routers/shares.py`) additionally rejects a relpath containing an
+empty/`.`/`..` segment or a backslash at WRITE time — belt-and-suspenders
+hygiene (keeps the table free of garbage a legitimate client would never send),
+explicitly NOT the security boundary itself (a stored `"../x"` relpath would
+still only ever be reachable by a request for the literal string `"../x"`,
+which resolves nothing outside the manifest either way).
+
+**Routes** (`share_public.py`): `GET /share/{id}` on a folder share now returns
+the subtree ROOT listing (never a specific file — roadmap §5.1's "no README
+special-casing" is literal: there is no code path that treats any relpath as a
+landing page). `GET /share/{id}/{relpath:path}` resolves a relpath to either a
+file (raw `text/plain`+nosniff by default, `ShareContentOut` JSON on `Accept:
+application/json` — identical content-negotiation to a file share) or a
+directory (always JSON `ShareListingOut`, since a listing has no meaningful raw-
+bytes form). Both twinned under `/api/share/{id}/content[/relpath]` for the
+CORS-enabled route the SPA's same-origin trick (see "The `/share/*` same-origin
+requirement" above) still needs for folder browsing. `PUT /share/{id}` on a
+folder share 404s (uniform, not a distinct error) — public editor write-back for
+folders is out of this phase's scope, same "documented flow only" posture Phase
+10's file-share write-back already has.
+
+**Owner API** (`routers/shares.py`): `POST /api/shares` gains `kind` and
+`manifest: ManifestEntryIn[]` (each `{relpath, blob_id}` — blobs are POSTed to
+`/api/blobs` first, exactly like a file share; the server never reads a vault
+path to build a manifest). `PUT /api/shares/{id}/manifest` wholesale-replaces the
+manifest at the SAME slug ("Update share" — roadmap §5.1); `GET
+/api/shares/{id}/manifest` (owner-only) is the current manifest, used to prefill
+the checkbox tree's excluded state when re-opening an existing folder share's
+Publish dialog.
+
+**Testing.** `server/tests/test_folder_shares.py` is the manifest
+path-resolution matrix (in-manifest hit, excluded, unknown, `..`, absolute,
+URL-/double-encoded, backslash, another share's relpath) plus ordinary
+resolution (root/subdir listing, raw/JSON file content, "Update share").
+`test_policy_gate.py`'s existing `_build_deny_states`/equivalence-matrix tests
+are EXTENDED (not duplicated) with the same folder-share deny states, so the
+new routes are covered by the SAME single-fingerprint assertion that already
+guards every Phase 9 deny path — a regression that reintroduced a second
+response class on a folder route fails the exact same test a Phase 9 regression
+would. One genuine wire-level subtlety surfaced writing this matrix: a LITERAL,
+non-percent-encoded `..` segment never survives client-side URL construction in
+any RFC-3986-conformant HTTP client (confirmed: `httpx.URL(path="/share/x/../y")`
+normalizes to `/share/y` before a request is even built, same as a real
+browser's `URL()`/`fetch()`), so `test_folder_shares.py::test_dotdot_traversal_404`
+asserts the resolution FUNCTION directly rejects a literal `".."` relpath rather
+than routing an unsendable request through a `TestClient`; the percent-encoded
+and double-encoded variants (which DO survive client-side construction) exercise
+the real route end-to-end and are the tests that matter for the actual wire-level
+attack surface.
+
+**Client** (`src/share/`): `folderManifest.ts` (pure) flattens a vault subtree
+into flat `{relpath}` entries and shapes the checkbox tree's included/excluded
+state into the manifest payload — "excluded" is computed as "not in this array,"
+never a separate flag threaded through to the request. `shareIndicators.ts`
+(pure) computes the Explorer tree's own-vs-inherited indicator state from the
+owner's share list, comparing plain `FileNode.path` strings (own = exact match
+on `source_path`; inherited = `path.startsWith(source_path + "/")` for a folder
+share) — no server round-trip needed for the glyph itself. `PublishDialog.tsx`'s
+folder mode composes the new local `CheckboxTree` (see `docs/COMPONENT-BACKLOG.md`)
+over a subtree `App.tsx` already read from the vault (`readFolderPublishData`) —
+the dialog itself still never touches `fs/`/`useBufferStore` directly, same
+vault-agnostic boundary as the single-file flow. `ShareApp.tsx`'s folder-browsing
+mode (`FolderShareView`) is a slim tree-left/content-right split, built to
+degrade EXACTLY to the pre-Phase-10.5 single-file layout for an ordinary file
+share (`load()` distinguishes the two purely from response shape — a folder
+share's root ALWAYS returns a listing, a file share's root ALWAYS returns
+content — no new field needed, see that file's doc for the full account) — every
+existing `tests/e2e/share-{password,publish-revoke,sandbox,backend-down}.spec.ts`
+assertion about the single-file DOM shape still holds unchanged.
+`tests/e2e/share-folder.spec.ts` is this phase's exit-criterion spec: publish a
+folder → browse the tree in a second browser context → an excluded file 404s
+(the identical generic unavailable state, never a distinct message) → revoke →
+the whole subtree 404s, plus the Explorer indicator (both variants) and the
+Shared registry's folder-kind row.
+
+**Known simplification, stated plainly.** The Explorer tree's "inherited" glyph
+marks the WHOLE subtree of a folder share uniformly — it does not currently
+re-fetch that share's manifest to grey out files the owner separately excluded
+at publish time (a file excluded from the share still shows the muted
+"inside a shared folder" glyph in the Explorer, even though it doesn't actually
+resolve for a visitor). Fixing this exactly would mean either caching every
+visible folder share's manifest client-side or a bulk "what's included"
+endpoint — neither exists yet. Not a security issue (the server-side exclusion
+is real and enforced; this is purely an owner-facing indicator's precision), but
+worth fixing before folder shares with meaningfully large exclusion lists become
+common.
+
 ## Real sync (Phase 11)
 
 Server hosts real bare git repos over smart-HTTP; the client talks to them with real
@@ -1491,3 +1615,21 @@ stack choices in this doc.
   instead. `gitrepo.py`'s `BareRepoBackend` does its own name extraction + validation
   (`resolve_repo_path`, shared with the pre-push bare-init check) instead of trusting
   that class — see that module's docstring for the full account.
+- **(Phase 10.5) `vite.config.ts`'s `shareAuthProxy` only matched the ZERO-relpath
+  case, silently swallowing every folder-share file/directory fetch in dev/preview.**
+  Phase 10's proxy (`^/share/[^/]+$`) was written when `/share/{slug}` was the only
+  same-origin path `ShareApp.tsx` ever fetched. Phase 10.5 added
+  `getShareFolderPathSameOrigin`, which fetches `/share/{slug}/{relpath}` (any depth)
+  the identical same-origin, `Accept: application/json` way — a request that pattern
+  doesn't match, so it silently fell through to Vite's own `appType: "spa"` fallback
+  instead of reaching the backend. Caught by `tests/e2e/share-folder.spec.ts`, not by
+  inspection: the folder's ROOT listing rendered correctly (that fetch IS the
+  zero-relpath case), but clicking into a file inside it 404'd — genuinely confusing
+  first read, since the server-side manifest resolution (freshly written, most
+  suspected code) was in fact correct; the request for that file never reached it at
+  all. Fixed by widening the pattern to `^/share/[^/]+(/.*)?$`, keeping the exact same
+  JSON-only `bypass` rule (a real address-bar navigation to a deep folder-share link —
+  no `Accept: application/json` — still falls through to the SPA fallback so
+  `main.tsx`'s router can parse the relpath and mount `ShareApp` itself, unchanged from
+  the root case). Verified fixed by rerunning `tests/e2e/share-folder.spec.ts` green
+  after the change (RED beforehand, confirmed against this exact failure, not assumed).

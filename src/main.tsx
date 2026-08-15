@@ -77,27 +77,31 @@ useSettingsStore.subscribe((state) => applyDomSettings(state));
 // each dynamic `import()` into its own chunk automatically, so this needs
 // no bundler config of its own.
 //
-// Route shape: `/share/<slug>` (rendered-mode shares only — raw-mode links
-// point at the backend's own origin per `share/shareLinks.ts` and are never
-// served by this app at all). `vite.config.ts`'s dev/preview server
-// defaults (`appType: "spa"`, the Vite default) already fall back to
-// `index.html` for any unmatched navigation, including this path — the
-// production build's `vite preview` does the same for the built `dist/`,
-// and the PWA service worker's `navigateFallback` (vite-plugin-pwa's
-// default for `registerType: "autoUpdate"`) matches it too; all three were
-// verified directly rather than assumed (see this phase's e2e coverage +
-// final report).
+// Route shape: `/share/<slug>` (rendered-mode file shares), extended Phase
+// 10.5 to `/share/<slug>/<relpath...>` for folder shares (roadmap §5.1) —
+// `relpath` may itself contain slashes (a nested file/directory), so the
+// second capture group is greedy over the rest of the path; raw-mode links
+// (and a folder share's individual raw-mode files) point at the backend's
+// own origin per `share/shareLinks.ts` and are never served by this app at
+// all. `vite.config.ts`'s dev/preview server defaults (`appType: "spa"`,
+// the Vite default) already fall back to `index.html` for any unmatched
+// navigation, including this path — the production build's `vite preview`
+// does the same for the built `dist/`, and the PWA service worker's
+// `navigateFallback` (vite-plugin-pwa's default for `registerType:
+// "autoUpdate"`) matches it too; all three were verified directly rather
+// than assumed (see this phase's e2e coverage + final report).
 const pathname = window.location.pathname;
-const shareMatch = /^\/share\/([^/]+)\/?$/.exec(pathname);
+const shareMatch = /^\/share\/([^/]+)(?:\/(.*))?$/.exec(pathname);
 
 const root = createRoot(document.getElementById("root")!);
 
 if (shareMatch) {
   const identifier = decodeURIComponent(shareMatch[1]);
+  const initialRelpath = shareMatch[2] ? decodeURIComponent(shareMatch[2]).replace(/\/+$/, "") : "";
   void import("./share/ShareApp").then(({ ShareApp }) => {
     root.render(
       <StrictMode>
-        <ShareApp identifier={identifier} />
+        <ShareApp identifier={identifier} initialRelpath={initialRelpath} />
       </StrictMode>,
     );
   });

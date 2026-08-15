@@ -5,7 +5,7 @@
  * picks an origin rather than a query param.
  */
 import { describe, expect, it } from "vitest";
-import { buildShareLink, shareIdentifier } from "../../src/share/shareLinks";
+import { buildFolderShareLink, buildShareLink, shareIdentifier } from "../../src/share/shareLinks";
 
 describe("shareIdentifier()", () => {
   it("prefers the custom alias over the slug when set", () => {
@@ -47,5 +47,31 @@ describe("buildShareLink()", () => {
   it("trims a trailing slash from the backend base URL", () => {
     const link = buildShareLink({ slug: "abc12345", render_mode: "raw" }, "http://127.0.0.1:8787///", "http://127.0.0.1:5290");
     expect(link).toBe("http://127.0.0.1:8787/share/abc12345");
+  });
+});
+
+describe("buildFolderShareLink()", () => {
+  const appOrigin = "http://127.0.0.1:5290";
+
+  it("always points at the APP origin, at the subtree root with no relpath given", () => {
+    expect(buildFolderShareLink({ slug: "abc12345" }, appOrigin)).toBe("http://127.0.0.1:5290/share/abc12345");
+  });
+
+  it("appends a relpath", () => {
+    expect(buildFolderShareLink({ slug: "abc12345" }, appOrigin, "notes/queue.md")).toBe(
+      "http://127.0.0.1:5290/share/abc12345/notes/queue.md",
+    );
+  });
+
+  it("uses the alias when present", () => {
+    expect(buildFolderShareLink({ slug: "abc12345", alias: "my-folder" }, appOrigin, "a.md")).toBe(
+      "http://127.0.0.1:5290/share/my-folder/a.md",
+    );
+  });
+
+  it("encodes each relpath segment individually, preserving the slashes", () => {
+    expect(buildFolderShareLink({ slug: "abc12345" }, appOrigin, "a b/c d.md")).toBe(
+      "http://127.0.0.1:5290/share/abc12345/a%20b/c%20d.md",
+    );
   });
 });

@@ -4,7 +4,7 @@
  * (`server/app/schemas.py::ShareCreateIn`).
  */
 import { describe, expect, it } from "vitest";
-import { shareCreatePayload } from "../../src/share/sharePolicy";
+import { shareCreatePayload, shareFolderCreatePayload } from "../../src/share/sharePolicy";
 import type { PublishInput } from "../../src/share/useShareStore";
 
 const BASE_INPUT: PublishInput = {
@@ -58,5 +58,35 @@ describe("shareCreatePayload()", () => {
   it("passes real grants through", () => {
     const grants = [{ principal: "a@example.com", role: "viewer" as const }];
     expect(shareCreatePayload({ ...BASE_INPUT, grants }, "blob123").grants).toEqual(grants);
+  });
+});
+
+describe("shareFolderCreatePayload()", () => {
+  const FOLDER_INPUT: PublishInput = { ...BASE_INPUT, sourcePath: "vault/notes" };
+  const manifest = [
+    { relpath: "a.md", blob_id: "blob-a" },
+    { relpath: "sub/b.md", blob_id: "blob-b" },
+  ];
+
+  it("shapes a folder publish into a kind='folder' body with the manifest, never blob_id", () => {
+    expect(shareFolderCreatePayload(FOLDER_INPUT, manifest)).toEqual({
+      source_path: "vault/notes",
+      kind: "folder",
+      manifest,
+      render_mode: "raw",
+      general_access: "restricted",
+      auth_mode: "none",
+      password: undefined,
+      alias: undefined,
+      expires_at: undefined,
+      grants: undefined,
+    });
+  });
+
+  it("applies the exact same password/alias/grants shaping rules as the file variant", () => {
+    const input: PublishInput = { ...FOLDER_INPUT, authMode: "password", password: "s3cret", alias: "my-folder" };
+    const payload = shareFolderCreatePayload(input, manifest);
+    expect(payload.password).toBe("s3cret");
+    expect(payload.alias).toBe("my-folder");
   });
 });
