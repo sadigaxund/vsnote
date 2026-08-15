@@ -51,6 +51,79 @@ function computeExcludedIconChunkNames(): Set<string> {
 }
 
 const EXCLUDED_ICON_CHUNKS = computeExcludedIconChunkNames();
+
+/**
+ * Phase 10 (sharing) — dev/preview-only proxy for backend routes that need
+ * to be reached SAME-ORIGIN from the SPA. `server/` is frozen (Phase 9);
+ * everything below is a client-side accommodation for real constraints
+ * found while building against its actual (correct, not-to-be-changed)
+ * behavior — never a workaround for a bug in this app's own code.
+ *
+ * **Rule 1 — `POST /share/{slug}/auth` always needs the proxy.** This route
+ * is mounted on the backend's ROOT app (`server/app/main.py`), which has NO
+ * `CORSMiddleware` at all, by deliberate design (a raw share response must
+ * carry zero CORS headers) — a cross-origin `fetch()` to it is structurally
+ * unreadable from a different-origin dev server. See `src/share/api.ts`'s
+ * `postShareAuth` doc for the full reasoning.
+ *
+ * **Rule 2 — `GET /share/{slug}` (JSON) needs the proxy too, but ONLY for
+ * actual data fetches, never for the SPA's own page navigation to that
+ * exact path.** Discovered during this phase's own e2e verification (the
+ * password-share flow test failed at exactly this step until traced down):
+ * `POST /share/{slug}/auth`'s success response sets a session cookie
+ * scoped to `Path=/share/{slug}` (`server/app/routers/share_public.py`,
+ * fixed server-side, not this phase's to change). A cookie's Path only
+ * covers that prefix — `/api/share/{slug}/content` (the CORS-enabled route
+ * this phase's own brief names as the one to use) does NOT start with
+ * `/share/`, so the browser never attaches that cookie to a fetch there,
+ * and a just-entered-correctly password share would 404 forever on the
+ * content re-fetch. The fix is `share/ShareApp.tsx` fetching content via
+ * THIS relative, same-origin `/share/{slug}` path (`Accept:
+ * application/json`, matching `_wants_json` server-side) instead — its
+ * Path prefix genuinely matches the cookie, and it's CORS-safe the exact
+ * same way Rule 1 is (same-origin via this proxy in dev, same-origin
+ * natively in the real Cloudflare Access topology). `share/api.ts` keeps
+ * `getShareContent` (the `/api/.../content` CORS route) around too,
+ * documented as the spec-following default for a deployment where the SPA
+ * genuinely IS cross-origin from the backend — this app's own
+ * `ShareApp.tsx` just doesn't use it, for the reason above.
+ *
+ * The tricky part: `/share/{slug}` (no suffix) is ALSO the exact address-
+ * bar path THIS APP'S OWN router (`main.tsx`) owns for a real page
+ * navigation to a rendered share — proxying it unconditionally would
+ * silently break that (every visit would hit the backend's raw/JSON
+ * response instead of `index.html`). `bypass` (a real, documented Vite/
+ * `http-proxy-middleware` proxy option) distinguishes the two: a page
+ * navigation never sends `Accept: application/json` (browsers request
+ * `text/html` first for navigations), while every fetch this app makes to
+ * this path explicitly does — so `bypass` returns the untouched request
+ * path (telling Vite to handle it itself, i.e. serve `index.html` via its
+ * own SPA fallback) for anything that ISN'T asking for JSON, and returns
+ * nothing (falls through to the proxy) when it is.
+ *
+ * Target is env-driven (`SLATE_SHARE_PROXY_TARGET`) so the e2e suite can
+ * point it at its own spawned backend (port 8788 — see
+ * `tests/e2e/shareFixtures.ts`) via `package.json`'s `test:e2e` script,
+ * without touching this file or colliding with a real `npm run dev`
+ * session's backend on 8787.
+ */
+const SHARE_AUTH_PROXY_TARGET = process.env.SLATE_SHARE_PROXY_TARGET ?? "http://127.0.0.1:8787";
+const shareAuthProxy = {
+  "^/share/[^/]+/auth$": {
+    target: SHARE_AUTH_PROXY_TARGET,
+    changeOrigin: true,
+  },
+  "^/share/[^/]+$": {
+    target: SHARE_AUTH_PROXY_TARGET,
+    changeOrigin: true,
+    bypass(req: { headers: Record<string, string | string[] | undefined>; url?: string }) {
+      const accept = req.headers.accept;
+      const acceptsJson = typeof accept === "string" && accept.includes("application/json");
+      if (!acceptsJson) return req.url; // real navigation — let the SPA fallback handle it
+      return undefined; // JSON fetch — proxy it to the backend
+    },
+  },
+};
 // Vite/Rollup's default hash is 8 chars of [A-Za-z0-9_-]; strips exactly
 // that trailing `-<hash>.<ext>` so multi-dash real names ("material-icons",
 // "folder-redux-actions.clone") survive intact.
@@ -133,4 +206,14 @@ export default defineConfig({
       },
     }),
   ],
+  // Phase 10 (sharing) — see `shareAuthProxy`'s doc above. Both `vite dev`
+  // (`server.proxy`) and `vite preview` (`preview.proxy` — a SEPARATE Vite
+  // option; `server.proxy` alone does NOT apply to `vite preview`) need it,
+  // since either can be the SPA origin the e2e suite/a developer uses.
+  server: {
+    proxy: shareAuthProxy,
+  },
+  preview: {
+    proxy: shareAuthProxy,
+  },
 });

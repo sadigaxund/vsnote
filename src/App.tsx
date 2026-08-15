@@ -28,6 +28,7 @@ import { displayToFsPath } from "./fs/paths";
 import { flattenFiles } from "./lib/flattenTree";
 import { probeRender } from "./lib/renderProbe";
 import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
+import { useShareStore } from "./share/useShareStore";
 import type { FileKind, FileNode } from "./types";
 
 // Phase 5a: CommandPalette / Search are overlay/panel UI a user may never
@@ -42,6 +43,10 @@ const CommandPaletteHost = lazy(() =>
   import("./components/CommandPaletteHost").then((m) => ({ default: m.CommandPaletteHost })),
 );
 const SearchPanel = lazy(() => import("./components/SearchPanel").then((m) => ({ default: m.SearchPanel })));
+// Phase 10 (sharing): the Publish dialog composes Dialog/Select/Switch/etc.
+// from the library — kept out of the cold-boot bundle the same way every
+// other overlay here is, since most sessions never open it.
+const PublishDialog = lazy(() => import("./components/local/PublishDialog").then((m) => ({ default: m.PublishDialog })));
 
 const ACTIVE_ON_BOOT = "vault/notes/architecture.md";
 
@@ -88,6 +93,14 @@ export default function App() {
   // denied, never as a flash-of-warning before the request settles.
   const [storagePersistence, setStoragePersistence] = useState<StoragePersistenceStatus | undefined>(undefined);
   const [pendingJump, setPendingJump] = useState<{ path: string; line: number } | null>(null);
+  // Phase 10 (sharing) — Publish dialog state, opened from three places
+  // (Explorer row context menu, command palette, title bar share icon).
+  // Always a "publish a new share" instance here — "Edit policy…" (an
+  // EXISTING share) is a separate, local instance owned by
+  // `SettingsView.tsx`'s "Sharing" category (see that component's doc).
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [publishTarget, setPublishTarget] = useState<{ path: string; kind: FileKind } | null>(null);
+  const [publishContent, setPublishContent] = useState<string | undefined>(undefined);
   // Snapshot of whichever CM6 view was registered at the moment a jump was
   // requested — see the polling effect below for why this matters (it lets
   // that effect tell "a fresh view mounted" apart from "still reading the
@@ -107,6 +120,10 @@ export default function App() {
   // Targeted selector, same discipline as `sidebarWidth` above — DESIGN-SPEC
   // Amendments round 3 item 20 ("Sidebar collapse/expand").
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
+  // Phase 10 (sharing) — targeted selector so a Settings "Sharing" edit
+  // (changing the backend URL) re-renders the Publish dialog/Shared panel
+  // with the new URL immediately, same discipline as `sidebarWidth` above.
+  const shareBackendUrl = useSettingsStore((s) => s.shareBackendUrl);
   // DESIGN-SPEC Amendments item 16 (typing-latency bug): `useFsStore()`/
   // `useBufferStore()` used to be called here with NO selector — the
   // zustand anti-pattern of subscribing to an entire store's state, which
@@ -147,6 +164,34 @@ export default function App() {
     // first paint, and a denial only ever produces the muted status-bar
     // warning (`fs/persistence.ts`'s doc), never a dialog or toast.
     void requestPersistentStorage().then(setStoragePersistence);
+
+    // Phase 10 (sharing) — deliberately NO automatic reachability probe
+    // here at boot. Tried first (`GET /api/auth/whoami` unconditionally on
+    // every mount, same "never blocks first paint, fail-closed" discipline
+    // as the persistence request above); reverted after it broke
+    // `tests/e2e/probes.spec.ts`'s "offline cold start" probe, which
+    // asserts zero console errors with the browser context fully offline
+    // (`context.setOffline(true)`). `whoami()` already catches the fetch
+    // rejection in JS (never an unhandled exception), but Chromium's own
+    // network stack still logs "Failed to load resource:
+    // net::ERR_INTERNET_DISCONNECTED" to the console for ANY request that
+    // fails at the network layer, independent of whether application code
+    // handles it — confirmed with a throwaway repro
+    // (`page.evaluate(() => navigator.onLine)` reads `true` even under
+    // Playwright's `context.setOffline(true)`, so a `navigator.onLine`
+    // guard here can't reliably prevent the attempt either; CDP's network-
+    // level offline emulation doesn't flip that property the way a real
+    // disconnected NIC does). The correct fix is architectural, not a
+    // guard: this app's vault/editor/git features have NOTHING to do with
+    // sharing, so nothing about opening/using them should ever trigger a
+    // sharing-related network call. The probe now fires lazily, only from
+    // the three real share-surface entry points that actually need to know
+    // reachability before showing anything — `handleOpenPublish`/
+    // `handleShareActiveFile` below (Explorer context menu, command
+    // palette, title bar share icon — all funnel through the same publish
+    // flow) and `SettingsView.tsx`'s "Sharing" category's own mount effect
+    // — never from a plain app boot, so a user who never touches sharing
+    // causes zero share-related network activity, ever.
   }, []);
 
   // Phase 5b "ahead/behind drift" (IMPLEMENTATION-PLAN.md Phase 5 sync-
@@ -596,6 +641,42 @@ export default function App() {
     navigator.clipboard?.writeText(node.path).catch(() => {});
   };
 
+  // Phase 10 (sharing) — "Publish…" from the Explorer row context menu
+  // (`ExplorerTree.tsx`) or the title bar's share icon: reads the file's
+  // CURRENT buffer content (the same live value the editor shows, unsaved
+  // edits included — `useBufferStore.ensureLoaded` is idempotent, matching
+  // every other call site in this file) and opens the dialog in "publish a
+  // new share" mode. `PublishDialog` itself never touches `fs/`/`useBufferStore`
+  // — it only ever sees the plain string handed to it here, keeping it
+  // reasoned-about the same way `share/ShareApp.tsx`'s "never touches vault
+  // storage" boundary is (that component is the untrusted-content side,
+  // this one is the vault-reading side; neither crosses into the other's
+  // job).
+  const handleOpenPublish = async (node: FileNode) => {
+    if (node.type !== "file") return;
+    // Lazy reachability probe — see the boot effect's doc above for why
+    // this doesn't happen automatically at app boot. Fire-and-forget: the
+    // dialog reads `useShareStore`'s reactive `reachability`/`authenticated`
+    // fields, so it re-renders once this resolves regardless of whether
+    // the dialog is already open by then.
+    void useShareStore.getState().probe(useSettingsStore.getState().shareBackendUrl);
+    await useBufferStore.getState().ensureLoaded(node.path);
+    const buf = useBufferStore.getState().buffers[node.path];
+    setPublishTarget({ path: node.path, kind: node.kind });
+    setPublishContent(buf?.content ?? "");
+    setPublishDialogOpen(true);
+  };
+
+  const handleShareActiveFile = () => {
+    if (!activeTab || activeTab.kind === "settings") return;
+    void handleOpenPublish({ id: activeTab.path, path: activeTab.path, name: activeTab.name, kind: activeTab.kind, type: "file" });
+  };
+  // "Edit policy…" (re-open the Publish dialog against an EXISTING share)
+  // is handled entirely inside `SettingsView.tsx`'s "Sharing" category —
+  // its own local `editingShare` state + `PublishDialog` instance, since
+  // that flow needs no file content and no plumbing through this file at
+  // all (see that component's doc).
+
   // DESIGN-SPEC "Internal links [text](file.ext) ... open that file in a
   // tab when clicked" — the live-preview `LinkWidget`'s click handler
   // (editor/livepreview/widgets.ts) calls this with the raw href; external
@@ -665,6 +746,7 @@ export default function App() {
     { id: "save", label: "Save file", shortcut: "⌘S" },
     { id: "close-tab", label: "Close tab", shortcut: "⌘W / ⌘⇧W" },
     { id: "settings", label: "Open settings…" },
+    { id: "publish", label: "Publish/Share file…" },
   ];
 
   const handlePaletteCommand = (id: string) => {
@@ -704,6 +786,9 @@ export default function App() {
       case "settings":
         handleOpenSettings();
         break;
+      case "publish":
+        handleShareActiveFile();
+        break;
     }
   };
 
@@ -739,6 +824,7 @@ export default function App() {
           onToggleSidebar={() => useSettingsStore.getState().toggleSidebarCollapsed()}
           onOpenPalette={() => setPaletteMode("commands")}
           onOpenSettings={handleOpenSettings}
+          onShare={handleShareActiveFile}
         />
       )}
 
@@ -776,6 +862,7 @@ export default function App() {
             onConfirmDelete={handleConfirmDelete}
             onCopyPath={handleCopyPath}
             onMove={handleMove}
+            onPublish={(node) => void handleOpenPublish(node)}
             onRefresh={() => void useFsStore.getState().refresh()}
             width={sidebarWidth}
             onWidthChange={(w) => useSettingsStore.getState().setSidebarWidth(w)}
@@ -874,6 +961,25 @@ export default function App() {
             commands={paletteCommands}
             onSelectFile={handlePaletteFileSelect}
             onSelectCommand={handlePaletteCommand}
+          />
+        </Suspense>
+      )}
+
+      {publishDialogOpen && (
+        <Suspense fallback={null}>
+          <PublishDialog
+            open={publishDialogOpen}
+            onOpenChange={(open) => {
+              setPublishDialogOpen(open);
+              if (!open) {
+                setPublishTarget(null);
+                setPublishContent(undefined);
+              }
+            }}
+            backendBaseUrl={shareBackendUrl}
+            filePath={publishTarget?.path}
+            fileKind={publishTarget?.kind}
+            content={publishContent}
           />
         </Suspense>
       )}

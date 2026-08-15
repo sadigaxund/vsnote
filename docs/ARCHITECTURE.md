@@ -39,6 +39,13 @@
 - `components/` — app-specific composition (Shell, ActivityBar, Sidebar panels,
   TabBar, EditorHeader, StatusBar, palette wiring). `components/local/` — primitives
   the library lacks (each one logged in `docs/COMPONENT-BACKLOG.md`).
+- `share/` (Phase 10) — sharing client: `api.ts` (typed `fetch` client for the Phase 9
+  backend), `useShareStore.ts` (reachability/auth/share-list state), `sharePolicy.ts` /
+  `alias.ts` / `shareLinks.ts` (pure logic), `ShareApp.tsx` (the standalone
+  `/share/<slug>` route — no vault access, see "Sharing (Phase 10)" below). Never
+  imported by anything under `fs/`/`git/`/`stores/use{Fs,Buffer,Tabs,Git}Store.ts`, and
+  itself never imports them — the two sides of the vault-access boundary that section
+  documents.
 
 ## Key flows
 
@@ -58,7 +65,9 @@ Terminal, code execution, real network git, extensions marketplace (icon is a st
 collaborative editing. Sharing/publishing, authentication, and the Python/FastAPI
 backend are specced for v2 in `docs/ROADMAP-SHARING-AUTH.md` — out of scope for
 phases 1–5. Phase 9 (2026-08-15) built the backend itself; see "Backend (v2)" below.
-Phases 10 (client sharing UI) and 11 (real git sync) remain unbuilt.
+Phase 10 (2026-08-15, client sharing UI) is built — see "Sharing (Phase 10)" below.
+Phase 11 (real git sync) remains unbuilt; editor-role share write-back stays a
+documented flow only until it lands (see that section's write-back note).
 
 Note: `docs/DESIGN-SPEC.md` has a 2026-08-15 "Amendments" section (Material Icon
 Theme icons, no traffic lights, slimmer chrome, zen mode, browser-shortcut capture,
@@ -142,6 +151,208 @@ a path on disk).
 section for the intended CF Access deployment shape (not deployed this phase — local
 `uvicorn` only). Magic-link auth is a documented, explicit 501 stub
 (`routers/auth.py`) — deferred, needs email infra.
+
+## Sharing (Phase 10)
+
+Client-side sharing UI + integration, built entirely under `src/` against the frozen
+Phase 9 backend (`server/`, not touched this phase). Full requirements:
+`docs/IMPLEMENTATION-PLAN-V2.md`'s Phase 10 section, `docs/ROADMAP-SHARING-AUTH.md` §1,
+`server/README.md`'s "Public share contract".
+
+**Modules** (`src/share/`):
+- `api.ts` — typed `fetch` client for every `/api/*` and `/share/*` endpoint the client
+  needs. Every `/api/*` call takes an explicit `baseUrl` (the persisted, user-editable
+  backend URL — see below) and sends `credentials: "include"`. Two calls are
+  deliberately RELATIVE (no `baseUrl` parameter at all): `postShareAuth` (`POST
+  /share/{id}/auth`) and `getShareContentSameOrigin` (`GET /share/{id}` with `Accept:
+  application/json`) — see their doc comments and "The `/share/*` same-origin
+  requirement" below for why. `whoami()` never throws (fail-closed reachability probe —
+  see CLAUDE.md rule 3).
+- `useShareStore.ts` — ephemeral zustand store (NOT persisted): backend reachability
+  (`"unknown" | "checking" | "online" | "offline"`), auth status, the owner's share
+  list, in-flight/error flags. The backend base URL itself lives in
+  `stores/useSettingsStore.ts` (`shareBackendUrl`, persisted, default
+  `http://127.0.0.1:8787`) — every action here takes it as a parameter rather than
+  reading it directly, keeping this store usable from `ShareApp.tsx` without pulling in
+  the settings store there too.
+- `sharePolicy.ts` — pure `shareCreatePayload()`: shapes the Publish dialog's UI input
+  into the exact `POST /api/shares` body. Extracted specifically so it's unit-testable
+  without mocking `fetch` (`tests/unit/sharePolicy.test.ts`).
+- `alias.ts` / `shareLinks.ts` — pure logic: custom-alias format validation (mirrors the
+  backend's `SLUG_RE` exactly, client-side, before ever making a request) and share-link
+  URL construction. See "Two link shapes" below for `shareLinks.ts`'s central design
+  decision.
+- `ShareApp.tsx` — the standalone `/share/<slug>` route. See "Routing" and "No vault
+  access" below.
+
+**UI surfaces**: `components/local/PublishDialog.tsx` (Google/Microsoft-style publish/
+edit-policy dialog — pure composition of `my-you-eye`'s `Dialog`/`FormField`/`Select`/
+`Switch`/`Input`/`Button`/`Badge`/`Alert` plus the existing local `SegmentedControl` for
+the raw/rendered mode toggle; no new local primitive, so no `docs/COMPONENT-BACKLOG.md`
+row) and `components/local/SharedPanel.tsx` (the owner's share list — composed from the
+library's raw `Table`/`TableRow`/`TableCell` primitives rather than `DataTable`, since
+`DataTable` has no row-click/actions slot at all — checked `skills/components.json`;
+`Table` is exactly "reach for this when you need bespoke markup a data-driven API can't
+express," per its own manifest description). Reachable from three places per the
+roadmap: `local/ExplorerTree.tsx`'s row context menu ("Publish…", files only), the
+command palette ("Publish/Share file…"), and `components/TitleBar.tsx`'s share icon
+(shown whenever a real file is focused) — all three funnel through `App.tsx`'s
+`handleOpenPublish`/`handleShareActiveFile`, which read the file's CURRENT buffer
+content (`useBufferStore`, unsaved edits included) and open one shared dialog instance.
+"Edit policy…" (from the Shared panel) is a SEPARATE, local `PublishDialog` instance
+owned by `SettingsView.tsx` itself — it never needs file content, so it doesn't need any
+of the App.tsx plumbing a fresh publish does. The "Shared" panel lives inside
+`SettingsView.tsx`'s new "Sharing" category (not a fifth activity-bar icon): Settings is
+already a real full-width tab (Phase 6.5c), the share list is account-level
+configuration exactly like "Git & Sync," and a new activity-bar icon would need its own
+`SidebarContainer` region + width/collapse plumbing for a view that's fundamentally a
+list + actions, not a persistent always-visible panel.
+
+**Routing.** This app had no router before this phase — `main.tsx` read a single
+always-mounted `<App/>`. The minimum viable fix: `window.location.pathname` is read
+ONCE at boot and used to pick between two entirely separate render roots, never both.
+`/share/<slug>` (a `/^\/share\/([^/]+)\/?$/` match) dynamically `import()`s
+`share/ShareApp.tsx`; anything else dynamically `import()`s `App.tsx` (previously a
+static top-level import — moved behind `import()` specifically so its whole module
+graph, `fs/seed.ts`, every `stores/use{Fs,Buffer,Tabs,Git}Store.ts`, isomorphic-git,
+lightning-fs, never even downloads on the share route — this is the actual mechanism
+behind "no vault access," not a promise kept by convention). No react-router: one
+regex, one boot-time branch, two dynamic imports — Vite's default code-splitting turns
+each `import()` into its own chunk with zero bundler config. Verified (not assumed) that
+`vite dev`/`vite preview`'s default SPA history fallback serves `index.html` for
+`/share/<slug>`, and that the generated service worker's `NavigationRoute` (workbox,
+matches every navigation, no `denylist`) does the same offline — both checked directly
+against the built `dist/sw.js` and via curl/Playwright against a real `vite preview`
+during this phase's manual verification.
+
+**No vault access (`ShareApp.tsx`).** Grep-confirmed, not just documented: this file
+imports nothing from `fs/`, `git/`, or any `stores/use{Fs,Buffer,Tabs,Git,Settings}Store`
+module — only `share/api.ts`'s two relative-URL fetch functions, `renderers/
+HtmlPreview.tsx`, and `editor/LivePreviewEditor.tsx` (read-only). Rendering strategy by
+`render_mode` and extension: `.html`/`.htm` → `HtmlPreview` (existing Phase 4 sandboxed
+iframe, reused verbatim — see "Rendered-mode sandbox" below); anything else → the real
+`LivePreviewEditor`, `readOnly`, same pipeline every local `.md` Rendered view uses. A
+`render_mode: "raw"` share reached here (shouldn't normally happen — see "Two link
+shapes" below) falls back to an inert `<pre>` text block.
+
+**The no-existence-oracle contract, client-side.** `server/README.md`'s "Every deny
+reason is the SAME 404" section is binding — `ShareApp.tsx` renders exactly ONE generic
+state ("This link is unavailable, or it requires a password") for every 404, with an
+inline password field that unconditionally `POST`s to `/share/{id}/auth` regardless of
+whether the client has any reason to believe the share exists or needs a password. The
+component never branches on response body/message content — only `err.status === 404`
+(generic unavailable) vs. anything else (a genuine unreachable-backend state, which
+carries no oracle risk since it says nothing about whether the slug is real).
+
+**Two link shapes — `render_mode` picks an ORIGIN, not a query param
+(`shareLinks.ts::buildShareLink`).** `raw` → the backend's own origin,
+`{backendBaseUrl}/share/{slug}` (root app, `text/plain`, never touched by this app at
+all — the recipient's browser talks to the backend directly). `rendered` →
+`{window.location.origin}/share/{slug}` (this app's own origin, routed to `ShareApp.tsx`
+above). This is also why raw mode needs no CORS/proxy consideration: it's never fetched
+by this app's own JS, only linked to.
+
+**The `/share/*` same-origin requirement (the phase's real deviation from the brief).**
+`server/README.md` names `GET /api/share/{id}/content` (CORS-enabled) as the route to
+use from the SPA, and says the password-auth POST goes to `/share/{id}/auth`. Building
+against the real, frozen Phase 9 backend surfaced a genuine incompatibility between
+those two instructions when followed literally with the SPA on a different port than the
+backend (this app's own dev/test setup): `POST /share/{id}/auth`'s success response sets
+a session cookie scoped `Path=/share/{slug}` (`server/app/routers/share_public.py`) — a
+cookie's Path only covers that literal prefix, so a subsequent fetch to
+`/api/share/{id}/content` (a DIFFERENT path prefix) never carries it, and a correctly-
+entered password would 404 forever on the content re-fetch. Separately, `POST
+/share/{id}/auth` itself is mounted on the backend's root app, which has **no**
+`CORSMiddleware` at all (by design — a raw share response must carry zero CORS
+headers), so a cross-origin `fetch()` to it is structurally unreadable regardless of the
+cookie question.
+
+Both problems have the same fix, and it's the one the production topology
+(`server/README.md`'s Cloudflare Access diagram: SPA static assets + `/api` + `/share/*`
+all served by "this backend," one origin) already assumes: talk to `/share/*` SAME-
+ORIGIN. `share/api.ts`'s `getShareContentSameOrigin`/`postShareAuth` are both relative-
+URL fetches (`/share/{id}` with `Accept: application/json`, and `/share/{id}/auth`) —
+same-origin natively in production, and standing in for that locally via
+`vite.config.ts`'s dev/preview-only proxy (`shareAuthProxy`, both `server.proxy` and
+`preview.proxy` — a separate Vite option from `server.proxy`, both needed). The proxy is
+scoped as narrowly as possible: `^/share/[^/]+/auth$` unconditionally, and
+`^/share/[^/]+$` ONLY for requests carrying `Accept: application/json` (a `bypass`
+function inspects the header) — a bare page navigation to that exact path is THIS APP'S
+OWN route for rendered shares, and must keep hitting the SPA's `index.html`, not the
+backend. Target is `SLATE_SHARE_PROXY_TARGET` (env, default `http://127.0.0.1:8787`) so
+`package.json`'s `test:e2e` script can point it at the e2e fixture backend's port 8788
+without touching this file. `share/api.ts`'s `getShareContent` (the documented `/api/
+.../content` CORS route) stays exported and correct for a deployment where the SPA is
+genuinely cross-origin from the backend — `ShareApp.tsx` itself just doesn't use it, for
+the concrete reason above.
+
+**Rendered-mode sandbox** (roadmap §1's security bullet, explicitly left to this phase
+since it's client-side): HTML renders ONLY inside `renderers/HtmlPreview.tsx`'s existing
+`sandbox=""` `srcDoc` iframe (built in Phase 4 for the local `.html` Rendered mode,
+reused verbatim — no new sandbox mechanism needed). Markdown's safety is a property of
+the EXISTING live-preview pipeline, not new code: `editor/livepreview/widgets.ts` only
+ever defines `CheckboxWidget`/`LinkWidget`, both building plain DOM via
+`document.createElement` + `textContent` — there is no `HTMLBlock`/`HTMLTag` widget
+anywhere in `editor/livepreview/plugin.ts`, so raw HTML embedded in markdown source
+(`<script>…`, `<img onerror=…>`) is tokenized by `@lezer/markdown` for syntax
+highlighting ONLY and never becomes live DOM, with or without a share involved — CM6
+simply never calls `innerHTML`/`dangerouslySetInnerHTML` on user content anywhere in
+this codebase. Proven, not just reasoned about: `tests/e2e/share-sandbox.spec.ts`
+publishes a real `<script>window.__xss=1</script>` + `<img onerror=…>` payload and
+asserts `window.__xss` stays `undefined` (markdown case) and that the HTML case's
+`<iframe>` carries `sandbox=""` with neither `allow-scripts` nor `allow-same-origin` —
+both assertions would fail immediately if either protection were removed.
+
+**Backend reachability is lazy, not boot-eager.** Tried first: an unconditional `GET
+/api/auth/whoami` probe in `App.tsx`'s boot effect (matching the "never blocks first
+paint, fail-closed" pattern the persistent-storage request already uses). Reverted — see
+this doc's Deviations entry below for why an eager boot probe is a real, provable
+regression against `tests/e2e/probes.spec.ts`'s offline-cold-start test, and not merely
+a style preference. The probe now fires only from the three real share-entry points
+(`App.tsx`'s `handleOpenPublish`, reached by all three Publish affordances) and
+`SettingsView.tsx`'s "Sharing" category's own mount effect — a user who never touches
+sharing causes zero sharing-related network activity, ever, matching CLAUDE.md rule 3's
+"server-optional" spirit more strictly than an eager probe did.
+
+**Editor-role write-back — documented flow only, not built this phase** (per the plan:
+"PUT creates a git commit in the vault via the client when the owner next syncs... full
+live write-back can wait for sync"). The backend already implements `PUT /share/{id}`
+for editor-role shares (`server/app/routers/share_public.py`): it content-addresses the
+new body and repoints `share.blob_id`, with its own policy-gated auth. The CLIENT side
+this phase deliberately does NOT build: no in-app editor for a share visitor, no polling
+for remote edits. The intended flow, for Phase 11 (real remote sync) to pick up once
+the client has a concept of "pull from a remote":
+1. An editor-role share visitor's write goes straight to the backend via `PUT
+   /share/{id}` (some future minimal external editing surface, out of this phase's
+   scope — not `ShareApp.tsx`, which stays strictly read-only per this phase's brief).
+2. The backend re-points `share.blob_id` at the new content-addressed blob; nothing in
+   the OWNER's vault changes yet — the owner's local git history is untouched, and the
+   share's edit lives only in the backend's blob store until reconciled.
+3. When the owner's client next syncs against the Phase 11 remote (isomorphic-git
+   push/pull against the backend-hosted bare repo — see IMPLEMENTATION-PLAN-V2.md's
+   Phase 11 section), that sync step is where the share's current blob gets fetched,
+   diffed against the owner's working tree at `share.source_path`, and — if it differs —
+   written into the vault and committed as a normal git commit (author = the share's
+   principal if known, falling back to a generic "via share" author), giving the edit a
+   full, ordinary audit trail via git exactly like any other local edit. This is
+   deliberately a PULL the owner's own sync initiates, never a push the backend
+   forces into the vault unprompted — consistent with "the SPA must remain fully usable
+   with the backend down" (CLAUDE.md rule 3): a pending share edit just waits until the
+   owner's next sync, it never blocks or surprises anything in the meantime.
+4. Conflict handling (the share's edit vs. a concurrent local edit to the same file)
+   follows whatever Phase 11 decides for ordinary sync conflicts generally (the plan
+   already commits to "fast-forward only in v2.0 — refuse + explain on divergence") —
+   a share-originated edit is not a special case once it reaches this step, it's just
+   another commit competing for the same fast-forward.
+
+**"Live" toggle — not exposed in the Publish dialog, and said so rather than faked.**
+The backend's `Share.live` field exists and defaults `false`
+(`schemas.py::ShareCreateIn.live`), but nothing server-side currently re-serves the
+CURRENT working-tree content for a `live: true` share — both `GET` handlers in
+`routers/share_public.py` always read `share.blob_id`'s PINNED blob, regardless of
+`live`. A toggle that silently did nothing would be dishonest UI, so `PublishDialog.tsx`
+doesn't render one; snapshot-by-default (the backend's actual behavior) is exactly what
+the roadmap specs as the safe default anyway.
 
 ## Deviations
 
@@ -1106,3 +1317,41 @@ stack choices in this doc.
   reintroducing a distinguishable revoked-share response (a 410 instead of
   404), confirming the new test fails RED with a clear grouped diagnostic,
   then reverting and confirming GREEN again.
+- **(Phase 10, sharing) An eager, unconditional boot-time reachability probe
+  (`GET /api/auth/whoami` fired from `App.tsx`'s top-level boot effect on
+  every mount) is a real, provable regression against
+  `tests/e2e/probes.spec.ts`'s pre-existing offline-cold-start test — caught
+  by that committed test actually failing, not by inspection.** The probe
+  itself never threw (`share/api.ts`'s `whoami()` catches the fetch
+  rejection and resolves `null`), so this looked safe by the "never throws,
+  never blocks boot" standard every other boot-time side effect in this file
+  is held to. The test that caught it asserts something stricter: zero
+  browser-level console errors during an offline cold start
+  (`context.setOffline(true)` then `page.reload()`). Chromium logs "Failed
+  to load resource: net::ERR_INTERNET_DISCONNECTED" to the console for ANY
+  request that fails at the network layer, independent of whether
+  application code catches the rejection — a JS-level `try`/`catch` (or a
+  `.catch()`) cannot suppress it, because the log comes from the browser's
+  own network stack, not from an uncaught exception. A `navigator.onLine`
+  guard was tried next (skip the fetch when the browser already knows it's
+  offline) and also failed to fix it — measured directly with a throwaway
+  repro spec: `page.evaluate(() => navigator.onLine)` reads `true` even
+  immediately after `context.setOffline(true)` + `page.reload()`, because
+  Playwright/CDP's `Network.emulateNetworkConditions`-based offline
+  emulation blocks requests at the network layer without flipping that
+  property the way a real disconnected network interface does — so the
+  guard compiled, looked correct, and did nothing. Fixed architecturally
+  instead of with a better guard: the probe was moved out of the boot
+  effect entirely and now only fires from the three real share-entry points
+  (`App.tsx`'s `handleOpenPublish`, reached by the Explorer context menu,
+  command palette, and title bar share icon alike) and
+  `SettingsView.tsx`'s "Sharing" category's own mount effect — nothing
+  about opening/using the vault, editor, or git features has anything to do
+  with sharing, so nothing about them should ever cause sharing-related
+  network activity. This is also a strictly better fit for CLAUDE.md rule
+  3's "server-optional" posture than the eager version was: a user who
+  never touches sharing now causes zero sharing-related requests, not just
+  zero *failed* ones. Confirmed fixed: `tests/e2e/probes.spec.ts`'s offline
+  test passes green with the lazy version, and the full committed e2e suite
+  (`tests/e2e/share-*.spec.ts`) still passes — the three real entry points
+  still probe reachability exactly when they need to.

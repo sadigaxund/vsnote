@@ -31,6 +31,11 @@ export interface SidebarProps {
   onCopyPath: (node: FileNode) => void;
   onMove: (sourcePath: string, newParentPath: string) => void;
   onRefresh: () => void;
+  /** Phase 10 (sharing) — Explorer row "Publish…" context menu item
+   * (roadmap §1). Omitted (item hidden) rather than a no-op for folders —
+   * see `local/ExplorerTree.tsx`'s row menu, which only renders it for
+   * files. */
+  onPublish?: (node: FileNode) => void;
   /** Persisted sidebar-REGION width (DESIGN-SPEC Amendments item 10, round
    * 3 item 20's course-correction) — `useSettingsStore`'s `sidebarWidth`,
    * shared with Search/Source Control/Extensions now, not Explorer-only. */
@@ -54,6 +59,7 @@ export function Sidebar({
   onCopyPath,
   onMove,
   onRefresh,
+  onPublish,
   width,
   onWidthChange,
   collapsed,
@@ -123,6 +129,7 @@ export function Sidebar({
               onDelete={setPendingDelete}
               onCopyPath={onCopyPath}
               onMove={onMove}
+              onPublish={onPublish}
             />
           </div>
         </ScrollArea>

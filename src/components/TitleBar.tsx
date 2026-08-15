@@ -47,6 +47,7 @@ import {
   PanelLeft,
   Search,
   Settings,
+  Share2,
   SquareSplitHorizontal,
 } from "lucide-react";
 import { TitleBar as TitleBarShell } from "./local/TitleBar";
@@ -73,6 +74,11 @@ export interface AppTitleBarProps {
   onToggleSplit?: () => void;
   onOpenPalette?: () => void;
   onOpenSettings?: () => void;
+  /** Phase 10 (sharing) — title bar share action (roadmap §1: "Action on
+   * any file (context menu + palette + editor header): Publish"). Only
+   * rendered when a real file (not the virtual Settings tab) is focused —
+   * same `showPaneControls` gate the mode toggle already uses. */
+  onShare?: () => void;
 }
 
 export function AppTitleBar({
@@ -90,6 +96,7 @@ export function AppTitleBar({
   onToggleSplit,
   onOpenPalette,
   onOpenSettings,
+  onShare,
 }: AppTitleBarProps) {
   const has = (m: EditorMode) => availableModes.includes(m);
   const showPaneControls = !!breadcrumb && availableModes.length > 0;
@@ -153,6 +160,13 @@ export function AppTitleBar({
                 />
               )}
             </div>
+          )}
+          {showPaneControls && (
+            <Tooltip content="Publish / Share…" side="bottom">
+              <Button type="button" variant="ghost" size="icon-sm" aria-label="Publish or share this file" data-testid="titlebar-share" onClick={onShare}>
+                <Share2 size={15} />
+              </Button>
+            </Tooltip>
           )}
           <Tooltip content="Zen mode (⌘⇧Z)" side="bottom">
             <Button type="button" variant="ghost" size="icon-sm" aria-label="Enter zen mode" onClick={onEnterZen}>

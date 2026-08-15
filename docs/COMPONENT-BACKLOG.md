@@ -36,6 +36,28 @@ Notes
   previously rendered nothing at all, a blank gap where `App.tsx` had no
   `activePanel === "extensions"` branch) — solved by composition: the library's own
   `EmptyState` inside the new `SidebarContainer` shell, no new primitive needed.
+- `PublishDialog` (`src/components/local/PublishDialog.tsx`) and `SharedPanel`
+  (`src/components/local/SharedPanel.tsx`), Phase 10 (sharing) — solved by composition:
+  `Dialog`/`DialogHeader`/`DialogTitle`/`DialogDescription`/`DialogFooter`/`FormField`/
+  `Select`/`Switch`/`Input`/`Button`/`Badge`/`Alert`/`useToast` for the publish/edit-
+  policy dialog (plus the already-`built-locally` `SegmentedControl` for its raw/
+  rendered mode toggle — no second copy), and the library's raw `Table`/`TableHeader`/
+  `TableBody`/`TableRow`/`TableHead`/`TableCell`/`Tooltip`/`ConfirmDialog`/`EmptyState`
+  for the Shared panel (`DataTable`, the data-driven pattern built on `Table`, has no
+  row-click/actions slot at all — checked `skills/components.json`; `Table`'s own
+  manifest description says to reach for it directly for exactly this case: "bespoke
+  markup a data-driven API can't express"). Both live in `src/components/local/` only
+  because they're app-specific compositions (same precedent as `SettingsView.tsx`
+  itself, which this file's own header doc calls out as "composition only — no new
+  local primitive needed"), not because either is a new reusable primitive in the
+  library's own style — no upstream candidacy, same reasoning as this Notes section's
+  other composition-only entries.
+- `share/ShareApp.tsx` (Phase 10) is not a `components/local/` file at all and carries
+  no primitive of its own — it composes the EXISTING `renderers/HtmlPreview.tsx`
+  (Phase 4's sandboxed iframe, reused verbatim for shared HTML) and
+  `editor/LivePreviewEditor.tsx` (read-only, for shared markdown). Recorded here only so
+  a future pass doesn't go looking for a missing "rendered-mode sandbox" component that
+  was never needed — the sandbox IS `HtmlPreview`, unchanged.
 
 `TexturedSurface` (library component, DESIGN-SPEC Amendments round 3 item 22(a)) —
 **used, no gap.** An earlier pass at item 22(a) rejected it in favor of translucent

@@ -19,6 +19,16 @@ const PORT = 5290;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // One share backend (port 8788) for the ENTIRE run, started before any
+  // spec/worker and stopped after all of them finish — see
+  // `tests/e2e/globalSetup.ts` / `tests/e2e/shareFixtures.ts`'s module
+  // docstring. `fullyParallel` below runs spec files concurrently across
+  // multiple worker processes, all sharing the one `vite preview` server
+  // (`webServer`), which itself proxies share routes to one fixed backend
+  // URL baked in at build time — so per-file/per-worker backends would
+  // fight over the same port instead of each getting their own.
+  globalSetup: "./tests/e2e/globalSetup.ts",
+  globalTeardown: "./tests/e2e/globalTeardown.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

@@ -49,6 +49,7 @@ import {
   FilePlus,
   FolderPlus,
   Pencil,
+  Share2,
   Trash2,
 } from "lucide-react";
 import { FileIcon } from "./FileIcon";
@@ -92,6 +93,8 @@ export interface ExplorerTreeProps {
   onDelete?: (node: FileNode) => void;
   onCopyPath?: (node: FileNode) => void;
   onMove?: (sourcePath: string, newParentPath: string) => void;
+  /** Phase 10 (sharing) — file rows only (see the row menu below). */
+  onPublish?: (node: FileNode) => void;
   className?: string;
 }
 
@@ -109,6 +112,7 @@ export function ExplorerTree({
   onDelete,
   onCopyPath,
   onMove,
+  onPublish,
   className,
 }: ExplorerTreeProps) {
   const [dragPath, setDragPath] = useState<string | null>(null);
@@ -198,6 +202,7 @@ export function ExplorerTree({
           onRequestRename={onRequestRename}
           onDelete={onDelete}
           onCopyPath={onCopyPath}
+          onPublish={onPublish}
           dragPath={dragPath}
           dropTarget={dropTarget}
           autoExpandPath={autoExpandPath}
@@ -225,6 +230,7 @@ interface TreeRowProps {
   onRequestRename?: (node: FileNode) => void;
   onDelete?: (node: FileNode) => void;
   onCopyPath?: (node: FileNode) => void;
+  onPublish?: (node: FileNode) => void;
   dragPath: string | null;
   dropTarget: DropTarget | null;
   autoExpandPath: string | null;
@@ -248,6 +254,7 @@ function TreeRow({
   onRequestRename,
   onDelete,
   onCopyPath,
+  onPublish,
   dragPath,
   dropTarget,
   autoExpandPath,
@@ -525,6 +532,14 @@ function TreeRow({
           <ContextMenuItem onSelect={() => onCopyPath?.(node)}>
             <Copy size={13} /> Copy path
           </ContextMenuItem>
+          {!isFolder && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onSelect={() => onPublish?.(node)}>
+                <Share2 size={13} /> Publish…
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
       {isFolder && expanded && node.children && (
@@ -545,6 +560,7 @@ function TreeRow({
               onRequestRename={onRequestRename}
               onDelete={onDelete}
               onCopyPath={onCopyPath}
+              onPublish={onPublish}
               dragPath={dragPath}
               dropTarget={dropTarget}
               autoExpandPath={autoExpandPath}

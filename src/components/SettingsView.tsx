@@ -28,8 +28,9 @@
  * row, still `planned`) — still no library `ColorPicker` exists (checked
  * `skills/components.json`), so this stays the pragmatic choice.
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  Alert,
   Badge,
   Button,
   DataList,
@@ -53,8 +54,10 @@ import {
   GitBranch,
   HardDrive,
   Keyboard as KeyboardIcon,
+  Loader2,
   Palette,
   Search as SearchIcon,
+  Share2,
   SlidersHorizontal,
 } from "lucide-react";
 import {
@@ -66,7 +69,16 @@ import {
 import { defaultModeFor } from "../filetypes/registry";
 import { useGitStore } from "../stores/useGitStore";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
+import { useShareStore } from "../share/useShareStore";
+import { SharedPanel } from "./local/SharedPanel";
+import type { ShareOut } from "../share/api";
 import type { EditorMode, FileKind } from "../types";
+
+// Phase 10 (sharing) — the Publish dialog composes Dialog/Select/Switch/etc.
+// from the library; lazy the same way `App.tsx`'s own instance is, so
+// opening Settings never pays for it unless "Edit policy…" is actually
+// clicked.
+const PublishDialog = lazy(() => import("./local/PublishDialog").then((m) => ({ default: m.PublishDialog })));
 
 export interface SettingsViewProps {
   /** Boot-time `navigator.storage.persist()` result, threaded down from
@@ -149,6 +161,8 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const readingViewDefaultMode = useSettingsStore((s) => s.readingViewDefaultMode);
   const gitRemoteUrl = useSettingsStore((s) => s.gitRemoteUrl);
   const gitAuthToken = useSettingsStore((s) => s.gitAuthToken);
+  const shareBackendUrl = useSettingsStore((s) => s.shareBackendUrl);
+  const setShareBackendUrl = useSettingsStore((s) => s.setShareBackendUrl);
 
   const setTheme = useSettingsStore((s) => s.setTheme);
   const setAccent = useSettingsStore((s) => s.setAccent);
@@ -168,6 +182,33 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
 
   const [activeCategory, setActiveCategory] = useState("appearance");
   const [query, setQuery] = useState("");
+
+  // Phase 10 (sharing) — reachability/auth state + owner's share list live
+  // in `share/useShareStore.ts` (ephemeral, not persisted — see that
+  // module's doc); this view just reads/drives it. `editingShare` is this
+  // view's OWN local "Edit policy…" dialog instance (separate from
+  // `App.tsx`'s publish-a-new-share instance — the two never need to be
+  // open at once, and edit mode never reads file content, so it doesn't
+  // need any of the plumbing a fresh publish does).
+  const reachability = useShareStore((s) => s.reachability);
+  const authenticated = useShareStore((s) => s.authenticated);
+  const shareUsername = useShareStore((s) => s.username);
+  const loggingIn = useShareStore((s) => s.loggingIn);
+  const loginError = useShareStore((s) => s.loginError);
+  const probeShareBackend = useShareStore((s) => s.probe);
+  const loginShareBackend = useShareStore((s) => s.login);
+  const logoutShareBackend = useShareStore((s) => s.logout);
+  const [shareUrlDraft, setShareUrlDraft] = useState(shareBackendUrl);
+  const [loginUser, setLoginUser] = useState("");
+  const [loginPass, setLoginPass] = useState("");
+  const [editingShare, setEditingShare] = useState<ShareOut | null>(null);
+
+  useEffect(() => {
+    void probeShareBackend(shareBackendUrl);
+    // Only re-probe when the SAVED url changes (Test connection below saves
+    // + probes together) — not on every keystroke in the draft field.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shareBackendUrl]);
 
   // Boot's `navigator.storage.persist()` request (App.tsx) usually resolves
   // long before anyone opens Settings; this is only a fallback for the rare
@@ -514,6 +555,118 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
       ],
     },
     {
+      id: "sharing",
+      label: "Sharing",
+      icon: <Share2 size={15} />,
+      rows: [
+        {
+          id: "share-backend",
+          label: "Backend connection",
+          keywords: "share publish backend server url connect sign in login token offline reachability",
+          content: (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {reachability === "offline" && (
+                <Alert variant="warning" size="sm" title="Backend not running">
+                  Start it with <code>npm run server</code> from the repo root — it listens on{" "}
+                  <code>127.0.0.1:8787</code>. The rest of Slate works fine without it; only sharing needs it.
+                </Alert>
+              )}
+              <FormField label="Backend URL" hint="The Slate backend (server/) — sharing, auth, and (later) real sync.">
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Input
+                    size="sm"
+                    value={shareUrlDraft}
+                    onChange={(e) => setShareUrlDraft(e.target.value)}
+                    aria-label="Share backend URL"
+                    data-testid="share-backend-url"
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    data-testid="share-backend-test"
+                    onClick={() => {
+                      setShareBackendUrl(shareUrlDraft);
+                      void probeShareBackend(shareUrlDraft);
+                    }}
+                  >
+                    {reachability === "checking" ? <Loader2 size={13} className="animate-spin" /> : "Test connection"}
+                  </Button>
+                </div>
+              </FormField>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Badge
+                  variant={reachability === "online" ? "success" : reachability === "offline" ? "danger" : "neutral"}
+                  tone="soft"
+                  data-testid="share-backend-status"
+                >
+                  {reachability === "online" ? "Online" : reachability === "offline" ? "Offline" : reachability === "checking" ? "Checking…" : "Unknown"}
+                </Badge>
+                {reachability === "online" && authenticated && (
+                  <>
+                    <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>Signed in as {shareUsername}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-testid="share-signout"
+                      onClick={() => void logoutShareBackend(shareBackendUrl)}
+                    >
+                      Sign out
+                    </Button>
+                  </>
+                )}
+              </div>
+              {reachability === "online" && !authenticated && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <Input
+                      size="sm"
+                      placeholder="Username"
+                      value={loginUser}
+                      onChange={(e) => setLoginUser(e.target.value)}
+                      aria-label="Backend username"
+                      data-testid="share-login-username"
+                    />
+                    <Input
+                      size="sm"
+                      type="password"
+                      placeholder="Password"
+                      value={loginPass}
+                      onChange={(e) => setLoginPass(e.target.value)}
+                      aria-label="Backend password"
+                      data-testid="share-login-password"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={loggingIn}
+                      data-testid="share-login-submit"
+                      onClick={() => void loginShareBackend(shareBackendUrl, loginUser, loginPass)}
+                    >
+                      {loggingIn ? <Loader2 size={13} className="animate-spin" /> : "Sign in"}
+                    </Button>
+                  </div>
+                  {loginError && (
+                    <Alert variant="danger" size="sm">
+                      {loginError}
+                    </Alert>
+                  )}
+                </div>
+              )}
+            </div>
+          ),
+        },
+        {
+          id: "shared-panel",
+          label: "Shared",
+          keywords: "shares links published revoke regenerate hits audit expiry password access",
+          content: <SharedPanel backendBaseUrl={shareBackendUrl} authenticated={authenticated} onEditShare={setEditingShare} />,
+        },
+      ],
+    },
+    {
       id: "storage",
       label: "Storage",
       icon: <HardDrive size={15} />,
@@ -592,6 +745,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const visibleCategory = categories.find((c) => c.id === activeCategory) ?? categories[0];
 
   return (
+    <>
     <ScrollArea className="flex-1" style={{ minHeight: 0, background: "var(--app-editor-bg)" }} data-testid="settings-view">
       {/* Chrome default is `user-select: none` (DESIGN-SPEC Amendments item
           12); Settings is a form surface, not document content, so it stays
@@ -689,5 +843,16 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         </div>
       </div>
     </ScrollArea>
+    {editingShare && (
+      <Suspense fallback={null}>
+        <PublishDialog
+          open={editingShare !== null}
+          onOpenChange={(open) => !open && setEditingShare(null)}
+          backendBaseUrl={shareBackendUrl}
+          existingShare={editingShare}
+        />
+      </Suspense>
+    )}
+    </>
   );
 }

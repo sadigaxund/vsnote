@@ -15,6 +15,7 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { DEFAULT_SHARE_BACKEND_URL } from "../share/api";
 import type { EditorMode, FileKind } from "../types";
 
 export const THEME_OPTIONS = [
@@ -130,6 +131,16 @@ interface SettingsState {
   gitRemoteUrl: string;
   gitAuthToken: string;
 
+  /** Phase 10 (sharing) — the Slate backend's (`server/`) base URL, e.g.
+   * `http://127.0.0.1:8787`. Persisted here (not in `share/useShareStore.ts`,
+   * which is ephemeral request/probe state) so it's a normal, user-editable
+   * Settings field ("Sharing" category) that every share-related surface
+   * (Publish dialog, Shared panel, boot-time reachability probe) reads from
+   * the same place. Never trusted blindly — every consumer still calls
+   * `share/api.ts`'s functions, which fail closed (a down/unreachable
+   * backend never throws unhandled — see that module's `whoami` doc). */
+  shareBackendUrl: string;
+
   setTheme: (theme: SlateTheme) => void;
   /** Cycles to the next theme in `THEME_OPTIONS` — the command palette's
    * "Toggle theme" command (DESIGN-SPEC "Misc / settings": "toggle mode,
@@ -150,6 +161,7 @@ interface SettingsState {
   toggleSidebarCollapsed: () => void;
   setGitRemoteUrl: (url: string) => void;
   setGitAuthToken: (token: string) => void;
+  setShareBackendUrl: (url: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -170,6 +182,7 @@ export const useSettingsStore = create<SettingsState>()(
       sidebarCollapsed: false,
       gitRemoteUrl: "",
       gitAuthToken: "",
+      shareBackendUrl: DEFAULT_SHARE_BACKEND_URL,
       setTheme: (theme) => set({ theme }),
       cycleTheme: () => {
         const idx = THEME_OPTIONS.indexOf(get().theme);
@@ -196,6 +209,7 @@ export const useSettingsStore = create<SettingsState>()(
       toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setGitRemoteUrl: (gitRemoteUrl) => set({ gitRemoteUrl }),
       setGitAuthToken: (gitAuthToken) => set({ gitAuthToken }),
+      setShareBackendUrl: (shareBackendUrl) => set({ shareBackendUrl }),
     }),
     {
       name: "slate-settings",
