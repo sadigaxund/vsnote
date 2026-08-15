@@ -72,7 +72,8 @@ Exit: every item demonstrable; suite green; visual pass.
   and CORSMiddleware entirely — tests flip to asserting NO CORS headers on any
   route; uvicorn proxy-header handling + Secure/SameSite cookie rules for the
   Cloudflare-tunnel topology; vite dev/preview proxies `/api`, `/share`,
-  (later `/git`) to :8000. Verify: `uvicorn` alone serves the working app at
+  (later `/git`) to the backend dev port (8787 locally; 8000 is taken by an
+  unrelated process). Verify: `uvicorn` alone serves the working app at
   one origin; publish→fetch works with zero CORS headers in every response.
 - Server: share records gain a kind (file|folder); folder shares store a snapshot
   manifest (relative path → content-addressed blob). `/share/<slug>/<relpath>`

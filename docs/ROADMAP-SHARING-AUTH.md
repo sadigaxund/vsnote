@@ -204,8 +204,10 @@ behind that proxy.
   cookies `Secure` + `SameSite=Lax` (Secure relaxed only on plain-http
   localhost); zero hardcoded origins or ports in client or server; no mixed
   content; service worker + PWA function behind the HTTPS origin.
-- **Dev**: `vite dev`/`preview` proxies `/api`, `/share`, `/git` to :8000 —
-  same relative URLs work in every environment, no env-specific client config.
+- **Dev**: `vite dev`/`preview` proxies `/api`, `/share`, `/git` to the
+  backend's dev port (8787 on this machine — 8000 is occupied by an unrelated
+  process; the port is a local detail, never hardcoded in client code) — same
+  relative URLs work in every environment, no env-specific client config.
 - **"Backend down" nuance** (amends CLAUDE.md rule 3's intent, not its spirit):
   since the backend is now also the web server, a cold uncached load needs it
   running. Local-first survives via the PWA: an installed/precached app opens
