@@ -22,7 +22,15 @@ export const editorTheme = EditorView.theme(
   {
     "&": {
       color: "var(--color-fg)",
-      backgroundColor: "var(--app-editor-bg)",
+      // DESIGN-SPEC Amendments round 3 item 22(a): reads
+      // `--app-editor-canvas-bg`, not `--app-editor-bg` directly — this is
+      // CodeMirror's own DOM, which paints ON TOP of `EditorPane.tsx`'s
+      // `TexturedSurface` ancestor, so under every theme except Slate this
+      // resolves to `transparent` (letting that ancestor's opaque fill +
+      // theme texture show through with zero attenuation) while staying
+      // the exact opaque Slate hex for `data-theme` unset/`"dark"` — see
+      // `src/theme.css`'s `.dark` block comment for the full reasoning.
+      backgroundColor: "var(--app-editor-canvas-bg)",
       height: "100%",
     },
     ".cm-content": {
@@ -45,7 +53,10 @@ export const editorTheme = EditorView.theme(
     ".cm-activeLine": { backgroundColor: "var(--color-surface-hover)" },
     ".cm-activeLineGutter": { backgroundColor: "var(--color-surface-hover)" },
     ".cm-gutters": {
-      backgroundColor: "var(--app-editor-bg)",
+      // Same reasoning as `&` above — transparent under textured themes so
+      // the gutter strip shows the same texture as the rest of the canvas
+      // instead of a flat opaque seam down the left edge.
+      backgroundColor: "var(--app-editor-canvas-bg)",
       color: "var(--color-muted)",
       border: "none",
       borderRight: "1px solid var(--app-chrome-border)",
@@ -93,22 +104,30 @@ export const editorTheme = EditorView.theme(
   { dark: true },
 );
 
+// DESIGN-SPEC Amendments round 3 item 22(b): every color below reads a
+// `--syntax-*` role token (src/theme.css) instead of a raw hex OR a
+// general-purpose app token like `--color-primary`/`--git-modified` — the
+// nine roles are defined once per `data-theme` in theme.css (Slate's exact
+// current colors as the literal base, every other theme derived from its
+// own palette), so switching themes now genuinely reflows CM6's syntax
+// colors instead of only the chrome around it. `t.link`/`t.heading` keep
+// reading `--color-primary` directly (unchanged from before this phase) —
+// those aren't code-syntax roles, they're markdown-source-mode link/heading
+// styling that intentionally matches the app's accent everywhere.
 const highlightStyle = HighlightStyle.define([
-  { tag: t.keyword, color: "var(--color-primary)" },
-  { tag: [t.name, t.deleted, t.character, t.macroName], color: "var(--color-fg)" },
-  { tag: [t.function(t.variableName), t.labelName], color: "var(--color-primary)" },
-  { tag: [t.definition(t.name), t.separator], color: "var(--color-fg)" },
-  {
-    tag: [t.typeName, t.className, t.number, t.changed, t.annotation, t.modifier, t.self, t.namespace],
-    color: "var(--git-modified)",
-  },
-  { tag: [t.atom, t.bool, t.special(t.variableName)], color: "var(--git-modified)" },
+  { tag: t.keyword, color: "var(--syntax-keyword)" },
+  { tag: [t.name, t.deleted, t.character, t.macroName], color: "var(--syntax-variable)" },
+  { tag: [t.function(t.variableName), t.labelName], color: "var(--syntax-function)" },
+  { tag: [t.definition(t.name), t.separator], color: "var(--syntax-punctuation)" },
+  { tag: [t.typeName, t.className, t.self, t.namespace], color: "var(--syntax-type)" },
+  { tag: [t.number, t.changed, t.annotation, t.modifier], color: "var(--syntax-number)" },
+  { tag: [t.atom, t.bool, t.special(t.variableName)], color: "var(--syntax-number)" },
   {
     tag: [t.operator, t.operatorKeyword, t.url, t.escape, t.regexp, t.link, t.special(t.string)],
-    color: "var(--markdown-code-color)",
+    color: "var(--syntax-operator)",
   },
-  { tag: [t.processingInstruction, t.string, t.inserted], color: "var(--markdown-code-color)" },
-  { tag: [t.meta, t.comment], color: "var(--color-muted)", fontStyle: "italic" },
+  { tag: [t.processingInstruction, t.string, t.inserted], color: "var(--syntax-string)" },
+  { tag: [t.meta, t.comment], color: "var(--syntax-comment)", fontStyle: "italic" },
   { tag: t.strong, fontWeight: "bold" },
   { tag: t.emphasis, fontStyle: "italic" },
   { tag: t.strikethrough, textDecoration: "line-through" },

@@ -145,6 +145,44 @@ test.describe("Settings view", () => {
     await expect(page.getByRole("button", { name: "Reset demo vault…" })).toBeVisible();
   });
 
+  test("DESIGN-SPEC Amendments round 3 item 23: compact/default/comfortable density measurably scale real chrome band heights", async ({ page }) => {
+    await gotoApp(page);
+
+    async function bandHeights() {
+      return {
+        titlebar: (await page.getByTestId("app-titlebar").boundingBox())!.height,
+        tabbar: (await page.getByRole("tablist", { name: "Open editors" }).boundingBox())!.height,
+        sidebarHeader: (await page.getByTestId("sidebar-header").boundingBox())!.height,
+        treeRow: (await page.locator('[data-tree-path="vault/notes/architecture.md"]').boundingBox())!.height,
+        statusbar: (await page.getByTestId("app-statusbar").boundingBox())!.height,
+      };
+    }
+
+    const defaultHeights = await bandHeights();
+    // `default` is the pixel-sampled regression gate — exact values, not
+    // just "some positive number" (this is a real change vs. Phase 6.5c,
+    // which only ever scaled row/tab horizontal padding).
+    expect(defaultHeights.titlebar).toBeCloseTo(40, 0);
+    expect(defaultHeights.statusbar).toBeCloseTo(22, 0);
+
+    await openSettingsTab(page);
+    await page.getByRole("radio", { name: "Compact" }).click();
+    await tab(page, "vault/notes/architecture.md").click();
+    const compactHeights = await bandHeights();
+
+    await openSettingsTab(page);
+    await page.getByRole("radio", { name: "Comfortable" }).click();
+    await tab(page, "vault/notes/architecture.md").click();
+    const comfortableHeights = await bandHeights();
+
+    // Every band strictly increases compact -> default -> comfortable —
+    // "visibly different at a glance," proven with real measured numbers.
+    for (const key of ["titlebar", "tabbar", "sidebarHeader", "treeRow", "statusbar"] as const) {
+      expect(compactHeights[key], `${key} compact < default`).toBeLessThan(defaultHeights[key]);
+      expect(defaultHeights[key], `${key} default < comfortable`).toBeLessThan(comfortableHeights[key]);
+    }
+  });
+
   test("the Settings tab survives a reload", async ({ page }) => {
     await gotoApp(page);
     await openSettingsTab(page);

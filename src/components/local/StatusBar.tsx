@@ -9,8 +9,13 @@
  * actions composite meant for page headers, not a 22px chrome bar. Each
  * `StatusBarItem` wraps the library's `Tooltip` for the "every segment is
  * hoverable" requirement (DESIGN-SPEC §5) instead of reinventing a tooltip.
+ *
+ * DESIGN-SPEC Amendments round 3 item 22(a): background is a
+ * `TexturedSurface` composed behind the real content, same pattern as
+ * `local/ActivityBar.tsx` (see that file's doc for the full reasoning) —
+ * inert under Slate, visible under `metallic`/`glass`/`comic`/`frosted`.
  */
-import { Tooltip } from "my-you-eye";
+import { Tooltip, TexturedSurface } from "my-you-eye";
 import type { ReactNode } from "react";
 
 export interface StatusBarProps {
@@ -28,13 +33,36 @@ export function StatusBar({ left, right }: StatusBarProps) {
         justifyContent: "space-between",
         height: "var(--app-chrome-statusbar-h)",
         padding: "0 8px",
-        background: "var(--app-titlebar-bg)",
+        // `position`/`isolation` exist for the `TexturedSurface` below:
+        // it is an absolutely-positioned `z-index: -1` sibling, so this
+        // element must be its containing block AND its own stacking
+        // context — without `isolation: isolate` a negative z-index child
+        // escapes behind the nearest ancestor stacking context (the shell
+        // root) and stops compositing over this bar's own fill. Same
+        // pattern as `local/TitleBar.tsx`.
+        position: "relative",
+        isolation: "isolate",
         borderTop: "1px solid var(--app-chrome-border)",
         fontSize: 11,
         fontFamily: "var(--font-mono)",
         color: "var(--color-muted)",
       }}
     >
+      {/* DESIGN-SPEC Amendments round 3 item 22(a): the bar's fill is
+          painted BY this surface (hence no `background` above), so each
+          library theme's own texture is drawn directly on the status bar
+          instead of being relied upon to transmit through stacked
+          translucent ancestors — see `src/theme.css`'s `.dark` block for
+          the measurements that ruled the transmission approach out. Inert
+          under Slate, whose `--texture-*` values render nothing. */}
+      <TexturedSurface
+        aria-hidden
+        radius="none"
+        variant="surface"
+        color="--app-titlebar-bg"
+        layer="page"
+        style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none" }}
+      />
       <div style={{ display: "flex", alignItems: "stretch", gap: 2 }}>{left}</div>
       <div style={{ display: "flex", alignItems: "stretch", gap: 2 }}>{right}</div>
     </div>

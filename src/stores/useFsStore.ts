@@ -38,9 +38,15 @@ const CANONICAL_ORDER = [
   "vault/assets",
   "vault/metrics.csv",
   "vault/vault.config.json",
+  // DESIGN-SPEC Amendments round 3 item 21's two new demo files — appended
+  // after every path the base spec's tree order already covers, so they
+  // land at the end of their respective groups (root loose files / notes/)
+  // rather than disturbing the screenshot-matched order above them.
+  "vault/demo.html",
   "vault/notes/architecture.md",
   "vault/notes/daily-2026-08-14.md",
   "vault/notes/reading-list.md",
+  "vault/notes/markdown-kitchen-sink.md",
   "vault/src/indexer.ts",
   "vault/src/GraphView.tsx",
   "vault/src/theme.css",

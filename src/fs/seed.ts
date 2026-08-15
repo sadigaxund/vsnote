@@ -260,6 +260,192 @@ export function GraphView({ entries }: GraphViewProps) {
 }
 `;
 
+/**
+ * DESIGN-SPEC Amendments round 3 item 21 ("Two new demo files"): a single
+ * note exercising EVERY element the live-preview/rendered-markdown pipeline
+ * supports — h1-h6, bold/italic/strikethrough, nested lists, task lists,
+ * links (external + an internal one in the exact form
+ * `editor/livepreview/links.ts`'s `resolveMarkdownLink` actually resolves —
+ * `../src/indexer.ts` from `notes/`, the same relative-path shape
+ * `architecture.md`'s own seeded working copy already uses), an image
+ * (the existing `assets/cover.png`), nested blockquotes, inline code, fenced
+ * code in several languages, a table, and horizontal rules. Committed
+ * clean (see `seedVault()` below) — this is new CONTENT, not a new
+ * working-tree diff, so it must never appear as a `U`/untracked or `M`
+ * row (that would break the seeded git-state invariants `fs-git.spec.ts`/
+ * `diffStat.test.ts`/`rich-demo-data.spec.ts` all pin: 6 changed files, 1
+ * untracked).
+ *
+ * Note on images: `editor/livepreview/plugin.ts`'s decoration switch has no
+ * `case "Image"` (only `"Link"`) — inline `![]()` markdown is valid syntax
+ * lezer-markdown parses correctly, but this codebase's live-preview has no
+ * widget for it yet (a pre-existing gap, not something this phase's scope
+ * touches), so the image line below renders as plain unstyled markdown
+ * text in Rendered mode rather than an inline `<img>`. Recorded here and in
+ * ARCHITECTURE.md's Deviations rather than silently worked around.
+ */
+const MARKDOWN_KITCHEN_SINK_MD = `# Markdown kitchen sink
+
+A single note exercising every element the live-preview renderer supports —
+used as a manual/automated coverage fixture, not meant to read as prose.
+
+## Headings
+
+### H3 heading
+#### H4 heading
+##### H5 heading
+###### H6 heading
+
+## Emphasis
+
+Plain text, **bold text**, *italic text*, ***bold italic***, and
+~~strikethrough text~~ all in one paragraph.
+
+## Lists
+
+Unordered, with nesting:
+
+- Top-level item one
+  - Nested item one-a
+  - Nested item one-b
+    - Doubly-nested item
+- Top-level item two
+
+Ordered:
+
+1. First step
+2. Second step
+3. Third step
+
+Task list:
+
+- [x] Wire the git status matrix into the Explorer tree
+- [x] Compute the \`+12 -5\` diff chip for real
+- [ ] Ship the incremental indexer's second pass
+- [ ] Write the kitchen-sink coverage note (this one)
+
+## Links
+
+An external link to [the isomorphic-git docs](https://isomorphic-git.org/)
+and an internal link to [indexer.ts](../src/indexer.ts) — resolved relative
+to this note's own folder, the same way every other internal link in this
+vault is.
+
+## Images
+
+![Vault cover art](../assets/cover.png)
+
+## Blockquotes
+
+> A top-level blockquote.
+>
+> > A nested blockquote inside it.
+> >
+> > > And a third level, for good measure.
+
+## Inline code
+
+Call \`buildIndex(paths)\` to get a fresh \`Map<string, IndexEntry>\`.
+
+## Fenced code blocks
+
+\`\`\`ts
+export function parseLinks(source: string): string[] {
+  return [...source.matchAll(/\\[[^\\]]*\\]\\(([^)]+)\\)/g)].map((m) => m[1]);
+}
+\`\`\`
+
+\`\`\`json
+{
+  "name": "vault",
+  "indexing": { "engine": "incremental" }
+}
+\`\`\`
+
+\`\`\`css
+.cm-md-fence {
+  font-family: var(--font-mono);
+  color: var(--markdown-code-color);
+}
+\`\`\`
+
+\`\`\`bash
+npm run build && npm test
+\`\`\`
+
+## Table
+
+| File | Status | Lines changed |
+|---|---|---|
+| architecture.md | M | +12 / -5 |
+| indexer.ts | M | +20 / -3 |
+| GraphView.tsx | A | new file |
+| legacy-parser.ts | D | removed |
+
+## Horizontal rules
+
+Above this line:
+
+---
+
+Below it, and again:
+
+***
+
+The end.
+`;
+
+/**
+ * DESIGN-SPEC Amendments round 3 item 21: a small, simple styled HTML page
+ * for the `.html` iframe preview (`renderers/HtmlPreview.tsx`) — "nothing
+ * complex," per the spec. Committed clean, same invariant as the kitchen
+ * sink above.
+ */
+const DEMO_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vault demo page</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 32px;
+        background: #101318;
+        color: #d8dfe6;
+        font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      h1 {
+        color: #27d2c5;
+        font-size: 24px;
+      }
+      p {
+        color: #bac1c8;
+        line-height: 1.6;
+        max-width: 46ch;
+      }
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: #1c1f26;
+        color: #a8d578;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Vault demo page</h1>
+    <p>
+      A small, simple static page for the sandboxed HTML preview
+      (<span class="badge">sandbox=""</span>) — nothing fancy, just enough
+      structure to prove the iframe renders real DOM with its own styling.
+    </p>
+    <p>Rendered inside an isolated <code>&lt;iframe srcDoc&gt;</code>.</p>
+  </body>
+</html>
+`;
+
 const INDEXER_TS_HEAD = `export function buildIndex(paths: string[]): Map<string, string[]> {
   const index = new Map<string, string[]>();
   for (const path of paths) {
@@ -363,8 +549,16 @@ async function seedVault(): Promise<void> {
   await writeFile(`${VAULT_DIR}/assets/cover.png`, coverPngBytes());
   await writeFile(`${VAULT_DIR}/metrics.csv`, METRICS_CSV_HEAD);
   await writeFile(`${VAULT_DIR}/vault.config.json`, VAULT_CONFIG_JSON);
+  // DESIGN-SPEC Amendments round 3 item 21: both new demo files are
+  // written and committed alongside every other clean, untouched file
+  // (`reading-list.md`, `theme.css`, `vault.config.json`, `cover.png`) —
+  // they must land COMMITTED, never left staged/untracked, or they'd
+  // silently inflate the seeded "6 changed files" / "1 untracked" git-state
+  // invariants every other spec in this suite pins.
+  await writeFile(`${VAULT_DIR}/notes/markdown-kitchen-sink.md`, MARKDOWN_KITCHEN_SINK_MD);
+  await writeFile(`${VAULT_DIR}/demo.html`, DEMO_HTML);
 
-  // Two real commits — a small, real history rather than one big blob.
+  // Three real commits — a small, real history rather than one big blob.
   await commitPaths(
     ["src/theme.css", "src/legacy-parser.ts", "notes/reading-list.md", "vault.config.json", "assets/cover.png"],
     "chore: scaffold vault",
@@ -372,6 +566,10 @@ async function seedVault(): Promise<void> {
   await commitPaths(
     ["notes/architecture.md", "src/indexer.ts", "metrics.csv"],
     "feat: indexing architecture draft",
+  );
+  await commitPaths(
+    ["notes/markdown-kitchen-sink.md", "demo.html"],
+    "docs: markdown kitchen sink + html preview demo",
   );
 
   // Working-tree edits, left uncommitted, so statusMatrix() genuinely

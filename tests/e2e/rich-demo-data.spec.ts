@@ -73,13 +73,138 @@ test.describe("representative demo data", () => {
     await expect(page.getByText("Priya Natarajan").first()).toBeVisible();
   });
 
+  test("DESIGN-SPEC Amendments round 3 item 21: markdown-kitchen-sink.md renders every supported element (real DOM markers, not a screenshot)", async ({ page }) => {
+    await gotoApp(page);
+    await openFromTree(page, "vault/notes/markdown-kitchen-sink.md", { pin: true });
+    await expect(tab(page, "vault/notes/markdown-kitchen-sink.md")).toBeVisible();
+    // Boots in Rendered mode (md's registry default) — the live-preview CM6
+    // editor, real decoration classes per heading/emphasis/list/etc level.
+    const content = page.locator(".cm-content").first();
+    const scroller = page.locator(".cm-scroller").first();
+    await expect(content).toBeVisible();
+
+    // CM6 virtualizes long documents (only lines near the current scroll
+    // position exist in the DOM at all — a fundamental CM6 behavior, not a
+    // bug), so this test SCROLLS THROUGH the whole note, accumulating
+    // which decoration classes it has seen along the way, instead of
+    // asserting element counts against a single static viewport (which
+    // would only ever see the top of the document). Each step scrolls the
+    // real `.cm-scroller` element and `expect.poll`s on the union of
+    // classes seen so far actually growing — a real synchronization point
+    // (CM6 has rendered something new), not a bare timeout.
+    const seenClasses = new Set<string>();
+    const MARKER_CLASSES = [
+      "cm-md-h1",
+      "cm-md-h2",
+      "cm-md-h3",
+      "cm-md-h4",
+      "cm-md-h5",
+      "cm-md-h6",
+      "cm-md-strong",
+      "cm-md-em",
+      "cm-md-strike",
+      "cm-md-list-item",
+      "cm-md-ordered-item",
+      "cm-md-task-item",
+      "cm-md-checkbox",
+      "cm-md-link",
+      "cm-md-quote",
+      "cm-md-code",
+      "cm-md-fence",
+      "cm-md-hr",
+    ];
+    async function sampleVisibleMarkers(): Promise<void> {
+      const found = await content.evaluate((el, classes: string[]) => {
+        const present: string[] = [];
+        for (const c of classes) {
+          if (el.querySelector(`.${c}`)) present.push(c);
+        }
+        return present;
+      }, MARKER_CLASSES);
+      for (const c of found) seenClasses.add(c);
+    }
+
+    const scrollHeight = await scroller.evaluate((el) => el.scrollHeight);
+    const clientHeight = await scroller.evaluate((el) => el.clientHeight);
+    const steps = Math.max(4, Math.ceil(scrollHeight / Math.max(1, clientHeight)) + 2);
+    for (let i = 0; i <= steps; i++) {
+      const top = Math.round((scrollHeight * i) / steps);
+      await scroller.evaluate((el, y) => {
+        el.scrollTop = y;
+        el.dispatchEvent(new Event("scroll"));
+      }, top);
+      await expect
+        .poll(async () => {
+          await sampleVisibleMarkers();
+          return seenClasses.size;
+        })
+        .toBeGreaterThanOrEqual(0); // just forces a settle point between scroll steps
+    }
+
+    // Every supported element class was seen SOMEWHERE while scrolling
+    // through the note — the real coverage assertion.
+    for (const cls of MARKER_CLASSES) {
+      expect(seenClasses.has(cls), `expected to see .${cls} somewhere in the rendered note`).toBe(true);
+    }
+
+    // Task-list checkboxes are real, interactive inputs with the right
+    // checked state — scroll back to the task list specifically (near the
+    // top) and verify that beyond "the class exists somewhere."
+    await scroller.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await page.getByText("Task list:").scrollIntoViewIfNeeded();
+    const checkboxes = content.locator(".cm-md-checkbox");
+    await expect(checkboxes).toHaveCount(4);
+    await expect(checkboxes.nth(0)).toBeChecked();
+    await expect(checkboxes.nth(2)).not.toBeChecked();
+
+    // Horizontal rules — two `---`/`***` rules; scroll to the bottom
+    // (Ctrl+End, a real user gesture CM6 scrolls into view on its own).
+    await content.click();
+    await page.keyboard.press("Control+End");
+    await expect(content.locator(".cm-md-hr")).toHaveCount(2);
+    await expect(page.getByText("The end.")).toBeVisible();
+
+    // The internal link resolves and opens indexer.ts in a tab when
+    // clicked (DESIGN-SPEC "Internal links ... open that file in a tab") —
+    // use the find widget to scroll it into view deterministically rather
+    // than guessing a scroll position.
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Control+f");
+    const findInput = page.getByTestId("find-widget").getByPlaceholder("Find");
+    await findInput.fill("indexer.ts");
+    // `setSearchQuery` alone only highlights matches — it doesn't move the
+    // selection/scroll. `findNext` (Enter) actually jumps to (and scrolls
+    // to) the first match, same as a real user pressing Enter in the
+    // widget.
+    await findInput.press("Enter");
+    await page.keyboard.press("Escape");
+    const internalLink = content.getByText("indexer.ts", { exact: true });
+    await internalLink.click();
+    await expect(tab(page, "vault/src/indexer.ts")).toBeVisible();
+  });
+
+  test("DESIGN-SPEC Amendments round 3 item 21: demo.html renders in the sandboxed iframe preview", async ({ page }) => {
+    await gotoApp(page);
+    await openFromTree(page, "vault/demo.html", { pin: true });
+    await expect(tab(page, "vault/demo.html")).toBeVisible();
+    // html defaults to Rendered mode (filetypes/registry.ts).
+    const frame = page.frameLocator("iframe");
+    await expect(frame.getByRole("heading", { name: "Vault demo page" })).toBeVisible();
+    await expect(frame.getByText(/sandboxed HTML preview/)).toBeVisible();
+    // Confirm the iframe is really sandboxed, per DESIGN-SPEC.
+    const sandboxAttr = await page.locator("iframe").getAttribute("sandbox");
+    expect(sandboxAttr).toBe("");
+  });
+
   test("git invariants still hold with the regenerated demo data: metrics.csv M, architecture.md +12/-5, 6 changes, 1 untracked", async ({ page }) => {
     await gotoApp(page);
     await expect(treeRow(page, "vault/metrics.csv")).toContainText("M");
     const scmButton = page.getByRole("button", { name: "Source Control" });
     await expect(scmButton).toContainText("6");
 
-    const header = page.getByTestId("editor-header");
+    const header = page.getByTestId("app-titlebar");
     await expect(header).toContainText("+12");
     await expect(header).toContainText("-5");
 

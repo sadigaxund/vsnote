@@ -312,9 +312,21 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
     }
   }
 
+  // DESIGN-SPEC Amendments item 24 ("Find widget 30-40% smaller"): every
+  // literal dimension below (padding, gaps, control sizes, icon sizes, font
+  // sizes) was cut ~30-40% from Phase 6.5b's original values — SAME layout,
+  // SAME features, just smaller, matched against `search.png`. Measured
+  // before this change (Playwright `boundingBox()` on the mounted widget):
+  // row 1 (collapsed) 474×38px, expanded (with replace row) 474×67px. The
+  // values below target ~66% width / ~68-70% height of those numbers — see
+  // ARCHITECTURE.md's Deviations entry for the exact before/after
+  // measurements taken from the real e2e suite.
+  const NAV_BTN = 13;
+  const TOGGLE_BTN = 14;
+
   const toggleBtnStyle = (active: boolean): React.CSSProperties => ({
-    width: 22,
-    height: 22,
+    width: TOGGLE_BTN,
+    height: TOGGLE_BTN,
     padding: 0,
     color: active ? "var(--color-primary)" : "var(--color-muted)",
     background: active ? "color-mix(in oklab, var(--color-primary) 18%, transparent)" : "transparent",
@@ -333,24 +345,24 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
         pointerEvents: "auto",
         display: "flex",
         flexDirection: "column",
-        gap: 5,
-        marginTop: 8,
-        marginRight: 10,
-        padding: "6px 8px",
+        gap: 3,
+        marginTop: 6,
+        marginRight: 8,
+        padding: "3px 6px",
         width: "fit-content",
         background: "var(--app-titlebar-bg)",
         border: "1px solid var(--app-chrome-border)",
-        borderLeft: "3px solid var(--color-primary)",
-        borderRadius: "var(--radius-ui)",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.3)",
+        borderLeft: "2px solid var(--color-primary)",
+        borderRadius: "var(--radius-ui-sm)",
+        boxShadow: "0 6px 18px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3)",
         fontFamily: "var(--font-mono)",
-        fontSize: 12.5,
+        fontSize: 11,
       }}
     >
       {/* Row 1: chevron, find input, toggles, counter, nav, close. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
         {readOnly ? (
-          <span style={{ width: 20, flexShrink: 0 }} aria-hidden />
+          <span style={{ width: NAV_BTN, flexShrink: 0 }} aria-hidden />
         ) : (
           <Tooltip content={expanded ? "Hide replace" : "Show replace"} side="bottom">
             <Button
@@ -360,9 +372,9 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
               aria-label={expanded ? "Hide replace" : "Show replace"}
               aria-expanded={expanded}
               onClick={() => setExpanded((v) => !v)}
-              style={{ width: 20, height: 20, padding: 0, color: "var(--color-muted)", flexShrink: 0 }}
+              style={{ width: NAV_BTN, height: NAV_BTN, padding: 0, color: "var(--color-muted)", flexShrink: 0 }}
             >
-              {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
             </Button>
           </Tooltip>
         )}
@@ -385,7 +397,7 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
           value={search}
           onChange={(e) => dispatchQuery({ search: e.target.value })}
           onKeyDown={onSearchKeyDown}
-          style={{ width: 190, height: 24, fontFamily: "var(--font-mono)", fontSize: 12.5 }}
+          style={{ width: 118, height: 17, fontFamily: "var(--font-mono)", fontSize: 11 }}
         />
 
         <Tooltip content="Match case" side="bottom">
@@ -398,7 +410,7 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
             onClick={() => dispatchQuery({ caseSensitive: !caseSensitive })}
             style={toggleBtnStyle(caseSensitive)}
           >
-            <CaseSensitive size={15} />
+            <CaseSensitive size={12} />
           </Button>
         </Tooltip>
         <Tooltip content="Match whole word" side="bottom">
@@ -411,7 +423,7 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
             onClick={() => dispatchQuery({ wholeWord: !wholeWord })}
             style={toggleBtnStyle(wholeWord)}
           >
-            <WholeWord size={15} />
+            <WholeWord size={12} />
           </Button>
         </Tooltip>
         <Tooltip content="Use regular expression" side="bottom">
@@ -424,16 +436,16 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
             onClick={() => dispatchQuery({ regexp: !regexp })}
             style={toggleBtnStyle(regexp)}
           >
-            <Regex size={15} />
+            <Regex size={12} />
           </Button>
         </Tooltip>
 
         <span
           data-testid="find-widget-count"
           style={{
-            minWidth: 62,
+            minWidth: 40,
             textAlign: "center",
-            fontSize: 11.5,
+            fontSize: 10,
             color: showNoResults ? "var(--git-deleted)" : "var(--color-muted)",
             whiteSpace: "nowrap",
           }}
@@ -449,9 +461,9 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
             aria-label="Previous match"
             disabled={total === 0}
             onClick={() => findPrevious(view)}
-            style={{ width: 20, height: 20, padding: 0, color: "var(--color-muted)" }}
+            style={{ width: NAV_BTN, height: NAV_BTN, padding: 0, color: "var(--color-muted)" }}
           >
-            <ArrowUp size={13} />
+            <ArrowUp size={10} />
           </Button>
         </Tooltip>
         <Tooltip content="Next match (Enter)" side="bottom">
@@ -462,9 +474,9 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
             aria-label="Next match"
             disabled={total === 0}
             onClick={() => findNext(view)}
-            style={{ width: 20, height: 20, padding: 0, color: "var(--color-muted)" }}
+            style={{ width: NAV_BTN, height: NAV_BTN, padding: 0, color: "var(--color-muted)" }}
           >
-            <ArrowDown size={13} />
+            <ArrowDown size={10} />
           </Button>
         </Tooltip>
         <Tooltip content="Select all matches" side="bottom">
@@ -475,9 +487,9 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
             aria-label="Select all matches"
             disabled={total === 0}
             onClick={() => selectMatches(view)}
-            style={{ width: 20, height: 20, padding: 0, color: "var(--color-muted)" }}
+            style={{ width: NAV_BTN, height: NAV_BTN, padding: 0, color: "var(--color-muted)" }}
           >
-            <AlignJustify size={13} />
+            <AlignJustify size={10} />
           </Button>
         </Tooltip>
         <Tooltip content="Close (Esc)" side="bottom">
@@ -487,9 +499,9 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
             size="icon-sm"
             aria-label="Close"
             onClick={() => closeSearchPanel(view)}
-            style={{ width: 20, height: 20, padding: 0, color: "var(--color-muted)" }}
+            style={{ width: NAV_BTN, height: NAV_BTN, padding: 0, color: "var(--color-muted)" }}
           >
-            <X size={14} />
+            <X size={11} />
           </Button>
         </Tooltip>
       </div>
@@ -497,8 +509,8 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
       {/* Row 2: replace — only when expanded, and never for a read-only view
           (DiffView's panes; @codemirror/merge's `EditorState.readOnly`). */}
       {expanded && !readOnly && (
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 20, flexShrink: 0 }} aria-hidden />
+        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+          <span style={{ width: NAV_BTN, flexShrink: 0 }} aria-hidden />
           <Input
             size="sm"
             placeholder="Replace"
@@ -506,7 +518,7 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
             value={replace}
             onChange={(e) => dispatchQuery({ replace: e.target.value })}
             onKeyDown={onReplaceKeyDown}
-            style={{ width: 190, height: 24, fontFamily: "var(--font-mono)", fontSize: 12.5 }}
+            style={{ width: 118, height: 17, fontFamily: "var(--font-mono)", fontSize: 11 }}
           />
           <Tooltip content="Preserve case" side="bottom">
             <Button
@@ -517,7 +529,7 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
               aria-label="Preserve case"
               disabled={regexp}
               onClick={() => setPreserveCase((v) => !v)}
-              style={{ ...toggleBtnStyle(preserveCase), width: "auto", padding: "0 4px", fontSize: 10.5, fontWeight: 700 }}
+              style={{ ...toggleBtnStyle(preserveCase), width: "auto", padding: "0 3px", fontSize: 9, fontWeight: 700 }}
             >
               AB
             </Button>
@@ -530,9 +542,9 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
               aria-label="Replace"
               disabled={total === 0}
               onClick={() => performReplaceOne(view, preserveCase)}
-              style={{ width: 20, height: 20, padding: 0, color: "var(--color-muted)" }}
+              style={{ width: NAV_BTN, height: NAV_BTN, padding: 0, color: "var(--color-muted)" }}
             >
-              <Replace size={14} />
+              <Replace size={11} />
             </Button>
           </Tooltip>
           <Tooltip content="Replace all" side="bottom">
@@ -543,9 +555,9 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
               aria-label="Replace all"
               disabled={total === 0}
               onClick={() => performReplaceAll(view, preserveCase)}
-              style={{ width: 20, height: 20, padding: 0, color: "var(--color-muted)" }}
+              style={{ width: NAV_BTN, height: NAV_BTN, padding: 0, color: "var(--color-muted)" }}
             >
-              <ReplaceAll size={14} />
+              <ReplaceAll size={11} />
             </Button>
           </Tooltip>
         </div>

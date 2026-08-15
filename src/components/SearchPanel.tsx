@@ -2,28 +2,38 @@
  * Search activity view (the magnifier in the activity rail) — DESIGN-SPEC
  * "Misc / settings": "full-text across vault with result list → opens at
  * line". Composition over the library's `Input`/`ScrollArea`/`EmptyState`
- * plus the local `FileIcon`; the actual search walk is `lib/vaultSearch.ts`.
+ * plus the local `FileIcon`/`SidebarContainer`; the actual search walk is
+ * `lib/vaultSearch.ts`.
  *
- * Same shell (width, header row, filter-style input) as `Sidebar.tsx`'s
- * Explorer panel so switching activity-rail panels doesn't jump the layout.
- * `React.lazy`-loaded from `App.tsx` (only mounted once the Search rail
- * icon is actually clicked) — keeps the vault-walk/highlight logic out of
- * the cold-boot bundle per IMPLEMENTATION-PLAN.md Phase 5's bundle
- * discipline note.
+ * Renders inside the shared `local/SidebarContainer` region shell — the
+ * SAME persisted width/collapsed state `Sidebar.tsx`'s Explorer panel uses
+ * (DESIGN-SPEC Amendments round 3 item 20's course-correction: this used to
+ * hardcode its own frozen `width: 288` with no resize/collapse affordance
+ * at all, so switching from a resized Explorer to Search visibly snapped
+ * the layout back to 288px — now it's genuinely the same region, just
+ * showing different content). `React.lazy`-loaded from `App.tsx` (only
+ * mounted once the Search rail icon is actually clicked) — keeps the
+ * vault-walk/highlight logic out of the cold-boot bundle per
+ * IMPLEMENTATION-PLAN.md Phase 5's bundle discipline note.
  */
 import { useEffect, useState } from "react";
 import { EmptyState, Input, ScrollArea, Spinner } from "my-you-eye";
 import { Search as SearchIcon } from "lucide-react";
 import { FileIcon } from "./local/FileIcon";
+import { SidebarContainer } from "./local/SidebarContainer";
 import { searchVault, type SearchFileResult } from "../lib/vaultSearch";
 
 export interface SearchPanelProps {
   onOpenResult: (path: string, line: number) => void;
+  width: number;
+  onWidthChange: (width: number) => void;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
 }
 
 const DEBOUNCE_MS = 200;
 
-export function SearchPanel({ onOpenResult }: SearchPanelProps) {
+export function SearchPanel({ onOpenResult, width, onWidthChange, collapsed, onCollapsedChange }: SearchPanelProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchFileResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -64,39 +74,14 @@ export function SearchPanel({ onOpenResult }: SearchPanelProps) {
   const totalMatches = results.reduce((sum, r) => sum + r.matches.length, 0);
 
   return (
-    <aside
-      style={{
-        width: 288,
-        flexShrink: 0,
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--app-sidebar-bg)",
-        borderRight: "1px solid var(--app-chrome-border)",
-        minHeight: 0,
-      }}
+    <SidebarContainer
+      testId="search-panel"
+      label="SEARCH"
+      width={width}
+      onWidthChange={onWidthChange}
+      collapsed={collapsed}
+      onCollapsedChange={onCollapsedChange}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          height: "var(--app-chrome-sidebar-header-h)",
-          padding: "0 12px",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-            color: "var(--color-muted)",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          SEARCH
-        </span>
-      </div>
-
       <div style={{ padding: "0 10px 8px", flexShrink: 0 }}>
         <div style={{ position: "relative" }}>
           <SearchIcon
@@ -159,7 +144,7 @@ export function SearchPanel({ onOpenResult }: SearchPanelProps) {
           </div>
         )}
       </ScrollArea>
-    </aside>
+    </SidebarContainer>
   );
 }
 

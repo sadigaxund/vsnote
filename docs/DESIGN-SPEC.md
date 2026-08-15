@@ -256,8 +256,14 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
 18. **Header consolidation — remove the inner editor-header row.** The title bar
     absorbs the focused pane's controls: breadcrumbs, diff-stat chip, mode toggle,
     unified/split diff toggle, zen button. The global search field shrinks to a
-    compact icon + `⌘K` hint on the right cluster (it opens the command palette —
-    that is its only job). Rule for the pane grid: with >1 pane, each pane keeps a
+    single icon button on the right cluster (it opens the command palette — that
+    is its only job); the shortcut lives in its tooltip only, not as a separate
+    visible `⌘K` badge next to the icon (corrected during implementation — an
+    icon *and* a literal "⌘K" badge both read as "this is the search shortcut,"
+    which is redundant, and every sibling action in the same cluster — sidebar
+    toggle, split, settings — is already a bare icon button with its shortcut
+    in the tooltip only; matching that pattern instead of being the one
+    exception). Rule for the pane grid: with >1 pane, each pane keeps a
     slim per-pane header (per-pane modes require it) and the title bar mirrors the
     FOCUSED pane; with a single pane, no inner header exists at all — the title bar
     carries everything. Net effect: one less horizontal band in the common case.

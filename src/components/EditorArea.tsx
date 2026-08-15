@@ -12,16 +12,25 @@
  * pre-Phase-6 single-pane zen; the other panes and the split grid itself
  * reappear on exit. The floating "filename · Esc to exit" pill lives in
  * `EditorPane` (it already knows that pane's active tab name).
+ *
+ * `multiPane` (DESIGN-SPEC Amendments round 3 item 18): computed here, once,
+ * from `collectLeaves(tree).length > 1` and passed to every `EditorPane` —
+ * the single source of truth for "does each pane get its own slim header,
+ * or does the title bar carry it for the lone focused pane instead" (see
+ * `EditorPane.tsx`'s module doc). `onEnterZen` no longer flows through this
+ * component at all — DESIGN-SPEC Amendments round 3 item 18 moved the zen
+ * button itself into the title bar (`App.tsx` calls `enterZenMode`
+ * directly, not via any pane), so there's nothing left here to forward it
+ * to.
  */
 import { useState } from "react";
 import { PaneGroup } from "./local/PaneGroup";
 import { EditorPane } from "./EditorPane";
-import { useTabsStore } from "../stores/useTabsStore";
+import { collectLeaves, useTabsStore } from "../stores/useTabsStore";
 import type { StoragePersistenceStatus } from "../fs/persistence";
 
 export interface EditorAreaProps {
   zenMode: boolean;
-  onEnterZen: () => void;
   onExitZen: () => void;
   onOpenLink: (paneId: string, href: string) => void;
   /** Threaded down to the Settings view (Phase 6.5c, DESIGN-SPEC Amendments
@@ -40,7 +49,6 @@ export interface EditorAreaProps {
 // the main cause of the typing-latency bug).
 export function EditorArea({
   zenMode,
-  onEnterZen,
   onExitZen,
   onOpenLink,
   storagePersistence,
@@ -58,9 +66,9 @@ export function EditorArea({
       <EditorPane
         paneId={activePaneId}
         zen
+        multiPane={false}
         zenPillHovered={zenPillHovered}
         onZenHoverChange={setZenPillHovered}
-        onEnterZen={onEnterZen}
         onExitZen={onExitZen}
         onOpenLink={onOpenLink}
         storagePersistence={storagePersistence}
@@ -69,6 +77,8 @@ export function EditorArea({
       />
     );
   }
+
+  const multiPane = collectLeaves(tree).length > 1;
 
   return (
     <PaneGroup
@@ -79,9 +89,9 @@ export function EditorArea({
         <EditorPane
           key={leaf.id}
           paneId={leaf.id}
+          multiPane={multiPane}
           zenPillHovered={false}
           onZenHoverChange={() => {}}
-          onEnterZen={onEnterZen}
           onExitZen={onExitZen}
           onOpenLink={onOpenLink}
           storagePersistence={storagePersistence}

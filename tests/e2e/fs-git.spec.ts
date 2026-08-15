@@ -38,7 +38,7 @@ test.describe("fs + git", () => {
     // architecture.md is the default active tab; its diff chip lives in the
     // editor header regardless of mode (fetched independent of Rendered/
     // Source/Diff — EditorPane.tsx's effect keys only on the path).
-    const header = page.getByTestId("editor-header");
+    const header = page.getByTestId("app-titlebar");
     await expect(header).toContainText("+12");
     await expect(header).toContainText("-5");
 

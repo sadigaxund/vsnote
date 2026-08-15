@@ -11,13 +11,29 @@ test.describe("shell", () => {
     await gotoApp(page);
 
     await expect(page.getByTestId("app-titlebar")).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Search files, symbols, commits" })).toBeVisible();
+    // DESIGN-SPEC Amendments round 3 item 18 ("Header consolidation"): the
+    // centered global-search Input is gone — replaced by a compact
+    // command-palette icon button + `⌘K` hint in the title bar's right
+    // cluster, whose only job is opening the command palette (same
+    // behavior the old, unwired Input never actually had — see
+    // `components/TitleBar.tsx`'s doc).
+    await expect(page.getByTestId("app-titlebar").getByRole("button", { name: "Command palette" })).toBeVisible();
     await expect(page.getByTestId("app-activitybar")).toBeVisible();
     await expect(page.getByTestId("explorer-sidebar")).toBeVisible();
     await expect(page.getByRole("tree")).toBeVisible();
     await expect(page.getByRole("tablist", { name: "Open editors" })).toBeVisible();
-    await expect(page.getByTestId("editor-header")).toBeVisible();
+    // Item 18's other half: with exactly one pane open (the boot default),
+    // there is NO separate `editor-header` band at all — the title bar
+    // carries the mode toggle for the focused pane instead.
+    await expect(page.getByTestId("editor-header")).toHaveCount(0);
+    await expect(page.getByTestId("app-titlebar").getByRole("radio", { name: "Rendered" })).toBeVisible();
     await expect(page.getByTestId("app-statusbar")).toBeVisible();
+  });
+
+  test("opening the command palette from the title bar's compact affordance works (item 18)", async ({ page }) => {
+    await gotoApp(page);
+    await page.getByTestId("app-titlebar").getByRole("button", { name: "Command palette" }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
   });
 
   test("Explorer lists the exact seeded demo vault contents, assets/ collapsed by default", async ({ page }) => {

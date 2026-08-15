@@ -8,8 +8,20 @@
  * content-switching, not a persistent nav rail with badges). Built from
  * `Button`/`Tooltip` primitives plus the shared design tokens — not a
  * fork, a composition the library doesn't offer pre-assembled.
+ *
+ * DESIGN-SPEC Amendments round 3 item 22(a): the rail's own background is
+ * a `TexturedSurface` (`texture="theme"`) composed as an absolutely
+ * positioned, `pointer-events: none`, `z-index: -1` sibling behind the real
+ * icon content, filling the whole rail (`inset: 0`) — not a fork of the
+ * component, and not applied via `as`/wrap-override (it can't be: the
+ * `<nav>` element and its `aria-label`/`data-testid` stay exactly as they
+ * were, `TexturedSurface` only supplies the paint layer behind them). It
+ * reads `--texture-type`/`--texture-opacity-surface` off `data-theme`
+ * itself, so it's automatically inert (opacity 0) for Slate/`data-theme`
+ * unset — see `src/theme.css`'s `.dark` block comment for the full
+ * reasoning and the measured before/after numbers.
  */
-import { Button, Tooltip } from "my-you-eye";
+import { Button, Tooltip, TexturedSurface } from "my-you-eye";
 import type { ReactNode } from "react";
 
 export interface ActivityBarItem {
@@ -35,7 +47,8 @@ export function ActivityBar({ items, onSelect, footer, onFooterSelect }: Activit
       style={{
         width: 48,
         flexShrink: 0,
-        background: "var(--app-chrome-bg)",
+        position: "relative",
+        isolation: "isolate",
         borderRight: "1px solid var(--app-chrome-border)",
         display: "flex",
         flexDirection: "column",
@@ -45,7 +58,19 @@ export function ActivityBar({ items, onSelect, footer, onFooterSelect }: Activit
         paddingBottom: 8,
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <TexturedSurface
+        aria-hidden
+        radius="none"
+        variant="surface"
+        color="--app-chrome-bg"
+        layer="page"
+        style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none" }}
+      />
+      {/* DESIGN-SPEC Amendments round 3 item 23 ("Density must be real"):
+          icon spacing between rail items scales with `--app-density-icon-
+          gap` instead of a fixed `4px`, the concrete "icon spacing" example
+          density is supposed to visibly affect. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--app-density-icon-gap)" }}>
         {items.map((item) => (
           <RailButton key={item.id} item={item} onClick={() => onSelect?.(item.id)} />
         ))}

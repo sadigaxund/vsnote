@@ -4,6 +4,7 @@ import { AppActivityBar, type ActivityPanel } from "./components/ActivityBar";
 import { AppTitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { SourceControlPanel } from "./components/SourceControlPanel";
+import { ExtensionsPanel } from "./components/ExtensionsPanel";
 import { EditorArea } from "./components/EditorArea";
 import { AppStatusBar } from "./components/StatusBar";
 import { ensureSeeded, resetDemoVault } from "./fs/seed";
@@ -103,6 +104,9 @@ export default function App() {
   // `.getState()` at the point of use, same discipline as `fs`/`buffers`
   // below).
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
+  // Targeted selector, same discipline as `sidebarWidth` above — DESIGN-SPEC
+  // Amendments round 3 item 20 ("Sidebar collapse/expand").
+  const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   // DESIGN-SPEC Amendments item 16 (typing-latency bug): `useFsStore()`/
   // `useBufferStore()` used to be called here with NO selector — the
   // zustand anti-pattern of subscribing to an entire store's state, which
@@ -170,6 +174,20 @@ export default function App() {
   const activeTab = useMemo(() => focusedLeaf?.tabs.find((t) => t.path === focusedLeaf.activeTabId), [focusedLeaf]);
 
   const activeDiff = useGitStore((s) => (activeTab ? (s.diffCache[activeTab.path] ?? EMPTY_DIFF) : EMPTY_DIFF));
+
+  // DESIGN-SPEC Amendments round 3 item 18 ("Header consolidation") — the
+  // title bar always mirrors the FOCUSED pane's mode/diff/breadcrumb state,
+  // computed here from the same `activeTab`/`activeDiff` the status bar
+  // already reads (single source, same discipline as every other "numbers
+  // must agree" spot in this app — see ARCHITECTURE.md's Deviations note on
+  // the status bar's diff figure). No breadcrumb (and therefore no mode
+  // toggle / diff chip cluster) when there's no tab open, or the focused
+  // tab is the virtual Settings view — same "no editor surface" case
+  // `filetypes/registry.ts`'s `modeAvailabilityFor` already returns `[]`
+  // for.
+  const titlebarAvailableModes = modeAvailabilityFor(activeTab?.kind, activeDiff.added > 0 || activeDiff.removed > 0);
+  const titlebarBreadcrumb = activeTab && activeTab.kind !== "settings" ? activeTab.path.split("/") : undefined;
+  const titlebarDiffLayout = focusedLeaf?.diffLayout ?? "split";
 
   // DESIGN-SPEC "⌘E toggle Rendered/Source (Obsidian muscle memory)" — a
   // named function (not inlined in the keydown handler below) since both
@@ -362,6 +380,41 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [zenMode]);
 
+  // DESIGN-SPEC Amendments item 19 ("Single-Esc fullscreen exit"): the
+  // keydown handler above is not enough on its own — when `enterZenMode`'s
+  // `requestFullscreen()` succeeded, the BROWSER itself intercepts the
+  // first Escape press to leave fullscreen before (or instead of) our own
+  // `keydown` listener ever sees it (confirmed empirically: a scripted
+  // single Escape press left `zenMode` still `true` even though
+  // `document.fullscreenElement` had already gone `null`) — so relying on
+  // `keydown` alone needs a SECOND press once the browser is no longer
+  // intercepting. Fixed by also listening for the browser's own native
+  // `fullscreenchange` event, which fires reliably whenever fullscreen
+  // ends for ANY reason (this exact Esc-swallow case, `exitZenMode`'s own
+  // `document.exitFullscreen()` call below, the user pressing a
+  // browser-chrome fullscreen-exit control, F11, ...): if fullscreen just
+  // ended while zen was still logically active, exit zen in that SAME
+  // event instead of waiting for a second Escape. A functional `setZenMode`
+  // update (not `exitZenMode()`) is deliberate here — this handler must
+  // never itself call `document.exitFullscreen()` (fullscreen has, by
+  // definition, already ended by the time this fires), so it can't
+  // recurse into re-triggering itself; calling `setZenMode(false)` a
+  // second time (e.g. right after `exitZenMode()`'s own
+  // `document.exitFullscreen()` call resolves and fires this same event)
+  // is a plain idempotent no-op, not a double-toggle or a re-entry into
+  // zen. Runs unconditionally (mount-once, not scoped to `zenMode`) since
+  // it must be listening BEFORE the browser-intercepted first Escape ever
+  // happens.
+  useEffect(() => {
+    function onFullscreenChange() {
+      if (!document.fullscreenElement) {
+        setZenMode((prev) => (prev ? false : prev));
+      }
+    }
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
   // A search result's file may need to open (new tab) and/or switch to
   // Source mode before its CM6 EditorView exists to jump a selection into —
   // both happen synchronously in `handleSearchOpenResult` below, but the
@@ -430,6 +483,26 @@ export default function App() {
     document.addEventListener("visibilitychange", flushAllDirty);
     return () => document.removeEventListener("visibilitychange", flushAllDirty);
   }, []);
+
+  // DESIGN-SPEC Amendments round 3 item 20 — VSCode's own activity-bar
+  // semantics: clicking the CURRENTLY-active view's icon toggles the side
+  // panel closed/open in place; clicking a DIFFERENT view's icon switches
+  // to (and always shows) that view, uncollapsing if it was collapsed.
+  // Width/collapsed-ness are properties of the sidebar REGION, not any one
+  // view (course-corrected after the first pass at item 20 bound them to
+  // the Explorer panel specifically — see `local/SidebarContainer.tsx`'s
+  // doc) — every activity-bar icon opens a view that renders itself inside
+  // the SAME shared shell, so `sidebarCollapsed` behaves identically
+  // regardless of which panel (Explorer/Search/Source Control/Extensions)
+  // it currently shows.
+  const handleActivitySelect = (panel: ActivityPanel) => {
+    if (panel === activePanel) {
+      useSettingsStore.getState().toggleSidebarCollapsed();
+    } else {
+      setActivePanel(panel);
+      useSettingsStore.getState().setSidebarCollapsed(false);
+    }
+  };
 
   const handleSelectFile = (node: FileNode, opts?: { pin?: boolean }) => {
     setSelectedId(node.id);
@@ -646,22 +719,49 @@ export default function App() {
         overflow: "hidden",
       }}
     >
-      <AppTitleBar vaultName="vault" onOpenSettings={handleOpenSettings} />
+      {/* DESIGN-SPEC Amendments round 3 item 17 ("Zen mode hides
+          EVERYTHING, title bar included") supersedes round-1 item 4's
+          literal five-region list, which wrongly left the title bar
+          visible — zen now shows ONLY the content area (plus the
+          per-pane floating filename/exit pill on hover, `EditorPane.tsx`). */}
+      {!zenMode && (
+        <AppTitleBar
+          vaultName="vault"
+          breadcrumb={titlebarBreadcrumb}
+          diff={activeDiff}
+          mode={activeTab?.mode}
+          availableModes={titlebarAvailableModes}
+          onModeChange={(mode) => activeTab && tabs.setMode(activeTab.path, mode, tabs.activePaneId)}
+          diffLayout={titlebarDiffLayout}
+          onDiffLayoutChange={(layout) => tabs.setDiffLayout(layout, tabs.activePaneId)}
+          onEnterZen={enterZenMode}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={() => useSettingsStore.getState().toggleSidebarCollapsed()}
+          onOpenPalette={() => setPaletteMode("commands")}
+          onOpenSettings={handleOpenSettings}
+        />
+      )}
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* DESIGN-SPEC Amendments item 4 ("Zen mode ... hides activity bar,
-            sidebar, tab bar, editor header, status bar"): every region
-            below wraps in `!zenMode &&` — the title bar (above) stays
-            visible, matching the item's own literal five-region list. */}
         {!zenMode && (
           <AppActivityBar
             active={activePanel}
-            onSelect={setActivePanel}
+            onSelect={handleActivitySelect}
             changedCount={git.changedCount}
             onOpenSettings={handleOpenSettings}
           />
         )}
 
+        {/* Course-correction to Amendments round 3 item 20: width and
+            collapsed-ness are properties of the SIDEBAR REGION, not any one
+            activity view (real VSCode behavior too) — every branch below
+            passes the SAME `sidebarWidth`/`sidebarCollapsed` pair into the
+            shared `local/SidebarContainer` shell each panel now renders
+            itself inside (`Sidebar.tsx`/`SearchPanel.tsx`/
+            `SourceControlPanel.tsx`/`ExtensionsPanel.tsx`), so switching
+            activity-bar views never jumps the layout back to a frozen
+            default width, and every view (not just Explorer) is
+            drag-resizable/collapsible. */}
         {!zenMode && activePanel === "explorer" && (
           <Sidebar
             tree={tree}
@@ -679,20 +779,44 @@ export default function App() {
             onRefresh={() => void useFsStore.getState().refresh()}
             width={sidebarWidth}
             onWidthChange={(w) => useSettingsStore.getState().setSidebarWidth(w)}
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={(c) => useSettingsStore.getState().setSidebarCollapsed(c)}
           />
         )}
 
-        {!zenMode && activePanel === "scm" && <SourceControlPanel onOpenDiff={handleOpenDiff} />}
+        {!zenMode && activePanel === "scm" && (
+          <SourceControlPanel
+            onOpenDiff={handleOpenDiff}
+            width={sidebarWidth}
+            onWidthChange={(w) => useSettingsStore.getState().setSidebarWidth(w)}
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={(c) => useSettingsStore.getState().setSidebarCollapsed(c)}
+          />
+        )}
 
         {!zenMode && activePanel === "search" && (
-          <Suspense fallback={<div style={{ width: 288, flexShrink: 0, background: "var(--app-sidebar-bg)", borderRight: "1px solid var(--app-chrome-border)" }} />}>
-            <SearchPanel onOpenResult={handleSearchOpenResult} />
+          <Suspense fallback={<div style={{ width: sidebarCollapsed ? 0 : sidebarWidth, flexShrink: 0, background: "var(--app-sidebar-bg)", borderRight: sidebarCollapsed ? "none" : "1px solid var(--app-chrome-border)" }} />}>
+            <SearchPanel
+              onOpenResult={handleSearchOpenResult}
+              width={sidebarWidth}
+              onWidthChange={(w) => useSettingsStore.getState().setSidebarWidth(w)}
+              collapsed={sidebarCollapsed}
+              onCollapsedChange={(c) => useSettingsStore.getState().setSidebarCollapsed(c)}
+            />
           </Suspense>
+        )}
+
+        {!zenMode && activePanel === "extensions" && (
+          <ExtensionsPanel
+            width={sidebarWidth}
+            onWidthChange={(w) => useSettingsStore.getState().setSidebarWidth(w)}
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={(c) => useSettingsStore.getState().setSidebarCollapsed(c)}
+          />
         )}
 
         <EditorArea
           zenMode={zenMode}
-          onEnterZen={enterZenMode}
           onExitZen={exitZenMode}
           onOpenLink={(paneId, href) => void handlePaneOpenLink(paneId, href)}
           storagePersistence={storagePersistence}

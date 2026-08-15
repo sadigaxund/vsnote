@@ -34,7 +34,13 @@ export interface SegmentedControlProps<T extends string> {
   options: SegmentedOption<T>[];
   value: T;
   onChange?: (value: T) => void;
-  size?: "sm" | "md";
+  /** `"xs"` (added Phase 8, DESIGN-SPEC Amendments round 3 item 18) — the
+   * slim per-pane `EditorHeader`'s mode/diff-layout toggles, sized to fit
+   * the new, visibly-shorter `--app-chrome-paneheader-h` band (20-28px
+   * across the three density tiers) rather than `"sm"`'s 26px, which the
+   * title bar's OWN mirrored copy of these same controls still uses (its
+   * 40-46px band has plenty of room). */
+  size?: "xs" | "sm" | "md";
   /** Renders each segment as icon-only (label text hidden, `label` becomes
    * the segment's `Tooltip` content instead) — the Diff layout toggle's
    * "compact icon-only" presentation, DESIGN-SPEC Amendments item 13. */
@@ -50,7 +56,7 @@ export function SegmentedControl<T extends string>({
   iconOnly = false,
   "aria-label": ariaLabel = "Editor mode",
 }: SegmentedControlProps<T>) {
-  const height = size === "sm" ? 26 : 32;
+  const height = size === "md" ? 32 : size === "sm" ? 26 : 18;
   return (
     <div
       role="radiogroup"
@@ -83,8 +89,8 @@ export function SegmentedControl<T extends string>({
               gap: 5,
               height,
               width: iconOnly ? height : undefined,
-              padding: iconOnly ? 0 : "0 10px",
-              fontSize: 12,
+              padding: iconOnly ? 0 : size === "xs" ? "0 7px" : "0 10px",
+              fontSize: size === "xs" ? 10.5 : 12,
               fontFamily: "var(--font-mono)",
               fontWeight: 500,
               border: "none",

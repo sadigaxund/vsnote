@@ -37,7 +37,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defaultModeFor, modeAvailabilityFor } from "../filetypes/registry";
 import { useSettingsStore } from "./useSettingsStore";
-import type { DockEdge, EditorMode, FileKind } from "../types";
+import type { DiffLayout, DockEdge, EditorMode, FileKind } from "../types";
 
 /** A newly-opened file's mode: the Settings dialog's per-file-type default
  * (DESIGN-SPEC "Misc / settings": "'reading view lock' default mode per
@@ -68,6 +68,15 @@ export interface PaneLeaf {
   id: string;
   tabs: OpenTab[];
   activeTabId?: string;
+  /** DESIGN-SPEC Amendments round 3 item 18 ("Header consolidation") — the
+   * Diff-mode unified/split layout preference, moved here (Phase 6.5b had
+   * it as `EditorPane.tsx`-local `useState`) so the title bar can mirror
+   * and CHANGE the focused pane's diff layout too, not just `EditorPane`'s
+   * own per-pane header. Optional (not every persisted leaf from before
+   * this phase has it) — every reader defaults to `"split"` via `?? "split"`
+   * rather than requiring a `persist` version bump for one new optional
+   * field. */
+  diffLayout?: DiffLayout;
 }
 
 export type SplitDirection = "row" | "column";
@@ -301,6 +310,12 @@ interface TabsStoreState {
   /** Divider double-click (DESIGN-SPEC Amendments item 8: "double-click a
    * divider to equalize siblings"). */
   equalizeBranch: (branchId: string) => void;
+
+  /** DESIGN-SPEC Amendments round 3 item 18 — sets `paneId`'s (default: the
+   * focused pane) Diff-mode unified/split preference. Called both by
+   * `EditorPane.tsx`'s own per-pane header (when >1 pane) and by the title
+   * bar (`App.tsx`, which always mirrors the FOCUSED pane). */
+  setDiffLayout: (layout: DiffLayout, paneId?: string) => void;
 }
 
 export const useTabsStore = create<TabsStoreState>()(
@@ -555,6 +570,11 @@ export const useTabsStore = create<TabsStoreState>()(
             sizes: branch.children.map(() => 1 / branch.children.length),
           })),
         }));
+      },
+
+      setDiffLayout: (layout, explicitPaneId) => {
+        const paneId = explicitPaneId ?? get().activePaneId;
+        set((state) => ({ tree: updateLeaf(state.tree, paneId, (pane) => ({ ...pane, diffLayout: layout })) }));
       },
     }),
     {

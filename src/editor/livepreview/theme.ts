@@ -33,7 +33,12 @@ export const livePreviewTheme = EditorView.theme(
   {
     "&": {
       color: "var(--markdown-body)",
-      backgroundColor: "var(--app-editor-bg)",
+      // DESIGN-SPEC Amendments round 3 item 22(a) — same reasoning as
+      // `editor/theme.ts`'s `&` rule: this is CodeMirror's own DOM,
+      // painting over `EditorPane.tsx`'s `TexturedSurface` ancestor, so it
+      // reads the canvas-specific token (transparent under every theme but
+      // Slate) instead of `--app-editor-bg` directly.
+      backgroundColor: "var(--app-editor-canvas-bg)",
       height: "100%",
     },
     ".cm-scroller": {
@@ -75,11 +80,17 @@ export const livePreviewTheme = EditorView.theme(
     ".cm-md-strong": { color: "var(--color-fg)", fontWeight: "700" },
     ".cm-md-em": { fontStyle: "italic" },
 
-    // ---- Inline code — bare, no chip/border (DESIGN-SPEC correction). ----
+    // ---- Inline code — bare, no chip/border (DESIGN-SPEC correction).
+    // DESIGN-SPEC Amendments round 3 item 22(b): follows the same
+    // `--syntax-string` role token `editor/theme.ts`'s CM6 HighlightStyle
+    // uses for Source-mode string/code tokens, rather than the separate
+    // `--markdown-code-color` token — both resolve to the same value for
+    // Slate (no visual change) but now move together under every other
+    // `data-theme`. ----
     ".cm-md-code": {
       fontFamily: "var(--font-mono)",
       fontSize: "0.88em",
-      color: "var(--markdown-code-color)",
+      color: "var(--syntax-string)",
     },
 
     // ---- Links ----
@@ -122,11 +133,13 @@ export const livePreviewTheme = EditorView.theme(
     },
 
     // ---- Fenced code block — flush on the editor background, no raised
-    // surface/border (DESIGN-SPEC correction). ----
+    // surface/border (DESIGN-SPEC correction). Amendments round 3 item
+    // 22(b): same `--syntax-string` role token as inline code above and
+    // Source mode's real per-token highlighting — see that rule's doc. ----
     ".cm-md-fence": {
       fontFamily: "var(--font-mono)",
       fontSize: "15px",
-      color: "var(--markdown-code-color)",
+      color: "var(--syntax-string)",
       whiteSpace: "pre",
     },
     ".cm-md-fence-first": { marginTop: "6px" },

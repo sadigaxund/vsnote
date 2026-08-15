@@ -26,8 +26,24 @@
  * too (same "just the content" as the pre-Phase-6 single-pane zen) — see
  * `EditorArea.tsx`, which renders a lone `<EditorPane zen .../>` for the
  * focused pane instead of the full `PaneGroup` tree while zen is active.
+ *
+ * `multiPane` (DESIGN-SPEC Amendments round 3 item 18, "Header
+ * consolidation"): this pane's own `EditorHeader` (breadcrumb + diff chip +
+ * mode toggle) only mounts when `EditorArea.tsx` has MORE than one pane
+ * open — with exactly one pane, `components/TitleBar.tsx` carries that same
+ * cluster for the focused pane instead, and this component renders none of
+ * it (net effect: one less horizontal band in the common single-pane case).
+ * The zen button that used to live in `EditorHeader` is gone entirely —
+ * it's a title-bar-only affordance now, since it always operates on the
+ * focused pane regardless of whether that pane's own header is visible.
+ * Diff-mode's unified/split layout preference used to be this component's
+ * own `useState` (reset to "split" on every file switch); it's now
+ * `useTabsStore`'s `PaneLeaf.diffLayout` (`leaf.diffLayout`/`setDiffLayout`
+ * below) so the title bar can read AND change it for the focused pane too,
+ * not just this pane's own (now-conditional) header.
  */
 import { useEffect, useMemo, useState } from "react";
+import { TexturedSurface } from "my-you-eye";
 import { useShallow } from "zustand/react/shallow";
 import { AppTabBar } from "./TabBar";
 import { EditorHeader } from "./EditorHeader";
@@ -42,14 +58,17 @@ import { EMPTY_DIFF } from "../git/diff";
 import { modeAvailabilityFor } from "../filetypes/registry";
 import { probeRender } from "../lib/renderProbe";
 import type { StoragePersistenceStatus } from "../fs/persistence";
-import type { DiffLayout, DockEdge, EditorMode, TabItem } from "../types";
+import type { DockEdge, EditorMode, TabItem } from "../types";
 
 export interface EditorPaneProps {
   paneId: string;
   /** Zen mode: hides this pane's own tab bar + header and shows the
    * floating exit pill instead (see module doc). */
   zen?: boolean;
-  onEnterZen: () => void;
+  /** DESIGN-SPEC Amendments round 3 item 18 — whether `EditorArea.tsx`'s
+   * tree has more than one pane open right now; gates this pane's own
+   * `EditorHeader` (see module doc). */
+  multiPane: boolean;
   onExitZen: () => void;
   zenPillHovered: boolean;
   onZenHoverChange: (hovered: boolean) => void;
@@ -76,7 +95,7 @@ function computeEdge(e: React.DragEvent): DockEdge {
 export function EditorPane({
   paneId,
   zen,
-  onEnterZen,
+  multiPane,
   onExitZen,
   zenPillHovered,
   onZenHoverChange,
@@ -160,11 +179,12 @@ export function EditorPane({
   // DESIGN-SPEC Amendments item 13: unified/split is a per-pane view
   // preference, not a per-tab one — deliberately not reset on `activeTab`
   // changes, so flipping between several diffs in the same pane keeps
-  // whichever layout was last picked (previously `editor/DiffView.tsx`'s
-  // own internal state reset to "split" on every file switch since that
-  // component remounted per `path`; this is a small, intentional behavior
-  // change alongside lifting the control up into `EditorHeader`).
-  const [diffLayout, setDiffLayout] = useState<DiffLayout>("split");
+  // whichever layout was last picked. Amendments round 3 item 18 moved
+  // this from a local `useState` (Phase 6.5b) into `useTabsStore`'s
+  // `PaneLeaf.diffLayout` — see this file's module doc — so the title bar
+  // can mirror/change it for the focused pane too.
+  const diffLayout = leaf?.diffLayout ?? "split";
+  const setDiffLayoutForPane = useTabsStore((s) => s.setDiffLayout);
 
   if (!leaf) return null;
 
@@ -218,13 +238,34 @@ export function EditorPane({
       data-testid="editor-pane"
       data-pane-id={paneId}
       data-pane-focused={isFocused}
-      style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative", background: "var(--app-editor-bg)" }}
+      // `isolation: isolate` makes this element its own stacking context so
+      // the `TexturedSurface` below (a `z-index: -1` sibling of the pane's
+      // real content) composites over THIS pane's fill instead of escaping
+      // behind the shell root. Same pattern as `local/TitleBar.tsx`.
+      style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative", isolation: "isolate" }}
       onMouseDownCapture={() => {
         if (!isFocused) focusPane(paneId);
       }}
       onMouseEnter={() => zen && onZenHoverChange(true)}
       onMouseLeave={() => zen && onZenHoverChange(false)}
     >
+      {/* DESIGN-SPEC Amendments round 3 item 22(a): the pane's own fill is
+          painted BY this surface (hence no `background` above), so each
+          library theme's texture is drawn directly on the editor surface.
+          CodeMirror's own canvas reads `--app-editor-canvas-bg`, which is
+          `transparent` under every theme except Slate (see
+          `src/editor/theme.ts`), so this layer shows through the editor
+          with no attenuation — rather than the previous approach of
+          stacking translucent fills, which transmitted ~0.03% and rendered
+          provably flat. Inert under Slate. */}
+      <TexturedSurface
+        aria-hidden
+        radius="none"
+        variant="surface"
+        color="--app-editor-bg"
+        layer="page"
+        style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none" }}
+      />
       {!zen && (
         <>
           <AppTabBar
@@ -242,8 +283,12 @@ export function EditorPane({
               would either be empty or misleadingly show a disabled,
               never-usable segmented control. `SettingsView` owns its own
               heading/search row instead (rendered by `EditorContent` below),
-              so the tab strip above is the only chrome this tab gets. */}
-          {activeTab?.kind !== "settings" && (
+              so the tab strip above is the only chrome this tab gets.
+              Amendments round 3 item 18: also gated on `multiPane` — with
+              exactly one pane open, the title bar carries this same
+              cluster for the focused pane instead, and NO per-pane header
+              renders at all (see this file's module doc). */}
+          {multiPane && activeTab?.kind !== "settings" && (
             <EditorHeader
               breadcrumb={activeTab ? activeTab.path.split("/") : ["vault"]}
               diff={activeDiff}
@@ -251,11 +296,7 @@ export function EditorPane({
               onModeChange={(mode: EditorMode) => activeTab && setMode(activeTab.path, mode, paneId)}
               availableModes={availableModes}
               diffLayout={diffLayout}
-              onDiffLayoutChange={setDiffLayout}
-              onEnterZen={() => {
-                focusPane(paneId);
-                onEnterZen();
-              }}
+              onDiffLayoutChange={(layout) => setDiffLayoutForPane(layout, paneId)}
             />
           )}
         </>

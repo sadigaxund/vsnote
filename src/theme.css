@@ -36,21 +36,65 @@
     ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
 
-  /* ---- UI density (DESIGN-SPEC Amendments item 11, Settings' Appearance
-     category) ---- Deliberately NOT the amendment-3 `--app-chrome-*-h`
-     band-thickness tokens below ("Don't 'improve' either" per this app's
-     own house rules) — density instead scales row/tab horizontal padding
-     only (`local/ExplorerTree.tsx`'s tree row, `local/EditorTabBar.tsx`'s
-     tab), a real, visible, low-risk effect that doesn't touch the
-     pixel-sampled chrome heights. Theme-independent, same as the chrome
-     band tokens. */
+  /* ---- UI density (DESIGN-SPEC Amendments item 11 introduced this
+     Settings category; Amendments round 3 item 23 makes it REAL) ----
+     Originally (Phase 6.5c) density only scaled row/tab horizontal padding,
+     deliberately leaving the `--app-chrome-*-h` band-thickness tokens
+     fixed — the Phase 6.5c comment here literally said "don't improve
+     either." Item 23 supersedes that: `compact`/`default`/`comfortable`
+     now scale the ACTUAL chrome — every horizontal band's height, row/tab
+     padding, AND icon spacing — so the three settings are visibly
+     different at a glance, not just a few px of text padding.
+     `uiDensity: "default"` (the settings-store value with NO
+     `data-ui-density` attribute written, matching this bare `:root` block)
+     is the regression gate: every value below is copied VERBATIM from the
+     literal pixel-sampled numbers Phase 1-7 hardcoded unconditionally
+     (`--app-chrome-titlebar-h: 40px` etc. — see the git history of the
+     block this replaced), so a default-density boot is pixel-identical to
+     every phase before this one. `compact` scales every band down
+     (deliberately more aggressive than Phase 6.5c's old compact padding
+     alone); `comfortable` is an all-new, genuinely roomier tier — not
+     merely "not compact" the way it silently was before this phase (the
+     store's old default VALUE was literally the string `"comfortable"`,
+     even though it rendered `default`'s exact pixels — a naming trap this
+     phase's `useSettingsStore.ts` migration also fixes, see that file's
+     doc). `--app-chrome-paneheader-h` is NEW (Amendments round 3 item 18):
+     the slim per-pane header shown only when >1 pane is open — no
+     historical pixel value to preserve, deliberately smaller than the old
+     34px single-pane editor-header band at every tier. */
+  --app-chrome-titlebar-h: 40px;
+  --app-chrome-tabbar-h: 32px;
+  --app-chrome-paneheader-h: 24px;
+  --app-chrome-sidebar-header-h: 36px;
+  --app-chrome-tree-row-h: 24px;
+  --app-chrome-statusbar-h: 22px;
   --app-density-row-pad-x: 8px;
   --app-density-tab-pad-x: 10px;
+  --app-density-icon-gap: 4px;
 }
 
 :root[data-ui-density="compact"] {
+  --app-chrome-titlebar-h: 34px;
+  --app-chrome-tabbar-h: 27px;
+  --app-chrome-paneheader-h: 20px;
+  --app-chrome-sidebar-header-h: 30px;
+  --app-chrome-tree-row-h: 20px;
+  --app-chrome-statusbar-h: 18px;
   --app-density-row-pad-x: 5px;
   --app-density-tab-pad-x: 7px;
+  --app-density-icon-gap: 2px;
+}
+
+:root[data-ui-density="comfortable"] {
+  --app-chrome-titlebar-h: 46px;
+  --app-chrome-tabbar-h: 38px;
+  --app-chrome-paneheader-h: 28px;
+  --app-chrome-sidebar-header-h: 42px;
+  --app-chrome-tree-row-h: 28px;
+  --app-chrome-statusbar-h: 26px;
+  --app-density-row-pad-x: 11px;
+  --app-density-tab-pad-x: 13px;
+  --app-density-icon-gap: 6px;
 }
 
 /* ---- Phase 5a: Settings dialog theme switching (DESIGN-SPEC "Misc /
@@ -81,6 +125,78 @@
      to every phase before this one; any other `data-theme` value falls
      through to this block's library-token derivation instead. */
 .dark {
+  /* DESIGN-SPEC Amendments round 3 item 22(a) ("Theme compatibility") —
+     CORRECTED. A previous pass at this made these four surfaces
+     TRANSLUCENT (`color-mix(... 86-88%, transparent)`) on the theory that
+     a library theme's own page texture/mesh — painted on
+     `html`/`html::before` by e.g.
+     `node_modules/my-you-eye/dist/themes/metallic.css` — would bleed
+     through this app's own chrome. That shipped GREEN (the old
+     `theme-compat.spec.ts` only asserted alpha < 1 and a luma stddev > 3
+     on the activity bar, which icons alone satisfy) but was measured
+     independently and found to produce ZERO visible texture anywhere:
+     under `data-theme="metallic"`, a screenshot of five real chrome
+     regions (activity bar, editor, sidebar, title bar, status bar) came
+     back luma stddev 0.000 / exactly 1 distinct level in every one, vs.
+     stddev ~9.7-9.9 / ~50-62 levels for the theme's own raw
+     `html`/`html::before` canvas with the app's DOM hidden. Root cause:
+     the app's shell tiles FOUR of these translucent surfaces on top of
+     each other in the real paint stack (`.cm-editor` → the editor-pane
+     div → the shell root div → `body`, each independently made ~86-88%
+     opaque), so light transmission compounds multiplicatively:
+     `(1-0.88) × (1-0.88) × (1-0.86) × (1-0.86) ≈ 0.00028` — 0.03% of the
+     canvas's own contrast survives four stacked layers. Even the
+     shallowest point (activity bar: two 0.86 layers stacked) only
+     transmits ~2%, i.e. ~0.19 luma of variance against a texture whose
+     own amplitude is ~9.7 — it rounds away to nothing once composited and
+     screenshotted. There is no alpha value that fixes this: raising it
+     enough to transmit a visible texture would also wash out this app's
+     own carefully pixel-sampled surface colors (the whole point of having
+     four distinct, opaque, hand-sampled depths in the first place).
+
+     Fixed instead by having each surface paint the theme's OWN texture
+     directly on itself, via the library's `TexturedSurface` primitive
+     (`texture="theme"`, which reads `--texture-type`/
+     `--texture-opacity-surface`/`--texture-blend` off the document and
+     renders that theme's own SVG texture layers) — composed as an
+     absolutely-positioned, `pointer-events: none`, `z-index: -1` sibling
+     behind each region's real content (`local/ActivityBar.tsx`,
+     `local/TitleBar.tsx`, `local/StatusBar.tsx`,
+     `local/SidebarContainer.tsx`, `EditorPane.tsx`'s pane root — see each
+     file's own comment), NOT a fork of the component and NOT a second,
+     hand-rolled texture engine (CLAUDE.md rule 1). Since each surface now
+     paints its own texture directly rather than relying on transmission
+     through ancestors, these four tokens go back to being fully OPAQUE —
+     exactly the pre-item-22(a) values — so there is nothing left to stack
+     multiplicatively. `--app-editor-canvas-bg` (below) is the one
+     additional token this fix needed: CodeMirror's own DOM
+     (`editor/theme.ts`, `editor/livepreview/theme.ts`) paints its `&`/
+     `.cm-gutters` background OVER `EditorPane.tsx`'s texture layer, so
+     that specific consumer reads a token that resolves to `transparent`
+     under every theme except Slate — a single, un-stacked layer, so the
+     ancestor's opaque-fill-plus-texture shows through with no attenuation
+     at all (nothing to compound). Verified empirically (not just reasoned
+     about, see `tests/e2e/theme-compat.spec.ts`): under
+     `data-theme="metallic"`/`"glass"`/`"comic"`, real screenshots of the
+     sidebar's and editor's text-free regions now show luma stddev ≥ 2.0
+     and ≥ 8 distinct levels, while the SAME regions under Slate/boot stay
+     at stddev 0.000 / 1 level (this file's Slate-default block below still
+     wins the cascade for those cases, unchanged). */
+  /* Some library themes' DARK variants never override `--texture-blend`,
+     leaving the light-mode `multiply` in place — which is very nearly a
+     no-op against this app's near-black chrome (multiplying an
+     `oklch(0.20 …)` surface by a grain texture stays ~`oklch(0.20 …)`).
+     Measured on the sidebar's text-free region: comic came through at luma
+     std-dev 0.32 with `multiply`, against ~4+ for metallic, whose own dark
+     block (`node_modules/my-you-eye/dist/themes/metallic.css`) switches to
+     `screen` for exactly this reason. `screen` is the correct direction on
+     a dark surface, so it is applied here for every theme in dark mode —
+     a theme that simply forgot the override still reads as textured
+     instead of flat. Slate is unaffected either way: its
+     `--texture-opacity-surface` is 0 (the library's own `dark.css`/
+     `tokens.css` default), so nothing is painted regardless of blend. */
+  --texture-blend: screen;
+
   --app-chrome-bg: var(--color-bg);
   --app-chrome-border: var(--color-border);
   --app-sidebar-bg: var(--color-surface);
@@ -89,6 +205,13 @@
      invented, so it still tracks each theme's own bg. */
   --app-editor-bg: color-mix(in oklab, var(--color-bg) 92%, black);
   --app-titlebar-bg: var(--color-surface-elevated, var(--color-surface));
+  /* CodeMirror's own canvas (`&`/`.cm-gutters` in `editor/theme.ts` and
+     `editor/livepreview/theme.ts`) reads THIS token instead of
+     `--app-editor-bg` directly, so it can be transparent here (letting
+     `EditorPane.tsx`'s `TexturedSurface` ancestor's opaque-fill-plus-
+     texture show through with no attenuation) while staying the exact
+     opaque Slate hex in the Slate-default block below. */
+  --app-editor-canvas-bg: transparent;
 
   /* Git status colors — reuse the library's semantic tokens where the
      vocabulary lines up (modified~warning, added~success, deleted~danger);
@@ -102,19 +225,41 @@
   --markdown-code-color: var(--color-code-fg);
   --markdown-body: var(--color-fg);
 
-  /* ---- Chrome band thickness (DESIGN-SPEC Amendments item 3) ----
-     Theme-independent — every theme gets the same ~90%-of-mockup heights.
-     Every horizontal chrome band's vertical size lives here, once, as a
-     token each component references (`local/TitleBar.tsx`,
-     `local/EditorTabBar.tsx`, `EditorHeader.tsx`, `Sidebar.tsx`'s header
-     row, `local/ExplorerTree.tsx`'s row, `local/StatusBar.tsx`) instead of
-     a literal repeated in each. */
-  --app-chrome-titlebar-h: 40px; /* was 44px */
-  --app-chrome-tabbar-h: 32px; /* was 36px */
-  --app-chrome-editorheader-h: 34px; /* was 38px */
-  --app-chrome-sidebar-header-h: 36px; /* was 40px */
-  --app-chrome-tree-row-h: 24px; /* was 26px */
-  --app-chrome-statusbar-h: 22px; /* was 24px */
+  /* Chrome band thickness (item 3) and row/tab padding + icon spacing
+     (item 23) both moved OUT of this theme block in Phase 8 — they were
+     already theme-independent (same value regardless of `data-theme`, only
+     ever living here because `.dark` happens to always match); see the
+     `:root` / `:root[data-ui-density=...]` blocks above this one instead,
+     which is where they now vary by DENSITY, decoupled from theme choice
+     entirely. */
+
+  /* ---- Per-theme CM6 syntax palette (DESIGN-SPEC Amendments round 3 item
+     22(b)) ---- `editor/theme.ts`'s `HighlightStyle` reads ONLY these nine
+     role tokens now (never a raw hex, never `--color-primary`/
+     `--git-modified` directly) — every one derived from tokens that
+     already vary per `data-theme` (the same `--color-*`/`--git-*`/
+     `--markdown-code-color` this file already computes above), so every
+     library theme gets a palette that's actually coherent with its own
+     hue rather than inheriting whatever `--color-primary`/`--git-modified`
+     happened to resolve to. Deliberately generic/derived rather than nine
+     hand-tuned literal colors per theme (which would be real, unbounded
+     design work well outside this phase's scope) — `function`/`type`/
+     `number` get a slight `color-mix` tint split off their base token so
+     they're visually distinguishable from `keyword`/`type` respectively,
+     without inventing new colors the theme's own author never chose. The
+     Slate-default block below reasserts the EXACT hex values these
+     resolve to today (unchanged from every phase before this one) so
+     Slate's syntax highlighting is pixel-identical; only the other nine
+     themes see this generic derivation. */
+  --syntax-keyword: var(--color-primary);
+  --syntax-function: color-mix(in oklab, var(--color-primary) 75%, var(--color-fg));
+  --syntax-type: var(--color-warning);
+  --syntax-number: color-mix(in oklab, var(--color-warning) 80%, var(--color-fg));
+  --syntax-variable: var(--color-fg);
+  --syntax-punctuation: var(--color-muted);
+  --syntax-operator: var(--markdown-code-color);
+  --syntax-string: var(--markdown-code-color);
+  --syntax-comment: var(--color-muted);
 }
 
 /* ---- Slate default theme — pixel-sampled from app-preview.png, and the
@@ -183,6 +328,14 @@
   --app-editor-bg: #101318;
   /* Title bar, tab strip, and status bar all share this one flat surface. */
   --app-titlebar-bg: #17191f;
+  /* Slate never gets a texture (its own `TexturedSurface` composition
+     resolves to `--texture-opacity-surface: 0` for `data-theme="dark"`/
+     unset, per the library's own `themes/dark.css` and `tokens.css`
+     defaults, so this would already be inert) — but CodeMirror's canvas
+     token still needs to be the exact opaque hex, not `transparent`, so
+     Source/Rendered mode's background is pixel-identical to every phase
+     before item 22(a) (regression gate, see `tests/e2e/theme-compat.spec.ts`). */
+  --app-editor-canvas-bg: #101318;
 
   /* Git status colors — the vocabulary used by the tree, tabs, and status
      bar. `M`/amber and `U`/violet have no equivalent in the library's
@@ -200,4 +353,21 @@
      corrected against app-preview.png, which has plain colored mono text.) */
   --markdown-code-color: #a8d578;
   --markdown-body: #bac1c8;
+
+  /* Per-theme syntax palette (item 22(b)) — the EXACT effective colors
+     `editor/theme.ts`'s `HighlightStyle` has always rendered for Slate
+     (keyword/function = teal `--color-primary`, type/number = amber
+     `--git-modified`, variable/punctuation = fg, operator/string = the
+     lime-green `--markdown-code-color`, comment = muted) — reasserted as
+     literal hex here (not aliases) so Slate stays pixel-identical
+     regardless of what the generic derived block above computes. */
+  --syntax-keyword: #27d2c5;
+  --syntax-function: #27d2c5;
+  --syntax-type: #eab444;
+  --syntax-number: #eab444;
+  --syntax-variable: #d8dfe6;
+  --syntax-punctuation: #d8dfe6;
+  --syntax-operator: #a8d578;
+  --syntax-string: #a8d578;
+  --syntax-comment: #848a92;
 }

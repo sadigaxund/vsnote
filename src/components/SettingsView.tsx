@@ -243,19 +243,28 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         {
           id: "density",
           label: "UI density",
-          keywords: "compact comfortable spacing density layout tree rows tabs",
+          keywords: "compact default comfortable spacing density layout tree rows tabs chrome bands",
           content: (
-            <FormField label="UI density" hint="Tree row and tab strip horizontal spacing.">
+            <FormField
+              label="UI density"
+              hint="Title bar, tab strip, pane header, sidebar header, tree row, and status bar heights — plus row/tab padding and icon spacing."
+            >
               <RadioGroup
                 value={uiDensity}
                 onValueChange={(v) => setUiDensity(v as UiDensity)}
                 style={{ display: "flex", gap: 18 }}
                 aria-label="UI density"
               >
-                {(["comfortable", "compact"] as const).map((d) => (
-                  <label key={d} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-                    <RadioGroupItem value={d} />
-                    {d === "comfortable" ? "Comfortable" : "Compact"}
+                {(
+                  [
+                    { value: "compact", label: "Compact" },
+                    { value: "default", label: "Default" },
+                    { value: "comfortable", label: "Comfortable" },
+                  ] as const
+                ).map((d) => (
+                  <label key={d.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                    <RadioGroupItem value={d.value} />
+                    {d.label}
                   </label>
                 ))}
               </RadioGroup>

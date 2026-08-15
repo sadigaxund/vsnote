@@ -126,6 +126,45 @@ test.describe("find widget", () => {
     await expect(content.locator(".cm-searchMatch").first()).toBeVisible();
   });
 
+  test("DESIGN-SPEC Amendments item 24: the widget is 30-40% smaller than Phase 6.5b's original box", async ({ page }) => {
+    // Phase 6.5b's original (pre-item-24) rendered box, measured directly
+    // off that build with the exact same repro this test runs (Playwright
+    // `boundingBox()` on `[data-testid="find-widget"]`): row 1 (collapsed)
+    // 474×38px, expanded (replace row shown) 474×67px — recorded here as
+    // literal numbers (not re-derived) so this test pins the CONTRACT
+    // ("30-40% smaller, same layout/features") against a fixed baseline
+    // rather than against whatever the current file happens to compute.
+    const BEFORE_COLLAPSED = { width: 474, height: 38 };
+    const BEFORE_EXPANDED = { width: 474, height: 67 };
+
+    await gotoApp(page);
+    await tab(page, INDEXER).click();
+    await page.locator(".cm-content").first().click();
+    await page.keyboard.press("Control+f");
+    const widget = page.getByTestId("find-widget");
+    await expect(widget).toBeVisible();
+
+    const collapsedBox = (await widget.boundingBox())!;
+    // Same layout/features — row 1's controls are all still present.
+    await expect(widget.getByPlaceholder("Find")).toBeVisible();
+    await expect(widget.getByLabel("Match case")).toBeVisible();
+    await expect(widget.getByLabel("Use regular expression")).toBeVisible();
+
+    // 60-70% of the original box on BOTH axes (the "30-40% smaller" target).
+    expect(collapsedBox.width / BEFORE_COLLAPSED.width).toBeGreaterThanOrEqual(0.55);
+    expect(collapsedBox.width / BEFORE_COLLAPSED.width).toBeLessThanOrEqual(0.75);
+    expect(collapsedBox.height / BEFORE_COLLAPSED.height).toBeGreaterThanOrEqual(0.55);
+    expect(collapsedBox.height / BEFORE_COLLAPSED.height).toBeLessThanOrEqual(0.75);
+
+    await widget.getByLabel("Show replace").click();
+    await expect(widget.getByPlaceholder("Replace")).toBeVisible();
+    const expandedBox = (await widget.boundingBox())!;
+    expect(expandedBox.width / BEFORE_EXPANDED.width).toBeGreaterThanOrEqual(0.55);
+    expect(expandedBox.width / BEFORE_EXPANDED.width).toBeLessThanOrEqual(0.75);
+    expect(expandedBox.height / BEFORE_EXPANDED.height).toBeGreaterThanOrEqual(0.55);
+    expect(expandedBox.height / BEFORE_EXPANDED.height).toBeLessThanOrEqual(0.75);
+  });
+
   test("per-pane: ⌘F targets only the focused pane in a split", async ({ page }) => {
     await gotoApp(page);
     await tab(page, ARCHITECTURE).click({ button: "right" });

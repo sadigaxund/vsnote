@@ -72,30 +72,34 @@ test.describe("palette + settings + zen + durability", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", themeAfterToggle!);
   });
 
-  test("zen mode hides the five chrome regions; Esc restores them", async ({ page }) => {
+  test("zen mode hides EVERYTHING including the title bar; a single Esc restores it all (DESIGN-SPEC Amendments round 3 items 17 + 19)", async ({ page }) => {
     await gotoApp(page);
     await expect(page.getByTestId("app-titlebar")).toBeVisible();
     await expect(page.getByTestId("app-activitybar")).toBeVisible();
     await expect(page.getByTestId("explorer-sidebar")).toBeVisible();
     await expect(page.getByRole("tablist", { name: "Open editors" })).toBeVisible();
-    await expect(page.getByTestId("editor-header")).toBeVisible();
     await expect(page.getByTestId("app-statusbar")).toBeVisible();
 
     await page.keyboard.press("Control+Shift+Z");
 
-    // Title bar stays; the other five hide.
-    await expect(page.getByTestId("app-titlebar")).toBeVisible();
+    // Item 17 supersedes the old "five regions, title bar stays" list — the
+    // title bar hides too now; ONLY the content area (+ the floating
+    // filename/exit pill on hover) remains.
+    await expect(page.getByTestId("app-titlebar")).toHaveCount(0);
     await expect(page.getByTestId("app-activitybar")).toHaveCount(0);
     await expect(page.getByTestId("explorer-sidebar")).toHaveCount(0);
     await expect(page.getByRole("tablist", { name: "Open editors" })).toHaveCount(0);
-    await expect(page.getByTestId("editor-header")).toHaveCount(0);
     await expect(page.getByTestId("app-statusbar")).toHaveCount(0);
 
+    // Item 19: a SINGLE Esc press exits zen (this app requested browser
+    // fullscreen on entry, and a lone `page.keyboard.press("Escape")` is
+    // exactly the "browser swallows the first Esc" scenario the
+    // `fullscreenchange` listener exists to catch).
     await page.keyboard.press("Escape");
+    await expect(page.getByTestId("app-titlebar")).toBeVisible();
     await expect(page.getByTestId("app-activitybar")).toBeVisible();
     await expect(page.getByTestId("explorer-sidebar")).toBeVisible();
     await expect(page.getByRole("tablist", { name: "Open editors" })).toBeVisible();
-    await expect(page.getByTestId("editor-header")).toBeVisible();
     await expect(page.getByTestId("app-statusbar")).toBeVisible();
   });
 

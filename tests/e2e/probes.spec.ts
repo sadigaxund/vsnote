@@ -13,6 +13,41 @@ import { unzipSync } from "fflate";
 import { gotoApp } from "./fixtures";
 
 test.describe("PWA / offline / durability probes", () => {
+  test("DESIGN-SPEC Amendments item 16's contract still holds after Phase 8's header consolidation: a keystroke burst does not re-render App", async ({ page }) => {
+    // Phase 8 (DESIGN-SPEC Amendments round 3 item 18) made `App.tsx` read
+    // `activeTab`/`activeDiff`/`focusedLeaf` to feed the title bar's newly-
+    // absorbed breadcrumb/diff-chip/mode-toggle cluster — none of that is
+    // NEW data App didn't already subscribe to before this phase (it fed
+    // the status bar already), and none of it changes on a keystroke (tab
+    // identity/mode and the diff cache only change on tab-switch/save, not
+    // on typing) — but this is exactly the kind of change that's easy to
+    // accidentally regress into a keystroke-frequency subscription, so
+    // `lib/renderProbe.ts`'s standing guard gets a real, committed
+    // assertion here rather than staying "prove it if you ever suspect a
+    // regression."
+    await page.addInitScript(() => {
+      (window as unknown as { __renderProbeEnabled?: boolean }).__renderProbeEnabled = true;
+    });
+    await gotoApp(page);
+
+    // architecture.md boots in Rendered mode — the live-preview CM6 editor
+    // is itself a real EditorView, so this exercises the exact keystroke
+    // path item 16 fixed (not just Source mode).
+    const content = page.locator(".cm-content").first();
+    await content.click();
+    await page.keyboard.press("Control+Home");
+
+    function readAppRenderCount() {
+      return page.evaluate(() => (window as unknown as { __renderCounts?: Record<string, number> }).__renderCounts?.App ?? 0);
+    }
+
+    const before = await readAppRenderCount();
+    await page.keyboard.type("x".repeat(45), { delay: 4 });
+    const after = await readAppRenderCount();
+
+    expect(after).toBe(before);
+  });
+
   test("offline cold start: fresh context, SW installed, shell + CM6 still render", async ({ page, context }) => {
     await gotoApp(page);
     // `navigator.serviceWorker.ready` is the deterministic sync point

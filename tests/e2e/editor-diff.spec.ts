@@ -44,7 +44,7 @@ test.describe("editor + diff", () => {
     await tab(page, "vault/src/indexer.ts").click();
     await expect(page.locator(".cm-gutters").first()).toBeVisible();
 
-    const chipText = await page.getByTestId("editor-header").getByText(/^\+\d+$/).first().textContent();
+    const chipText = await page.getByTestId("app-titlebar").getByText(/^\+\d+$/).first().textContent();
     const expectedAdded = Number(chipText?.replace("+", ""));
     expect(expectedAdded).toBeGreaterThan(0);
 
@@ -57,7 +57,7 @@ test.describe("editor + diff", () => {
   test("Diff mode renders a real @codemirror/merge comparison vs HEAD", async ({ page }) => {
     await gotoApp(page);
     // architecture.md: DESIGN-SPEC's spec-mandated +12 -5.
-    const header = page.getByTestId("editor-header");
+    const header = page.getByTestId("app-titlebar");
     await expect(header).toContainText("+12");
     await expect(header).toContainText("-5");
 
@@ -81,7 +81,7 @@ test.describe("editor + diff", () => {
     // The layout toggle lives in the editor header, next to the mode
     // toggle — icon-only, but still `role="radio"` with an `aria-label`
     // (SegmentedControl's `iconOnly` prop), each wrapped in a `Tooltip`.
-    const header = page.getByTestId("editor-header");
+    const header = page.getByTestId("app-titlebar");
     const unifiedBtn = header.getByRole("radio", { name: "Unified" });
     const splitBtn = header.getByRole("radio", { name: "Split" });
     await expect(unifiedBtn).toBeVisible();
@@ -111,6 +111,6 @@ test.describe("editor + diff", () => {
 
     await expect(page.getByText("No changes.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Source Control" })).toContainText("0");
-    await expect(page.getByTestId("editor-header")).not.toContainText("+12");
+    await expect(page.getByTestId("app-titlebar")).not.toContainText("+12");
   });
 });

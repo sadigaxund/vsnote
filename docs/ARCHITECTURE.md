@@ -685,3 +685,227 @@ stack choices in this doc.
   6 changed files, 1 untracked) and `diffStat.test.ts`
   (`architecture.md`'s exact +12/-5, untouched by this change) passing
   unmodified.
+- **(Phase 8) The library-theme "texture is invisible" bug (DESIGN-SPEC
+  Amendments round 3 item 22(a)) had THREE independent causes stacked on
+  each other, and the first fix attempted here was measured to do nothing
+  at all — it shipped green only because its own test could not fail.**
+  Recorded in full because the failure mode (a green suite over a provably
+  broken feature) matters more than the fix.
+  Cause 1 (the brief's own lead, confirmed by reading the shipped CSS):
+  every `node_modules/my-you-eye/dist/themes/*.css` is imported
+  `layer(theme)` (`dist/styles.css`), while `src/index.css`'s `body {
+  background-color: var(--app-chrome-bg); }` is UNLAYERED — an unlayered
+  rule beats a layered one regardless of specificity, so `body`'s opaque
+  fill unconditionally won over `html[data-theme="metallic"] body {
+  background-color: transparent; }`.
+  Cause 2 (visible only in the rendered page, not the CSS source): even a
+  fully transparent `body` shows nothing, because this app's shell tiles
+  the ENTIRE viewport edge-to-edge with its own opaque `--app-*-bg` fills;
+  there is no gap for the theme's `html::before` texture (`z-index: -1`)
+  to show through.
+  THE FIRST FIX WAS WRONG. It made the four `--app-*-bg` tokens themselves
+  translucent (`color-mix(in oklab, ... 86%, transparent)`) so the texture
+  would "bleed through," and shipped with a test asserting fractional alpha
+  plus `lumaStdDev > 3` over the ACTIVITY BAR — a region full of icons,
+  whose antialiased glyph edges satisfy that threshold whether or not any
+  texture exists. Independent re-measurement (orchestrator verification,
+  screenshots of five text-free chrome regions decoded with PIL) found luma
+  std-dev **0.000 and exactly 1 distinct luma level** in the activity bar,
+  editor, sidebar, title bar AND status bar under `metallic` — i.e. a
+  perfectly flat fill, zero texture anywhere — against std-dev ~9.0-9.9 /
+  ~50-62 levels for the theme's own raw `html` + `html::before` canvas
+  measured with the app's DOM hidden. Cause 3 explains why: the real paint
+  stack over the editor is FOUR independently-translucent layers
+  (`.cm-editor` 0.88 → the editor-pane div 0.88 → the shell root 0.86 →
+  `body` 0.86) over an opaque `html`, so transmission compounds
+  multiplicatively to `(1-0.88)(1-0.88)(1-0.86)(1-0.86) ≈ 0.00028` — 0.03%.
+  Even the shallowest region (activity bar, two 0.86 layers) transmits ~2%,
+  ~0.19 luma against a texture of amplitude ~9.7, which rounds away to
+  nothing. No alpha value fixes this: raising it enough to transmit texture
+  also washes out the four hand-sampled surface depths that are the whole
+  point of the Slate palette.
+  ACTUAL FIX: each surface paints the theme's own texture directly on
+  itself via the library's `TexturedSurface` (`texture="theme"`, which
+  reads `--texture-type`/`--texture-opacity-surface`/`--texture-blend` off
+  the document), composed as an absolutely-positioned `pointer-events:
+  none`, `z-index: -1` sibling behind each region's real content in
+  `local/TitleBar.tsx`, `local/ActivityBar.tsx`, `local/StatusBar.tsx`,
+  `local/SidebarContainer.tsx` and `EditorPane.tsx`. Each host element gets
+  `position: relative` + `isolation: isolate` — without `isolation` a
+  negative-z-index child escapes behind the nearest ancestor stacking
+  context and stops compositing over its own surface's fill. The four
+  `--app-*-bg` tokens therefore go back to fully OPAQUE (the exact
+  pre-item-22(a) values), since nothing needs to transmit through anything
+  any more. One extra token was needed: CodeMirror paints its own `&`/
+  `.cm-gutters` background over `EditorPane`'s texture layer, so
+  `editor/theme.ts` and `editor/livepreview/theme.ts` read
+  `--app-editor-canvas-bg`, which is `transparent` under every theme except
+  Slate (where it stays the exact opaque `#101318`, a boot regression gate).
+  A fourth, smaller cause surfaced while verifying: some themes' DARK
+  variants never override `--texture-blend`, leaving light-mode `multiply`
+  in place, which is nearly a no-op on near-black chrome — comic measured
+  std-dev 0.32 that way, versus metallic (whose own dark block switches to
+  `screen`) at ~8. `src/theme.css`'s `.dark` block now sets
+  `--texture-blend: screen` for dark mode generally; Slate is unaffected
+  because its `--texture-opacity-surface` is 0, so nothing paints regardless.
+  Final independent measurement, metallic, all five text-free chrome
+  regions: std-dev 7.35-8.01 with 38-42 distinct luma levels (was
+  0.000 / 1), while Slate/boot stays flat and exact-hex.
+  THE TEST WAS ALSO FIXED, not just kept green: `tests/e2e/theme-compat.spec.ts`
+  now derives two genuinely text-free regions from live element boxes (the
+  sidebar below the tree, the editor's lower-right outside the prose
+  column), asserts under Slate that they are dead flat — which is what
+  proves they contain no text, failing loudly if a glyph ever creeps in —
+  and asserts under each theme BOTH std-dev >= 2 AND >= 8 distinct luma
+  levels (`distinctLumaLevels`, `tests/e2e/pngPixels.ts`; the second half
+  is what a single hard edge cannot fake). Verified to fail against the
+  translucency build and pass against this one.
+- **(Phase 8) `--color-primary` is the WRONG per-theme signal to test CM6
+  syntax colors against, because it's deliberately theme-invariant by
+  design** — `useSettingsStore.ts`'s `applyDomSettings` sets
+  `--color-primary`/`--color-ring` as an INLINE style on `<html>` (the
+  user's chosen accent color), and an inline style beats every selector-
+  based rule in the cascade regardless of specificity, `!important` aside.
+  That's correct, intentional behavior (the accent setting is supposed to
+  override every theme's own primary color) — but it means
+  `--syntax-keyword`/`--syntax-function` (both derived from
+  `--color-primary`) never actually change value when `data-theme` changes,
+  which looked like a real bug in `theme-compat.spec.ts`'s first draft (a
+  metallic-vs-Slate comparison on `--syntax-keyword` failed with "expected
+  not to equal, but did") before this was understood. Fixed the TEST, not
+  the tokens: `--syntax-type` (derived from `--color-warning`, which has no
+  such override) is the one asserted to change per theme; `--syntax-
+  keyword`/`--syntax-function` staying pinned to the accent color across
+  every theme is correct, matching behavior, recorded here so it isn't
+  "fixed" again by mistake later.
+- **(Phase 8) DESIGN-SPEC Amendments round 3 item 18 ("Header
+  consolidation") needed the Diff-mode unified/split layout preference
+  moved OUT of `EditorPane.tsx`'s local `useState` and into
+  `useTabsStore.ts`'s `PaneLeaf.diffLayout`, because the title bar
+  (`App.tsx`/`components/TitleBar.tsx`) now needs to read AND write that
+  same preference for whatever pane is focused — a plain React `useState`
+  local to one `EditorPane` instance is invisible to a sibling component
+  that isn't its parent.** This is a deliberately narrow, low-frequency
+  piece of state (changes only on an explicit toggle click, never per
+  keystroke), so lifting it into the existing pane-tree store — rather than
+  inventing a THIRD tiny per-pane store alongside `useCursorStore` — was the
+  simplest fix that didn't reopen DESIGN-SPEC Amendments item 16's "don't
+  lift per-keystroke state into a shared store/App" constraint (this isn't
+  per-keystroke state, so the constraint doesn't apply, but it's worth
+  recording the reasoning explicitly: `useCursorStore` exists specifically
+  because ITS state changes on every keystroke and needed complete
+  isolation from React re-render cascades; `diffLayout` has no such
+  frequency problem, so folding it into the already-`persist`ed tabs store
+  — which now also, as a side effect, persists diffLayout across a reload
+  for the first time, previously lost on every remount — was the right
+  amount of engineering, not under- or over-built). The single-pane vs.
+  multi-pane header split itself (`EditorPane.tsx`'s new `multiPane` prop,
+  computed once in `EditorArea.tsx` via `collectLeaves(tree).length > 1`)
+  reuses the exact tree-walking helper the split-grid feature already
+  exported, so "how many panes are open" has one authoritative definition
+  shared by both features instead of two ways to (potentially inconsistently)
+  count the same tree.
+
+  **Why this doesn't reopen item 16's typing-latency contract:** `App.tsx`
+  now reads `activeTab`/`activeDiff`/`focusedLeaf` to feed the title bar's
+  newly-absorbed breadcrumb/diff-chip/mode-toggle cluster — but every one of
+  those was ALREADY computed in `App.tsx` before this phase (they fed the
+  status bar's diff figure/language id), and none of it is keystroke-
+  frequency data: a tab's identity/mode only changes on an explicit mode-
+  toggle click or tab switch, and the diff cache only invalidates on save
+  or an external git refresh, never on typing. `App`'s pre-existing
+  `useTabsStore()` subscription (a bare, unselected full-store subscription
+  — a deliberate, already-accepted exception to the "no bare full-store
+  subscription" discipline `fs`/`buffers` had to be fixed to follow in
+  item 16, since tab operations are inherently low-frequency) already
+  re-rendered `App` on every mode/tab change before this phase; the title
+  bar reading the SAME data via the SAME subscription adds no new render
+  trigger. Verified, not just reasoned about: `tests/e2e/probes.spec.ts`'s
+  new "a keystroke burst does not re-render App" test opts into
+  `lib/renderProbe.ts` (`window.__renderProbeEnabled`), types a 45-character
+  burst into `architecture.md`'s Rendered-mode CM6 view, and asserts
+  `window.__renderCounts.App` is IDENTICAL before and after — this is the
+  first COMMITTED, repeatable regression test for that probe (Phase 6.5a's
+  own investigation used it ad hoc, never as a checked-in assertion).
+- **(Phase 8) DESIGN-SPEC Amendments round 3 item 20 ("Sidebar collapse/
+  expand") shipped its first pass bound to the Explorer PANEL component
+  specifically, then needed a course-correction once verification showed
+  `SearchPanel.tsx`/`SourceControlPanel.tsx` each hardcoded their own
+  frozen `width: 288` with no resize/collapse of their own at all** —
+  switching from a resized Explorer to Search visibly snapped the sidebar
+  back to 288px, and Search/Source Control couldn't be dragged or
+  collapsed. Width and collapsed-ness are properties of the SIDEBAR REGION,
+  not any one activity-bar view (true in real VSCode too) — fixed by
+  extracting the width/collapse/border/`ResizeHandle`/header-row shell into
+  a new local primitive, `local/SidebarContainer.tsx` (logged in
+  `docs/COMPONENT-BACKLOG.md`), which `Sidebar.tsx`/`SearchPanel.tsx`/
+  `SourceControlPanel.tsx`, and a new `ExtensionsPanel.tsx` (Extensions
+  previously rendered nothing at all — no `activePanel === "extensions"`
+  branch existed in `App.tsx`, a blank gap where DESIGN-SPEC's own
+  "Extensions (stub)" language promises a real, if inert, view) now all
+  mount themselves inside, each reading/writing the SAME `useSettingsStore`
+  `sidebarWidth`/`sidebarCollapsed` pair via props `App.tsx` passes down.
+  Each view keeps its own historical `data-testid` (`explorer-sidebar`/
+  `search-panel`/`scm-panel`/`extensions-panel`) passed as `SidebarContainer`'s
+  `testId` prop specifically so every pre-existing spec scoped to one of
+  those testids kept working unchanged. Verified with a dedicated
+  `tests/e2e/sidebar-resize.spec.ts` test: resize while Explorer is active,
+  switch to Search then Source Control and assert the SAME measured width
+  each time (not 288), then drag-collapse while Source Control (not
+  Explorer) is the active panel and confirm Explorer reflects the same
+  restored state afterward — proving one shared region, not three
+  independent copies.
+- **(Phase 8) CM6 virtualizes long documents by default — only lines near
+  the current scroll position exist in the DOM at all — which broke the
+  kitchen-sink markdown coverage test's first draft** (DESIGN-SPEC
+  Amendments round 3 item 21): asserting `.cm-md-h2` count === 10 against a
+  ~110-line note failed with "received 3," not because the live-preview
+  plugin only decorated 3 of 10 section headings, but because only the top
+  of the document was ever rendered into the DOM at the browser's default
+  viewport height — the other 7 headings' decorations genuinely don't
+  exist as DOM nodes until scrolled near. This is standard, correct CM6
+  behavior (the same mechanism that makes a 50,000-line file editable at
+  all), not a bug this phase needed to fix — but it means "assert a
+  decoration-class count against the whole document" is the wrong test
+  shape for anything longer than a screenful. Fixed by scrolling the real
+  `.cm-scroller` element through the whole note in several steps,
+  accumulating a Set of which marker classes were seen at ANY step
+  (`tests/e2e/rich-demo-data.spec.ts`), rather than asserting counts
+  against one static viewport — and by using the real find widget
+  (`⌘F` → type → Enter) to deterministically scroll a specific mid-document
+  match (the internal `indexer.ts` link) into view before clicking it,
+  instead of guessing a scroll offset.
+- **(Phase 8) DESIGN-SPEC Amendments round 3 item 19 ("Single-Esc
+  fullscreen exit") needed a SECOND listener (`document`'s native
+  `fullscreenchange` event), not a fix to the existing `keydown` handler,
+  because the browser can intercept the first Escape press before this
+  app's own JavaScript ever sees it at all.** When `enterZenMode`'s
+  `requestFullscreen()` succeeds, some browsers handle Escape's "leave
+  fullscreen" behavior at a level above page JS — the app's `keydown`
+  listener either never fires for that keypress or fires after the browser
+  has already exited fullscreen, so a handler that only reacted to
+  `keydown` needed a SECOND press (once fullscreen was already gone) to
+  finally see an Escape it could act on. Fixed with a `fullscreenchange`
+  listener that exits zen in the SAME event fullscreen itself ends in —
+  deliberately calling `setZenMode(false)` directly rather than
+  `exitZenMode()` (which itself calls `document.exitFullscreen()`), since
+  by the time this fires fullscreen has, by definition, already ended;
+  calling `exitFullscreen()` again would be a no-op at best and a spurious
+  rejected promise at worst. The pre-existing `keydown` Escape handler is
+  untouched and still covers the other half of the contract ("Esc pressed
+  while zen-but-not-browser-fullscreen exits zen directly," e.g. when
+  `requestFullscreen()` was denied or unavailable — headless Playwright
+  Chromium, notably, which is why `palette-settings-zen-durability.spec.ts`'s
+  single-Esc test passes even though real fullscreen may never actually
+  engage in that environment: the `keydown` path alone is sufficient there).
+- **(Phase 8) `useSettingsStore.ts`'s `uiDensity` needed a real
+  `persist` version bump + `migrate`, not just a type/default change,**
+  because the pre-Phase-8 default value was the STRING `"comfortable"` even
+  though it rendered exactly today's `"default"` pixel values (there was no
+  third tier yet) — DESIGN-SPEC Amendments round 3 item 23 introduces a
+  genuinely larger `"comfortable"` tier with that same literal string name.
+  Without a migration, a session that persisted `uiDensity: "comfortable"`
+  before this phase would silently jump to the NEW, taller chrome on next
+  load instead of keeping the pixels it always had. `migrate` (version 0 →
+  1) remaps a persisted `"comfortable"` to `"default"`; `"compact"` passes
+  through unchanged (it always meant the same thing).

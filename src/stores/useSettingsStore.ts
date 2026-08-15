@@ -38,7 +38,18 @@ export type SlateTheme = (typeof THEME_OPTIONS)[number];
  * duplicating the literal `13` in two files. */
 export const DEFAULT_EDITOR_FONT_SIZE = 13;
 
-export type UiDensity = "comfortable" | "compact";
+/** DESIGN-SPEC Amendments round 3 item 23 ("Density must be real"): three
+ * real tiers now, not two — `"default"` is the pixel-sampled baseline
+ * every phase before this one hardcoded unconditionally (see
+ * `theme.css`'s density block), `"compact"`/`"comfortable"` scale every
+ * chrome band, row/tab padding, and icon gap down/up from it. Before this
+ * phase the store's only two values were `"comfortable"` (the actual
+ * DEFAULT, despite its name — it rendered exactly today's `"default"`
+ * pixels) and `"compact"`; `migrate` below carries a persisted
+ * `"comfortable"` forward to `"default"` so an existing session's
+ * literal-string value keeps meaning "the pixels I've always seen" instead
+ * of silently becoming the NEW, genuinely-larger `"comfortable"` tier. */
+export type UiDensity = "compact" | "default" | "comfortable";
 
 /** Phase 6.5c (DESIGN-SPEC Amendments item 11, "Rendered view" category) —
  * every default matches the exact hardcoded value the pre-6.5c static
@@ -60,6 +71,11 @@ export const DEFAULT_RENDERED_MARGIN_PX = 32;
 export const DEFAULT_RENDERED_LINE_SPACING = 1.8;
 export const DEFAULT_SIDEBAR_WIDTH = 288;
 export const MIN_SIDEBAR_WIDTH = 180;
+/** DESIGN-SPEC Amendments round 3 item 20: dragging the sidebar's right
+ * edge below this snaps it to a fully collapsed (zero-width) state instead
+ * of leaving a "half-dead sliver" partway between 0 and `MIN_SIDEBAR_WIDTH`
+ * — there is no reachable width between 0 and `MIN_SIDEBAR_WIDTH` at all. */
+export const SIDEBAR_COLLAPSE_THRESHOLD = 120;
 /** Sensible max — DESIGN-SPEC Amendments item 10 says "~50vw"; applied at
  * drag time (`Sidebar.tsx`) against the live viewport width, this is just
  * the fallback used the one time a width needs clamping before any viewport
@@ -92,8 +108,18 @@ interface SettingsState {
   renderedMargin: number;
   renderedLineSpacing: number;
 
-  /** Explorer sidebar width in px (DESIGN-SPEC Amendments item 10). */
+  /** Explorer sidebar width in px (DESIGN-SPEC Amendments item 10) — the
+   * width to RESTORE to when expanded; unaffected by `sidebarCollapsed`
+   * (collapsing never zeroes this out, so re-expanding lands back at
+   * whatever the user last dragged it to). */
   sidebarWidth: number;
+
+  /** DESIGN-SPEC Amendments round 3 item 20 ("Sidebar collapse/expand") —
+   * whether the currently-active side panel (Explorer/Search/Source
+   * Control) is collapsed to zero width. Persisted alongside
+   * `sidebarWidth` via the same `persist` mechanism so a collapsed sidebar
+   * stays collapsed across a reload. */
+  sidebarCollapsed: boolean;
 
   /** Git & Sync category — "Remote sync — coming soon" placeholders
    * (DESIGN-SPEC Amendments item 11): stored so the fields aren't stateless
@@ -120,6 +146,8 @@ interface SettingsState {
   setRenderedMargin: (marginPx: number) => void;
   setRenderedLineSpacing: (spacing: number) => void;
   setSidebarWidth: (width: number) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+  toggleSidebarCollapsed: () => void;
   setGitRemoteUrl: (url: string) => void;
   setGitAuthToken: (token: string) => void;
 }
@@ -133,12 +161,13 @@ export const useSettingsStore = create<SettingsState>()(
       tabSize: 2,
       wordWrap: true,
       readingViewDefaultMode: {},
-      uiDensity: "comfortable",
+      uiDensity: "default",
       editorLineSpacing: DEFAULT_EDITOR_LINE_SPACING,
       renderedContentWidth: DEFAULT_RENDERED_CONTENT_WIDTH_CH,
       renderedMargin: DEFAULT_RENDERED_MARGIN_PX,
       renderedLineSpacing: DEFAULT_RENDERED_LINE_SPACING,
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+      sidebarCollapsed: false,
       gitRemoteUrl: "",
       gitAuthToken: "",
       setTheme: (theme) => set({ theme }),
@@ -163,10 +192,32 @@ export const useSettingsStore = create<SettingsState>()(
       setRenderedMargin: (renderedMargin) => set({ renderedMargin }),
       setRenderedLineSpacing: (renderedLineSpacing) => set({ renderedLineSpacing }),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
+      setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setGitRemoteUrl: (gitRemoteUrl) => set({ gitRemoteUrl }),
       setGitAuthToken: (gitAuthToken) => set({ gitAuthToken }),
     }),
-    { name: "slate-settings" },
+    {
+      name: "slate-settings",
+      // v1 (Phase 8, DESIGN-SPEC Amendments round 3 item 23): a persisted
+      // pre-Phase-8 session's `uiDensity: "comfortable"` meant "the
+      // pixel-sampled baseline" (the only non-compact value that ever
+      // existed), not the NEW, genuinely-roomier `"comfortable"` tier this
+      // phase introduces — remap it to `"default"` so an existing user's
+      // session keeps rendering the exact same pixels they had before this
+      // upgrade rather than silently jumping to a taller chrome. Every
+      // other persisted field is untouched (zustand's `persist` merges the
+      // migrated partial over the store's own defaults for anything this
+      // function doesn't return).
+      version: 1,
+      migrate: (persisted, version) => {
+        const state = persisted as Partial<SettingsState> | undefined;
+        if (version < 1 && state?.uiDensity === "comfortable") {
+          return { ...state, uiDensity: "default" };
+        }
+        return state;
+      },
+    },
   ),
 );
 
@@ -185,6 +236,11 @@ export function applyDomSettings(state: Pick<SettingsState, "theme" | "accent" |
   else root.dataset.theme = state.theme;
   root.style.setProperty("--color-primary", state.accent);
   root.style.setProperty("--color-ring", state.accent);
-  if (state.uiDensity === "compact") root.dataset.uiDensity = "compact";
-  else delete root.dataset.uiDensity;
+  // DESIGN-SPEC Amendments round 3 item 23: three real tiers now —
+  // `"default"` clears the attribute (matching the bare `:root` block in
+  // theme.css, the pixel-sampled baseline every phase before this one
+  // hardcoded), `"compact"`/`"comfortable"` write the attribute their own
+  // `:root[data-ui-density="..."]` block keys off.
+  if (state.uiDensity === "default") delete root.dataset.uiDensity;
+  else root.dataset.uiDensity = state.uiDensity;
 }

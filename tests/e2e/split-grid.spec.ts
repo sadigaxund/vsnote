@@ -65,6 +65,43 @@ test.describe("split grid", () => {
     await expect(tab(page, ARCH, rightPaneId).getByTestId("tab-dirty-dot")).toBeVisible();
   });
 
+  test("DESIGN-SPEC Amendments round 3 item 18: with >1 pane, each pane gets its own slim header and the title bar mirrors the FOCUSED pane", async ({ page }) => {
+    await gotoApp(page);
+    // Single pane: no per-pane header at all.
+    await expect(page.getByTestId("editor-pane").getByTestId("editor-header")).toHaveCount(0);
+
+    await splitTab(page, ARCH, "Split right");
+    await expect(panes(page)).toHaveCount(2);
+    const [leftId, rightId] = await currentPaneIds(page);
+
+    // >1 pane: EVERY pane now has its own slim header.
+    await expect(pane(page, leftId).getByTestId("editor-header")).toBeVisible();
+    await expect(pane(page, rightId).getByTestId("editor-header")).toBeVisible();
+
+    // The split moved ARCH into the right pane, which is now focused — the
+    // title bar's own mirrored controls (`titlebar-pane-controls`) reflect
+    // ARCH's mode/diff, not the left pane's.
+    const titlebarControls = page.getByTestId("app-titlebar").getByTestId("titlebar-pane-controls");
+    await expect(titlebarControls).toBeVisible();
+    await expect(page.getByTestId("app-titlebar").getByRole("radio", { name: "Rendered" })).toHaveAttribute("aria-checked", "true");
+
+    // Changing the mode from the TITLE BAR (not the pane's own header)
+    // changes the focused (right) pane's mode.
+    await page.getByTestId("app-titlebar").getByRole("radio", { name: "Source" }).click();
+    await expect(pane(page, rightId).locator(".cm-content")).toBeVisible();
+    await expect(pane(page, rightId).getByTestId("editor-header").getByRole("radio", { name: "Source" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    // Focusing the OTHER pane updates the title bar to mirror IT instead —
+    // indexer.ts (left pane) opens in Source by default (registry default
+    // for code kinds), so Rendered isn't even a valid segment for it.
+    await pane(page, leftId).click();
+    await expect(page.getByTestId("app-titlebar").getByRole("radio", { name: "Source" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByTestId("app-titlebar").getByRole("radio", { name: "Rendered" })).toBeDisabled();
+  });
+
   test("arranges a 2x2 grid of four different files", async ({ page }) => {
     await gotoApp(page);
     // Split 1: architecture.md moves right (root keeps indexer.ts/

@@ -8,16 +8,18 @@
  * through a separate code path), and push/pull buttons driving the
  * simulated remote (`git/remote.ts`, already wired into `useGitStore`).
  *
- * Pure composition over the library's `Button`/`Textarea`/`ScrollArea`/
- * `Tooltip` plus the local `FileIcon` and the shared `lib/gitStatusColor`
- * map (also used by `ExplorerTree`) — nothing here is a missing-primitive
- * case (no new entry needed in docs/COMPONENT-BACKLOG.md), same as
- * `Sidebar.tsx`.
+ * Renders inside the shared `local/SidebarContainer` region shell (DESIGN-
+ * SPEC Amendments round 3 item 20's course-correction — see that file's
+ * doc: this used to hardcode its own frozen `width: 288` with no resize/
+ * collapse of its own). Otherwise pure composition over the library's
+ * `Button`/`Textarea`/`ScrollArea`/`Tooltip` plus the local `FileIcon` and
+ * the shared `lib/gitStatusColor` map (also used by `ExplorerTree`).
  */
 import { useState } from "react";
 import { Button, ScrollArea, Textarea, Tooltip } from "my-you-eye";
 import { ArrowDownToLine, ArrowUpFromLine, GitCommitHorizontal } from "lucide-react";
 import { FileIcon } from "./local/FileIcon";
+import { SidebarContainer } from "./local/SidebarContainer";
 import { STATUS_COLOR } from "../lib/gitStatusColor";
 import { commitAll } from "../git/commit";
 import { useGitStore } from "../stores/useGitStore";
@@ -25,9 +27,13 @@ import { inferFileKind } from "../stores/useFsStore";
 
 export interface SourceControlPanelProps {
   onOpenDiff: (path: string) => void;
+  width: number;
+  onWidthChange: (width: number) => void;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
 }
 
-export function SourceControlPanel({ onOpenDiff }: SourceControlPanelProps) {
+export function SourceControlPanel({ onOpenDiff, width, onWidthChange, collapsed, onCollapsedChange }: SourceControlPanelProps) {
   const statuses = useGitStore((s) => s.statuses);
   const changedCount = useGitStore((s) => s.changedCount);
   const ahead = useGitStore((s) => s.ahead);
@@ -52,40 +58,11 @@ export function SourceControlPanel({ onOpenDiff }: SourceControlPanelProps) {
   }
 
   return (
-    <aside
-      data-testid="scm-panel"
-      style={{
-        width: 288,
-        flexShrink: 0,
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--app-sidebar-bg)",
-        borderRight: "1px solid var(--app-chrome-border)",
-        minHeight: 0,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          height: "var(--app-chrome-sidebar-header-h)",
-          padding: "0 12px",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-            color: "var(--color-muted)",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          SOURCE CONTROL
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+    <SidebarContainer
+      testId="scm-panel"
+      label="SOURCE CONTROL"
+      headerActions={
+        <>
           <Tooltip content={`Pull (behind ${behind})`} side="bottom">
             <Button
               type="button"
@@ -112,9 +89,13 @@ export function SourceControlPanel({ onOpenDiff }: SourceControlPanelProps) {
               <ArrowUpFromLine size={14} />
             </Button>
           </Tooltip>
-        </div>
-      </div>
-
+        </>
+      }
+      width={width}
+      onWidthChange={onWidthChange}
+      collapsed={collapsed}
+      onCollapsedChange={onCollapsedChange}
+    >
       <div style={{ padding: "0 10px 10px", flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
         <Textarea
           placeholder={`Message (${changedCount} change${changedCount === 1 ? "" : "s"})`}
@@ -208,6 +189,6 @@ export function SourceControlPanel({ onOpenDiff }: SourceControlPanelProps) {
           </ul>
         )}
       </ScrollArea>
-    </aside>
+    </SidebarContainer>
   );
 }
