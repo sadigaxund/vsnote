@@ -60,14 +60,8 @@ import {
   ContextMenuTrigger,
 } from "./ContextMenu";
 import { collectDescendantIds } from "../../stores/useFsStore";
-import type { FileNode, GitStatus } from "../../types";
-
-const STATUS_COLOR: Record<GitStatus, string> = {
-  M: "var(--git-modified)",
-  A: "var(--git-added)",
-  D: "var(--git-deleted)",
-  U: "var(--git-untracked)",
-};
+import { STATUS_COLOR } from "../../lib/gitStatusColor";
+import type { FileNode } from "../../types";
 
 function parentOfPath(path: string): string {
   const idx = path.lastIndexOf("/");

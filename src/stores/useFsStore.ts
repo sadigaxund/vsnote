@@ -58,10 +58,19 @@ export function inferFileKind(name: string): FileKind {
       return "ts";
     case "tsx":
       return "tsx";
+    case "js":
+    case "mjs":
+    case "cjs":
+      return "js";
+    case "jsx":
+      return "jsx";
     case "json":
       return "json";
     case "css":
       return "css";
+    case "html":
+    case "htm":
+      return "html";
     case "csv":
       return "csv";
     case "png":

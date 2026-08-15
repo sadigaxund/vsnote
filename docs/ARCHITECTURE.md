@@ -150,3 +150,40 @@ stack choices in this doc.
   move is identical whether you drop between two rows or directly onto their folder.
   If per-file manual ordering becomes a real requirement later, it needs an explicit
   stored order field — recorded here rather than silently faked.
+- **`FileKind` gained `js`/`jsx`/`html`, alongside `filetypes/registry.ts`.** Phase 3's
+  brief ("ts/tsx, js/jsx, json, css, html, md, and csv-as-text") names three extensions
+  `FileKind`/`useFsStore.inferFileKind` didn't recognize yet (they fell through to
+  `unknown`). Rather than key the new registry by a second, parallel extension-string
+  table, `FileKind` (already the single extension-derived type every store/component
+  reads) grew three variants and `inferFileKind`'s switch gained the matching cases —
+  "adding a file type = one entry" now holds for the registry *and* stays true to the
+  rest of the module list, instead of only being true for the registry. No demo `.js`/
+  `.jsx`/`.html` file was added to the seeded vault (DESIGN-SPEC §3's file list is
+  exact); the new kinds activate the moment such a file exists (new-file creation,
+  future seeding) without further plumbing.
+- **The git gutter (Source mode) reflects the file as of its last save, not live
+  keystrokes.** `editor/gitGutter.ts` is fed the exact same `useGitStore` diff-cache
+  entry (`git/diff.ts`'s `diffFileVsHead`, itself reading from disk) that the `+12 -5`
+  chip and status bar read — per this doc's own "Key flows" invariant ("numbers always
+  agree"). `diffFileVsHead` compares disk content, so while a buffer is dirty (unsaved
+  edits) the gutter shows the diff as of the last ⌘S, not the in-progress typing — the
+  alternative (diffing the live CM6 buffer against HEAD directly) would routinely show
+  the gutter disagreeing with the chip while a file is dirty, which is exactly what the
+  single-source invariant rules out. The gutter, chip, and status bar all update
+  together the instant ⌘S writes to fs and `useGitStore.refresh()` invalidates the
+  cache — verified with Playwright: edit `indexer.ts`, save, and the gutter's
+  added+modified marker count equals the chip's `+N` exactly (see
+  `editor/gitGutter.ts`'s header comment for the full reasoning).
+- **Diff mode's two documents (`editor/DiffView.tsx`) are fed to `@codemirror/merge`,
+  which runs its own internal diff — a second, independent computation from
+  `git/diff.ts`'s `lcsDiffFlags`-based one, not literally the same chunk data reused.**
+  `@codemirror/merge`'s public API (`MergeView`, `unifiedMergeView`) only accepts two
+  document strings and computes its own `Chunk[]` internally; there's no hook to hand it
+  a precomputed diff. Both algorithms are still LCS/Myers-class minimal-edit-distance
+  diffs over the *same* two inputs (HEAD content, on-disk working content — the same
+  read `git/diff.ts` uses), so for real, non-pathological content the total added/
+  removed line counts they report necessarily coincide even though the exact chunk
+  *alignment* isn't guaranteed identical in every edge case. Verified empirically against
+  the seeded `indexer.ts` diff (a near-total rewrite): chip `+20 -3` vs. the unified diff
+  view's own `.cm-changedLine`/`.cm-deletedLine` counts on the working/HEAD sides — `20`
+  and `3` respectively, an exact match, both before and after a live ⌘S-triggered edit.

@@ -1,29 +1,40 @@
 /**
- * Editor content area — mode-aware this phase:
- *  - **Rendered**: Phase 1's static architecture.md typography placeholder
- *    (DESIGN-SPEC "Rendered markdown typography"), shown for every `.md`
- *    tab regardless of which note is open — a real per-file Obsidian-style
- *    renderer is Phase 4's "Markdown live preview" centerpiece; building a
- *    second throwaway renderer now would fight that architecture rather
- *    than inform it (see the placeholder's own file-header note, unchanged
- *    from Phase 1).
- *  - **Source**: a plain `Textarea` bound to the real file content via
- *    `useBufferStore` — IMPLEMENTATION-PLAN.md Phase 2 exit criteria calls
- *    this out explicitly ("edit (temp via a crude textarea is fine this
- *    phase)"); CodeMirror replaces it in Phase 3. A `D`-status tab has
- *    nothing on disk to edit, so it falls back to a read-only view of the
- *    last committed (HEAD) content instead of an empty box.
- *  - **Diff**: not a merge view yet (Phase 3) — but the real numbers
- *    (`git/diff.ts`, the same call the chip/status bar use) are surfaced
- *    via `EmptyState` so the data pipeline is visibly real, not a mock.
+ * Editor content area — mode-aware:
+ *  - **Rendered**: unchanged from Phase 1 — the static `architecture.md`
+ *    typography placeholder (DESIGN-SPEC "Rendered markdown typography"),
+ *    shown for every `.md` tab regardless of which note is open. A real
+ *    per-file Obsidian-style renderer is Phase 4's "Markdown live preview"
+ *    centerpiece; building a second throwaway renderer now would fight
+ *    that architecture rather than inform it.
+ *  - **Source**: `editor/CodeMirrorEditor` (CM6) bound to the real file
+ *    content via `useBufferStore` — replaces Phase 2's crude `Textarea`
+ *    (IMPLEMENTATION-PLAN.md Phase 3). A `D`-status tab has nothing on disk
+ *    to edit, so it falls back to a read-only view of the last committed
+ *    (HEAD) content instead of an empty box, same as Phase 2.
+ *  - **Diff**: `editor/DiffView` — a real `@codemirror/merge` view vs HEAD
+ *    (unified + split toggle), reading the exact same `git/diff.ts` data
+ *    the chip/status bar use.
  *  - No open tab, or an image (no `ImageView` until Phase 4): an
  *    `EmptyState`.
+ *
+ * `CodeMirrorEditor`/`DiffView` are both `React.lazy`-loaded: neither CM6
+ * core nor `@codemirror/merge` land in the app's cold-boot bundle until a
+ * tab is actually opened in Source or Diff mode (Rendered is the default
+ * mode for `.md`, this repo's most common file type, so a plain "open the
+ * app" boot often never pays for either chunk at all).
  */
-import { useEffect, useState } from "react";
-import { EmptyState, ScrollArea, Textarea } from "my-you-eye";
-import { FileQuestion, FileWarning, GitCompareArrows } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { EmptyState, ScrollArea, Spinner } from "my-you-eye";
+import { FileQuestion, FileWarning } from "lucide-react";
 import type { EditorMode, FileKind } from "../types";
 import { readHeadFileContent, type FileDiffResult } from "../git/diff";
+import { fileTypeForOrPlain } from "../filetypes/registry";
+import type { CursorPos } from "../editor/CodeMirrorEditor";
+
+const CodeMirrorEditor = lazy(() =>
+  import("../editor/CodeMirrorEditor").then((m) => ({ default: m.CodeMirrorEditor })),
+);
+const DiffView = lazy(() => import("../editor/DiffView").then((m) => ({ default: m.DiffView })));
 
 export interface EditorContentProps {
   hasTab: boolean;
@@ -35,9 +46,21 @@ export interface EditorContentProps {
   missing: boolean;
   onChange: (value: string) => void;
   diff: FileDiffResult;
+  onCursorChange?: (pos: CursorPos) => void;
 }
 
-export function EditorContent({ hasTab, path, kind, mode, content, loaded, missing, onChange, diff }: EditorContentProps) {
+export function EditorContent({
+  hasTab,
+  path,
+  kind,
+  mode,
+  content,
+  loaded,
+  missing,
+  onChange,
+  diff,
+  onCursorChange,
+}: EditorContentProps) {
   const [headContent, setHeadContent] = useState("");
   useEffect(() => {
     if (missing && path) {
@@ -71,69 +94,67 @@ export function EditorContent({ hasTab, path, kind, mode, content, loaded, missi
     );
   }
 
-  if (mode === "diff") {
-    return (
-      <Centered>
-        <EmptyState
-          icon={<GitCompareArrows size={28} />}
-          title="Diff view arrives in Phase 3"
-          description={
-            diff.added || diff.removed
-              ? `Real computed diff vs HEAD: +${diff.added} / -${diff.removed} lines (git/diff.ts). The merge view renders these same lines in Phase 3.`
-              : "No changes vs HEAD."
-          }
-        />
-      </Centered>
-    );
-  }
-
   if (mode === "rendered") {
     return <RenderedPlaceholder />;
   }
 
+  const fileType = fileTypeForOrPlain(kind);
+
+  if (mode === "diff") {
+    if (!path) return null;
+    return (
+      <Suspense fallback={<EditorLoading />}>
+        <DiffView key={path} path={path} loadLanguage={fileType.loadLanguage} />
+      </Suspense>
+    );
+  }
+
   // Source mode.
+  if (!missing && !loaded) {
+    return <EditorLoading />;
+  }
+
   return (
-    <ScrollArea className="flex-1" style={{ minHeight: 0, background: "var(--app-editor-bg)" }}>
-      {missing ? (
-        <div style={{ padding: 16 }}>
-          <div
-            style={{
-              marginBottom: 10,
-              fontSize: 12,
-              fontFamily: "var(--font-mono)",
-              color: "var(--git-deleted)",
-            }}
-          >
-            Deleted from the working tree — showing the last committed version (read-only).
-          </div>
-          <Textarea readOnly value={headContent} spellCheck={false} style={textareaStyle} />
-        </div>
-      ) : (
-        <div style={{ padding: 16, height: "100%" }}>
-          <Textarea
-            value={loaded ? content : "Loading…"}
-            disabled={!loaded}
-            spellCheck={false}
-            onChange={(e) => onChange(e.target.value)}
-            style={textareaStyle}
-          />
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+      {missing && (
+        <div
+          style={{
+            padding: "6px 16px",
+            fontSize: 12,
+            fontFamily: "var(--font-mono)",
+            color: "var(--git-deleted)",
+            borderBottom: "1px solid var(--app-chrome-border)",
+            flexShrink: 0,
+          }}
+        >
+          Deleted from the working tree — showing the last committed version (read-only).
         </div>
       )}
-    </ScrollArea>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <Suspense fallback={<EditorLoading />}>
+          <CodeMirrorEditor
+            key={path}
+            path={path ?? ""}
+            content={missing ? headContent : content}
+            readOnly={missing}
+            diff={diff}
+            loadLanguage={fileType.loadLanguage}
+            onChange={missing ? undefined : onChange}
+            onCursorChange={onCursorChange}
+          />
+        </Suspense>
+      </div>
+    </div>
   );
 }
 
-const textareaStyle = {
-  width: "100%",
-  minHeight: "calc(100vh - 260px)",
-  resize: "vertical" as const,
-  fontFamily: "var(--font-mono)",
-  fontSize: 13,
-  lineHeight: 1.6,
-  background: "var(--app-editor-bg)",
-  color: "var(--color-fg)",
-  border: "1px solid var(--color-border)",
-};
+function EditorLoading() {
+  return (
+    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0, background: "var(--app-editor-bg)" }}>
+      <Spinner size="sm" />
+    </div>
+  );
+}
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (

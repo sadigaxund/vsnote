@@ -2,18 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { AppActivityBar, type ActivityPanel } from "./components/ActivityBar";
 import { AppTitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
+import { SourceControlPanel } from "./components/SourceControlPanel";
 import { AppTabBar } from "./components/TabBar";
 import { EditorHeader } from "./components/EditorHeader";
 import { EditorContent } from "./components/EditorContent";
 import { AppStatusBar } from "./components/StatusBar";
 import { ensureSeeded } from "./fs/seed";
-import { useFsStore } from "./stores/useFsStore";
+import { useFsStore, inferFileKind } from "./stores/useFsStore";
 import { useGitStore } from "./stores/useGitStore";
 import { useTabsStore } from "./stores/useTabsStore";
 import { useBufferStore } from "./stores/useBufferStore";
 import { flushDraftSave } from "./fs/drafts";
 import { useDecoratedTree } from "./stores/useDecoratedTree";
 import { EMPTY_DIFF } from "./git/diff";
+import { fileTypeFor } from "./filetypes/registry";
+import { openSearchInActiveView } from "./editor/activeView";
+import type { CursorPos } from "./editor/CodeMirrorEditor";
 import type { EditorMode, FileKind, FileNode, TabItem } from "./types";
 
 const ACTIVE_ON_BOOT = "vault/notes/architecture.md";
@@ -48,6 +52,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | undefined>(ACTIVE_ON_BOOT);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
+  const [cursor, setCursor] = useState<CursorPos>({ line: 1, column: 1 });
 
   const tree = useDecoratedTree();
   const fs = useFsStore();
@@ -98,16 +103,34 @@ export default function App() {
   const activeDiff = useGitStore((s) => (activeTab ? (s.diffCache[activeTab.path] ?? EMPTY_DIFF) : EMPTY_DIFF));
   const activeBuffer = useBufferStore((s) => (activeTab ? s.buffers[activeTab.path] : undefined));
 
-  // ⌘S / Ctrl+S saves the active buffer to fs (crude-textarea editing this
-  // phase — CodeMirror's save flow replaces this in Phase 3) and refreshes
-  // git status/diff so the M/A/D/U letters and +/- numbers never go stale.
+  // The status bar's cursor readout is only meaningful with a real CM6
+  // selection behind it (Source/Diff modes) — `onCursorChange` keeps
+  // `cursor` current while one is mounted. Derived (not reset via an
+  // effect) so switching to Rendered mode/no tab shows the neutral value
+  // without a render lag.
+  const displayCursor: CursorPos = activeTab && (activeTab.mode === "source" || activeTab.mode === "diff") ? cursor : { line: 1, column: 1 };
+
+  // DESIGN-SPEC Amendments item 5 ("Own the browser shortcuts"): one global
+  // keydown handler that `preventDefault`s and owns ⌘S (save) and ⌘F (open
+  // OUR CM6 search panel, never the browser's find bar) while the app has
+  // focus. ⌘S saves the active buffer to fs and refreshes git status/diff
+  // so the M/A/D/U letters and +/- numbers never go stale. ⌘F is a no-op
+  // beyond swallowing the shortcut when no CM6 view is registered (Rendered
+  // mode/no tab) — note-text search in Rendered is Phase 4/5 territory per
+  // this phase's scope.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === "s") {
         e.preventDefault();
         if (activeTab && useBufferStore.getState().buffers[activeTab.path]?.dirty) {
           void useBufferStore.getState().save(activeTab.path).then(() => useGitStore.getState().refresh());
         }
+      } else if (key === "f") {
+        e.preventDefault();
+        void openSearchInActiveView();
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -158,6 +181,18 @@ export default function App() {
 
   const handleModeChange = (mode: EditorMode) => {
     if (activeTab) tabs.setMode(activeTab.path, mode);
+  };
+
+  // Source Control panel row click: opens (or focuses) the file pinned,
+  // straight into Diff mode — every changed file the panel lists has a
+  // nonzero diff by construction, so Diff is always a valid mode for it.
+  const handleOpenDiff = (path: string) => {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    const kind = inferFileKind(name);
+    tabs.openFile({ path, name, kind }, { pin: true });
+    tabs.setMode(path, "diff");
+    setSelectedId(path);
+    void useBufferStore.getState().ensureLoaded(path);
   };
 
   function resolveCreateParent(explicitParent?: string): string {
@@ -253,6 +288,8 @@ export default function App() {
           />
         )}
 
+        {activePanel === "scm" && <SourceControlPanel onOpenDiff={handleOpenDiff} />}
+
         <div
           style={{
             flex: 1,
@@ -283,6 +320,7 @@ export default function App() {
             onChange={(value) => {
               if (activeTab) useBufferStore.getState().setContent(activeTab.path, value);
             }}
+            onCursorChange={setCursor}
           />
         </div>
       </div>
@@ -297,15 +335,12 @@ export default function App() {
           untracked: git.untrackedCount,
           changedCount: git.changedCount,
         }}
-        // Real Ln/Col tracking needs a real editor selection — CodeMirror
-        // lands in Phase 3. Kept at the app-preview.png value in the
-        // meantime rather than a fake "1,1" that would regress the pixel
-        // match for no functional gain (a crude textarea's cursor position
-        // isn't meaningfully "real" either way at this phase).
-        cursor={{ line: 14, column: 32 }}
+        // Live from the mounted CM6 view's selection (Source/Diff modes) —
+        // see `displayCursor` above for Rendered mode/no-tab.
+        cursor={displayCursor}
         encoding="UTF-8"
         eol="LF"
-        language={(activeTab?.kind ?? "").toUpperCase() || "PLAIN"}
+        language={fileTypeFor(activeTab?.kind)?.languageId ?? "PLAIN"}
       />
 
       {!booted && (
