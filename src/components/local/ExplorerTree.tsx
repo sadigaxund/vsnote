@@ -277,6 +277,58 @@ function TreeRow({
     if (isRenaming) setDraftName(node.name);
   }
 
+  // Right-click → Rename never focused the inline `<Input>` (Phase 7 suite
+  // finding). Root cause, confirmed with a temporary event-by-event console
+  // trace rather than guessed from reading source alone: `App.tsx`'s
+  // `handleRequestRename` is a synchronous `setRenamingId` call, so this
+  // row's rename `<Input>` mounts (with `autoFocus`) in the SAME React
+  // commit Radix's `ContextMenu` is still tearing itself down in — and
+  // `@radix-ui/react-focus-scope`'s `FocusScope` (every Radix menu's
+  // Content wraps one, `trapped: context.open`) actively traps focus
+  // WHILE OPEN: a document-level `focusin` listener detects focus landing
+  // on our `<Input>` (which lives in the sidebar tree, outside the trapped
+  // menu container) and yanks it straight back into the still-mounted
+  // (animating-out) menu — before our `<Input>`'s own `onFocus` ever fires,
+  // confirmed by that trace: the "New File" flow (whose rename input mounts
+  // well after the menu has fully closed, since `handleCreateFile` `await`s
+  // `fs.createFile()` first) reliably logs one clean focus event, while
+  // this same-tick Rename flow logs ZERO — the input's `autoFocus` call
+  // never even briefly wins, it's out-competed by an active trap, not
+  // merely raced by a delayed restore. (`onCloseAutoFocus` — Radix's
+  // documented escape hatch for the *separate* "restore focus to the
+  // trigger on unmount" step — is still set with `preventDefault()` below;
+  // it's necessary but not sufficient on its own, since it can't be
+  // called until the trap itself has already relaxed.)
+  //
+  // Fixed by not trying to win a single-shot race against an active focus
+  // trap at all: the effect below re-asserts `.focus()` on every animation
+  // frame — cheap, and self-terminating — until the input
+  // actually holds `document.activeElement` (Radix's trap only contests
+  // focus for the finite window its own close animation/effect teardown
+  // takes; once that's done, our re-assertion is uncontested and sticks
+  // immediately) or a ~500ms budget elapses (so a genuinely gone/removed
+  // input, e.g. rename cancelled from elsewhere, can't loop forever).
+  // Verified by right-clicking → Rename and typing immediately (no extra
+  // click, no `.fill()` workaround) — see `tests/e2e/fs-git.spec.ts`'s
+  // companion test.
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!isRenaming) return;
+    let raf = 0;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 30; // ~500ms at 60fps
+    function tick() {
+      const el = inputRef.current;
+      if (!el || document.activeElement === el || attempts >= MAX_ATTEMPTS) return;
+      attempts++;
+      el.focus();
+      el.select();
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isRenaming]);
+
   const handleActivate = (opts?: { pin?: boolean }) => {
     if (isFolder) {
       setUserExpanded((e) => !e);
@@ -384,6 +436,7 @@ function TreeRow({
         <Input
           size="sm"
           autoFocus
+          ref={inputRef}
           value={draftName}
           onChange={(e) => setDraftName(e.target.value)}
           onClick={(e) => e.stopPropagation()}
@@ -443,7 +496,7 @@ function TreeRow({
         <ContextMenuTrigger asChild disabled={isRenaming}>
           {row}
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent onCloseAutoFocus={(e) => e.preventDefault()}>
           <ContextMenuItem onSelect={() => onCreateFile?.(parentPath)}>
             <FilePlus size={13} /> New File
           </ContextMenuItem>

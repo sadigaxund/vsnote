@@ -99,7 +99,10 @@ export function CsvTable({ content }: CsvTableProps) {
 
   return (
     <ScrollArea className="flex-1" style={{ minHeight: 0, background: "var(--app-editor-bg)" }}>
-      <div style={{ padding: 20 }}>
+      {/* DESIGN-SPEC Amendments item 12: rendered content stays selectable
+          even though the app-wide default is `user-select: none` — see
+          `index.css`'s `[data-selectable-content]` rule. */}
+      <div data-selectable-content style={{ padding: 20 }}>
         <DataTable columns={columns} rows={rows} stickyHeader rowKey={(_, i) => i} />
       </div>
     </ScrollArea>

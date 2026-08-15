@@ -4,22 +4,20 @@
  * Diff mode renders a real vs-HEAD comparison, and a real commit clears
  * every indicator together.
  *
- * Two exit-criteria items are deliberately NOT covered as tightly as they
- * could be, per an in-flight scope note from a concurrent Phase 6.5 worker
- * (DESIGN-SPEC.md's "Amendments round 2", commit `5ac81d7`, items 9 & 13):
- *  - Ctrl+F today opens CM6's stock `@codemirror/search` panel
- *    (`.cm-panel.cm-search`), but item 9 replaces it with a VSCode-style
- *    floating find/replace widget with entirely different DOM. A spec
- *    pinned to `.cm-panel.cm-search` would need rewriting the moment that
- *    lands, so it's intentionally omitted here rather than committed only
- *    to immediately go stale — revisit once the new find widget ships.
- *  - Diff mode's exact line-count-vs-chip cross-check is omitted for the
- *    same reason: item 13 replaces the ad-hoc Split/Unified
- *    `SegmentedControl` (today's `getByRole("radio", {name: "Unified"})`)
- *    with a compact icon-only control, so any test driving today's control
- *    by its visible text would break immediately. The test below checks
- *    Diff mode renders a REAL `@codemirror/merge` comparison (not the
- *    exact count match) until that control's redesign lands.
+ * Phase 6.5b (DESIGN-SPEC Amendments round 2) landed the two items an
+ * earlier in-flight scope note here said were deliberately left loose:
+ *  - Item 9's find widget (`tests/e2e/find-widget.spec.ts` has the full
+ *    coverage — opening/prefill, native highlighting, navigation, replace,
+ *    per-pane targeting, Esc). This file no longer needs its own Ctrl+F
+ *    test since that spec owns the feature end to end.
+ *  - Item 13 replaced the Diff-mode Split/Unified `SegmentedControl` with a
+ *    compact icon-only one in `EditorHeader` — still `getByRole("radio",
+ *    {name: "Unified"})` (the button keeps its accessible name via
+ *    `aria-label` even with the label text hidden), so the test below now
+ *    also drives the toggle and cross-checks the DOM it actually produces
+ *    (`@codemirror/merge`'s `.cm-mergeViewEditor` — two side-by-side
+ *    editors in split mode, zero in unified, per
+ *    `node_modules/@codemirror/merge/dist/index.js`).
  */
 import { test, expect } from "@playwright/test";
 import { gotoApp, tab } from "./fixtures";
@@ -70,6 +68,37 @@ test.describe("editor + diff", () => {
     await expect(page.locator(".cm-changedLine, .cm-deletedLine, .cm-insertedLine").first()).toBeVisible();
     const highlightCount = await page.locator(".cm-changedLine, .cm-deletedLine, .cm-insertedLine").count();
     expect(highlightCount).toBeGreaterThan(1);
+  });
+
+  test("Diff layout toggle (item 13): icon-only SegmentedControl swaps MergeView between split and unified", async ({ page }) => {
+    await gotoApp(page);
+    await page.getByRole("radio", { name: "Diff" }).click();
+
+    // Split is the default: two side-by-side `.cm-mergeViewEditor`s (HEAD +
+    // working), per `@codemirror/merge`'s `MergeView`.
+    await expect(page.locator(".cm-mergeViewEditor")).toHaveCount(2);
+
+    // The layout toggle lives in the editor header, next to the mode
+    // toggle — icon-only, but still `role="radio"` with an `aria-label`
+    // (SegmentedControl's `iconOnly` prop), each wrapped in a `Tooltip`.
+    const header = page.getByTestId("editor-header");
+    const unifiedBtn = header.getByRole("radio", { name: "Unified" });
+    const splitBtn = header.getByRole("radio", { name: "Split" });
+    await expect(unifiedBtn).toBeVisible();
+    await expect(splitBtn).toBeVisible();
+    await expect(splitBtn).toHaveAttribute("aria-checked", "true");
+
+    await unifiedBtn.click();
+    // Unified mode is a single EditorView with `unifiedMergeView` — no
+    // `.cm-mergeViewEditor` wrapper at all, and the real merge output
+    // (`.cm-changedLine`/etc.) is still present, just in one column.
+    await expect(page.locator(".cm-mergeViewEditor")).toHaveCount(0);
+    await expect(page.locator(".cm-changedLine, .cm-deletedLine, .cm-insertedLine").first()).toBeVisible();
+    await expect(unifiedBtn).toHaveAttribute("aria-checked", "true");
+
+    // The toggle is NOT rendered outside Diff mode.
+    await page.getByRole("radio", { name: "Source" }).click();
+    await expect(header.getByRole("radio", { name: "Unified" })).toHaveCount(0);
   });
 
   test("commit flow clears the tree letters, badge, and diff chip together", async ({ page }) => {

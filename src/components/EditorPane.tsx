@@ -41,7 +41,7 @@ import { useGitStore } from "../stores/useGitStore";
 import { EMPTY_DIFF } from "../git/diff";
 import { modeAvailabilityFor } from "../filetypes/registry";
 import { probeRender } from "../lib/renderProbe";
-import type { DockEdge, EditorMode, TabItem } from "../types";
+import type { DiffLayout, DockEdge, EditorMode, TabItem } from "../types";
 
 export interface EditorPaneProps {
   paneId: string;
@@ -132,6 +132,14 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
   const activeBuffer = useBufferStore((s) => (activeTab ? s.buffers[activeTab.path] : undefined));
 
   const [dockPreview, setDockPreview] = useState<DockEdge | null>(null);
+  // DESIGN-SPEC Amendments item 13: unified/split is a per-pane view
+  // preference, not a per-tab one — deliberately not reset on `activeTab`
+  // changes, so flipping between several diffs in the same pane keeps
+  // whichever layout was last picked (previously `editor/DiffView.tsx`'s
+  // own internal state reset to "split" on every file switch since that
+  // component remounted per `path`; this is a small, intentional behavior
+  // change alongside lifting the control up into `EditorHeader`).
+  const [diffLayout, setDiffLayout] = useState<DiffLayout>("split");
 
   if (!leaf) return null;
 
@@ -209,6 +217,8 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
             mode={activeTab?.mode ?? "source"}
             onModeChange={(mode: EditorMode) => activeTab && setMode(activeTab.path, mode, paneId)}
             availableModes={availableModes}
+            diffLayout={diffLayout}
+            onDiffLayoutChange={setDiffLayout}
             onEnterZen={() => {
               focusPane(paneId);
               onEnterZen();
@@ -238,6 +248,7 @@ export function EditorPane({ paneId, zen, onEnterZen, onExitZen, zenPillHovered,
           }}
           onCursorChange={handleCursorChange}
           onOpenLink={(href) => onOpenLink(paneId, href)}
+          diffLayout={diffLayout}
         />
         {dockPreview && <DockOverlay edge={dockPreview} />}
       </div>

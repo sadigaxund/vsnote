@@ -28,7 +28,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { EmptyState, Spinner } from "my-you-eye";
 import { FileQuestion } from "lucide-react";
-import type { EditorMode, FileKind } from "../types";
+import type { DiffLayout, EditorMode, FileKind } from "../types";
 import { readHeadFileContent, type FileDiffResult } from "../git/diff";
 import { fileTypeForOrPlain } from "../filetypes/registry";
 import type { CursorPos } from "../editor/CodeMirrorEditor";
@@ -60,6 +60,9 @@ export interface EditorContentProps {
   diff: FileDiffResult;
   onCursorChange?: (pos: CursorPos) => void;
   onOpenLink?: (href: string) => void;
+  /** Diff mode's unified/split toggle (DESIGN-SPEC Amendments item 13) —
+   * owned by `EditorPane.tsx`, rendered by `EditorHeader`. */
+  diffLayout?: DiffLayout;
 }
 
 export function EditorContent({
@@ -75,6 +78,7 @@ export function EditorContent({
   diff,
   onCursorChange,
   onOpenLink,
+  diffLayout = "split",
 }: EditorContentProps) {
   const [headContent, setHeadContent] = useState("");
   useEffect(() => {
@@ -109,7 +113,7 @@ export function EditorContent({
     if (!path) return null;
     return (
       <Suspense fallback={<EditorLoading />}>
-        <DiffView key={path} paneId={paneId} path={path} loadLanguage={fileType.loadLanguage} />
+        <DiffView key={path} paneId={paneId} path={path} loadLanguage={fileType.loadLanguage} layout={diffLayout} />
       </Suspense>
     );
   }

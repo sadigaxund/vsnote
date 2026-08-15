@@ -25,4 +25,29 @@ body {
   color: var(--color-fg);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  /* DESIGN-SPEC Amendments item 12 ("Selection discipline"): non-selectable
+     by default — the tree, tabs, bars, menus, and buttons this cascades to
+     cover every chrome surface (including Radix-portalled menus/dialogs/
+     tooltips, which mount as direct `<body>` children) without sprinkling
+     `user-select: none` across each chrome component individually. Text
+     stays selectable ONLY where explicitly re-enabled below: CodeMirror's
+     own surfaces (source/diff/rendered-markdown editing), form inputs, and
+     the CSV/JSON renderers' `[data-selectable-content]` data views. */
+  user-select: none;
+}
+
+input,
+textarea,
+.cm-editor,
+[data-selectable-content] {
+  user-select: text;
+}
+
+/* DESIGN-SPEC Amendments item 14 ("Image viewer polish") — `-webkit-user-
+   drag` has no `CSSProperties` TypeScript type (csstype doesn't cover this
+   WebKit-only, non-standard property), so `renderers/ImageView.tsx` marks
+   its `<img>` with `data-no-drag` and this rule does the actual styling
+   instead of an inline-style type cast. */
+[data-no-drag] {
+  -webkit-user-drag: none;
 }

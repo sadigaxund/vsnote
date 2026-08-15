@@ -66,26 +66,13 @@ export const editorTheme = EditorView.theme(
     ".cm-selectionMatch": {
       backgroundColor: "color-mix(in oklab, var(--color-primary) 15%, transparent)",
     },
-    ".cm-panels": {
-      backgroundColor: "var(--app-titlebar-bg)",
-      color: "var(--color-fg)",
-    },
-    ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--app-chrome-border)" },
-    ".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--app-chrome-border)" },
-    ".cm-panel": { fontFamily: "var(--font-sans)", fontSize: "12px" },
-    ".cm-panel input": {
-      background: "var(--color-surface)",
-      color: "var(--color-fg)",
-      border: "1px solid var(--color-border)",
-      borderRadius: "var(--radius-ui-sm)",
-    },
-    ".cm-panel button": {
-      backgroundColor: "var(--color-surface)",
-      color: "var(--color-fg)",
-      border: "1px solid var(--color-border)",
-      borderRadius: "var(--radius-ui-sm)",
-    },
-    ".cm-panel button:hover": { backgroundColor: "var(--color-surface-hover)" },
+    // No `.cm-panels`/`.cm-panel` rules here (DESIGN-SPEC Amendments item
+    // 9): `editor/findPanel.ts`'s `createFindPanel` replaces the vanilla
+    // find/replace panel's DOM entirely with the React `FindWidget`, which
+    // draws its own card (background/border/shadow) from tokens directly —
+    // these rules would target dead markup now. `.cm-panels`' own CM6-
+    // supplied styling stays neutral (this app's find widget overrides
+    // `position`/`pointer-events` itself; see that module's doc).
     ".cm-tooltip": {
       backgroundColor: "var(--color-surface)",
       border: "1px solid var(--color-border)",

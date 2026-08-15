@@ -5,10 +5,10 @@
  * `SegmentedControl`.
  */
 import { Breadcrumbs, Button, Tooltip } from "my-you-eye";
-import { Eye, FileCode, GitCompareArrows, Maximize2 } from "lucide-react";
+import { AlignJustify, Columns2, Eye, FileCode, GitCompareArrows, Maximize2 } from "lucide-react";
 import { DiffStatChip } from "./local/DiffStatChip";
 import { SegmentedControl } from "./local/SegmentedControl";
-import type { DiffStat, EditorMode } from "../types";
+import type { DiffLayout, DiffStat, EditorMode } from "../types";
 
 export interface EditorHeaderProps {
   breadcrumb: string[];
@@ -22,6 +22,12 @@ export interface EditorHeaderProps {
    * availability (json tree view, csv DataTable, html iframe) lands with
    * their renderers in Phase 4. */
   availableModes?: EditorMode[];
+  /** DESIGN-SPEC Amendments item 13: only rendered when `mode === "diff"` —
+   * the compact icon-only unified/split toggle, "next to the mode toggle,
+   * same visual language" — owned by `EditorPane.tsx`, replacing the ad-hoc
+   * `SegmentedControl` that used to live inside `editor/DiffView.tsx`. */
+  diffLayout?: DiffLayout;
+  onDiffLayoutChange?: (layout: DiffLayout) => void;
   /** DESIGN-SPEC Amendments item 4 ("Zen mode ... a command + a toolbar
    * affordance + a shortcut"). This IS the toolbar affordance; the command
    * lives in the command palette and the shortcut (⌘⇧Z) in App.tsx's
@@ -35,6 +41,8 @@ export function EditorHeader({
   mode,
   onModeChange,
   availableModes = ["rendered", "source", "diff"],
+  diffLayout = "split",
+  onDiffLayoutChange,
   onEnterZen,
 }: EditorHeaderProps) {
   const has = (m: EditorMode) => availableModes.includes(m);
@@ -69,6 +77,19 @@ export function EditorHeader({
             { value: "diff", label: "Diff", icon: <GitCompareArrows size={13} />, disabled: !has("diff") },
           ]}
         />
+        {mode === "diff" && (
+          <SegmentedControl
+            size="sm"
+            iconOnly
+            aria-label="Diff layout"
+            value={diffLayout}
+            onChange={onDiffLayoutChange}
+            options={[
+              { value: "split", label: "Split", icon: <Columns2 size={13} /> },
+              { value: "unified", label: "Unified", icon: <AlignJustify size={13} /> },
+            ]}
+          />
+        )}
         <Tooltip content="Zen mode (⌘⇧Z)" side="bottom">
           <Button
             type="button"

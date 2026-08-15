@@ -76,6 +76,11 @@ export function ImageView({ path }: ImageViewProps) {
 
   return (
     <div
+      // DESIGN-SPEC Amendments item 14 ("Image viewer polish"): the
+      // container joins the `<img>` itself in refusing selection/ghost-drag
+      // — a drag starting anywhere in the checkerboard padding around the
+      // image, not just on the pixels, shouldn't kick off a native image
+      // drag either.
       style={{
         flex: 1,
         minHeight: 0,
@@ -88,9 +93,28 @@ export function ImageView({ path }: ImageViewProps) {
           "linear-gradient(45deg, var(--color-surface-hover) 25%, transparent 25%), linear-gradient(-45deg, var(--color-surface-hover) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, var(--color-surface-hover) 75%), linear-gradient(-45deg, transparent 75%, var(--color-surface-hover) 75%)",
         backgroundSize: "20px 20px",
         backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0px",
+        userSelect: "none",
+        WebkitUserSelect: "none",
       }}
     >
-      <Image src={url} alt={path} fit="contain" style={{ maxWidth: "100%", maxHeight: "100%", width: "auto", height: "auto" }} />
+      <Image
+        src={url}
+        alt={path}
+        fit="contain"
+        draggable={false}
+        // `-webkit-user-drag` has no `CSSProperties` type (not in csstype —
+        // Safari/WebKit-only, non-standard), so it's set via `data-no-drag`
+        // + `index.css`'s matching selector instead of an inline style cast.
+        data-no-drag
+        style={{
+          maxWidth: "100%",
+          maxHeight: "100%",
+          width: "auto",
+          height: "auto",
+          userSelect: "none",
+          WebkitUserSelect: "none",
+        }}
+      />
     </div>
   );
 }

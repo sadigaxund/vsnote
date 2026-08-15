@@ -41,6 +41,12 @@ export interface FileNode {
 
 export type EditorMode = "rendered" | "source" | "diff";
 
+/** Diff mode's presentation toggle (DESIGN-SPEC Amendments item 13) — lifted
+ * out of `editor/DiffView.tsx` into pane-level state (`EditorPane.tsx`) so
+ * `EditorHeader`'s icon-only `SegmentedControl` can sit next to the
+ * Rendered/Source/Diff mode toggle instead of DiffView's own ad-hoc row. */
+export type DiffLayout = "split" | "unified";
+
 /** Phase 6 grid split view (DESIGN-SPEC Amendments item 8): which edge of a
  * pane a dragged tab is being docked toward — "center" means "merge into
  * this pane's tab strip" rather than create a new sibling pane. */

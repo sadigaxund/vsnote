@@ -18,22 +18,26 @@
  * This whole module is loaded lazily (`React.lazy` at the call site in
  * `EditorContent.tsx`) so `@codemirror/merge` only ever downloads once a
  * user actually opens Diff mode, keeping it out of the cold-boot bundle.
+ *
+ * The unified/split layout toggle used to live here as an in-content
+ * `SegmentedControl` row; DESIGN-SPEC Amendments item 13 moved it into
+ * `EditorHeader` (next to the Rendered/Source/Diff mode toggle, "same
+ * visual language") as a compact icon-only control — `layout` is now owned
+ * by `EditorPane.tsx` and passed down as a plain prop instead of local
+ * state here.
  */
 import { useEffect, useRef, useState } from "react";
 import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { MergeView, unifiedMergeView } from "@codemirror/merge";
-import { AlignJustify, Columns2 } from "lucide-react";
 import { readOnlyBaseExtensions } from "./baseExtensions";
 import { editorExtensions } from "./theme";
 import { getActiveEditorView, setActiveEditorView } from "./activeView";
-import { SegmentedControl } from "../components/local/SegmentedControl";
 import { readHeadFileContent } from "../git/diff";
 import { pathExists, readTextFile } from "../fs/operations";
 import { displayToFsPath } from "../fs/paths";
 import { useSettingsStore } from "../stores/useSettingsStore";
-
-type DiffLayout = "split" | "unified";
+import type { DiffLayout } from "../types";
 
 export interface DiffViewProps {
   /** Which pane this instance belongs to — threaded to `MergeViewport` for
@@ -41,10 +45,13 @@ export interface DiffViewProps {
   paneId: string;
   path: string;
   loadLanguage: () => Promise<Extension | null>;
+  /** Unified vs. split presentation — owned by `EditorPane.tsx`, rendered
+   * by `EditorHeader`'s icon-only `SegmentedControl` (DESIGN-SPEC
+   * Amendments item 13). */
+  layout: DiffLayout;
 }
 
-export function DiffView({ paneId, path, loadLanguage }: DiffViewProps) {
-  const [layout, setLayout] = useState<DiffLayout>("split");
+export function DiffView({ paneId, path, loadLanguage, layout }: DiffViewProps) {
   const [docs, setDocs] = useState<{ head: string; working: string } | null>(null);
 
   useEffect(() => {
@@ -62,25 +69,6 @@ export function DiffView({ paneId, path, loadLanguage }: DiffViewProps) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          padding: "6px 10px",
-          borderBottom: "1px solid var(--app-chrome-border)",
-          flexShrink: 0,
-        }}
-      >
-        <SegmentedControl
-          size="sm"
-          value={layout}
-          onChange={setLayout}
-          options={[
-            { value: "split", label: "Split", icon: <Columns2 size={13} /> },
-            { value: "unified", label: "Unified", icon: <AlignJustify size={13} /> },
-          ]}
-        />
-      </div>
       <div style={{ flex: 1, minHeight: 0, overflow: "hidden", background: "var(--app-editor-bg)" }}>
         {docs && (
           <MergeViewport

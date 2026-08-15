@@ -92,6 +92,32 @@ test.describe("fs + git", () => {
     await expect(treeRow(page, "vault/src/renamed-again.md")).toHaveCount(0);
   });
 
+  test("right-click Rename focuses the inline input immediately — no extra click needed", async ({ page }) => {
+    // Regression test for a real bug the Phase 7 suite found and the test
+    // above worked around rather than fixed (see its own comment): Radix's
+    // ContextMenu returning focus to its trigger raced the rename <Input>'s
+    // `autoFocus`, and Radix often won. This test types via the keyboard
+    // straight after picking "Rename" — no `.fill()`, no extra click — so
+    // it fails exactly the way a real user hitting the bug would notice:
+    // the first keystrokes going nowhere.
+    await gotoApp(page);
+    const row = treeRow(page, "vault/notes/reading-list.md");
+    await row.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Rename" }).click();
+
+    const input = row.locator("input");
+    await expect(input).toBeVisible();
+    await expect(input).toBeFocused();
+
+    // Select-all + type, exactly like a user who clicked Rename and started
+    // typing immediately expects to happen.
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("renamed-via-keyboard.md");
+    await page.keyboard.press("Enter");
+
+    await expect(treeRow(page, "vault/notes/renamed-via-keyboard.md")).toBeVisible();
+  });
+
   test("dragging a file into a folder moves it and changes git status", async ({ page }) => {
     await gotoApp(page);
     // reading-list.md is committed + unmodified (no status letter) at boot.

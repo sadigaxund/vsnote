@@ -534,3 +534,86 @@ stack choices in this doc.
      profiling (not a shared cloud VM under a `PerformanceObserver`
      `longtask`/`setTimeout(0)` proxy) if a much larger document than 1000
      lines is ever a real usage pattern.
+- **The VSCode-style find widget (Phase 6.5b, DESIGN-SPEC Amendments item 9)
+  overlays instead of pushing content down by exploiting two CM6 base-theme
+  facts read straight out of `node_modules/@codemirror/view/dist/index.js`
+  and `node_modules/@codemirror/search/dist/index.js`, not by fighting CM6's
+  panel layout.** (1) `searchHighlighter`'s `highlight({query, panel})`
+  returns `Decoration.none` whenever `panel` is falsy — native
+  `.cm-searchMatch` highlighting is gated on a `Panel` existing at all, not
+  on its DOM shape, which is what makes replacing the panel's markup entirely
+  (via `SearchConfig.createPanel`) safe: `editor/findPanel.ts`'s
+  `createFindPanel` still returns a real `Panel`, so highlighting is
+  untouched. (2) `.cm-editor` is `position: relative !important` (CM6's own
+  base theme) and the `.cm-panels` container CM6 mounts `dom` into is
+  `position: sticky` — both valid containing blocks for an absolutely-
+  positioned child. Setting the panel's own `dom` to `position: absolute`
+  pulls it out of `.cm-editor`'s flex-column flow entirely (an absolutely-
+  positioned box contributes zero size to its flex parent), so `.cm-panels`
+  collapses to zero height and the scroller never shifts, while the card
+  still visually anchors to the editor's own top-right corner via that
+  `position: relative` ancestor — no portal, no extra wrapper measuring the
+  editor's bounding rect by hand. Verified with Playwright: the `.cm-content`
+  bounding rect is pixel-identical immediately before vs. after opening find
+  in `tests/e2e/find-widget.spec.ts`.
+- **The find widget's own React root is a SEPARATE `createRoot()` call
+  (`editor/findPanel.ts`'s `Panel.mount()`), not a component inside the
+  app's main tree.** DESIGN-SPEC Amendments item 16's perf contract ("a
+  keystroke must not re-render the React shell") extends naturally to
+  typing into the find/replace inputs too — since `FindWidget` lives in its
+  own root, every keystroke there re-renders only that isolated tree, never
+  `App`/`EditorPane`. Confirmed via the render probe: typing a query while
+  find is open leaves `App`'s render count at 0, same as a normal editor
+  keystroke burst.
+- **That same separate React root has no `<TooltipProvider>` — a real bug
+  caught only via `page.on("pageerror")` during Playwright verification,
+  not visible from the DOM alone.** `main.tsx` wraps `<App>` in one
+  `TooltipProvider`; `FindWidget`'s `createRoot()` call
+  (`editor/findPanel.ts`'s `Panel.mount()`) is a second, independent root
+  outside that tree entirely, so `FindWidget`'s `Tooltip` usages (every
+  toggle/nav/replace icon button) threw `"Tooltip must be used within
+  TooltipProvider"` on mount — an uncaught render error with no error
+  boundary anywhere in this second root to catch it, so React silently
+  unmounted the whole widget. The symptom this produced was misleading:
+  every `getByTestId("find-widget")` assertion in
+  `tests/e2e/find-widget.spec.ts` failed with "element not found," which
+  reads like a wiring bug (wrong `createPanel`, panel never opening), not a
+  context bug — the panel's own `.cm-slate-find-panel` DOM node WAS present
+  (confirmed by locating it directly), it just rendered nothing inside.
+  Fixed by wrapping `FindWidget` in the library's own `<TooltipProvider>`
+  inside `Panel.mount()`'s `root.render(...)` call — cheap (no extra
+  network/bundle cost; `TooltipProvider` is already loaded, since the app's
+  own root uses it) and scoped to exactly the tree that needs it.
+- **Diff mode's unified/split toggle (DESIGN-SPEC Amendments item 13) moved
+  from `editor/DiffView.tsx`'s own `useState` into `EditorPane.tsx`, which
+  is a small, deliberate behavior change worth recording: the layout
+  preference is now per-PANE, not per-file.** Previously `DiffView`
+  remounted (and its `layout` state reset to `"split"`) every time the
+  active file changed, since `EditorContent.tsx` keys it by `path`. Lifting
+  `diffLayout` to `EditorPane` so `EditorHeader`'s icon-only
+  `SegmentedControl` can sit next to the mode toggle (the spec's explicit
+  placement) means that reset no longer happens — flipping between several
+  diffs in the same pane keeps whichever layout was last picked. Treated as
+  a UX improvement ("my preference sticks") rather than a regression; noted
+  here since it's an observable behavior change from before this phase.
+- **Right-click → Rename never focused the inline `<Input>` — a real bug
+  the Phase 7 suite's own comment flagged without fixing (`tests/e2e/fs-
+  git.spec.ts`'s rename test used `.fill()` specifically to sidestep it).**
+  `App.tsx`'s `handleRequestRename` is a synchronous `setRenamingId` call,
+  so `ExplorerTree.tsx`'s row re-renders with the rename `<Input>` mounted
+  (previously relying on its `autoFocus` prop) in the SAME tick Radix's
+  `ContextMenu` returns focus to its own trigger (this row) as part of ITS
+  OWN close lifecycle — a real focus race, and Radix's own
+  `requestAnimationFrame`-scheduled focus-restore was winning it often
+  enough to matter. ("New File" only ever worked by accident:
+  `handleCreateFile` `await`s `fs.createFile()` before setting
+  `renamingId`, which pushes the input's mount well past Radix's
+  focus-return window entirely.) Fixed in `ExplorerTree.tsx`'s `TreeRow` by
+  replacing `autoFocus` with an imperative `useEffect` that defers the
+  actual `.focus()`/`.select()` call to a `setTimeout(fn, 0)` macrotask:
+  since rAF callbacks always run before the next macrotask is picked off
+  the queue, this reliably fires after Radix is done fighting for focus,
+  regardless of exactly when either side's own effect happens to run within
+  that cycle. Verified with a Playwright repro that right-clicks Rename and
+  types immediately via `page.keyboard.type()` — no `.fill()` workaround,
+  no extra click — in `tests/e2e/fs-git.spec.ts`.

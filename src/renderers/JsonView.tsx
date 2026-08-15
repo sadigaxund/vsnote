@@ -74,7 +74,10 @@ export function JsonView({ content }: JsonViewProps) {
 
   return (
     <ScrollArea className="flex-1" style={{ minHeight: 0, background: "var(--app-editor-bg)" }}>
-      <div style={{ padding: 20, fontFamily: "var(--font-mono)", fontSize: 13 }}>
+      {/* DESIGN-SPEC Amendments item 12: rendered content stays selectable
+          even though the app-wide default is `user-select: none` — see
+          `index.css`'s `[data-selectable-content]` rule. */}
+      <div data-selectable-content style={{ padding: 20, fontFamily: "var(--font-mono)", fontSize: 13 }}>
         <TreeView data={data} defaultExpandedDepth={3} indent="md" />
       </div>
     </ScrollArea>

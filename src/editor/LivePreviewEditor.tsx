@@ -57,6 +57,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { Strikethrough, TaskList } from "@lezer/markdown";
 import { livePreviewExtensions } from "./livepreview";
 import { fontSizeCompartment, fontSizeTheme } from "./baseExtensions";
+import { createFindPanel } from "./findPanel";
 import { getActiveEditorView, setActiveEditorView } from "./activeView";
 import { useSettingsStore, DEFAULT_EDITOR_FONT_SIZE } from "../stores/useSettingsStore";
 import type { CursorPos } from "./CodeMirrorEditor";
@@ -136,7 +137,10 @@ export function LivePreviewEditor({ paneId, path, content, readOnly = false, onC
       // compete with the reveal/hide toggle this mode already draws
       // attention to, and doesn't appear anywhere in app-preview.png.
       EditorState.allowMultipleSelections.of(true),
-      search({ top: true }),
+      // DESIGN-SPEC Amendments item 9 — see `editor/findPanel.ts`'s module
+      // doc for why this keeps `.cm-searchMatch` highlighting fully native
+      // while replacing the vanilla panel's DOM.
+      search({ top: true, createPanel: createFindPanel }),
       highlightSelectionMatches(),
       keymap.of([...defaultKeymap, ...historyKeymap, ...ownedSearchKeymap]),
       EditorView.lineWrapping,

@@ -41,26 +41,10 @@ export const livePreviewTheme = EditorView.theme(
       backgroundColor: "color-mix(in oklab, var(--color-primary) 25%, transparent)",
     },
     ".cm-cursor": { borderLeftColor: "var(--color-primary)" },
-    ".cm-panels": {
-      backgroundColor: "var(--app-titlebar-bg)",
-      color: "var(--color-fg)",
-      fontFamily: "var(--font-sans)",
-    },
-    ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--app-chrome-border)" },
-    ".cm-panel": { fontSize: "12px" },
-    ".cm-panel input": {
-      background: "var(--color-surface)",
-      color: "var(--color-fg)",
-      border: "1px solid var(--color-border)",
-      borderRadius: "var(--radius-ui-sm)",
-    },
-    ".cm-panel button": {
-      backgroundColor: "var(--color-surface)",
-      color: "var(--color-fg)",
-      border: "1px solid var(--color-border)",
-      borderRadius: "var(--radius-ui-sm)",
-    },
-    ".cm-panel button:hover": { backgroundColor: "var(--color-surface-hover)" },
+    // No `.cm-panels`/`.cm-panel` rules here — DESIGN-SPEC Amendments item 9:
+    // `editor/findPanel.ts`'s `createFindPanel` replaces the vanilla find/
+    // replace panel with the React `FindWidget` (own tokens, own card),
+    // same reasoning as `editor/theme.ts`'s matching removal.
 
     // ---- Headings ----
     ".cm-md-h1": {

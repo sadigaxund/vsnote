@@ -1,6 +1,13 @@
 /**
- * SegmentedControl — compact single-choice segmented toggle (used for the
- * Rendered / Source / Diff editor mode switch).
+ * SegmentedControl — compact single-choice segmented toggle. Two consumers:
+ * `EditorHeader.tsx`'s Rendered/Source/Diff mode switch (icon + label), and
+ * — DESIGN-SPEC Amendments item 13 — that same `EditorHeader`'s Diff-mode
+ * unified/split layout toggle, rendered `iconOnly` (icon glyph only, each
+ * segment's `label` becomes its `Tooltip` content instead of visible text)
+ * so it reads as a compact secondary control next to the primary mode
+ * switch rather than competing with it for width. "Same visual language"
+ * per the spec: both instances share this one component/token set, not a
+ * second hand-rolled control.
  *
  * Logged in docs/COMPONENT-BACKLOG.md ("SegmentedControl", status
  * `built-locally`, used in `src/components/EditorHeader.tsx`). The
@@ -10,9 +17,11 @@
  * per file type), and using it as a bare value-toggle would be forcing a
  * navigation component to play a form-control role. Built as a real
  * `role="radiogroup"` control using the same tokens as the library's
- * `Button`/`Badge` active states.
+ * `Button`/`Badge` active states, and — for `iconOnly` — the library's own
+ * `Tooltip`.
  */
 import type { ReactNode } from "react";
+import { Tooltip } from "my-you-eye";
 
 export interface SegmentedOption<T extends string> {
   value: T;
@@ -26,6 +35,11 @@ export interface SegmentedControlProps<T extends string> {
   value: T;
   onChange?: (value: T) => void;
   size?: "sm" | "md";
+  /** Renders each segment as icon-only (label text hidden, `label` becomes
+   * the segment's `Tooltip` content instead) — the Diff layout toggle's
+   * "compact icon-only" presentation, DESIGN-SPEC Amendments item 13. */
+  iconOnly?: boolean;
+  "aria-label"?: string;
 }
 
 export function SegmentedControl<T extends string>({
@@ -33,12 +47,14 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   size = "sm",
+  iconOnly = false,
+  "aria-label": ariaLabel = "Editor mode",
 }: SegmentedControlProps<T>) {
   const height = size === "sm" ? 26 : 32;
   return (
     <div
       role="radiogroup"
-      aria-label="Editor mode"
+      aria-label={ariaLabel}
       style={{
         display: "inline-flex",
         alignItems: "stretch",
@@ -51,20 +67,23 @@ export function SegmentedControl<T extends string>({
     >
       {options.map((opt) => {
         const active = opt.value === value;
-        return (
+        const button = (
           <button
             key={opt.value}
             type="button"
             role="radio"
             aria-checked={active}
+            aria-label={iconOnly ? opt.label : undefined}
             disabled={opt.disabled}
             onClick={() => !opt.disabled && onChange?.(opt.value)}
             style={{
               display: "flex",
               alignItems: "center",
+              justifyContent: "center",
               gap: 5,
               height,
-              padding: "0 10px",
+              width: iconOnly ? height : undefined,
+              padding: iconOnly ? 0 : "0 10px",
               fontSize: 12,
               fontFamily: "var(--font-mono)",
               fontWeight: 500,
@@ -78,8 +97,15 @@ export function SegmentedControl<T extends string>({
             }}
           >
             {opt.icon}
-            {opt.label}
+            {!iconOnly && opt.label}
           </button>
+        );
+        return iconOnly ? (
+          <Tooltip key={opt.value} content={opt.label} side="bottom">
+            {button}
+          </Tooltip>
+        ) : (
+          button
         );
       })}
     </div>

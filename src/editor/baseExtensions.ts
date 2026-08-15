@@ -32,6 +32,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import { createFindPanel } from "./findPanel";
 
 export const wordWrapCompartment = new Compartment();
 export const tabSizeCompartment = new Compartment();
@@ -68,7 +69,11 @@ export function baseExtensions({ wordWrap, tabSize, fontSize }: BaseExtensionOpt
     bracketMatching(),
     closeBrackets(),
     highlightSelectionMatches(),
-    search({ top: true }),
+    // DESIGN-SPEC Amendments item 9: `createPanel` swaps the stock vanilla
+    // find/replace panel for the VSCode-style floating `FindWidget` — see
+    // `editor/findPanel.ts`'s module doc for why this keeps match
+    // highlighting fully native.
+    search({ top: true, createPanel: createFindPanel }),
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...ownedSearchKeymap, indentWithTab]),
     wordWrapCompartment.of(wordWrap ? EditorView.lineWrapping : []),
     tabSizeCompartment.of(indentUnit.of(" ".repeat(Math.max(1, tabSize)))),
@@ -84,7 +89,7 @@ export function readOnlyBaseExtensions({ wordWrap, fontSize }: Omit<BaseExtensio
     lineNumbers(),
     highlightActiveLine(),
     drawSelection(),
-    search({ top: true }),
+    search({ top: true, createPanel: createFindPanel }),
     highlightSelectionMatches(),
     keymap.of([...ownedSearchKeymap]),
     EditorView.editable.of(false),
