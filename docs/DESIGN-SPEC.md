@@ -246,3 +246,48 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     checkpointing stays debounced AND off the critical path (idle-scheduled).
     Verify with a performance trace before/after: no long tasks > 16ms per
     keystroke while typing continuously in a 1k-line markdown doc in Rendered mode.
+
+
+## Amendments round 3 — user feedback 2026-08-15 evening (OVERRIDE above)
+
+17. **Zen mode hides EVERYTHING, title bar included.** Only the text/content area
+    remains (plus the floating filename/exit pill on hover). Supersedes the round-1
+    five-region list, which wrongly omitted the title bar.
+18. **Header consolidation — remove the inner editor-header row.** The title bar
+    absorbs the focused pane's controls: breadcrumbs, diff-stat chip, mode toggle,
+    unified/split diff toggle, zen button. The global search field shrinks to a
+    compact icon + `⌘K` hint on the right cluster (it opens the command palette —
+    that is its only job). Rule for the pane grid: with >1 pane, each pane keeps a
+    slim per-pane header (per-pane modes require it) and the title bar mirrors the
+    FOCUSED pane; with a single pane, no inner header exists at all — the title bar
+    carries everything. Net effect: one less horizontal band in the common case.
+19. **Single-Esc fullscreen exit.** Currently browser fullscreen swallows the first
+    Esc and zen needs a second. Listen to `fullscreenchange`: when browser
+    fullscreen ends and zen is active, exit zen in the same event. Esc pressed while
+    zen-but-not-browser-fullscreen exits zen directly. One press, always.
+20. **Sidebar collapse/expand.** Dragging the sidebar edge below a snap threshold
+    (~120px) collapses it to zero (no half-dead sliver). Expand it back by:
+    clicking any activity-bar view icon (VSCode behavior — the icon of the current
+    view toggles the sidebar, another view's icon opens the sidebar showing that
+    view), and a thin grab edge remains draggable. Collapsed state persists.
+21. **Two new demo files** (added via seeder, untracked/U or committed — keep
+    existing git-state invariants intact): `notes/markdown-kitchen-sink.md`
+    exercising EVERY supported element (h1–h6, bold/italic/strikethrough, nested
+    lists, task lists, links incl. internal, images, nested blockquotes, inline
+    code, fenced code in several languages, tables, horizontal rules), and a simple
+    `demo.html` (a small styled page — nothing complex) for the HTML preview.
+22. **Theme compatibility + per-theme syntax colors.**
+    (a) BUG: switching to the library themes `metallic`, `glass`, `comic` leaves
+    `TexturedSurface` inert. Root-cause it: almost certainly the app's `theme.css`
+    token overrides (written for the default dark look) clobbering the texture/
+    surface variables those themes set. Fix by scoping the app's overrides to its
+    own theme (e.g. `:root[data-theme="slate"]`) so library themes apply cleanly.
+    (b) Per-theme syntax highlighting: drive the CM6 highlight style entirely from
+    CSS custom properties (`--syntax-keyword`, `--syntax-string`, …) with the
+    current colors as the base definition, redefined per `data-theme` so each theme
+    ships its own syntax palette. Live preview code blocks and CodeBlock renderers
+    follow the same variables.
+23. **Density must be real.** The UI density setting currently only nudges text.
+    Make compact/default/comfortable scale the actual chrome tokens — row heights,
+    paddings, icon spacing, tab/status-bar heights — visibly different at a glance.
+24. **Find widget 30–40% smaller** (font, paddings, control sizes — same layout).

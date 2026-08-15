@@ -21,10 +21,12 @@ surfaces, teal/cyan accent, mono UI chrome. Read `docs/DESIGN-SPEC.md` before bu
    `docs/COMPONENT-BACKLOG.md`** describing the component, its props/variants, and where
    it's used. Do not silently inline one-offs. Do not simplify the design to avoid
    building a missing piece.
-3. **No server-dependent features in v1.** Git runs in-browser (isomorphic-git +
-   lightning-fs). Remote sync is simulated. No terminal, no code running. Sharing/auth/
-   FastAPI backend are queued in `docs/ROADMAP-SHARING-AUTH.md` — do not build until
-   explicitly scheduled.
+3. **Client stays server-optional.** Git runs in-browser (isomorphic-git +
+   lightning-fs). No terminal, no code running. As of 2026-08-15 v2 is IN SCOPE
+   (`docs/IMPLEMENTATION-PLAN-V2.md`): a FastAPI backend under `server/` provides
+   sharing, auth, and real remote sync per `docs/ROADMAP-SHARING-AUTH.md` (its
+   security posture is binding). The SPA must remain fully usable with the backend
+   down — share/sync UI degrades gracefully. Python work uses `server/.venv`.
 4. **Docs are law.** `docs/DESIGN-SPEC.md` (what it looks like),
    `docs/ARCHITECTURE.md` (how it's built), `docs/IMPLEMENTATION-PLAN.md` (phases).
    If you must deviate, update the doc in the same commit and say why.
