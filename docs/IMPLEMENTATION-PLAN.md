@@ -24,6 +24,10 @@ before writing code.
   commit; simulated push/pull/fetch.
 - Stores wired: tree, tabs (open/close/preview/pin/reorder), git badge, status bar all
   live. File ops with ContextMenu + inline rename + ConfirmDialog. Filter works.
+- Tree drag & drop moves (DESIGN-SPEC Amendments item 7): drop-into-folder +
+  between-rows insertion indicator + auto-expand + Esc cancel.
+- Persistence per Amendments item 6: settings, tab state, and unsaved buffers
+  (debounced IndexedDB checkpoints) restore across reloads.
 - Exit: create/edit(temp via a crude textarea is fine this phase)/rename/delete a file
   and every indicator updates correctly; reload persists.
 
@@ -63,6 +67,15 @@ before writing code.
 - Simulated sync lifecycle: ahead/behind drift, syncing spinner in status bar,
   "synced Xm ago" relative timestamp ticking.
 - Exit: keyboard-only session possible; final pixel pass vs `app-preview.png`.
+
+## Phase 6 — Grid split view
+- Implement DESIGN-SPEC Amendments item 8: recursive pane grid, drag-tab-to-edge
+  docking with live drop-zone preview, per-pane tab strips + mode, draggable
+  dividers (double-click to equalize), pane collapse on last-tab close, layout
+  persisted with the rest of tab state.
+- Mouse-first: every operation reachable by drag/click; shortcuts are accelerators.
+- Exit: split same file source|rendered side-by-side; arrange 2×2 grid of four
+  files; resize + equalize dividers; reload restores the exact layout.
 
 ## Verification protocol (orchestrator)
 After each phase: run gates, review the diff against this plan and the spec, exercise

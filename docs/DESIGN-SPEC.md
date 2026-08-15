@@ -164,7 +164,24 @@ buildable detail. When in doubt, open the image and match it.
    e.g. 300ms) to IndexedDB, so closing/reloading the browser NEVER loses unsaved
    work. On reopen, dirty tabs come back dirty with their draft content intact.
    Vault files already persist via lightning-fs.
+7. **Tree drag & drop** (Phase 2, part of file ops). Drag files/folders in the
+   explorer to move them: drop ONTO a folder row = move inside (row highlights,
+   folder auto-expands on hover); drop BETWEEN rows = precise placement shown by an
+   insertion indicator line; Esc cancels mid-drag; invalid targets (into own
+   descendant) refuse visibly. Moves are real fs renames, so git status reacts.
+8. **Grid split view — better than Obsidian's** (Phase 6). Terminal-multiplexer-style
+   power, mouse-first and discoverable, NOT keyboard-only:
+   - Drag a tab toward any edge/quadrant of the editor area → a live drop-zone
+     preview highlights exactly where the new pane will land (VSCode-style docking);
+     release to split. Also available as a button/menu on the tab.
+   - Panes form a recursive grid: any pane splits horizontally or vertically,
+     dividers drag to resize, double-click a divider to equalize siblings.
+   - Each pane has its own tab strip, active file, and mode toggle (so
+     source | rendered of the same file side-by-side works naturally).
+   - Closing a pane's last tab collapses the pane; neighbors reclaim the space.
+   - Layout persists (see item 6). Keyboard shortcuts exist as accelerators only —
+     everything must be reachable by mouse alone.
 
-Planned-but-not-yet: sharing/publishing + authentication + a Python/FastAPI backend
-are queued for v2 — see `docs/ROADMAP-SHARING-AUTH.md`. Do NOT implement any of it
-until explicitly scheduled; v1 stays fully client-side.
+Planned-but-not-yet: sharing/publishing + authentication + a Python/FastAPI backend +
+real remote sync (approved) are queued for v2 — see `docs/ROADMAP-SHARING-AUTH.md`.
+Do NOT implement any of it until explicitly scheduled; v1 stays fully client-side.

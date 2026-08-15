@@ -74,30 +74,29 @@ Notes from evaluation:
   client pushes to via isomorphic-git HTTP — enables live shares + multi-device sync.
   Start with (a).
 
-## 4. Feature ideas backlog (candidates, unscheduled)
+## 4. Feature backlog — user decisions 2026-08-15
 
-Leverage-what-we-have first:
-- **Wikilinks + backlinks panel** (`[[note]]`, unlinked mentions) and a **graph view**
-  of note links — the component library already ships Canvas/Graph/GraphNode.
-- **Version history / time travel**: file history from git log, diff any two versions,
-  restore — the plumbing (isomorphic-git) is already there.
-- **Real remote sync**: push/pull to a real GitHub/Gitea remote with a PAT (CORS proxy
-  or v2 backend remote) — turns the simulated ↑3 ↓1 into reality.
-- **Outline panel** (headings tree, click-to-jump) and **document properties** panel
-  (frontmatter as a form).
-- Obsidian-style extras in the live preview: **callouts** (`> [!note]`), **KaTeX
-  math**, **Mermaid diagrams**, footnotes, task lists with a global **Tasks view**
-  aggregating `- [ ]` across the vault.
-- **Tags** (`#tag` index + filter), **daily notes** (calendar picker + template),
-  **templates** for new files, **saved searches**.
-- **Quick capture** scratchpad + web-clipper-ish "paste URL → markdown".
-- **Split view** (two panes side by side, e.g. source | rendered, or two files).
-- **Export**: single file → styled HTML/PDF; vault → static site (pairs naturally
-  with the share feature).
-- **Editor niceties**: vim mode (CM6 has it), multi-cursor, spell check, word count
-  in status bar, typewriter/focus mode (pairs with zen mode), paste-image-into-md
-  (stores into `assets/`).
-- **PWA**: installable, offline-first (everything is local already), mobile layout.
-- **Command-K everything**: recent files, symbol jump in code files (CM6 syntax tree).
-- (v2, big) **Collaboration**: CRDT (Yjs) on shared files with Editor role.
-- (v2) **End-to-end encrypted shares**: key in URL fragment, server stores ciphertext.
+### Approved
+- **Real remote sync** (v2, with the backend): push/pull to a real remote. Start with
+  the v2 backend hosting a bare git repo (`pygit2`/`dulwich`) the client talks to via
+  isomorphic-git HTTP; optionally GitHub/Gitea + PAT later. Turns the simulated
+  ↑3 ↓1 into reality.
+- **Grid split view** — now specced in DESIGN-SPEC Amendments item 8 and scheduled
+  as Phase 6 in IMPLEMENTATION-PLAN. Termux/tmux-grade grid arranging, mouse-first.
+
+### Rejected (user: skip the Obsidian extras)
+Callouts, KaTeX, Mermaid, footnotes, global Tasks view, tags index, daily notes,
+templates, saved searches, quick capture / web clipper. Do not build.
+
+### Still candidates (unscheduled — confirm with user before building)
+- Wikilinks + backlinks + graph view (library ships Canvas/Graph/GraphNode).
+- Version history / time travel from git log (plumbing already present).
+- Outline panel; frontmatter properties panel.
+- Export: file → styled HTML/PDF; vault → static site (pairs with sharing).
+- Editor niceties: vim mode, multi-cursor, spell check, word count,
+  paste-image-into-md.
+- PWA install + offline; mobile layout.
+- Command-K extras: recent files, symbol jump.
+- (v2, big) Collaboration: CRDT (Yjs) on shared files with Editor role.
+- (v2) End-to-end encrypted shares: key in URL fragment, server stores ciphertext
+  only — content confidentiality survives a full server compromise.
