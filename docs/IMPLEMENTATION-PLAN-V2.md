@@ -200,6 +200,25 @@ stage runs `npm ci && npm run build`, final python-slim stage installs
   the configured port; bootstrap user from env works; publish + sync verified
   against the container; state survives down/up; image build job green in CI.
 
+## Phase 15 — Feedback round 5 (2026-08-17, DESIGN-SPEC Amendments items 34–39)
+Full spec in DESIGN-SPEC round 5. Mixed client+server+ops phase:
+- Rebrand sweep (34): env vars, db filename, package/pyproject names, realm,
+  cookies, compose, .env.example, CI, docs. Breaking env rename noted in
+  CHANGELOG Unreleased. Grep-verify zero operator-visible "slate" remains
+  (case-insensitive) outside git history and deliberately-kept internal ids.
+- Compose hygiene (35): drop the cloudflared block; one-line proxy note in
+  server/README.md.
+- Demo opt-in (36): minimal welcome vault default; demo via build flag (Pages
+  workflow sets it) + "Load demo vault" palette command with replace warning;
+  e2e fixtures updated (suite seeds demo explicitly, not implicitly).
+- Editor context menu (37), three-dot menu + PDF export (38), OS-file
+  drag-drop + clipboard paste into tree (39) — components from my-you-eye or
+  local/ per CLAUDE.md rules 1–2; backlog rows for anything new.
+- Exit: gates + suites green (unit/e2e/pytest); docker compose up boots clean
+  vault, bootstrap login works under VSNOTE_* names; Pages demo still shows
+  demo content; PDF export produces a real multi-page PDF from a long note;
+  drop and paste verified in Chromium, image-paste in Firefox.
+
 ## Sequencing & ownership
 8 → 9 → 10 → 10.5 → 11 → 12 → 13 → 14, strictly sequential, same
 orchestrator/worker pattern as v1. Housekeeping (README/LICENSE) and the

@@ -347,3 +347,55 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     JSON), measure, then cap rendering ("showing N of M rows" + a load-more or
     virtualized rows via ScrollArea; JSON tree renders lazily on expand). The
     fixtures become committed tests so regressions fail the suite.
+
+## Amendments round 5 — user feedback 2026-08-17 (post-release; OVERRIDE above)
+
+34. **Full rebrand: Slate → VSNote, everywhere.** The internal "Slate" brand is
+    retired. Sweep every occurrence that reaches a user or operator: env vars
+    `SLATE_*` → `VSNOTE_*` (no back-compat aliases; we are one day past first
+    release), `slate.db` → `vsnote.db` default, package.json name `slate` →
+    `vsnote`, pyproject `slate-server` → `vsnote-server`, git auth realm,
+    cookie names, compose env keys, `.env.example`, CI workflow, server/README
+    and docs prose. Internal identifiers/test ids may keep `slate` only where
+    renaming them would churn tests for zero user benefit — but nothing
+    user-visible or operator-visible says Slate afterwards. Record the breaking
+    env rename in CHANGELOG's Unreleased.
+35. **Remove the commented cloudflared sidecar from docker-compose.yml.** It is
+    one operator's personal topology, not a project default. server/README.md
+    may keep ONE sentence noting any HTTPS reverse proxy or tunnel works
+    (proxy headers are honored); no vendor-specific config blocks anywhere.
+    `CF_ACCESS_*` vars stay (optional, unset = disabled — they implement the
+    roadmap §2 Access-JWT feature, independent of any tunnel).
+36. **Demo vault becomes opt-in.** Default first boot seeds a minimal clean
+    vault (a short `welcome.md`, nothing else). The full demo vault loads only
+    (a) when the build sets a demo flag — the GitHub Pages build sets it, so
+    the public demo keeps its showcase content — or (b) via an explicit
+    palette command ("Load demo vault"), which warns it replaces the current
+    vault. "Reset demo vault" semantics stay coherent with whichever mode is
+    active. (For clarity: the Pages demo is static; every visitor's vault
+    lives in their own browser's IndexedDB — fully isolated per visitor,
+    persistent for that visitor across refreshes, invisible to everyone else.)
+37. **Editor context menu** (pattern per the user's Obsidian reference, scoped
+    to features this app actually has — NO callouts/math/footnotes, which the
+    user rejected): right-click in the editor opens the local ContextMenu with
+    Cut / Copy / Paste / Paste as plain text / Select all, plus for markdown
+    files: Format submenu (bold, italic, strikethrough, inline code, link) and
+    Insert submenu (table, code block, horizontal rule). Actions operate on the
+    CM6 selection; menu items follow the one-row/no-em-dash copy rule.
+38. **Three-dot overflow menu + Export as PDF.** A `⋯` icon button in the title
+    bar actions cluster (and per-pane header when >1 pane) opens a menu of
+    less-frequent file actions; its first tenant is "Export as PDF": renders
+    the file's Rendered view into a print-clean layout (no app chrome, sensible
+    margins, light background, syntax-highlighted code) and invokes the
+    browser's print dialog (browser print-to-PDF is the engine; no server, no
+    new deps). "Export as HTML" may ride along if it is a trivial reuse of the
+    same pipeline.
+39. **Import into the vault: OS drag-drop + clipboard paste.** (a) Dragging
+    files (and, where the browser supplies directory entries, folders) from the
+    OS onto the file tree copies them into the vault at the drop location, with
+    the same drop-target affordances as internal tree DnD; conflicts prompt
+    rename-or-replace. (b) Ctrl+V with files or an image on the clipboard,
+    while the tree has focus, pastes them into the selected folder (Chromium:
+    files + images; Firefox delivers images only — degrade gracefully, never
+    error on an empty clipboard read). Binary files land as-is; a pasted bare
+    image gets a timestamped filename.
