@@ -43,6 +43,9 @@ import { fs, GIT_DIR, DEFAULT_BRANCH } from "../git/client";
 import { computeStatus, type FileStatusMap } from "../git/status";
 import { diffFileVsHead, EMPTY_DIFF, type FileDiffResult } from "../git/diff";
 import { computeGitRemoteUrl, computeSyncStatus, realFetch, realPull, realPush, SyncError, type RemoteConfig } from "../git/remote";
+import { runSync, resolveConflictAndPush, type PendingConflict } from "../git/sync";
+import { commitAll } from "../git/commit";
+import { buildTemplateVars, renderCommitTemplate } from "../git/commitTemplate";
 import { useSettingsStore } from "./useSettingsStore";
 import type { GitStatus } from "../types";
 
@@ -66,7 +69,12 @@ interface GitStoreState {
    * path alone doesn't change when a file op elsewhere (e.g. a drag-move)
    * invalidates the cache for the file that's still active. */
   refreshGeneration: number;
-  syncing: false | "push" | "pull" | "fetch";
+  /** `"sync"` covers the whole one-button pipeline (`syncNow`/
+   * `resolveConflict`, `sync.ts`'s `runSync`/`resolveConflictAndPush`) —
+   * distinct from the individual `"push"`/`"pull"`/`"fetch"` actions
+   * (`SourceControlPanel.tsx`'s buttons) even though the status bar's
+   * label collapses all four to "syncing…"/"pushing…"/"pulling…". */
+  syncing: false | "push" | "pull" | "fetch" | "sync";
 
   // Real (git/remote.ts-derived) — recomputed on every refresh()/sync, never persisted.
   ahead: number;
@@ -82,6 +90,13 @@ interface GitStoreState {
   syncError: string | null;
   /** Epoch ms of the last successful sync/push/pull — see module doc. */
   lastSyncedAt: number | null;
+  /** Phase 11 (real sync, roadmap §5.2) — set by `syncNow` when `runSync`
+   * hits a TRUE conflict it can't auto-merge; `null` otherwise. While set,
+   * `components/local/ConflictResolver.tsx` is open (`App.tsx` mounts it
+   * once, unconditionally, reading this field itself) and NOTHING has been
+   * pushed or discarded yet — `resolveConflict`/`cancelConflict` are the
+   * only two ways this clears. */
+  conflict: PendingConflict | null;
 
   refresh: () => Promise<void>;
   statusFor: (displayPath: string) => GitStatus | undefined;
@@ -90,12 +105,29 @@ interface GitStoreState {
   push: () => Promise<void>;
   pull: () => Promise<void>;
   fetch: () => Promise<void>;
-  /** "Sync now" (Phase 5a: the status bar's sync segment + the command
-   * palette's "Sync now" command both call this) — pull then push, VSCode's
-   * usual single-button "sync" semantics. Stops after pull if pull fails
-   * (surfaces pull's error) rather than attempting push against a
-   * possibly-still-stale view of the remote. */
+  /** "Sync now" (the status bar's sync segment + the command palette's
+   * "Sync now" command both call this) — Phase 11's real pipeline (roadmap
+   * §5.2): auto-commits any uncommitted local changes first (rendered from
+   * `useSettingsStore`'s `gitCommitTemplate`/`gitDeviceName`), then
+   * `sync.ts`'s `runSync` — fetch → fast-forward if purely behind → push if
+   * purely ahead → auto-merge if diverged. A clean auto-merge pushes
+   * immediately; a true conflict sets `conflict` instead (see its doc) and
+   * leaves `syncing` cleared without touching `lastSyncedAt` — the sync
+   * isn't DONE yet, it's paused on the user. */
   syncNow: () => Promise<void>;
+  /** Finishes a paused sync once the user has resolved every file in
+   * `conflict` (`ConflictResolver.tsx`'s "Resolve & push"). `resolutions`
+   * maps every `conflict.conflicts[].path` to its final content (`null` =
+   * delete) — see `sync.ts::resolveConflictAndPush`'s doc for the
+   * never-silently-drop fallback if a path is somehow missing. */
+  resolveConflict: (resolutions: Record<string, string | null>) => Promise<void>;
+  /** Discards the PENDING conflict UI state only — no git mutation at all
+   * (nothing was written in the first place; see `conflict`'s doc). Local
+   * history is exactly what it was before Sync ran (plus the auto-commit
+   * of any uncommitted changes, which is a real, intentional commit, not
+   * something this undoes) — the user can retry Sync, or fetch/inspect
+   * manually, at any time afterward. */
+  cancelConflict: () => void;
 }
 
 export const useGitStore = create<GitStoreState>()(
@@ -114,6 +146,7 @@ export const useGitStore = create<GitStoreState>()(
       hasRemoteRef: false,
       syncError: null,
       lastSyncedAt: null,
+      conflict: null,
 
       refresh: async () => {
         const [{ statuses, changedCount, untrackedCount }, branch] = await Promise.all([
@@ -189,23 +222,59 @@ export const useGitStore = create<GitStoreState>()(
       },
 
       syncNow: async () => {
-        set({ syncing: "pull", syncError: null });
+        set({ syncing: "sync", syncError: null, conflict: null });
         try {
-          const afterPull = await realPull(remoteConfig(), get().branch);
-          set({ ...afterPull });
-          await get().refresh(); // pull may have moved HEAD/working tree
+          // Roadmap §5.3: one-click Sync auto-commits any uncommitted
+          // local changes FIRST, using the rendered default template —
+          // "never lose changes, never add friction" (§5.2's own framing)
+          // means a dirty working tree is no longer a reason to refuse;
+          // it's just something Sync commits on the user's behalf before
+          // doing anything else.
+          const { changedCount, statuses } = await computeStatus();
+          const { gitCommitTemplate, gitDeviceName } = useSettingsStore.getState();
+          if (changedCount > 0) {
+            const message = renderCommitTemplate(
+              gitCommitTemplate,
+              buildTemplateVars({ device: gitDeviceName, branch: get().branch, files: Object.keys(statuses) }),
+            );
+            await commitAll(message);
+          }
+
+          const outcome = await runSync(remoteConfig(), get().branch, gitCommitTemplate, gitDeviceName);
+          if (outcome.action === "conflict") {
+            // Paused, not failed — nothing pushed or discarded yet (see
+            // `conflict`'s doc). Deliberately does NOT touch
+            // `lastSyncedAt`: the sync isn't done.
+            set({ ...outcome.status, syncing: false, conflict: outcome.conflict ?? null });
+          } else {
+            set({ ...outcome.status, syncing: false, lastSyncedAt: Date.now(), conflict: null });
+          }
         } catch (err) {
           set({ syncing: false, syncError: errorMessage(err) });
           return;
         }
-        set({ syncing: "push" });
-        try {
-          const afterPush = await realPush(remoteConfig(), get().branch);
-          set({ ...afterPush, syncing: false, lastSyncedAt: Date.now() });
-        } catch (err) {
-          set({ syncing: false, syncError: errorMessage(err) });
-        }
+        await get().refresh(); // a fast-forward/merge may have moved HEAD/working tree
       },
+
+      resolveConflict: async (resolutions) => {
+        const pending = get().conflict;
+        if (!pending) return;
+        set({ syncing: "sync", syncError: null });
+        try {
+          const status = await resolveConflictAndPush(remoteConfig(), pending, resolutions);
+          set({ ...status, syncing: false, lastSyncedAt: Date.now(), conflict: null });
+        } catch (err) {
+          // The conflict state is deliberately KEPT on failure (e.g. the
+          // push itself rejected) — the user's resolution choices aren't
+          // lost, they can just retry "Resolve & push" once whatever
+          // failed (offline, auth) is fixed.
+          set({ syncing: false, syncError: errorMessage(err) });
+          return;
+        }
+        await get().refresh();
+      },
+
+      cancelConflict: () => set({ conflict: null }),
     }),
     {
       name: "slate-git-sync",

@@ -66,8 +66,10 @@ collaborative editing. Sharing/publishing, authentication, and the Python/FastAP
 backend are specced for v2 in `docs/ROADMAP-SHARING-AUTH.md` — out of scope for
 phases 1–5. Phase 9 (2026-08-15) built the backend itself; see "Backend (v2)" below.
 Phase 10 (2026-08-15, client sharing UI) is built — see "Sharing (Phase 10)" below.
-Phase 11 (real git sync) remains unbuilt; editor-role share write-back stays a
-documented flow only until it lands (see that section's write-back note).
+Phase 11 (real git sync, including the roadmap §5.2 auto-merge/conflict-resolver
+pipeline) is built — see "Real sync (Phase 11)" below; editor-role share write-back
+stays a documented flow only (that section's write-back note), unaffected by Phase 11
+landing.
 
 Note: `docs/DESIGN-SPEC.md` has a 2026-08-15 "Amendments" section (Material Icon
 Theme icons, no traffic lights, slimmer chrome, zen mode, browser-shortcut capture,
@@ -488,25 +490,112 @@ origin than the SPA); removed in Phase 10.5a (roadmap §5.4) once the sync remot
 became implicitly same-origin (`git/remote.ts::computeGitRemoteUrl`) — see
 "Single-origin deployment" below.
 
-**Client** (`src/git/remote.ts`, `src/git/syncStatus.ts`): `realFetch`/`realPull`/
-`realPush`/`testGitConnection` replace the old `simulateFetch`/`simulatePull`/
-`simulatePush`. Real ahead/behind (`computeSyncStatus`) walks `git.log`/
-`findMergeBase` comparing local HEAD against `refs/remotes/origin/<branch>` — pure
-local ref reads, no network I/O, so `useGitStore.refresh()` recomputes it on every
-commit/save/tree-change for free, safely even with the backend down. Divergence
-classification (`syncStatus.ts::classifyDivergence` — up-to-date / ahead-only /
-behind-only / diverged) drives the fast-forward-only policy: push only ever fires for
-ahead-only (refuses outright on diverged, never attempts `git.push`, `force` always
-`false`); pull only ever fast-forwards for behind-only (refuses on diverged; also
-refuses — a real, honest error, not a silent skip — if the working tree has
-uncommitted changes a fast-forward checkout could clobber). Every failure surfaces as
-a real `SyncError` with a `code` (`not-configured`/`offline`/`auth`/`diverged`/`dirty`/
+**Client — individual Pull/Push** (`src/git/remote.ts`, `src/git/syncStatus.ts`):
+`realFetch`/`realPull`/`realPush`/`testGitConnection` replace the old
+`simulateFetch`/`simulatePull`/`simulatePush`. Real ahead/behind (`computeSyncStatus`)
+walks `git.log`/`findMergeBase` comparing local HEAD against
+`refs/remotes/origin/<branch>` — pure local ref reads, no network I/O, so
+`useGitStore.refresh()` recomputes it on every commit/save/tree-change for free,
+safely even with the backend down. Divergence classification
+(`syncStatus.ts::classifyDivergence` — up-to-date / ahead-only / behind-only /
+diverged) drives the fast-forward-only policy for these TWO INDIVIDUAL actions only:
+push only ever fires for ahead-only (refuses outright on diverged, never attempts
+`git.push`, `force` always `false`); pull only ever fast-forwards for behind-only
+(refuses on diverged; also refuses — a real, honest error, not a silent skip — if the
+working tree has uncommitted changes a fast-forward checkout could clobber). On
+diverged, `DIVERGED_MESSAGE` now points the user at "Sync" (below) rather than the
+v2.0-original "resolve manually" dead end — roadmap §5.2 amended that policy after the
+user's verdict that refusal-only "makes the app useless". Every failure surfaces as a
+real `SyncError` with a `code` (`not-configured`/`offline`/`auth`/`diverged`/`dirty`/
 `http`/`unknown`) and a specific message; `useGitStore`'s actions catch every one into
 `syncError` state rather than letting it propagate, so a down/misconfigured backend
 never produces an unhandled rejection or a stuck `syncing` flag (CLAUDE.md rule 3).
-`SourceControlPanel.tsx`'s Pull/Push buttons and `App.tsx`'s `handleSyncNow` (status
-bar + command palette) both surface success/failure via toast, reading the same
-`syncError` state back after the action resolves.
+`SourceControlPanel.tsx`'s Pull/Push buttons surface success/failure via toast, reading
+`syncError` back after the action resolves. `fastForwardBranch`/`pushBranch`/
+`mapError` are exported from `remote.ts` specifically so `git/sync.ts` (below) reuses
+the exact same mutation/error logic rather than a second copy.
+
+**Client — the "Sync" pipeline** (`src/git/sync.ts`, `src/git/mergeLogic.ts`,
+`src/git/backupRefs.ts`, roadmap §5.2): the ONE-BUTTON action (status bar's sync
+segment, command palette's "Sync now", both driving `useGitStore.ts`'s `syncNow`) that
+actually resolves divergence instead of refusing it. `syncNow` first auto-commits any
+uncommitted local changes (rendered from the commit-template engine, below — "never
+lose changes, never add friction"), then calls `sync.ts::runSync`, which fetches and
+branches on `classifyDivergence`:
+- up-to-date → no-op.
+- behind-only → `backupRefs.ts::createBackupRef` (tags local HEAD as
+  `refs/backup/pre-sync-<timestamp>`, prunes to the 5 most recent —
+  `mergeLogic.ts::selectBackupRefsToDelete` is the pure prune-selection logic, unit
+  tested directly), then `fastForwardBranch`.
+- ahead-only → `pushBranch`.
+- diverged → the auto-merge policy: `computeMergePlan` reads every file's content at
+  the merge base / local HEAD / the remote-tracking ref (`git.listFiles`+`git.readBlob`
+  over the union of all three trees) and classifies each via
+  `mergeLogic.ts::classifyFileMerge` — a PURE function (unit tested directly, no
+  `isomorphic-git`/`fs`) implementing "remote-only-changed files take remote,
+  local-only-changed keep local, both-changed get content-level diff3": diff3 itself
+  (`mergeLogic.ts::threeWayMergeText`) is the `diff3` npm package DIRECTLY — the exact
+  engine `isomorphic-git`'s own built-in `git.merge()` merge driver
+  (`mergeFile`/`mergeBlobs` in its bundled source) uses internally, so this app's
+  auto-merge and `git.merge()`'s own default behavior can never disagree on what
+  "clean" means. A CLEAN result (no true conflicts) creates the backup ref, writes
+  every resolved file to the working tree + stages it (`applyMergedFiles`), commits a
+  real two-parent merge commit (`git.commit({ref: `refs/heads/<branch>`, parent:
+  [ourOid, theirOid]})` — see this section's Deviations entry below for why `ref` MUST
+  be the fully-qualified form here), and pushes (`force` always `false` — the merge
+  commit's second parent IS the remote's current tip, so it's always a legitimate
+  fast-forward from the remote's point of view; the server's non-fast-forward
+  rejection stays the backstop regardless). A TRUE conflict (same lines changed both
+  sides, or a modify/delete conflict) makes `runSync` return `action: "conflict"`
+  WITHOUT writing anything — no backup ref either, since nothing mutated yet — and
+  `useGitStore`'s `conflict` state opens the resolver; `resolveConflict` (from the
+  resolver's "Resolve & push") creates the backup ref THEN, applies the user's
+  resolutions plus the already-computed clean files, and finishes the same
+  commit-then-push sequence. Every `SyncError` path reuses `remote.ts::mapError`.
+
+**Conflict resolver** (`src/components/local/ConflictResolver.tsx`, missing-component
+protocol — `docs/COMPONENT-BACKLOG.md`): built on the EXISTING `@codemirror/merge`
+stack (CLAUDE.md rule 7 — no second editor engine), using its OTHER documented purpose
+besides the read-only diff viewer `editor/DiffView.tsx` already uses: `unifiedMergeView`
+as a genuinely EDITABLE buffer with a live diff against a reference document, plus its
+built-in per-chunk accept/reject gutter controls (`mergeControls: true`,
+`acceptChunk`/`rejectChunk`). Content conflicts get an editable CM6 instance seeded
+from "mine" and diffed against "theirs", with whole-file "Take mine" / "Take theirs" /
+"Keep both" (concatenates both full versions, nothing silently dropped) quick actions
+on top of the per-chunk controls; delete/modify conflicts get a simpler read-only
+preview + keep/delete choice (defaulting to KEEP the surviving content, never a silent
+delete). Every conflicted file gets a real, chosen default resolution the instant the
+dialog opens (never "unresolved by omission"), so "Resolve & push" never blocks on the
+user having visited every file. Nothing is pushed or discarded until that click.
+
+**Commit-message template engine** (`src/git/commitTemplate.ts`, roadmap §5.3): pure,
+unit-tested string substitution — `renderCommitTemplate(template, vars)` replaces
+`{name}` tokens found in `vars`, passing anything else through LITERALLY (a typo'd or
+undefined variable never errors). `buildTemplateVars` assembles the documented set
+(`{device}` `{timestamp}` `{date}` `{time}` `{files}` `{branch}`); `{files}` is `"N
+files"` or the single filename (basename only) when exactly one file changed;
+`defaultDeviceName` parses `navigator.userAgent` into e.g. `"chrome-linux"` —
+`useSettingsStore`'s `gitDeviceName` seeds from this once at store-init and is
+user-editable from then on, same as `gitCommitTemplate` (default `"Synced from
+{device}: {timestamp}"`, roadmap §5.3's exact string). Three consumers, one template:
+`SourceControlPanel.tsx`'s commit box (prefills live while un-edited, stops the moment
+the user types, matching the settings-driven "auto-fill, never fight the user" pattern
+of nothing else in this codebase FORCING a value — see its own doc comment), the
+`syncNow` auto-commit, and every merge commit `sync.ts` creates (rendered with
+`{files}` = every path the merge actually touched).
+
+**Periodic background fetch** (`App.tsx`, roadmap §5.2: "~60s while the backend is
+reachable"): a plain `setInterval`/`clearInterval` pair mounted once at boot,
+identical cleanup shape to `StatusBar.tsx`'s own synced-label tick interval — never
+leaks a timer across reloads/HMR. Gated on `useShareStore`'s `reachability` (same
+backend, same origin as every other Phase 9+ surface) so a KNOWN-offline backend isn't
+hit every 60s for nothing; `fetch()` itself never throws (every `SyncError` lands in
+`syncError` state), so a failed background tick is never an unhandled rejection. This
+replaces every last bit of the v1 simulated ahead/behind drift
+(`driftIncrement`/`SYNC_DRIFT_*`) — already fully removed in this phase's first pass
+(the `computeSyncStatus` module doc's "There is no more 'drift' simulation" note); this
+interval is what keeps the REAL counters current without the user having to manually
+sync.
 
 **Settings → Git & Sync** (`SettingsView.tsx`): Personal access token is a real,
 enabled field — no more "coming soon" disabled placeholder. A "Generate token" action
@@ -517,7 +606,10 @@ round-trip that touches neither the local repo nor the working tree — a `404` 
 not created yet) is reported as reachable/authenticated, not an error, since Phase 11
 repos are created on demand on first push. **Phase 10.5a note:** there is no more
 Remote URL field at all — see "Single-origin deployment" below; the Repository
-DataList shows the implicit remote URL read-only instead.
+DataList shows the implicit remote URL read-only instead. **Phase 11 (this section's
+final pass)**: two new rows, "Default commit message" (the template `Input`, with a
+live-rendered preview line underneath) and "Device name" (the `{device}` setting) — no
+remaining "isn't wired up yet" placeholder anywhere in this category.
 
 ## Single-origin deployment (Phase 10.5a)
 
@@ -1714,6 +1806,32 @@ stack choices in this doc.
   system git), divergence refusal in both directions, and auth/offline/not-configured
   error mapping — then re-verified end to end via `tests/e2e/git-sync.spec.ts`
   (Playwright driving a real browser) and `server/tests/test_git_sync.py` (pytest).
+- **(Phase 11, real sync's auto-merge) `git.commit()`'s `ref` parameter does NOT
+  auto-expand a bare branch name — passing one silently desyncs `HEAD` from the
+  branch it's supposed to point at.** Found writing `git/sync.ts::commitMerge`: the
+  first version passed `ref: branch` (e.g. `"feat/incremental-index"`, matching how
+  `git.resolveRef`/`git.push`/`remoteTrackingOid` are called elsewhere in this
+  codebase with bare names, apparently successfully). The resulting merge commit
+  itself was correct, `git.resolveRef({ref: branch})` afterward correctly returned the
+  new merge oid, and `git.push` correctly pushed it — everything LOOKED right. But
+  `useGitStore`'s post-sync ahead/behind stayed wrong (`↑0 ↓1` after what should have
+  been a clean 0/0 sync), traced via direct `git.resolveRef({ref: "HEAD"})` calls
+  bracketing the commit/push to show `HEAD` STILL resolving to the pre-merge commit
+  even though `refs/heads/<branch>` (confirmed via the bare-name resolve) had
+  genuinely moved. Root cause: `git.commit()`'s `ref` write does not go through the
+  same short-name-expansion path `resolveRef`/`push` use — a bare name is written as a
+  loose ref at that EXACT literal path (`.git/feat/incremental-index`, a sibling of
+  `.git/refs/`, not `.git/refs/heads/feat/incremental-index`), which
+  `resolveRef({ref: branch})` still happens to find (isomorphic-git's ref lookup tries
+  an exact loose-file match before trying the `refs/heads/` prefix) — but `HEAD`,
+  which symbolically points at the FULLY QUALIFIED `refs/heads/<branch>` specifically,
+  never sees the update. Fixed by passing `ref: \`refs/heads/${branch}\`` explicitly
+  (matching the convention `remote.ts::fastForwardBranch`'s `git.writeRef` already
+  used) — the one call in this codebase that had been the exception. Caught by this
+  phase's own e2e test (`tests/e2e/git-sync.spec.ts`'s disjoint-auto-merge case
+  asserting `↑0 ↓0` in the status bar after a clean merge, not just "the push
+  succeeded") rather than by inspection — a reminder that "the push resolved without
+  throwing" is not the same claim as "the local view of ahead/behind is now correct".
 - **(Phase 11) ASGI `root_path`/`path` convention: this project's installed Starlette
   version does NOT pre-strip a mount's prefix off `scope["path"]`** — it follows the
   ASGI spec literally (`path` stays the full original request path; `root_path`

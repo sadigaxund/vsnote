@@ -15,6 +15,7 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defaultDeviceName } from "../git/commitTemplate";
 import type { EditorMode, FileKind } from "../types";
 
 export const THEME_OPTIONS = [
@@ -136,6 +137,21 @@ interface SettingsState {
    * erroring or overwriting anything real. */
   gitAuthToken: string;
 
+  /** Phase 11 (real sync, roadmap §5.3) — "Default commit message"
+   * template. Rendered by `git/commitTemplate.ts::renderCommitTemplate`
+   * (`{device}`/`{timestamp}`/`{date}`/`{time}`/`{files}`/`{branch}`;
+   * unknown `{vars}` pass through literally, never error) to prefill the
+   * Source Control commit box (`SourceControlPanel.tsx`, editable
+   * per-commit) and to compose one-click Sync's auto-commit AND merge
+   * commit messages (`useGitStore.ts`'s `syncNow`, `git/sync.ts`'s
+   * `runSync`/`resolveConflictAndPush`). */
+  gitCommitTemplate: string;
+  /** The `{device}` template variable's own SETTING — auto-defaulted from
+   * the UA at store-init time (`defaultDeviceName()`, since browsers can't
+   * read a real hostname — roadmap §5.3's own reasoning) and user-editable
+   * from then on, exactly like every other persisted setting here. */
+  gitDeviceName: string;
+
   setTheme: (theme: SlateTheme) => void;
   /** Cycles to the next theme in `THEME_OPTIONS` — the command palette's
    * "Toggle theme" command (DESIGN-SPEC "Misc / settings": "toggle mode,
@@ -155,7 +171,15 @@ interface SettingsState {
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebarCollapsed: () => void;
   setGitAuthToken: (token: string) => void;
+  setGitCommitTemplate: (template: string) => void;
+  setGitDeviceName: (name: string) => void;
 }
+
+/** Roadmap §5.3's exact default template string. Exported so
+ * `SettingsView.tsx`'s "Reset to default" affordance (if it ever wants
+ * one) and tests both reference the same literal rather than duplicating
+ * it. */
+export const DEFAULT_GIT_COMMIT_TEMPLATE = "Synced from {device}: {timestamp}";
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
@@ -174,6 +198,8 @@ export const useSettingsStore = create<SettingsState>()(
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       sidebarCollapsed: false,
       gitAuthToken: "",
+      gitCommitTemplate: DEFAULT_GIT_COMMIT_TEMPLATE,
+      gitDeviceName: defaultDeviceName(),
       setTheme: (theme) => set({ theme }),
       cycleTheme: () => {
         const idx = THEME_OPTIONS.indexOf(get().theme);
@@ -199,6 +225,8 @@ export const useSettingsStore = create<SettingsState>()(
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setGitAuthToken: (gitAuthToken) => set({ gitAuthToken }),
+      setGitCommitTemplate: (gitCommitTemplate) => set({ gitCommitTemplate }),
+      setGitDeviceName: (gitDeviceName) => set({ gitDeviceName }),
     }),
     {
       name: "slate-settings",

@@ -50,6 +50,18 @@ const SearchPanel = lazy(() => import("./components/SearchPanel").then((m) => ({
 // from the library — kept out of the cold-boot bundle the same way every
 // other overlay here is, since most sessions never open it.
 const PublishDialog = lazy(() => import("./components/local/PublishDialog").then((m) => ({ default: m.PublishDialog })));
+// Phase 11 (real sync) — the merge conflict resolver is likewise an overlay
+// most sessions never open (only a genuine divergence with a true conflict
+// triggers it); lazy for the same cold-boot-bundle reason as every other
+// overlay here.
+const ConflictResolver = lazy(() =>
+  import("./components/local/ConflictResolver").then((m) => ({ default: m.ConflictResolver })),
+);
+
+/** How often "Sync"'s background fetch runs (roadmap §5.2: "~60s while the
+ * backend is reachable") — drives the real ahead/behind counters without
+ * requiring an explicit user action. */
+const GIT_BACKGROUND_FETCH_MS = 60_000;
 
 const ACTIVE_ON_BOOT = "vault/notes/architecture.md";
 
@@ -211,6 +223,29 @@ export default function App() {
     // causes zero share-related network activity, ever.
   }, []);
 
+  // Phase 11 (real sync, roadmap §5.2) — "Periodic background fetch (~60s)
+  // while the backend is reachable, driving the real ahead/behind
+  // counters". A plain `setInterval`/`clearInterval` pair (identical
+  // cleanup shape to `StatusBar.tsx`'s own tick interval) — mounted once,
+  // torn down on unmount, so it can never leak a timer across reloads/HMR.
+  // Gated on `useShareStore`'s `reachability` (same backend, same origin,
+  // as every other Phase 9+ surface — roadmap §5.4) so a KNOWN-offline
+  // backend doesn't get hit every 60s for nothing; "unknown"/"checking"/
+  // "online" all still attempt (the first-ever tick, before anything has
+  // probed reachability, has to attempt once to find out). `fetch()`
+  // itself never throws (every `SyncError` is caught into `syncError`
+  // state — see `useGitStore.ts`'s doc), so a failed attempt here never
+  // becomes an unhandled rejection; `!syncing` avoids overlapping an
+  // in-flight user-initiated push/pull/sync with a background tick.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const { syncing } = useGitStore.getState();
+      const { reachability } = useShareStore.getState();
+      if (!syncing && reachability !== "offline") void useGitStore.getState().fetch();
+    }, GIT_BACKGROUND_FETCH_MS);
+    return () => clearInterval(id);
+  }, []);
+
   // Phase 6: "the active tab" is now the FOCUSED pane's active tab —
   // `tabs.activePaneId` doubles as "which pane the user last interacted
   // with" (see `useTabsStore.ts`'s module doc). Every pane's own buffer-
@@ -312,10 +347,21 @@ export default function App() {
     await useGitStore.getState().syncNow();
     // Phase 11 (real sync) — `syncNow()` never throws (see useGitStore's
     // doc: every sync action catches its own SyncError into `syncError`
-    // state and always clears `syncing`), so the honest result — success
-    // OR a specific failure reason — is read back from the store here
-    // rather than a try/catch.
-    const { ahead, behind, syncError } = useGitStore.getState();
+    // state and always clears `syncing`), so the honest result — success,
+    // a specific failure reason, OR a paused-on-conflict state — is read
+    // back from the store here rather than a try/catch.
+    const { ahead, behind, syncError, conflict } = useGitStore.getState();
+    if (conflict) {
+      // Nothing failed and nothing pushed yet — `<ConflictResolver />`
+      // (mounted unconditionally below) opens itself off this same store
+      // field; this toast is just the honest "why did nothing finish"
+      // signal for whoever's watching the status bar.
+      toast({
+        title: "Sync paused — conflicts to resolve",
+        description: `${conflict.conflicts.length} file${conflict.conflicts.length === 1 ? "" : "s"} need your input.`,
+      });
+      return;
+    }
     if (syncError) {
       toast({ title: "Sync failed", description: syncError, variant: "danger" });
       return;
@@ -789,7 +835,11 @@ export default function App() {
   const paletteCommands = [
     { id: "toggle-mode", label: "Toggle Rendered / Source", shortcut: "⌘E" },
     { id: "toggle-theme", label: "Toggle theme" },
-    { id: "sync", label: "Sync now (push & pull)" },
+    // Phase 11 (real sync, roadmap §5.2) — label dropped "(push & pull)":
+    // that undersold what `handleSyncNow` actually does now (fetch, then
+    // fast-forward/push/auto-merge as appropriate, opening the conflict
+    // resolver on a true conflict) — "Sync now" alone doesn't overclaim.
+    { id: "sync", label: "Sync now" },
     { id: "new-file", label: "New file" },
     { id: "export-zip", label: "Export vault as .zip" },
     { id: "reset-vault", label: "Reset demo vault…" },
@@ -1043,6 +1093,15 @@ export default function App() {
           />
         </Suspense>
       )}
+
+      {/* Phase 11 (real sync) — mounted unconditionally (unlike
+          `PublishDialog`, gated on a boolean this file owns) since it reads
+          `useGitStore`'s `conflict` field itself and renders nothing when
+          it's `null`; opening it is entirely driven by `syncNow` setting
+          that field, not by anything in this component's own state. */}
+      <Suspense fallback={null}>
+        <ConflictResolver />
+      </Suspense>
 
       <ConfirmDialog
         title="Reset demo vault?"

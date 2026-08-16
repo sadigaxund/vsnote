@@ -61,6 +61,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import {
+  DEFAULT_GIT_COMMIT_TEMPLATE,
   THEME_OPTIONS,
   useSettingsStore,
   type SlateTheme,
@@ -69,6 +70,7 @@ import {
 import { defaultModeFor } from "../filetypes/registry";
 import { useGitStore } from "../stores/useGitStore";
 import { computeGitRemoteUrl, testGitConnection, type ConnectionTestResult } from "../git/remote";
+import { buildTemplateVars, renderCommitTemplate } from "../git/commitTemplate";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
 import { useShareStore } from "../share/useShareStore";
 import { SharedPanel } from "./local/SharedPanel";
@@ -162,6 +164,10 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const readingViewDefaultMode = useSettingsStore((s) => s.readingViewDefaultMode);
   const gitAuthToken = useSettingsStore((s) => s.gitAuthToken);
   const setGitAuthToken = useSettingsStore((s) => s.setGitAuthToken);
+  const gitCommitTemplate = useSettingsStore((s) => s.gitCommitTemplate);
+  const setGitCommitTemplate = useSettingsStore((s) => s.setGitCommitTemplate);
+  const gitDeviceName = useSettingsStore((s) => s.gitDeviceName);
+  const setGitDeviceName = useSettingsStore((s) => s.setGitDeviceName);
 
   const setTheme = useSettingsStore((s) => s.setTheme);
   const setAccent = useSettingsStore((s) => s.setAccent);
@@ -621,6 +627,56 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                 )}
               </div>
             </div>
+          ),
+        },
+        {
+          id: "commit-template",
+          label: "Default commit message",
+          keywords: "commit message template device timestamp date time files branch sync auto-commit merge",
+          content: (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <FormField
+                label="Default commit message"
+                hint="Prefills the Source Control commit box (still editable per-commit) and composes one-click Sync's auto-commits and merge commits. Variables: {device} {timestamp} {date} {time} {files} {branch} — unknown {vars} pass through as-is."
+              >
+                <Input
+                  size="sm"
+                  value={gitCommitTemplate}
+                  onChange={(e) => setGitCommitTemplate(e.target.value)}
+                  aria-label="Default commit message template"
+                  data-testid="git-commit-template"
+                  style={{ width: "100%", fontFamily: "var(--font-mono)" }}
+                />
+              </FormField>
+              {gitCommitTemplate.trim() === "" && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setGitCommitTemplate(DEFAULT_GIT_COMMIT_TEMPLATE)}>
+                  Reset to default
+                </Button>
+              )}
+              <span data-testid="git-commit-template-preview" style={{ fontSize: 12, color: "var(--color-muted)", fontFamily: "var(--font-mono)" }}>
+                Preview: {renderCommitTemplate(
+                  gitCommitTemplate,
+                  buildTemplateVars({ device: gitDeviceName || "device", branch, files: ["architecture.md"] }),
+                )}
+              </span>
+            </div>
+          ),
+        },
+        {
+          id: "device-name",
+          label: "Device name",
+          keywords: "device name hostname computer template sync",
+          content: (
+            <FormField label="Device name" hint="The {device} template variable — auto-detected from your browser, editable.">
+              <Input
+                size="sm"
+                value={gitDeviceName}
+                onChange={(e) => setGitDeviceName(e.target.value)}
+                aria-label="Device name"
+                data-testid="git-device-name"
+                style={{ width: 220, fontFamily: "var(--font-mono)" }}
+              />
+            </FormField>
           ),
         },
       ],

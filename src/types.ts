@@ -90,8 +90,10 @@ export interface GitSummary {
    * doc). */
   lastSyncedAt: number | null;
   /** Which sync operation (if any) is in flight — drives the status bar's
-   * syncing spinner. */
-  syncing: false | "push" | "pull" | "fetch";
+   * syncing spinner. `"sync"` covers the whole one-button pipeline
+   * (`useGitStore.ts`'s `syncNow`/`resolveConflict`, Phase 11's roadmap
+   * §5.2 auto-merge). */
+  syncing: false | "push" | "pull" | "fetch" | "sync";
   /** The most recent sync failure's message, or `null` — see
    * `useGitStore`'s doc. `StatusBar.tsx` surfaces this via its sync
    * segment's tooltip/tone instead of a spinner once a sync has failed. */

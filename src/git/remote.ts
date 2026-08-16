@@ -1,20 +1,37 @@
 /**
  * Real remote sync (Phase 11 — replaces the old simulated remote).
- * `isomorphic-git`'s `fetch`/`push`/`fastForward` over
- * `isomorphic-git/http/web`, against a real smart-HTTP git server
- * (`server/app/routers/git_http.py`, `server/README.md`'s "Real git sync"
- * section). Real ahead/behind is computed from actual refs
- * (`computeSyncStatus`) — HEAD vs. `refs/remotes/origin/<branch>` — never a
- * persisted fake counter. `useGitStore` owns the ahead/behind/lastSyncedAt
- * STATE and calls the functions here to update it; this module never
- * touches zustand.
+ * `isomorphic-git`'s `fetch`/`push` over `isomorphic-git/http/web`, against
+ * a real smart-HTTP git server (`server/app/routers/git_http.py`,
+ * `server/README.md`'s "Real git sync" section). Real ahead/behind is
+ * computed from actual refs (`computeSyncStatus`) — HEAD vs.
+ * `refs/remotes/origin/<branch>` — never a persisted fake counter.
+ * `useGitStore` owns the ahead/behind/lastSyncedAt STATE and calls the
+ * functions here to update it; this module never touches zustand.
  *
- * **Fast-forward only (v2.0)**: `realPush`/`realPull` both refuse outright
- * (throwing `SyncError("diverged", ...)`, never attempting the network
- * call that matters) whenever `classifyDivergence` says "diverged" — see
- * `syncStatus.ts`'s `pushAction`/`pullAction` for the exact decision table.
- * Never auto-merges, never force-pushes (`git.push`'s `force` is always
- * `false`).
+ * **`realPush`/`realPull` stay fast-forward-only** (they refuse outright —
+ * throwing `SyncError("diverged", ...)`, never attempting the network call
+ * that matters — whenever `classifyDivergence` says "diverged"; see
+ * `syncStatus.ts`'s `pushAction`/`pullAction`). That's still the right,
+ * predictable behavior for the two individual Pull/Push buttons
+ * (`SourceControlPanel.tsx`) — real `git push`/`git pull --ff-only` behave
+ * the same way. **Divergence itself is no longer a dead end** (roadmap
+ * §5.2, amending v2.0's original "refuse + explain" policy): `sync.ts`'s
+ * `runSync` — driven by the ONE-BUTTON "Sync" action (`useGitStore.ts`'s
+ * `syncNow`, the status bar's sync segment / command palette's "Sync now")
+ * — auto-merges a genuine divergence (backup ref, three-way diff3, merge
+ * commit, push) or opens the in-app conflict resolver when it can't. This
+ * module's `mapError`/`fastForwardBranch`/`pushBranch` are exported
+ * specifically so `sync.ts` reuses the exact same error classification and
+ * mutation logic rather than a second copy — `realPull`/`realPush` are
+ * thin wrappers around those two helpers plus the fast-forward-only
+ * refuse-on-diverge gate.
+ *
+ * **Never force-pushes** anywhere in this module OR `sync.ts` (`git.push`'s
+ * `force` is always `false`) — the server's non-fast-forward rejection is
+ * the backstop, but the client never even tries; a real merge commit
+ * (whose second parent is the remote's current tip) is always a legitimate
+ * fast-forward from the remote's point of view, so this restriction never
+ * blocks a genuine auto-merge or resolved-conflict push.
  *
  * **CLAUDE.md rule 3** ("server-optional"): every exported function here
  * either resolves or rejects with a `SyncError` — never an unhandled
@@ -90,7 +107,9 @@ async function ensureOrigin(url: string): Promise<void> {
   await git.addRemote({ fs, dir: GIT_DIR, remote: "origin", url, force: true });
 }
 
-async function remoteTrackingOid(branch: string): Promise<string | null> {
+/** Exported so `sync.ts` can resolve "what does the remote currently think
+ * this branch is at" without a second, parallel implementation. */
+export async function remoteTrackingOid(branch: string): Promise<string | null> {
   try {
     return await git.resolveRef({ fs, dir: GIT_DIR, ref: `refs/remotes/origin/${branch}` });
   } catch {
@@ -136,7 +155,10 @@ export async function computeSyncStatus(branch: string): Promise<SyncStatus> {
   return { ahead, behind, hasRemoteRef: true };
 }
 
-function mapError(err: unknown): SyncError {
+/** Exported so `sync.ts` classifies unexpected git/network errors the exact
+ * same way `realFetch`/`realPull`/`realPush` do — one error taxonomy, not
+ * two independently-drifting copies. */
+export function mapError(err: unknown): SyncError {
   if (err instanceof SyncError) return err;
   const code = (err as { code?: string } | null)?.code;
   const statusCode = (err as { data?: { statusCode?: number } } | null)?.data?.statusCode;
@@ -190,11 +212,46 @@ export async function realFetch(config: RemoteConfig, branch: string): Promise<S
   return computeSyncStatus(branch);
 }
 
+/** Moves `refs/heads/<branch>` to wherever `refs/remotes/origin/<branch>`
+ * currently points and checks that out — the one real mutation a
+ * fast-forward performs. Exported so `sync.ts`'s behind-only case (the
+ * `runSync` pipeline's own fast-forward step, backed up first via
+ * `backupRefs.ts`) reuses this exact logic instead of a second copy.
+ *
+ * Deliberately NOT `git.fastForward()`: that helper does its OWN internal
+ * `fetch` (see its source — `_pull({..., fastForwardOnly: true})` always
+ * re-fetches rather than accepting an already-known oid), which is both a
+ * redundant second network round-trip on top of whatever fetch already ran
+ * AND, confirmed the hard way in manual verification, an outright bug
+ * trigger: the redundant fetch's own object-negotiation left
+ * `computeSyncStatus`'s very next `git.log` unable to find the commit
+ * object that same fetch was supposed to have just written
+ * (`NotFoundError`) — a real isomorphic-git double-fetch interaction, not
+ * something this app did wrong. Callers already know exactly which oid to
+ * fast-forward to (the remote-tracking ref their own fetch just updated),
+ * so this moves the branch ref and checks out the working tree directly —
+ * no second fetch, no redundant network call, and it sidesteps the bug
+ * entirely. */
+export async function fastForwardBranch(branch: string): Promise<void> {
+  try {
+    const targetOid = await remoteTrackingOid(branch);
+    if (!targetOid) {
+      throw new SyncError("unknown", "The remote-tracking ref vanished mid-sync — try again.");
+    }
+    await git.writeRef({ fs, dir: GIT_DIR, ref: `refs/heads/${branch}`, value: targetOid, force: true });
+    await git.checkout({ fs, dir: GIT_DIR, ref: branch, force: true });
+  } catch (err) {
+    throw mapError(err);
+  }
+}
+
 /** Fast-forward-only pull. Refuses (no working-tree change at all) if the
  * tree has uncommitted changes that a fast-forward checkout could clobber,
- * or if local/remote have diverged. A no-op (still refreshes the
- * remote-tracking ref via the fetch, but touches nothing else) when there's
- * genuinely nothing to fast-forward. */
+ * or if local/remote have diverged — for a genuine divergence, use "Sync"
+ * instead (`useGitStore.ts`'s `syncNow` → `sync.ts`'s `runSync`, roadmap
+ * §5.2's auto-merge pipeline), not this fast-forward-only action. A no-op
+ * (still refreshes the remote-tracking ref via the fetch, but touches
+ * nothing else) when there's genuinely nothing to fast-forward. */
 export async function realPull(config: RemoteConfig, branch: string): Promise<SyncStatus> {
   const status = await realFetch(config, branch);
   const action = pullAction(classifyDivergence(status));
@@ -209,33 +266,48 @@ export async function realPull(config: RemoteConfig, branch: string): Promise<Sy
         "You have uncommitted changes — commit or discard them before pulling (fast-forward would touch the working tree).",
       );
     }
-    try {
-      // Deliberately NOT `git.fastForward()` here: that helper does its
-      // OWN internal `fetch` (see its source — `_pull({..., fastForwardOnly:
-      // true})` always re-fetches rather than accepting an already-known
-      // oid), which is both a redundant second network round-trip on top
-      // of the `realFetch` call two lines up AND, confirmed the hard way
-      // in manual verification, an outright bug trigger: the redundant
-      // fetch's own object-negotiation left `computeSyncStatus`'s very
-      // next `git.log` unable to find the commit object that same fetch
-      // was supposed to have just written (`NotFoundError`) — a real
-      // isomorphic-git double-fetch interaction, not something this app
-      // did wrong. We already know exactly which oid to fast-forward to
-      // (the remote-tracking ref `realFetch` above just updated), so this
-      // moves the branch ref and checks out the working tree directly —
-      // no second fetch, no redundant network call, and it sidesteps the
-      // bug entirely.
-      const targetOid = await remoteTrackingOid(branch);
-      if (!targetOid) {
-        throw new SyncError("unknown", "The remote-tracking ref vanished mid-pull — try again.");
-      }
-      await git.writeRef({ fs, dir: GIT_DIR, ref: `refs/heads/${branch}`, value: targetOid, force: true });
-      await git.checkout({ fs, dir: GIT_DIR, ref: branch, force: true });
-    } catch (err) {
-      throw mapError(err);
-    }
+    await fastForwardBranch(branch);
   }
   return computeSyncStatus(branch);
+}
+
+/** Pushes local `branch`'s current tip — always `force: false` (see module
+ * doc: never force-pushes, anywhere). Exported so `sync.ts` reuses this
+ * exact push + remote-tracking-ref-update logic for both the clean-
+ * auto-merge push and the resolved-conflict push, rather than a second
+ * copy. Callers are responsible for having already decided a push is safe
+ * (ahead-only, or a freshly-created merge commit whose second parent IS
+ * the remote's current tip — either way a legitimate fast-forward from the
+ * remote's point of view). */
+export async function pushBranch(config: RemoteConfig, branch: string): Promise<void> {
+  try {
+    const result = await git.push({
+      fs,
+      http,
+      dir: GIT_DIR,
+      url: config.url,
+      ref: branch,
+      remoteRef: branch,
+      remote: "origin",
+      force: false,
+      onAuth: () => buildGitAuth(config.token),
+    });
+    if (!result.ok) {
+      throw new SyncError("http", result.error ?? "The remote rejected the push.");
+    }
+    // `git.push` does NOT update the local remote-tracking ref (that's
+    // fetch's job) — without this, `computeSyncStatus` would read the
+    // STALE (or, in the bootstrap case, still-nonexistent)
+    // `refs/remotes/origin/<branch>` and report a misleading nonzero
+    // `ahead` right after a push that just succeeded. We already know
+    // exactly what the remote now points at (local HEAD, since the push
+    // just fast-forwarded it there) — no need for a second network
+    // round-trip via another fetch.
+    const pushedOid = await git.resolveRef({ fs, dir: GIT_DIR, ref: branch });
+    await git.writeRef({ fs, dir: GIT_DIR, ref: `refs/remotes/origin/${branch}`, value: pushedOid, force: true });
+  } catch (err) {
+    throw mapError(err);
+  }
 }
 
 /** Fast-forward-only push. Refuses outright (never calls `git.push` at
@@ -244,7 +316,10 @@ export async function realPull(config: RemoteConfig, branch: string): Promise<Sy
  * silently rewrite history for (dulwich's plain receive-pack has no
  * built-in non-fast-forward guard — see `server/README.md`'s "Real git
  * sync" section) — so the safety lives here, client-side, not on trust
- * that the server will say no. `force` is always `false`.
+ * that the server will say no. `force` is always `false`. For a genuine
+ * divergence, use "Sync" instead (`sync.ts`'s `runSync`, roadmap §5.2) —
+ * this action stays fast-forward-only on purpose, same reasoning as
+ * `realPull`.
  *
  * Bootstrap case: the pre-flight `realFetch` above talks upload-pack
  * (read), but a repo Phase 11's server has never seen a WRITE for yet
@@ -271,34 +346,7 @@ export async function realPush(config: RemoteConfig, branch: string): Promise<Sy
     throw new SyncError("diverged", DIVERGED_MESSAGE);
   }
   if (action === "push") {
-    try {
-      const result = await git.push({
-        fs,
-        http,
-        dir: GIT_DIR,
-        url: config.url,
-        ref: branch,
-        remoteRef: branch,
-        remote: "origin",
-        force: false,
-        onAuth: () => buildGitAuth(config.token),
-      });
-      if (!result.ok) {
-        throw new SyncError("http", result.error ?? "The remote rejected the push.");
-      }
-      // `git.push` does NOT update the local remote-tracking ref (that's
-      // fetch's job) — without this, `computeSyncStatus` below would read
-      // the STALE (or, in the bootstrap case, still-nonexistent)
-      // `refs/remotes/origin/<branch>` and report a misleading nonzero
-      // `ahead` right after a push that just succeeded. We already know
-      // exactly what the remote now points at (local HEAD, since the push
-      // just fast-forwarded it there) — no need for a second network
-      // round-trip via another fetch.
-      const pushedOid = await git.resolveRef({ fs, dir: GIT_DIR, ref: branch });
-      await git.writeRef({ fs, dir: GIT_DIR, ref: `refs/remotes/origin/${branch}`, value: pushedOid, force: true });
-    } catch (err) {
-      throw mapError(err);
-    }
+    await pushBranch(config, branch);
   }
   return computeSyncStatus(branch);
 }

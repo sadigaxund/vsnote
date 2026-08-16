@@ -28,21 +28,24 @@ export function classifyDivergence({ ahead, behind }: AheadBehind): DivergenceSt
   return "diverged";
 }
 
-/** v2.0 is fast-forward-only (IMPLEMENTATION-PLAN-V2.md Phase 11, roadmap
- * §4): a push is only ever attempted when the remote has nothing local
- * lacks — "ahead-only" is the sole state a real push call happens for.
- * "up-to-date"/"behind-only" are both legitimate push no-ops (real `git
- * push` says "Everything up-to-date" in both cases too, even when behind);
- * "diverged" is the one state that must be REFUSED with an explanation,
- * never auto-merged, never force-pushed. */
+/** The individual Push action (`git/remote.ts`'s `realPush`) stays
+ * fast-forward-only, same as real `git push`: it's only ever attempted when
+ * the remote has nothing local lacks — "ahead-only" is the sole state a
+ * real push call happens for. "up-to-date"/"behind-only" are both
+ * legitimate push no-ops (real `git push` says "Everything up-to-date" in
+ * both cases too, even when behind); "diverged" is refused here (this
+ * action never auto-merges or force-pushes) — but is no longer a dead end
+ * app-wide: "Sync" (`sync.ts`'s `runSync`, roadmap §5.2) handles exactly
+ * that case with a real auto-merge. */
 export function pushAction(state: DivergenceState): "push" | "noop" | "refuse" {
   if (state === "ahead-only") return "push";
   if (state === "diverged") return "refuse";
   return "noop";
 }
 
-/** Symmetric policy for pull: only "behind-only" needs a real
- * fast-forward. "diverged" refuses (a real merge is out of v2.0 scope);
+/** Symmetric policy for the individual Pull action: only "behind-only"
+ * needs a real fast-forward. "diverged" refuses HERE (same reasoning as
+ * `pushAction` above — "Sync" is the auto-merge path, not this action);
  * "up-to-date"/"ahead-only" are no-ops (nothing to bring down). */
 export function pullAction(state: DivergenceState): "fast-forward" | "noop" | "refuse" {
   if (state === "behind-only") return "fast-forward";
@@ -50,8 +53,18 @@ export function pullAction(state: DivergenceState): "fast-forward" | "noop" | "r
   return "noop";
 }
 
+/** Shown by the individual, fast-forward-only Pull/Push actions
+ * (`git/remote.ts`'s `realPull`/`realPush`) when they refuse a genuine
+ * divergence. Roadmap §5.2 (amending v2.0's original "refuse + explain"
+ * policy, after the user's verdict that refusal-only "makes the app
+ * useless") replaced the dead end this used to point to: divergence is no
+ * longer something the user has to resolve outside the app — "Sync" (the
+ * status bar's sync segment / command palette's "Sync now",
+ * `useGitStore.ts`'s `syncNow` → `sync.ts`'s `runSync`) auto-merges it
+ * (backup ref, three-way diff3, merge commit, push) or opens the in-app
+ * conflict resolver when it genuinely can't. */
 export const DIVERGED_MESSAGE =
-  "Local and remote have diverged — Slate only fast-forwards in v2.0, so it won't auto-merge or force-push. Resolve manually (or ask a maintainer), then sync again.";
+  "Local and remote have diverged — use Sync (status bar, or ⌘K → \"Sync now\") to auto-merge; it'll open a conflict resolver if any file needs your input.";
 
 /** Shapes an isomorphic-git `GitAuth` value from a plaintext token — used
  * as the return value of every `onAuth` callback in `git/remote.ts`. Uses

@@ -15,6 +15,15 @@
  * collapse of its own). Otherwise pure composition over the library's
  * `Button`/`Textarea`/`ScrollArea`/`Tooltip` plus the local `FileIcon` and
  * the shared `lib/gitStatusColor` map (also used by `ExplorerTree`).
+ *
+ * Phase 11 (roadmap §5.3) — the commit message box PREFILLS from
+ * `useSettingsStore`'s `gitCommitTemplate`/`gitDeviceName`, rendered via
+ * `git/commitTemplate.ts`, whenever the box is still showing a
+ * template-generated value (i.e. the user hasn't typed their own message
+ * yet this "cycle") — it stops re-deriving the instant the user edits it
+ * by hand, and starts fresh again after the next successful commit. This
+ * is the SAME template `useGitStore.ts`'s `syncNow` uses for its own
+ * auto-commit and merge commits — one source of truth, three call sites.
  */
 import { useState } from "react";
 import { Button, ScrollArea, Textarea, Tooltip, useToast } from "my-you-eye";
@@ -23,7 +32,9 @@ import { FileIcon } from "./local/FileIcon";
 import { SidebarContainer } from "./local/SidebarContainer";
 import { STATUS_COLOR } from "../lib/gitStatusColor";
 import { commitAll } from "../git/commit";
+import { buildTemplateVars, renderCommitTemplate } from "../git/commitTemplate";
 import { useGitStore } from "../stores/useGitStore";
+import { useSettingsStore } from "../stores/useSettingsStore";
 import { inferFileKind } from "../stores/useFsStore";
 
 export interface SourceControlPanelProps {
@@ -40,11 +51,28 @@ export function SourceControlPanel({ onOpenDiff, width, onWidthChange, collapsed
   const ahead = useGitStore((s) => s.ahead);
   const behind = useGitStore((s) => s.behind);
   const syncing = useGitStore((s) => s.syncing);
-  const [message, setMessage] = useState("");
+  const branch = useGitStore((s) => s.branch);
+  const gitCommitTemplate = useSettingsStore((s) => s.gitCommitTemplate);
+  const gitDeviceName = useSettingsStore((s) => s.gitDeviceName);
+  // `userMessage === null` means "the user hasn't typed anything this
+  // cycle" — the box then DERIVES its displayed value straight from the
+  // template on every render (no effect, no setState-during-effect: this
+  // is the plain "value computed from props/state" pattern, not
+  // synchronizing with an external system), so it stays live as files
+  // change (e.g. `{files}` going from "1 file" to "3 files" as more edits
+  // land) right up until the user types their own message. `commitAll`ing
+  // clears it back to `null` so the next cycle prefills fresh again.
+  const [userMessage, setUserMessage] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const { toast } = useToast();
 
   const files = Object.entries(statuses).sort(([a], [b]) => a.localeCompare(b));
+
+  const templateMessage =
+    changedCount === 0
+      ? ""
+      : renderCommitTemplate(gitCommitTemplate, buildTemplateVars({ device: gitDeviceName, branch, files: Object.keys(statuses) }));
+  const message = userMessage ?? templateMessage;
 
   // Phase 11 (real sync) — Pull/Push here call the SAME `useGitStore`
   // actions the status bar's sync segment does, but as direct one-shot
@@ -73,7 +101,7 @@ export function SourceControlPanel({ onOpenDiff, width, onWidthChange, collapsed
     setCommitting(true);
     try {
       await commitAll(trimmed);
-      setMessage("");
+      setUserMessage(null); // next cycle derives fresh from the template again
       await useGitStore.getState().refresh();
     } finally {
       setCommitting(false);
@@ -124,7 +152,7 @@ export function SourceControlPanel({ onOpenDiff, width, onWidthChange, collapsed
           placeholder={`Message (${changedCount} change${changedCount === 1 ? "" : "s"})`}
           aria-label="Commit message"
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) => setUserMessage(e.target.value)}
           rows={3}
           style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, resize: "vertical" }}
         />
