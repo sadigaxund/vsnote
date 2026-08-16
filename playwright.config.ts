@@ -31,7 +31,17 @@ export default defineConfig({
   globalTeardown: "./tests/e2e/globalTeardown.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // Phase 13 (docs/IMPLEMENTATION-PLAN-V2.md): deliberately zero, in CI and
+  // locally alike, so a flake is never silently hidden by a pass-on-retry.
+  // This suite is 157 vitest + 90 playwright, zero failures, under
+  // CI=true — there is no currently-named flake to spend a retry budget
+  // on. The concrete reason this matters: the live-preview defect fixed in
+  // commit 834063d presented as an intermittent e2e failure; with retries
+  // enabled, CI would have failed that spec once, passed on the retry, and
+  // reported green while real users kept seeing raw markdown that never
+  // resolved on load. Raising this above 0 requires naming the specific
+  // spec and the reason, right here, not just bumping a number.
+  retries: 0,
   workers: process.env.CI ? 2 : undefined,
   reporter: [["list"]],
   timeout: 30_000,

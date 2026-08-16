@@ -837,6 +837,80 @@ CLI companion for every other case. Both hash through the exact same
 side already used — no second hashing implementation introduced anywhere.
 Full test coverage: `server/tests/test_bootstrap.py`.
 
+## CI + GitHub Pages demo (Phase 13)
+
+`.github/workflows/ci.yml` has two jobs. `test` runs on every push/PR to
+`main`: install, lint, `tsc --noEmit`, build (default base path), vitest,
+the Playwright e2e suite, and the server pytest suite. `pages` runs after
+`test` is green, main-only, and deploys a client-only build to GitHub
+Pages at `https://sadigaxund.github.io/vsnote/` — no backend is deployed
+by CI anywhere; share/sync surfaces on the demo render their normal
+server-offline states (`PublishDialog`/`SettingsView`'s existing
+`reachability === "offline"` branches, unchanged by this phase).
+
+**Ordering inside `test`**: the server virtualenv (`server/.venv`, from
+`server/requirements.txt`) is created immediately after `npm ci` and well
+before the Playwright step. This matters because `tests/e2e/globalSetup.ts`
+spawns the share backend via the literal path `server/.venv/bin/python` —
+without that venv already installed, the e2e run doesn't fail a handful of
+specs, it dies at `globalSetup` before any spec executes at all. Playwright
+workers are pinned explicitly (`--workers=2`) rather than left to Playwright's
+default auto-detection, matching `playwright.config.ts`'s own
+`workers: process.env.CI ? 2 : undefined` — this suite runs a real
+`vite preview` server and a real uvicorn backend alongside the browser
+workers, and over-parallelizing on a shared runner has cost real wall-clock
+time via port/resource contention. **Retries are 0**, unconditionally
+(`playwright.config.ts`), and the workflow adds no retry logic of its own.
+Phase 12 is the reason that default is zero rather than one: the
+live-preview defect fixed in `834063d` (the async-parse race that left raw
+markdown on screen) presented purely as an *intermittent* e2e failure. A
+retry budget with no named flake behind it would have failed that spec
+once, passed it on the retry, and reported CI green while real users kept
+hitting the bug. Raising retries above 0 therefore requires naming the
+specific spec and the reason, in `playwright.config.ts` and in
+`.github/workflows/ci.yml`, at the time it is raised.
+
+**Base-path mechanism.** `vite.config.ts` reads `SLATE_BASE_PATH` (default
+`"/"`, so every local flow — dev, build, preview, the e2e suite's own
+`vite preview` on port 5290 — is unchanged) into a `BASE` constant that
+feeds four independent things, all of which have to agree or the demo
+silently 404s its own assets under `/vsnote/`:
+
+1. Vite's own `base` config — drives every built `<script>`/`<link>` URL
+   and the `%BASE_URL%` placeholder this project's `index.html` uses for
+   its favicon (a raw `public/` asset reference Vite does not otherwise
+   rewrite, unlike tags it processes as part of the module graph).
+2. `VitePWA`'s own `base`/`scope` plugin options (SW registration path +
+   precache URL prefix) — passed explicitly even though they default to
+   vite's `base`, so the tie is visible in the config rather than implicit.
+3. The Web App Manifest's `start_url`/`scope`/icon `src` fields — these are
+   plain JSON fields the plugin does **not** derive from vite's `base` on
+   its own; left at `"/"` they'd claim a scope the origin doesn't actually
+   grant the app under `/vsnote/`, breaking install/standalone launch.
+4. The service worker's precache manifest, which workbox emits as paths
+   relative to `sw.js`'s own URL (`"assets/…"`, no leading slash) — this
+   one needs no base-awareness at all, since a relative URL resolves
+   correctly against wherever `sw.js` itself is served from.
+
+CI's `pages` job builds with `SLATE_BASE_PATH=/vsnote/`; the default job
+(`test`) builds with no override, proving both paths on every run.
+
+**One-time owner action (required before the demo goes live).** The `pages`
+job deploys through the `github-pages` environment, which only accepts
+Actions-sourced deployments once the repository is configured for it: in
+GitHub, go to Settings, then Pages, and set Source to "GitHub Actions". No
+token or secret is involved; `deploy-pages` authenticates with the
+workflow's own `id-token: write` permission. Until that flip is made the
+`test` job still runs and passes normally, and only the `pages` job fails
+at the deploy step, so CI staying green is not evidence the demo is live.
+
+Verified locally before the workflow shipped (not just read from config):
+`dist-pages/index.html`'s script/link/manifest URLs, the manifest's
+`start_url`/`scope`/icon `src`, and `sw.js`'s reachability + precache
+entries were all fetched over real HTTP from a copy of the build served
+under an actual `/vsnote/` subpath on a scratch port, plus a real headless
+Chromium load asserting zero failed requests and zero console errors.
+
 ## Deviations
 
 Real friction points found while building against the actual `my-you-eye@0.4.0` npm
