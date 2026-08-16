@@ -13,7 +13,33 @@
  * a real ~300ms wait is a small, worthwhile cost for a debounce test that
  * can't silently deadlock or race the fake clock.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * Timeout headroom, and why this file specifically needs it.
+ *
+ * These cases deliberately use REAL timers (see the module docstring above)
+ * and therefore spend ~300-400ms of genuine wall-clock time each waiting out
+ * the draft debounce. Vitest's 5s default leaves that only ~12x headroom,
+ * which is enough on a warm developer machine and NOT enough on a cold CI
+ * runner: the first GitHub Actions run after a fresh `npm ci` failed all six
+ * cases at exactly 5000-5009ms while every other unit file passed.
+ *
+ * Measured rather than assumed, in a throwaway clone with a clean `npm ci`:
+ * the failure reproduces on the FIRST full-suite run on a cold machine and
+ * then never again (five consecutive clean runs afterwards), it never
+ * reproduces with the file run alone, in pairs, or with
+ * `--no-file-parallelism`, and whenever the file does complete it takes
+ * ~840ms. A deadlock would not resolve in 840ms on the next attempt, so this
+ * is I/O and CPU contention on a cold box delaying real-timer callbacks,
+ * not a hang and not a product defect.
+ *
+ * The timeout is raised HERE rather than globally so every other spec keeps
+ * the tight 5s failure signal, and it is not a retry: a genuine regression in
+ * fs/drafts.ts still fails this file, it just is not allowed to fail merely
+ * because the machine was busy.
+ */
+vi.setConfig({ testTimeout: 20_000 });
 import { clearDraft, flushDraftSave, loadDraft, scheduleDraftSave } from "../../src/fs/drafts";
 import { resetFilesystem } from "../../src/fs/client";
 
