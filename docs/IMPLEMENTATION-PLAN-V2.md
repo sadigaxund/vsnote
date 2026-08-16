@@ -120,6 +120,23 @@ Exit: every item demonstrable; suite green; visual pass.
   file edits auto-merges and pushes; same-line conflict opens the resolver and
   resolving pushes a merge commit; backup ref exists afterwards.
 
+## Phase 12 — Feedback round 4 (2026-08-16, DESIGN-SPEC Amendments items 25–33)
+Full spec in DESIGN-SPEC round 4. Mixed client+server phase:
+- Server: git-http `WWW-Authenticate` gated to `git/` user-agents (26a);
+  bootstrap user env vars + `create_user.py` CLI (32); pytest for both
+  (browser-shaped request gets 401 WITHOUT the challenge header; bootstrap
+  creates iff users table empty, never overwrites, never logs the secret).
+- Client: width slider "Full" cap removal (25); suspend /git polling while
+  unauthenticated (26b); Test Connection button fit (27); UI copy sweep — one
+  row, no em dashes, ALL existing hints (28); static "VSNote" title (29);
+  empty-name inline create, empty = cancel, truly inline sizing (30); Publish
+  Sign In button no-wrap (31).
+- Renderers: stress fixtures + row cap/virtualization for CSV, lazy JSON tree
+  (33) with committed perf-guard tests.
+- Update any Phase 7/10 specs the new behavior breaks in the same phase;
+  `npm test` + pytest end green with the NEW behavior codified.
+Exit: every item demonstrable; suites green; visual pass on 25/27/29/30/31.
+
 ## Sequencing & ownership
 8 → 9 → 10 → 10.5 → 11, strictly sequential, same orchestrator/worker pattern
 as v1.

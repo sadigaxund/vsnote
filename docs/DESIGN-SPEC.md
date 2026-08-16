@@ -302,3 +302,46 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     Make compact/default/comfortable scale the actual chrome tokens — row heights,
     paddings, icon spacing, tab/status-bar heights — visibly different at a glance.
 24. **Find widget 30–40% smaller** (font, paddings, control sizes — same layout).
+
+## Amendments round 4 — user feedback 2026-08-16 (hands-on with the full stack; OVERRIDE above)
+
+25. **Full width must be reachable.** The rendered-content max-width slider's top
+    position becomes "Full": it removes the `max-width` cap entirely instead of
+    clamping to a ch value. With margins at minimum and width at Full, text spans
+    the whole editor area on any monitor.
+26. **No browser basic-auth popups, ever.** The git smart-HTTP 401 currently
+    carries `WWW-Authenticate: Basic` on every response; a browser fetch receiving
+    it triggers the native login dialog (the user saw this ~every 60s from the
+    background git poll while signed out). Fix both halves: (a) the server sends
+    the `WWW-Authenticate` challenge ONLY to git clients (User-Agent starting
+    `git/`), never to browser requests; (b) the client suspends /git polling
+    entirely while whoami says unauthenticated, resuming on sign-in.
+27. **"Test Connection" button** in Git settings: text overflows the button; make
+    it fit (size to label, no truncation, no wrap).
+28. **UI copy rule (global, permanent): hints, tooltips, and setting descriptions
+    are ONE row, concise and simple — drop details rather than wrap. ZERO em
+    dashes in any UI copy.** Sweep ALL existing hint/description text to comply,
+    not just new strings. Add a lint/test guard if practical (grep for `—` in
+    user-facing string sources).
+29. **App title is a static "VSNote".** Title bar text and `document.title` show
+    exactly `VSNote`; delete the dynamic `- vault` suffix (tree + breadcrumbs
+    already show location). No other rebrand — internal names stay.
+30. **New-file/rename inline editor.** Creating a file starts with an EMPTY name
+    field (no `untitled.md` prefill to fight); confirming an empty name cancels
+    the operation silently. The inline editor must be visually natural: same
+    position, font, and row size as the final tree row — no oversized box, no
+    layout shift.
+31. **Publish modal "Sign In" button** must never wrap to two rows.
+32. **Fallback-login onboarding.** Today NO user exists and nothing creates one
+    (login is dead outside the demo script). Add: `SLATE_BOOTSTRAP_USER` +
+    `SLATE_BOOTSTRAP_PASSWORD` env vars that create that account at startup iff
+    no users exist (never overwrite, never log the password), plus a
+    `server/scripts/create_user.py` CLI (username prompt + hidden password
+    prompt, argon2id). Document both in server/README.md; the Publish modal's
+    signed-out state hints at it in one row per item 28.
+33. **Big-file safety for CSV/JSON renderers.** Column type inference stays
+    per-column (all non-empty values must agree) — cheap, linear, keep it. The
+    risk is DOM size: add generated stress fixtures (~50k-row CSV, deep/large
+    JSON), measure, then cap rendering ("showing N of M rows" + a load-more or
+    virtualized rows via ScrollArea; JSON tree renders lazily on expand). The
+    fixtures become committed tests so regressions fail the suite.
