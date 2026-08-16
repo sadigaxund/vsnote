@@ -749,6 +749,94 @@ variable name for continuity) gained two new unconditional entries,
 suite) — the same target variable Phase 10 already established, just applied more
 broadly now that the client has no `baseUrl` fallback of its own to reach for.
 
+## Feedback round 4 — server/auth (Phase 12a, DESIGN-SPEC Amendments items 26 + 32)
+
+### 26a — `/git`'s `WWW-Authenticate` challenge, gated to git-shaped clients
+
+**The bug**: `git_http.py::GitAuthMiddleware` used to send `WWW-Authenticate:
+Basic realm="slate-git"` on EVERY anonymous/failed-auth 401, unconditionally.
+A browser `fetch()` that receives that header on ANY response — regardless of
+whether the page code ever reads it — pops the browser's own NATIVE
+credential dialog. The app's own background `/git` poll (see 26b below) hits
+this route roughly every 60s while signed out, so the user saw that native
+popup on a cadence, with no way to dismiss it from inside the app.
+
+**The fix**: `_is_git_client(user_agent)` (`git_http.py`) gates the header's
+PRESENCE — never the status code, body, or the underlying authorization
+decision, all three of which are byte-identical either way — on the
+request's `User-Agent` starting with `git/` (case-insensitive; a MISSING
+User-Agent is treated as NOT a git client — the safer default, since real
+git always sends some `git/…` string on its own, confirmed against system
+git 2.43.0 in this environment). `_unauthenticated_response()` is now the
+ONE place that builds this 401, so there is exactly one code path to keep
+correct. Real git clients (system `git`, and any other tool that identifies
+itself honestly) are unaffected — they still get the challenge they depend
+on to prompt/retry with credentials; `server/tests/test_git_sync.py`'s live
+`uvicorn` + real-system-git round-trip tests (unchanged) are the regression
+backstop for that half. New coverage:
+`server/tests/test_git_http_ua_gating.py` — browser-UA/git-UA/missing-UA
+matrix, plus a byte-for-byte comparison proving `WWW-Authenticate` is the
+ONLY thing that differs between the browser and git response classes.
+
+This is deliberately narrower than `/share/*`'s uniform-404 no-oracle
+posture (roadmap §1) — `/git/*` is a real HTTP auth challenge surface by
+design (real git clients need SOME signal to know to prompt), so "vary one
+header by caller type" is a legitimate, intentional asymmetry here, not a
+weakening of the share gate's much stricter "every deny reason is
+byte-identical, full stop" rule described earlier in this doc.
+
+### 26b — background `/git` poll suspended while signed out
+
+**The bug's other half**: `App.tsx`'s periodic background fetch (Phase 11,
+roadmap §5.2, "~60s while the backend is reachable") used to gate on
+`useShareStore`'s `reachability` field alone (`reachability !== "offline"`).
+`reachability` is a soft, tri-state signal that starts `"unknown"` and is
+**never probed at app boot by design** (see this doc's Sharing section:
+an eager unconditional `whoami()` at boot broke `tests/e2e/probes.spec.ts`'s
+offline-cold-start assertion, and was reverted for that reason). The net
+effect: for every signed-out session, the interval's guard was always
+truthy, so it fired unconditionally, every ~60s, hitting `/git` with no
+credentials — the exact request that triggered 26a's popup.
+
+**The fix**: the interval now gates on `useShareStore`'s `authenticated`
+field instead — a HARD boolean that starts `false` and is only ever flipped
+`true` by an explicit sign-in action (`login()`, or a `probe()` that
+resolves to an authenticated `whoami()`). A signed-out session therefore
+makes literally zero `/git` requests from this interval (proven at the
+network level, not by asserting on internal state, per the phase brief:
+`tests/e2e/git-background-poll.spec.ts`'s `page.on("request")` tracking),
+and polling resumes automatically on the very next tick after sign-in from
+anywhere (Settings → Git & Sync, the Publish dialog, …). Deliberate
+trade-off, stated plainly: a user who already has a valid server-side
+session from a PREVIOUS visit does not get automatic background sync
+resumed on a fresh page load — `authenticated` resets to `false` on every
+reload (this store is deliberately not persisted, see its own module doc)
+and nothing re-probes it until the user touches a share-surface entry point
+or Settings → Sharing/Git & Sync. This is consistent with — not a new
+exception to — the existing "no eager boot-time reachability probe" design
+this section's first paragraph already describes; fixing it further (e.g. a
+throttled, offline-safe boot probe) is not in this phase's scope.
+
+`App.tsx` also gained a test-only override,
+`window.__gitBackgroundFetchMsOverride` (same inert-unless-set shape as
+`lib/renderProbe.ts`'s `__renderProbeEnabled`), so the e2e spec above can
+observe several poll ticks without a real 60s wait.
+
+### 32 — fallback-login onboarding
+
+Full contract, rationale, and usage: `server/README.md`'s "Fallback-login
+onboarding" section (the "how to use it" doc) and `main.py::bootstrap_user`'s
+own docstring (the "why it's safe" doc) — not duplicated here to avoid the
+three drifting. Summary for this doc's "how it's built" purpose:
+`main.py::bootstrap_user(SessionLocal, settings)` runs once per `create_app()`
+call, right after `Base.metadata.create_all`, gated on
+`SLATE_BOOTSTRAP_USER`/`SLATE_BOOTSTRAP_PASSWORD` and an empty `users` table;
+`scripts/create_user.py` is the interactive (`getpass`-hidden password)
+CLI companion for every other case. Both hash through the exact same
+`security.hash_password` (argon2id) path `routers/auth.py::login`'s verify
+side already used — no second hashing implementation introduced anywhere.
+Full test coverage: `server/tests/test_bootstrap.py`.
+
 ## Deviations
 
 Real friction points found while building against the actual `my-you-eye@0.4.0` npm

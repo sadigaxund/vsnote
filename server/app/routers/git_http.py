@@ -33,6 +33,21 @@ been removed entirely — same "CORS: none, anywhere" posture as `/api` and
 `/share/*`. External git clients (system `git`, scripts) were never
 same-origin browser `fetch()` calls in the first place and never needed
 CORS headers to read the response.
+
+**`WWW-Authenticate` is gated to real git clients (Phase 12, DESIGN-SPEC
+Amendments round 4 item 26a)**: a browser `fetch()` that receives a 401
+carrying `WWW-Authenticate: Basic` on ANY response pops the browser's own
+native credential dialog — this bit the user live, roughly every 60s, from
+`App.tsx`'s background `/git` poll firing while signed out. `_is_git_client`/
+`_unauthenticated_response` below send that header only when the request's
+`User-Agent` starts with `git/` (real git's own convention); every other
+401 (browser fetch, curl with no UA override, a missing UA) is
+byte-identical in status and body, just without the one header that
+triggers the popup. This is intentionally the ONLY thing that's
+conditional — the authorization decision itself never changes, so `git
+clone`/`push`/`pull` from a real git client (which always sends a `git/…`
+UA) keeps getting the challenge it depends on
+(`tests/test_git_sync.py::test_live_tokenless_push_rejected`, unchanged).
 """
 
 from __future__ import annotations
@@ -61,6 +76,54 @@ from ..gitrepo import BareRepoBackend, InvalidRepoName, ensure_bare_repo, resolv
 GIT_REQUEST_RE = re.compile(r"^/(?P<name>[A-Za-z0-9_-]{1,64})\.git(?:/.*)?$")
 
 WWW_AUTHENTICATE = 'Basic realm="slate-git"'
+
+
+def _is_git_client(user_agent: Optional[str]) -> bool:
+    """DESIGN-SPEC Amendments round 4 item 26a: the `WWW-Authenticate: Basic`
+    challenge on a 401 is what makes a BROWSER pop its native credential
+    dialog the instant it sees the header on any fetch response — including
+    the background `/git` polling fetch this app itself makes while signed
+    out (roughly every 60s, per `App.tsx`'s `GIT_BACKGROUND_FETCH_MS`; the
+    user-visible bug this item fixes). Real git clients, on the other hand,
+    NEED that header — it's the standard signal `git`'s own credential
+    helper machinery watches for to know it should prompt/retry with
+    credentials at all (see `git_receive_pack`/`git_upload_pack` calls in
+    git's own `http.c`); dropping it for a real git client would silently
+    break `git clone`/`push`/`pull` from the CLI (`tests/test_git_sync.py`'s
+    live round-trip tests pin exactly this).
+
+    The fix is narrow and additive: only the PRESENCE of the challenge
+    header is conditional. Status code, body, and the authorization
+    decision itself are identical either way — see the module docstring's
+    `browser-shaped request` / `git-shaped request` comparison and
+    `_unauthenticated_response` below, this function's only caller.
+
+    Real git (`user-agent: git/2.43.0`, confirmed against the system git in
+    this environment) always identifies itself with a `git/` prefix —
+    that's git's own convention, not something this app invented (see
+    `http.c::user_agent` upstream). A missing User-Agent is treated as NOT a
+    git client (fail toward "no challenge" — the safer default when unsure,
+    since the whole point is to stop handing out a header that pops a
+    browser dialog; a real git client always sends SOME `git/...` UA, so a
+    missing header is never a real git client in practice). Case-insensitive
+    since HTTP header VALUES aren't normalized by case the way header NAMES
+    are, and matching on this string specifically is a deliberate courtesy,
+    not a spec requirement.
+    """
+    if not user_agent:
+        return False
+    return user_agent.strip().lower().startswith("git/")
+
+
+def _unauthenticated_response(user_agent: Optional[str]) -> PlainTextResponse:
+    """`401 Authentication required`, with the `WWW-Authenticate` challenge
+    ONLY when the caller looks like a real git client (see `_is_git_client`
+    above) — every other caller (a browser fetch, curl with no UA override,
+    this app's own isomorphic-git-over-`fetch` background poll) gets the
+    identical status and body, just without the header that would otherwise
+    trigger a native browser login prompt."""
+    headers = {"WWW-Authenticate": WWW_AUTHENTICATE} if _is_git_client(user_agent) else None
+    return PlainTextResponse("Authentication required", status_code=401, headers=headers)
 
 
 class BrowserCompatibleUploadPackHandler(UploadPackHandler):
@@ -192,11 +255,7 @@ class GitAuthMiddleware:
                     break
 
             if token_row is None:
-                await PlainTextResponse(
-                    "Authentication required",
-                    status_code=401,
-                    headers={"WWW-Authenticate": WWW_AUTHENTICATE},
-                )(scope, receive, send)
+                await _unauthenticated_response(headers.get("user-agent"))(scope, receive, send)
                 return
 
             write_request = _is_write_request(path, query)

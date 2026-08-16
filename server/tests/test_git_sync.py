@@ -95,7 +95,17 @@ def _read_token(db_session) -> str:
 
 
 def test_anonymous_git_request_rejected_with_basic_challenge(client, owner):
-    r = client.get("/git/somerepo.git/info/refs?service=git-upload-pack")
+    # Phase 12 (item 26a): the challenge header is now conditional on a
+    # git-shaped User-Agent — see test_git_http_ua_gating.py for the full
+    # browser-vs-git-vs-missing-UA matrix. This test's own intent is
+    # unchanged (a real git client, anonymous, must still get the challenge
+    # it depends on to prompt/retry with credentials), so it sends one
+    # explicitly rather than relying on TestClient's default UA
+    # ("testclient", which is deliberately NOT git-shaped).
+    r = client.get(
+        "/git/somerepo.git/info/refs?service=git-upload-pack",
+        headers={"User-Agent": "git/2.43.0"},
+    )
     assert r.status_code == 401
     assert r.headers["www-authenticate"] == 'Basic realm="slate-git"'
 

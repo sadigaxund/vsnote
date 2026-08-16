@@ -62,6 +62,17 @@ class Settings(BaseSettings):
     # setting this False for local http:// testing only.
     cookie_secure: bool = Field(default=True, validation_alias="SLATE_COOKIE_SECURE")
 
+    # Phase 12 (DESIGN-SPEC Amendments round 4 item 32) — "fallback-login
+    # onboarding": the app-level username+password login (`routers/auth.py`)
+    # is otherwise dead the moment nothing has ever created a `User` row
+    # (only `scripts/demo.sh` did, previously). Both unset (the default) is
+    # a complete no-op. Setting exactly ONE is a startup-time configuration
+    # error (`main.py::bootstrap_user` raises loudly rather than silently
+    # creating a half-configured account) — see that function's doc for the
+    # full idempotency/never-overwrite/never-log-the-password contract.
+    bootstrap_user: Optional[str] = Field(default=None, validation_alias="SLATE_BOOTSTRAP_USER")
+    bootstrap_password: Optional[str] = Field(default=None, validation_alias="SLATE_BOOTSTRAP_PASSWORD")
+
 
 def resolve_secret_key(settings: Settings) -> str:
     """Computed once per app instance (see create_app) — never re-derived

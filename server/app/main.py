@@ -78,6 +78,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
+from . import models, security
 from .auth import JWKSFetcher, build_auth_deps
 from .config import Settings, resolve_secret_key
 from .db import Base, make_engine, make_sessionmaker
@@ -94,6 +95,71 @@ logger = logging.getLogger(__name__)
 DIST_DIR = Path(__file__).resolve().parents[2] / "dist"
 
 
+def bootstrap_user(session_local, settings: Settings) -> None:
+    """Phase 12 (DESIGN-SPEC Amendments round 4, item 32) — "fallback-login
+    onboarding". Before this, NOTHING ever created a `User` row outside
+    `scripts/demo.sh`'s own ad-hoc inline bootstrap, so the app-level
+    username+password login (`routers/auth.py::login`) was dead in any real
+    deployment. Called once from `create_app()`, right after
+    `Base.metadata.create_all` — so the `users` table definitely exists by
+    the time this runs, in every code path (fresh DB or not).
+
+    Contract (every clause independently load-bearing, tested in
+    `tests/test_bootstrap.py`):
+      - Both `SLATE_BOOTSTRAP_USER`/`SLATE_BOOTSTRAP_PASSWORD` unset: a
+        complete, silent no-op — this feature is fully opt-in.
+      - Exactly ONE set: fails LOUDLY at startup (`RuntimeError`, so the
+        process never comes up half-configured) rather than silently
+        creating an account with an empty username or password. The error
+        message names the two env vars, never a value — nothing here ever
+        has the actual password in hand to leak in the first place except
+        the one `hash_password` call below, and that value never flows into
+        a log/exception/repr anywhere in this function.
+      - Both set AND the `users` table is completely empty: creates exactly
+        one admin user (`is_admin=True`, matching `scripts/demo.sh`'s own
+        bootstrap-owner shape) with that username, argon2id-hashed password
+        (`security.hash_password` — the SAME hashing path
+        `scripts/create_user.py` and every other password in this app use;
+        never a second scheme). Only the USERNAME is logged on success,
+        never the password.
+      - Both set AND the `users` table already has at least one row (from
+        ANY source — a previous bootstrap run, `demo.sh`, `create_user.py`,
+        Cf-Access auto-provisioning): a complete no-op. This is what makes
+        the function safe to call on every single startup (as `create_app`
+        does) without ever overwriting an existing password — the check is
+        "does ANY user exist", not "does a user with this exact username
+        already exist", so a returning deployment's real password is never
+        at risk of being silently reset by a stale env var still sitting in
+        its `.env` file.
+    """
+    user = settings.bootstrap_user
+    password = settings.bootstrap_password
+    if not user and not password:
+        return
+    if not user or not password:
+        raise RuntimeError(
+            "SLATE_BOOTSTRAP_USER and SLATE_BOOTSTRAP_PASSWORD must both be set together "
+            "(or neither) — refusing to create a half-configured bootstrap account."
+        )
+
+    db = session_local()
+    try:
+        if db.query(models.User).count() > 0:
+            return  # never overwrite/reset anything once ANY user exists
+        db.add(
+            models.User(
+                username=user,
+                password_hash=security.hash_password(password),
+                email=None,
+                is_admin=True,
+            )
+        )
+        db.commit()
+        logger.info("Bootstrap: created initial user %r (users table was empty)", user)
+    finally:
+        db.close()
+
+
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
     settings = settings or Settings()
     secret_key = resolve_secret_key(settings)
@@ -101,6 +167,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     engine = make_engine(settings.db_url)
     SessionLocal = make_sessionmaker(engine)
     Base.metadata.create_all(engine)
+    bootstrap_user(SessionLocal, settings)
 
     def get_db():
         db = SessionLocal()

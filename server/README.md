@@ -87,6 +87,71 @@ Env-driven, see `.env.example` for the full annotated list (loaded from
 | `SLATE_SESSION_TTL_MIN` | `30` | both the app session cookie and per-share password session cookie |
 | `SLATE_COOKIE_SECURE` | `True` | set `False` only to test over plain `http://` locally |
 | `SLATE_GIT_ROOT` | `./git-repos` | Phase 11 — where bare git repos live, `{root}/{repo}.git`, created on demand |
+| `SLATE_BOOTSTRAP_USER` / `SLATE_BOOTSTRAP_PASSWORD` | *(unset)* | Phase 12 — creates that fallback-login user at startup, iff no `User` row exists yet. See "Fallback-login onboarding" below |
+
+## Fallback-login onboarding (Phase 12, DESIGN-SPEC Amendments round 4 item 32)
+
+Before this phase, nothing ever created a `User` row outside `scripts/demo.sh`'s
+own inline bootstrap snippet — so the app-level username+password login
+(`POST /api/auth/login`) was dead in any real deployment: there was no account
+to log into, and no way to make one, without hand-editing the database.
+Two ways to get a working account now, both hashing with the same argon2id
+path (`app/security.py::hash_password` — never a second implementation):
+
+**1. Startup env vars — first boot only.** Set `SLATE_BOOTSTRAP_USER` and
+`SLATE_BOOTSTRAP_PASSWORD` (both, together) and start the server:
+
+```sh
+SLATE_BOOTSTRAP_USER=owner SLATE_BOOTSTRAP_PASSWORD='a real password' \
+  npm run server
+```
+
+`app/main.py::bootstrap_user` runs once, right after the tables are created,
+and creates that one admin user **iff the `users` table is completely
+empty**. Every other case is a safe no-op:
+
+- Neither var set: does nothing (the default — this feature is fully opt-in).
+- Exactly one of the two set: fails LOUDLY at startup (`RuntimeError`,
+  process never comes up) instead of silently creating a half-configured
+  account with a missing username or password.
+- The table already has at least one row, from ANY source (a previous
+  bootstrap run, `demo.sh`, `create_user.py` below, or Cf-Access
+  auto-provisioning) — bootstrap never overwrites an existing password and
+  never creates a duplicate/second row. This makes it safe to leave the
+  env vars set permanently (e.g. in a `.env` a deploy script always loads)
+  without risking a password reset on every restart.
+- The password is never written to a log, exception message, or any other
+  output at any point in this path — only the username is logged, and only
+  on the one path that actually creates a row.
+
+Full contract + regression tests: `tests/test_bootstrap.py`.
+
+**2. `scripts/create_user.py` — any time, interactive.** For every other
+case (a second account, or resetting a forgotten password on an existing
+deployment):
+
+```sh
+server/.venv/bin/python server/scripts/create_user.py
+# Username: owner
+# Password: [hidden]
+# Confirm password: [hidden]
+```
+
+Prompts for a username, then a HIDDEN password (`getpass.getpass()` — no
+terminal echo) typed twice with a mismatch re-prompt, and writes the same
+argon2id hash straight into the same DB the running server uses
+(`SLATE_DB_URL`/`server/.env`, identical resolution to the server's own).
+Never accepts the password as a command-line argument (visible to other
+local processes via `/proc`/`ps`, and lands in shell history) and never
+echoes/logs it anywhere.
+
+If the username already exists, the script REFUSES by default (prints an
+error, exits nonzero) rather than silently changing an existing password —
+pass `--force` to explicitly reset that user's password instead. `--admin`
+(default) / `--no-admin` controls the new/reset user's admin flag.
+
+The Publish dialog's signed-out state links to this section (one-row hint,
+DESIGN-SPEC item 28: "No account yet? See server/README.md.").
 
 ## Real git sync (Phase 11)
 

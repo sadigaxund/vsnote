@@ -60,8 +60,20 @@ const ConflictResolver = lazy(() =>
 
 /** How often "Sync"'s background fetch runs (roadmap §5.2: "~60s while the
  * backend is reachable") — drives the real ahead/behind counters without
- * requiring an explicit user action. */
-const GIT_BACKGROUND_FETCH_MS = 60_000;
+ * requiring an explicit user action.
+ *
+ * Test-only override, same inert-unless-opted-in shape as `lib/renderProbe.
+ * ts`'s `window.__renderProbeEnabled`: a spec that needs to observe several
+ * poll ticks without a real 60s wait (item 26b's "zero /git requests while
+ * signed out, resumes on sign-in" proof) sets `window.
+ * __gitBackgroundFetchMsOverride` via `page.addInitScript` BEFORE
+ * navigating, so it's already present when this module evaluates. Absent
+ * (the overwhelmingly common case — every non-test load), this is exactly
+ * the documented 60s. */
+const GIT_BACKGROUND_FETCH_MS =
+  (typeof window !== "undefined" &&
+    (window as unknown as { __gitBackgroundFetchMsOverride?: number }).__gitBackgroundFetchMsOverride) ||
+  60_000;
 
 const ACTIVE_ON_BOOT = "vault/notes/architecture.md";
 
@@ -228,20 +240,36 @@ export default function App() {
   // counters". A plain `setInterval`/`clearInterval` pair (identical
   // cleanup shape to `StatusBar.tsx`'s own tick interval) — mounted once,
   // torn down on unmount, so it can never leak a timer across reloads/HMR.
-  // Gated on `useShareStore`'s `reachability` (same backend, same origin,
-  // as every other Phase 9+ surface — roadmap §5.4) so a KNOWN-offline
-  // backend doesn't get hit every 60s for nothing; "unknown"/"checking"/
-  // "online" all still attempt (the first-ever tick, before anything has
-  // probed reachability, has to attempt once to find out). `fetch()`
-  // itself never throws (every `SyncError` is caught into `syncError`
-  // state — see `useGitStore.ts`'s doc), so a failed attempt here never
-  // becomes an unhandled rejection; `!syncing` avoids overlapping an
-  // in-flight user-initiated push/pull/sync with a background tick.
+  //
+  // Phase 12 (DESIGN-SPEC Amendments round 4, item 26b) course-correction:
+  // this used to gate on `useShareStore`'s `reachability` field alone
+  // (`reachability !== "offline"`) — but `reachability` starts `"unknown"`
+  // and NOTHING probes it at boot by design (see the boot effect's own doc
+  // above: an eager `whoami()` at boot broke the offline-cold-start probe),
+  // so in practice this interval fired every single tick for every signed-
+  // out session, hitting `/git` with no credentials. The server's 401 for
+  // that request used to carry `WWW-Authenticate: Basic` unconditionally
+  // (fixed server-side too, `git_http.py`'s `_is_git_client` — item 26a),
+  // and a BROWSER `fetch()` that sees that header on ANY response pops the
+  // browser's own native login dialog — confirmed live, roughly every 60s,
+  // while signed out. `reachability` is a soft/tri-state signal (exactly
+  // the "unknown until probed" ambiguity that caused this); `authenticated`
+  // is a hard boolean that starts `false` and is ONLY ever flipped `true`
+  // by an explicit sign-in path (`useShareStore`'s `login()`, or a
+  // `probe()` that resolves to an authenticated `whoami()`) — gating on it
+  // directly means a signed-out session makes ZERO `/git` requests from
+  // this interval, full stop, and polling resumes automatically the very
+  // next tick after the user signs in from anywhere (Settings → Git & Sync,
+  // the Publish dialog's "Sign In", …). `fetch()` itself never throws
+  // (every `SyncError` is caught into `syncError` state — see
+  // `useGitStore.ts`'s doc), so an attempt here never becomes an unhandled
+  // rejection; `!syncing` avoids overlapping an in-flight user-initiated
+  // push/pull/sync with a background tick.
   useEffect(() => {
     const id = setInterval(() => {
       const { syncing } = useGitStore.getState();
-      const { reachability } = useShareStore.getState();
-      if (!syncing && reachability !== "offline") void useGitStore.getState().fetch();
+      const { authenticated } = useShareStore.getState();
+      if (!syncing && authenticated) void useGitStore.getState().fetch();
     }, GIT_BACKGROUND_FETCH_MS);
     return () => clearInterval(id);
   }, []);
