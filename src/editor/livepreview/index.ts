@@ -19,6 +19,7 @@
  */
 import { StateEffect, StateField } from "@codemirror/state";
 import { EditorView, type DecorationSet } from "@codemirror/view";
+import { syntaxTree } from "@codemirror/language";
 import { buildLivePreviewDecorations, type LivePreviewOptions } from "./plugin";
 import { livePreviewTheme } from "./theme";
 
@@ -41,7 +42,19 @@ function livePreviewField(opts: LivePreviewOptions) {
       for (const effect of tr.effects) {
         if (effect.is(setFocused)) focused = effect.value;
       }
-      if (tr.docChanged || focused !== value.focused || !tr.startState.selection.eq(tr.state.selection)) {
+      // `@codemirror/language`'s background parse worker (dist/index.js's
+      // `ParseWorker.work`) finishes the syntax tree via `requestIdle`, NOT
+      // synchronously with the initial `EditorState.create()` — for any doc
+      // whose parse doesn't fit in that first idle deadline (more likely
+      // the busier the machine is), the tree this field's `create()` saw is
+      // still partial, so headings/emphasis/etc. past whatever DID parse
+      // never got a decoration. The worker's continuation dispatches its
+      // OWN transaction (`Language.setState`, no doc change, no selection
+      // change) once more of the tree is ready — comparing `syntaxTree()`
+      // before/after catches exactly that transaction and recomputes, so a
+      // still-settling parse can't leave stale raw markdown on screen.
+      const treeChanged = syntaxTree(tr.state) !== syntaxTree(tr.startState);
+      if (tr.docChanged || focused !== value.focused || !tr.startState.selection.eq(tr.state.selection) || treeChanged) {
         return { focused, deco: buildLivePreviewDecorations(tr.state, focused, opts) };
       }
       return value;
