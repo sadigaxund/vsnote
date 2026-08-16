@@ -66,9 +66,25 @@ export default defineConfig({
     // Serves whatever is currently in `dist/` — `npm run test:e2e` runs
     // `vite build` immediately before `playwright test` (see package.json),
     // so this is always a fresh production build, never a stale one.
-    command: `npx vite preview --port ${PORT} --strictPort`,
+    // `--host 127.0.0.1` is load-bearing on CI, not cosmetic. `vite preview`
+    // defaults to host "localhost", which a GitHub Actions runner resolves to
+    // ::1 (IPv6) only, while `use.baseURL` above dials 127.0.0.1 (IPv4).
+    // Playwright's own `port` readiness check was satisfied by the IPv6
+    // listener, so it reported no webServer problem at all and started the
+    // run, and then every single spec failed instantly with
+    // net::ERR_CONNECTION_REFUSED at http://127.0.0.1:5290/ because nothing
+    // was listening on IPv4. Locally this never appeared: "localhost"
+    // resolves to 127.0.0.1 first, so the binding happened to match. Pinning
+    // the bind address to the exact host baseURL uses removes the mismatch
+    // instead of relying on name resolution order.
+    command: `npx vite preview --port ${PORT} --strictPort --host 127.0.0.1`,
     port: PORT,
     reuseExistingServer: false,
     timeout: 30_000,
+    // Surface the preview server's own output. Without this its startup and
+    // crash messages are swallowed, which is what made the failure above
+    // present as "90 tests all failed" with no server diagnostics anywhere.
+    stdout: "pipe",
+    stderr: "pipe",
   },
 });
