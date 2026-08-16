@@ -2,67 +2,34 @@
  * `.json` Rendered mode — DESIGN-SPEC Modes table: "tree/pretty view". Uses
  * the library's `TreeView`, whose `TreeNode` shape (`kind: "object" |
  * "array"`, typed leaf `value: TreeNodeValue`) exists specifically for this
- * case — no hand-rolled collapsible tree, per CLAUDE.md rule 1.
+ * case — no hand-rolled collapsible tree, per CLAUDE.md rule 1. This module
+ * only wires `jsonLogic.ts`'s pure, lazily-built tree into the component;
+ * see that file for the item 33 big-file-safety design and numbers.
  */
-import { useMemo } from "react";
-import { EmptyState, ScrollArea, TreeView, type TreeNode } from "my-you-eye";
+import { useCallback, useMemo, useState } from "react";
+import { EmptyState, ScrollArea, TreeView } from "my-you-eye";
 import { Braces } from "lucide-react";
+import { buildInitialOpenIds, buildTree, parseJsonRoots } from "./jsonLogic";
 
 export interface JsonViewProps {
   content: string;
 }
 
-function cellTypeFor(value: unknown): "text" | "number" | "boolean" | "null" {
-  if (value === null) return "null";
-  switch (typeof value) {
-    case "number":
-      return "number";
-    case "boolean":
-      return "boolean";
-    default:
-      return "text";
-  }
-}
-
-/** `id` is the node's dotted path from the document root (e.g.
- * `root.defaultMode.md`) — deterministic from the JSON structure itself
- * rather than a module-level mutable counter (which `react-hooks/globals`
- * correctly flags: reassigning shared state during render is a purity
- * violation), and stable across re-renders for free, which a controlled
- * `TreeView` would need anyway. */
-function toNodes(value: unknown, label: string, id: string): TreeNode {
-  if (Array.isArray(value)) {
-    return { id, label, kind: "array", children: value.map((v, i) => toNodes(v, String(i), `${id}.${i}`)) };
-  }
-  if (value !== null && typeof value === "object") {
-    return {
-      id,
-      label,
-      kind: "object",
-      children: Object.entries(value as Record<string, unknown>).map(([k, v]) => toNodes(v, k, `${id}.${k}`)),
-    };
-  }
-  return { id, label, value: { type: cellTypeFor(value), value } };
-}
-
 export function JsonView({ content }: JsonViewProps) {
-  const { data, error } = useMemo(() => {
-    try {
-      const parsed = JSON.parse(content);
-      if (Array.isArray(parsed)) {
-        return { data: parsed.map((v, i) => toNodes(v, String(i), `root.${i}`)), error: null as string | null };
-      }
-      if (parsed !== null && typeof parsed === "object") {
-        return {
-          data: Object.entries(parsed as Record<string, unknown>).map(([k, v]) => toNodes(v, k, `root.${k}`)),
-          error: null,
-        };
-      }
-      return { data: [toNodes(parsed, "value", "root")], error: null };
-    } catch (err) {
-      return { data: [] as TreeNode[], error: err instanceof Error ? err.message : "Invalid JSON" };
-    }
-  }, [content]);
+  const { roots, error } = useMemo(() => parseJsonRoots(content), [content]);
+
+  const [openIds, setOpenIds] = useState<Set<string>>(() => buildInitialOpenIds(roots));
+
+  const onToggle = useCallback((id: string) => {
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const data = useMemo(() => buildTree(roots, openIds), [roots, openIds]);
 
   if (error) {
     return (
@@ -78,7 +45,7 @@ export function JsonView({ content }: JsonViewProps) {
           even though the app-wide default is `user-select: none` — see
           `index.css`'s `[data-selectable-content]` rule. */}
       <div data-selectable-content style={{ padding: 20, fontFamily: "var(--font-mono)", fontSize: 13 }}>
-        <TreeView data={data} defaultExpandedDepth={3} indent="md" />
+        <TreeView data={data} expandedKeys={openIds} onToggle={onToggle} indent="md" />
       </div>
     </ScrollArea>
   );
