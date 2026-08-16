@@ -1,25 +1,64 @@
 name: CI
 
-# Phase 13 (docs/IMPLEMENTATION-PLAN-V2.md). Two jobs:
-#   `test`  — on every push/PR to main: lint, typecheck, build, vitest, the
-#             Playwright e2e suite, and the server pytest suite.
-#   `pages` — main-only, after `test` is green: builds the SPA with a
-#             `/vsnote/` base path and deploys it to GitHub Pages. The demo
-#             is client-only — no backend is deployed anywhere by this
-#             workflow. See vite.config.ts's `SLATE_BASE_PATH` handling and
-#             docs/ARCHITECTURE.md's base-path note.
+# Phase 13 (docs/IMPLEMENTATION-PLAN-V2.md). Phase 14's "CI finalization"
+# amendment (2026-08-17) added `workflow_dispatch`, `image-build`, and
+# `release` on top of that. Four jobs total:
+#   `test`         — on every push/PR to main (or manual dispatch): lint,
+#                    typecheck, build, vitest, the Playwright e2e suite, and
+#                    the server pytest suite.
+#   `pages`        — main-only, after `test` is green: builds the SPA with a
+#                    `/vsnote/` base path and deploys it to GitHub Pages. The
+#                    demo is client-only — no backend is deployed anywhere by
+#                    this workflow. See vite.config.ts's `SLATE_BASE_PATH`
+#                    handling and docs/ARCHITECTURE.md's base-path note.
+#   `image-build`  — every run: builds the single deployment Docker image
+#                    (docker/Dockerfile) with push disabled, so a broken
+#                    Dockerfile fails CI same as any other job. Never
+#                    publishes to a registry — that stays owner-driven.
+#   `release`      — only on manual dispatch or a CalVer/`v*` tag push, and
+#                    only after `test` and `image-build` are both green:
+#                    computes/derives the release tag, creates a GitHub
+#                    Release with notes seeded from CHANGELOG.md, and
+#                    attaches Dockerfile/docker-compose.yml/.env.example as
+#                    assets. See that job's own comments for the CalVer
+#                    tagging and CHANGELOG-section-matching rules.
 
 on:
   push:
     branches: [main]
+    # CalVer release tags (YYYY.MM.DD, optionally .N for same-day reruns)
+    # and legacy/manual `v*` tags. A tag push here reaches the `release`
+    # job below via its own `if:`; `test`/`image-build` also run against the
+    # tagged commit, which is exactly what `release`'s `needs:` wants.
+    tags:
+      - "20[0-9][0-9].[0-9][0-9].[0-9][0-9]*"
+      - "v*"
   pull_request:
     branches: [main]
+  # Lets the whole workflow (including a fresh CalVer release, with no tag
+  # push required — see the `release` job) be run by hand from the Actions
+  # tab or `gh workflow run`.
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Explicit release tag (e.g. 2026.08.17). Leave empty to use today's
+          UTC date. Exists because runners compute the CalVer date in UTC,
+          which can be a day behind the author's local date near midnight —
+          and a tag that does not match a CHANGELOG section falls back to the
+          Unreleased section, which would publish a nearly empty release body.
+        required: false
+        default: ""
 
-# Cancel superseded runs on the same ref (a new push obsoletes the old one),
-# but never cancel a `pages` deploy already in flight — see that job's own
-# concurrency group below, which is deliberately separate from this one.
+# Cancel superseded runs sharing the same (workflow, ref, event) — a new push
+# to a branch obsoletes the old push-triggered run for that branch, but this
+# key deliberately does NOT let an ordinary push cancel a workflow_dispatch
+# run on the same ref (e.g. a manually-triggered release in flight): they
+# land in different groups because event_name differs. Never cancel a
+# `pages` deploy already in flight either — see that job's own concurrency
+# group below, which is deliberately separate from this one.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
@@ -183,3 +222,195 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  image-build:
+    name: Build Docker image (no push)
+    # Runs on every trigger (push/PR/dispatch/tag) — the point is to catch a
+    # broken Dockerfile before it ships, not to gate this on any particular
+    # ref. No registry login, no `push:` step anywhere in this job: the
+    # image is built and then discarded when the runner is torn down. CI
+    # never publishes an image; that stays owner-driven (single image,
+    # dockerhub-ready) per docs/IMPLEMENTATION-PLAN-V2.md Phase 14.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # push: false is the whole point of this job. cache-from/cache-to use
+      # the GitHub Actions cache backend (type=gha) so repeated builds reuse
+      # layers across runs without needing any registry to push a cache
+      # image to; mode=max caches intermediate (not just final) layers so
+      # the node `npm ci`/`npm run build` stage and the python pip-install
+      # stage both benefit even when only one side of the Dockerfile
+      # changed. This is scoped per-branch by the action itself (the cache
+      # key includes the ref), so a stale layer from another branch is never
+      # silently reused as this branch's cache hit.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          tags: vsnote:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: CalVer release
+    # Both must be green before we tag/release anything — a release built on
+    # top of a failing test suite or a broken Dockerfile would be worse than
+    # no release.
+    needs: [test, image-build]
+    # Two ways in: (1) a human runs this workflow by hand via
+    # workflow_dispatch — no pre-existing tag required, this job computes
+    # one; (2) a tag matching the `on.push.tags` patterns above is pushed
+    # directly (a human did `git tag 2026.08.17 && git push --tags`, or an
+    # earlier run of this very job created one — see the note on GITHUB_TOKEN
+    # push events below) — in that case the tag already exists and this job
+    # just builds the release around it. PRs and ordinary main pushes never
+    # reach this job.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # fetch-depth: 0 — the tag-suffix step below needs the full tag list
+      # (`git tag -l`) to reliably find the highest existing same-day
+      # suffix; a shallow checkout would silently under-count and risk
+      # colliding with an existing tag.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # CalVer with same-day collision handling. If this run was triggered
+      # by an actual tag push, that tag is authoritative and used as-is. On
+      # workflow_dispatch (no tag yet), derive today's date tag and, if it's
+      # already taken, walk every existing "<date>" / "<date>.N" tag to find
+      # the highest N and use N+1 — not "count of matches + 1", which would
+      # produce a collision if an earlier suffix was ever skipped (e.g. a
+      # failed/deleted release left a gap). Verified locally against a
+      # scratch repo for: no existing tag, one existing (.1), two existing
+      # (.2), and a non-contiguous set ([bare, .1, .5] -> .6) — see the
+      # worker's report for the transcript.
+      - name: Determine release tag
+        id: tag
+        run: |
+          set -euo pipefail
+          EXPLICIT="${{ github.event.inputs.release_tag }}"
+          if [ -n "$EXPLICIT" ]; then
+            # Manual override: see the workflow_dispatch input's description.
+            TAG="$EXPLICIT"
+          elif [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            DATE_TAG="$(date -u +%Y.%m.%d)"
+            EXISTING="$(git tag -l "${DATE_TAG}" "${DATE_TAG}.*")"
+            if [ -z "$EXISTING" ]; then
+              TAG="$DATE_TAG"
+            else
+              MAX=0
+              while IFS= read -r t; do
+                [ -z "$t" ] && continue
+                if [ "$t" != "$DATE_TAG" ]; then
+                  suffix="${t#"$DATE_TAG".}"
+                  if [[ "$suffix" =~ ^[0-9]+$ ]] && [ "$suffix" -gt "$MAX" ]; then
+                    MAX="$suffix"
+                  fi
+                fi
+              done <<< "$EXISTING"
+              TAG="${DATE_TAG}.$((MAX + 1))"
+            fi
+          fi
+          echo "Release tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # CHANGELOG.md's `## [Unreleased]` section is a stub ("CHANGELOG (this
+      # file)") — the real notes for today's release live under
+      # `## [2026.08.17]`, which is exactly the tag CalVer generates today.
+      # So: extract the section whose heading matches the release tag's
+      # plain date (stripping any same-day ".N" suffix first, since
+      # CHANGELOG sections are keyed by date only — a same-day rerun should
+      # still find that day's real notes, not fall back for a cosmetic
+      # reason), and fall back to `Unreleased` only when no dated section
+      # matches at all. Verified locally against the real CHANGELOG.md for
+      # both the matching-tag and no-match-fallback cases — see the
+      # worker's report for the transcript.
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          CHANGELOG="CHANGELOG.md"
+          SECTION_KEY="$(printf '%s' "$TAG" | grep -oE '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}' || true)"
+          if [ -z "$SECTION_KEY" ]; then
+            SECTION_KEY="$TAG"
+          fi
+
+          extract_section() {
+            local key="$1"
+            awk -v key="$key" '
+              BEGIN { found=0; printing=0 }
+              /^## \[/ {
+                if (printing) { exit }
+                if ($0 ~ ("^## \\[" key "\\]")) { printing=1; found=1; next }
+                next
+              }
+              printing { print }
+              END { exit(found ? 0 : 1) }
+            ' "$CHANGELOG"
+          }
+
+          NOTES=""
+          if OUT="$(extract_section "$SECTION_KEY")"; then
+            NOTES="$OUT"
+          fi
+
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            echo "No CHANGELOG section matched [$SECTION_KEY]; falling back to Unreleased." >&2
+            if OUT="$(extract_section "Unreleased")"; then
+              NOTES="$OUT"
+            fi
+          fi
+
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            NOTES="No changelog entry found for this release."
+          fi
+
+          printf '%s\n' "$NOTES" > release-notes.md
+          echo "--- release-notes.md ---"
+          cat release-notes.md
+
+      # Idempotency guard: if this exact tag/release already exists (e.g. a
+      # dispatch run's own tag creation below triggered a second run via the
+      # `on.push.tags` trigger — see the note on GITHUB_TOKEN there — or a
+      # rerun of a previously-successful release job), don't fail the whole
+      # job trying to recreate it; just leave the existing release alone.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; skipping creation."
+            exit 0
+          fi
+          # gh release create both creates the tag (if it doesn't exist yet
+          # — the workflow_dispatch path) and the release in one step, using
+          # the built-in GITHUB_TOKEN. GitHub does not fire a new workflow
+          # run for refs pushed/created via GITHUB_TOKEN (documented
+          # loop-prevention behavior), so this does NOT recursively
+          # re-trigger this workflow's `on.push.tags` — a fresh
+          # workflow_dispatch release is a single run, start to finish.
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --target "${{ github.sha }}" \
+            Dockerfile docker-compose.yml .env.example
