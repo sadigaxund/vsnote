@@ -45,7 +45,7 @@ import { FindWidget } from "../components/local/FindWidget";
 
 export function createFindPanel(view: EditorView): Panel {
   const dom = document.createElement("div");
-  dom.className = "cm-slate-find-panel";
+  dom.className = "cm-vsnote-find-panel";
   dom.style.position = "absolute";
   dom.style.top = "0";
   dom.style.left = "0";

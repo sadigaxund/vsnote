@@ -1,6 +1,6 @@
 """Phase 12 (DESIGN-SPEC Amendments round 4, item 32) — "fallback-login
-onboarding": `main.py::bootstrap_user` (the `SLATE_BOOTSTRAP_USER`/
-`SLATE_BOOTSTRAP_PASSWORD` env-var path, wired into `create_app()`) and
+onboarding": `main.py::bootstrap_user` (the `VSNOTE_BOOTSTRAP_USER`/
+`VSNOTE_BOOTSTRAP_PASSWORD` env-var path, wired into `create_app()`) and
 `scripts/create_user.py` (the interactive CLI companion). Full contract:
 bootstrap creates the user iff the `users` table is empty; a second
 startup never overwrites or changes the password; the password never
@@ -91,7 +91,7 @@ def test_bootstrap_does_not_overwrite_a_user_created_by_other_means(make_setting
     empty"). A pre-existing user from a completely different source (here:
     a plain owner fixture, standing in for `demo.sh`/`create_user.py`) must
     also block bootstrap from ever running, even though its username
-    differs from `SLATE_BOOTSTRAP_USER`."""
+    differs from `VSNOTE_BOOTSTRAP_USER`."""
     db_path = tmp_path / "preexisting.db"
     db_url = f"sqlite:///{db_path}"
 
@@ -117,11 +117,11 @@ def test_bootstrap_does_not_overwrite_a_user_created_by_other_means(make_setting
 
 def test_bootstrap_half_configured_fails_loudly(make_settings):
     settings_user_only = make_settings(bootstrap_user="owner1", bootstrap_password=None)
-    with pytest.raises(RuntimeError, match="SLATE_BOOTSTRAP_USER and SLATE_BOOTSTRAP_PASSWORD"):
+    with pytest.raises(RuntimeError, match="VSNOTE_BOOTSTRAP_USER and VSNOTE_BOOTSTRAP_PASSWORD"):
         create_app(settings_user_only)
 
     settings_password_only = make_settings(bootstrap_user=None, bootstrap_password="somepassword")
-    with pytest.raises(RuntimeError, match="SLATE_BOOTSTRAP_USER and SLATE_BOOTSTRAP_PASSWORD"):
+    with pytest.raises(RuntimeError, match="VSNOTE_BOOTSTRAP_USER and VSNOTE_BOOTSTRAP_PASSWORD"):
         create_app(settings_password_only)
 
 
@@ -169,7 +169,7 @@ def test_bootstrap_password_never_appears_in_logs_on_failure_path(make_settings,
     # password was ever provided) — this just confirms the failure path
     # doesn't somehow echo settings/env internals into a log record.
     for record in caplog.records:
-        assert "SLATE_BOOTSTRAP_PASSWORD=" not in record.getMessage()
+        assert "VSNOTE_BOOTSTRAP_PASSWORD=" not in record.getMessage()
 
 
 def test_bootstrap_function_directly_is_idempotent(make_settings, tmp_path):
@@ -199,7 +199,7 @@ def _run_create_user(db_url: str, stdin_text: str, *extra_args: str) -> subproce
     return subprocess.run(
         [str(PYTHON), str(CREATE_USER_SCRIPT), *extra_args],
         input=stdin_text,
-        env={"SLATE_DB_URL": db_url, "PATH": "/usr/bin:/bin"},
+        env={"VSNOTE_DB_URL": db_url, "PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
         timeout=30,

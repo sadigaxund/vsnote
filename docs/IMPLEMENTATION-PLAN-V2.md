@@ -166,11 +166,11 @@ stage runs `npm ci && npm run build`, final python-slim stage installs
 `--proxy-headers` as a NON-ROOT user. No dev deps, no node, in the final image.
 - `docker-compose.yml` at repo root, service `vsnote`:
   - Port: host-configurable via env (default 8787).
-  - Named volumes for ALL persistent state: the SQLite DB and `SLATE_GIT_ROOT`
+  - Named volumes for ALL persistent state: the SQLite DB and `VSNOTE_GIT_ROOT`
     (bare sync repos). Nothing persistent may live outside a volume — verify by
     `compose down && up` (data survives) vs `down -v` (documented as the
     factory reset).
-  - Every `SLATE_*` setting passes through as compose env with sane defaults;
+  - Every `VSNOTE_*` setting passes through as compose env with sane defaults;
     ship `.env.example` for compose (bootstrap user/password, cookie-secure,
     Cf-Access issuer/audience, port). Secrets only via env/.env, never baked
     into the image.

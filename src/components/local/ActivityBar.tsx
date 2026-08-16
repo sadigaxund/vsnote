@@ -17,7 +17,7 @@
  * `<nav>` element and its `aria-label`/`data-testid` stay exactly as they
  * were, `TexturedSurface` only supplies the paint layer behind them). It
  * reads `--texture-type`/`--texture-opacity-surface` off `data-theme`
- * itself, so it's automatically inert (opacity 0) for Slate/`data-theme`
+ * itself, so it's automatically inert (opacity 0) for VSNote/`data-theme`
  * unset — see `src/theme.css`'s `.dark` block comment for the full
  * reasoning and the measured before/after numbers.
  */

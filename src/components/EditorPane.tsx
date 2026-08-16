@@ -212,7 +212,7 @@ export function EditorPane({
   }
 
   function handleDragOver(e: React.DragEvent) {
-    if (!e.dataTransfer.types.includes("application/x-slate-tab")) return;
+    if (!e.dataTransfer.types.includes("application/x-vsnote-tab")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setDockPreview(computeEdge(e));
@@ -221,7 +221,7 @@ export function EditorPane({
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setDockPreview(null);
-    const raw = e.dataTransfer.getData("application/x-slate-tab");
+    const raw = e.dataTransfer.getData("application/x-vsnote-tab");
     if (!raw) return;
     let payload: TabDragPayload;
     try {
@@ -253,11 +253,11 @@ export function EditorPane({
           painted BY this surface (hence no `background` above), so each
           library theme's texture is drawn directly on the editor surface.
           CodeMirror's own canvas reads `--app-editor-canvas-bg`, which is
-          `transparent` under every theme except Slate (see
+          `transparent` under every theme except VSNote (see
           `src/editor/theme.ts`), so this layer shows through the editor
           with no attenuation — rather than the previous approach of
           stacking translucent fills, which transmitted ~0.03% and rendered
-          provably flat. Inert under Slate. */}
+          provably flat. Inert under VSNote. */}
       <TexturedSurface
         aria-hidden
         radius="none"

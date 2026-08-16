@@ -56,7 +56,7 @@ const EXCLUDED_ICON_CHUNKS = computeExcludedIconChunkNames();
  * Phase 13 (CI + GitHub Pages demo) — configurable deploy base path.
  * Defaults to "/" so every existing local flow (dev, build, preview, the
  * e2e suite's `vite preview` on port 5290) is byte-for-byte unchanged from
- * before this phase. CI's Pages job sets `SLATE_BASE_PATH=/vsnote/` (see
+ * before this phase. CI's Pages job sets `VSNOTE_BASE_PATH=/vsnote/` (see
  * `.github/workflows/ci.yml`'s `pages` job) because GitHub Pages serves a
  * project site from `https://<user>.github.io/<repo>/`, not from the
  * origin root — every asset URL, the PWA manifest, and the service worker
@@ -68,7 +68,7 @@ const EXCLUDED_ICON_CHUNKS = computeExcludedIconChunkNames();
  * concatenation below never needs a separate separator.
  */
 const BASE = (() => {
-  const raw = process.env.SLATE_BASE_PATH ?? "/";
+  const raw = process.env.VSNOTE_BASE_PATH ?? "/";
   return raw.endsWith("/") ? raw : `${raw}/`;
 })();
 
@@ -137,7 +137,7 @@ const BASE = (() => {
  * own SPA fallback) for anything that ISN'T asking for JSON, and returns
  * nothing (falls through to the proxy) when it is.
  *
- * Target is env-driven (`SLATE_SHARE_PROXY_TARGET`) so the e2e suite can
+ * Target is env-driven (`VSNOTE_SHARE_PROXY_TARGET`) so the e2e suite can
  * point it at its own spawned backend (port 8788 — see
  * `tests/e2e/shareFixtures.ts`) via `package.json`'s `test:e2e` script,
  * without touching this file or colliding with a real `npm run dev`
@@ -160,7 +160,7 @@ const BASE = (() => {
  * fallback so `main.tsx`'s router can parse the relpath and mount
  * `ShareApp` itself, exactly as it always has for the root case.
  */
-const SHARE_AUTH_PROXY_TARGET = process.env.SLATE_SHARE_PROXY_TARGET ?? "http://127.0.0.1:8787";
+const SHARE_AUTH_PROXY_TARGET = process.env.VSNOTE_SHARE_PROXY_TARGET ?? "http://127.0.0.1:8787";
 const shareAuthProxy = {
   // Phase 10.5a — /api and /git are plain APIs, no client-side route to
   // protect, so an unconditional proxy (no bypass) is correct as-is.
@@ -235,8 +235,8 @@ export default defineConfig({
       base: BASE,
       scope: BASE,
       manifest: {
-        name: "Slate",
-        short_name: "Slate",
+        name: "VSNote",
+        short_name: "VSNote",
         description:
           "A local-first note & code workspace: VSCode's shell and power with Obsidian's live-preview writing experience.",
         theme_color: "#0e1015",

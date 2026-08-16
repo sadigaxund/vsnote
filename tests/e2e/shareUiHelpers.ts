@@ -75,9 +75,9 @@ export async function createFileWithContent(page: Page, parentPath: string, file
   await treeRow(page, parentPath).click({ button: "right" });
   await page.getByRole("menuitem", { name: "New File" }).click();
   // DESIGN-SPEC Amendments round 4 item 30: the draft row is an in-memory
-  // placeholder (`.slate-draft-file`, never a real fs path) with an empty
+  // placeholder (`.vsnote-draft-file`, never a real fs path) with an empty
   // name field, not a real `untitled.md`.
-  const draftPath = `${parentPath}/.slate-draft-file`;
+  const draftPath = `${parentPath}/.vsnote-draft-file`;
   const draftRow = treeRow(page, draftPath);
   await expect(draftRow).toBeVisible();
   await draftRow.locator("input").fill(filename);

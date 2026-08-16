@@ -90,7 +90,7 @@ export function SidebarContainer({
             library theme's own texture is drawn directly on it rather than
             relied upon to transmit through stacked translucent ancestors —
             see `src/theme.css`'s `.dark` block for the measurements that
-            ruled that approach out. Inert under Slate. */}
+            ruled that approach out. Inert under VSNote. */}
         <TexturedSurface
           aria-hidden
           radius="none"

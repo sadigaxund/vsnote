@@ -192,9 +192,9 @@ describe("useTabsStore pane-tree ops", () => {
     expect(parsed.state.activePaneId).toBe(beforeActivePaneId);
 
     // Also exercise the ACTUAL localStorage write this store's `persist`
-    // config produces (the `slate-tabs` key), not just a hand-built
+    // config produces (the `vsnote-tabs` key), not just a hand-built
     // envelope — confirms the middleware itself round-trips the same way.
-    const raw = window.localStorage.getItem("slate-tabs");
+    const raw = window.localStorage.getItem("vsnote-tabs");
     expect(raw).toBeTruthy();
     const fromStorage = JSON.parse(raw!) as { state: { tree: typeof beforeTree } };
     expect(fromStorage.state.tree).toEqual(beforeTree);

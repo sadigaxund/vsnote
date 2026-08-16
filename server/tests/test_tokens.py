@@ -9,7 +9,7 @@ def test_token_plaintext_never_stored(owner_client, app):
     r = owner_client.post("/api/auth/tokens", json={"name": "ci-script", "scope": "read"})
     assert r.status_code == 201
     plaintext = r.json()["token"]
-    assert plaintext.startswith("slt_")
+    assert plaintext.startswith("vsn_")
 
     db = app.state.SessionLocal()
     try:

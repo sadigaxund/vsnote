@@ -2,12 +2,12 @@
 """Phase 12 (DESIGN-SPEC Amendments round 4, item 32) — interactive CLI to
 create (or reset) a fallback-login user. This is the "do it any time, not
 just at startup" companion to `main.py::bootstrap_user` (the
-`SLATE_BOOTSTRAP_USER`/`SLATE_BOOTSTRAP_PASSWORD` env-var path, which only
+`VSNOTE_BOOTSTRAP_USER`/`VSNOTE_BOOTSTRAP_PASSWORD` env-var path, which only
 ever fires once, iff the `users` table is completely empty). Use THIS script
 for every other case: adding a second account, or resetting a forgotten
 password on an existing deployment.
 
-Same DB the running server uses (`SLATE_DB_URL`/`server/.env`, via
+Same DB the running server uses (`VSNOTE_DB_URL`/`server/.env`, via
 `app.config.Settings` — identical resolution to `app/main.py`'s own, and to
 `scripts/demo.sh`'s inline bootstrap snippet) — this is a plain script, not
 an HTTP client, so there is no separate "is the server up" requirement; it
@@ -77,7 +77,7 @@ def prompt_password() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Create or reset a Slate fallback-login user.")
+    parser = argparse.ArgumentParser(description="Create or reset a VSNote fallback-login user.")
     parser.add_argument(
         "--force",
         action="store_true",

@@ -12,6 +12,6 @@ export const GIT_DIR = VAULT_DIR;
 export const DEFAULT_BRANCH = "feat/incremental-index";
 
 export const DEMO_AUTHOR = {
-  name: "Slate Demo",
-  email: "demo@slate.local",
+  name: "VSNote Demo",
+  email: "demo@vsnote.local",
 };

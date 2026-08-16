@@ -347,7 +347,7 @@ export function PublishDialog({
 
         {offline && (
           <Alert variant="warning" title="Backend not running" size="sm">
-            Share links need the Slate backend. Start it with <code>npm run server</code> (listens on
+            Share links need the VSNote backend. Start it with <code>npm run server</code> (listens on
             127.0.0.1:8787).
           </Alert>
         )}
@@ -361,7 +361,7 @@ export function PublishDialog({
                 onboarding hint the signed-out state was missing, one row
                 per item 28. */}
             <p style={{ fontSize: 12, color: "var(--color-muted)", margin: 0, whiteSpace: "nowrap" }}>
-              No account yet? Set SLATE_BOOTSTRAP_USER/PASSWORD or run create_user.py.
+              No account yet? Set VSNOTE_BOOTSTRAP_USER/PASSWORD or run create_user.py.
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <Input

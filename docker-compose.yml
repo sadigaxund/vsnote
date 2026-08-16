@@ -7,7 +7,7 @@
 #
 # Quick start:
 #   docker compose up -d --build
-#   # → http://localhost:8787/  (or ${SLATE_HOST_PORT} if you changed it)
+#   # → http://localhost:8787/  (or ${VSNOTE_HOST_PORT} if you changed it)
 #
 # Factory reset (destroys the DB and every synced git repo — see the
 # `volumes:` block below):
@@ -23,60 +23,60 @@ services:
 
     # Host port is configurable (default 8787) — the brief calls this out
     # explicitly since 8787 may already be bound to something else on a
-    # given host; SLATE_HOST_PORT is the escape hatch, left as the
+    # given host; VSNOTE_HOST_PORT is the escape hatch, left as the
     # left-hand side so it never has to match the in-container port.
-    # SLATE_PORT (right-hand side) is also configurable, in case the
+    # VSNOTE_PORT (right-hand side) is also configurable, in case the
     # in-container bind port itself ever needs to move — it flows straight
     # through to the same env var app/config.py reads and the Dockerfile's
     # CMD binds to.
     ports:
-      - "${SLATE_HOST_PORT:-8787}:${SLATE_PORT:-8787}"
+      - "${VSNOTE_HOST_PORT:-8787}:${VSNOTE_PORT:-8787}"
 
     environment:
-      # --- every SLATE_* setting server/app/config.py reads, passed
+      # --- every VSNOTE_* setting server/app/config.py reads, passed
       # through with the exact same defaults config.py itself would use if
       # the var were unset (see server/.env.example for the annotated,
       # single source of truth on what each one means) ---
-      SLATE_ENV: ${SLATE_ENV:-prod}
-      SLATE_PORT: ${SLATE_PORT:-8787}
-      # NOT app/config.py's own default (sqlite:///./slate.db) — that path
+      VSNOTE_ENV: ${VSNOTE_ENV:-prod}
+      VSNOTE_PORT: ${VSNOTE_PORT:-8787}
+      # NOT app/config.py's own default (sqlite:///./vsnote.db) — that path
       # is relative to a CWD this container doesn't use the same way local
       # dev does. Pointed at the named volume mounted below so the DB
       # survives container recreation. Override only if you know the new
       # path is still under a mounted volume.
-      SLATE_DB_URL: ${SLATE_DB_URL:-sqlite:////data/db/slate.db}
-      # REQUIRED for a real deployment (SLATE_ENV=prod) — left unset here
+      VSNOTE_DB_URL: ${VSNOTE_DB_URL:-sqlite:////data/db/vsnote.db}
+      # REQUIRED for a real deployment (VSNOTE_ENV=prod) — left unset here
       # so an unconfigured `docker compose up` fails LOUDLY at startup
       # (app/config.py::resolve_secret_key) rather than silently running
       # prod on an ephemeral, restart-invalidated dev key. Generate one
       # with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-      SLATE_SECRET_KEY: ${SLATE_SECRET_KEY:-}
+      VSNOTE_SECRET_KEY: ${VSNOTE_SECRET_KEY:-}
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
-      SLATE_MAX_BLOB_BYTES: ${SLATE_MAX_BLOB_BYTES:-5242880}
+      VSNOTE_MAX_BLOB_BYTES: ${VSNOTE_MAX_BLOB_BYTES:-5242880}
       # Not app/config.py's own default (./git-repos) for the same
-      # CWD/ownership reason as SLATE_DB_URL above — /data/git-repos is the
+      # CWD/ownership reason as VSNOTE_DB_URL above — /data/git-repos is the
       # named volume mounted below.
-      SLATE_GIT_ROOT: ${SLATE_GIT_ROOT:-/data/git-repos}
-      SLATE_RATE_LIMIT_DEFAULT: ${SLATE_RATE_LIMIT_DEFAULT:-120/minute}
-      SLATE_RATE_LIMIT_SHARE: ${SLATE_RATE_LIMIT_SHARE:-60/minute}
-      SLATE_RATE_LIMIT_SHARE_AUTH: ${SLATE_RATE_LIMIT_SHARE_AUTH:-5/minute}
-      SLATE_SESSION_TTL_MIN: ${SLATE_SESSION_TTL_MIN:-30}
-      # Secure-by-default (real HTTPS deployments, e.g. behind a Cloudflare
-      # tunnel — see the cloudflared sketch below). Set False in .env ONLY
-      # to test over plain http://localhost.
-      SLATE_COOKIE_SECURE: ${SLATE_COOKIE_SECURE:-True}
+      VSNOTE_GIT_ROOT: ${VSNOTE_GIT_ROOT:-/data/git-repos}
+      VSNOTE_RATE_LIMIT_DEFAULT: ${VSNOTE_RATE_LIMIT_DEFAULT:-120/minute}
+      VSNOTE_RATE_LIMIT_SHARE: ${VSNOTE_RATE_LIMIT_SHARE:-60/minute}
+      VSNOTE_RATE_LIMIT_SHARE_AUTH: ${VSNOTE_RATE_LIMIT_SHARE_AUTH:-5/minute}
+      VSNOTE_SESSION_TTL_MIN: ${VSNOTE_SESSION_TTL_MIN:-30}
+      # Secure-by-default (real HTTPS deployments, e.g. behind any reverse
+      # proxy or tunnel — server/README.md). Set False in .env ONLY to test
+      # over plain http://localhost.
+      VSNOTE_COOKIE_SECURE: ${VSNOTE_COOKIE_SECURE:-True}
       # Phase 12 fallback-login onboarding (server/README.md) — unset by
       # default (a no-op); set BOTH together in .env to get a working
       # account on first boot. Never logged; never baked into the image.
-      SLATE_BOOTSTRAP_USER: ${SLATE_BOOTSTRAP_USER:-}
-      SLATE_BOOTSTRAP_PASSWORD: ${SLATE_BOOTSTRAP_PASSWORD:-}
+      VSNOTE_BOOTSTRAP_USER: ${VSNOTE_BOOTSTRAP_USER:-}
+      VSNOTE_BOOTSTRAP_PASSWORD: ${VSNOTE_BOOTSTRAP_PASSWORD:-}
 
     # Named volumes for ALL persistent state — nothing this process writes
     # at runtime lives outside one of these two. `docker compose down` (no
     # `-v`) leaves both intact; `docker compose down -v` is the deliberate
     # factory reset (destroys the DB — all shares/tokens/users — and every
-    # bare git repo under SLATE_GIT_ROOT).
+    # bare git repo under VSNOTE_GIT_ROOT).
     volumes:
       - vsnote-db:/data/db
       - vsnote-git-repos:/data/git-repos
@@ -95,34 +95,13 @@ services:
         - "CMD"
         - "python"
         - "-c"
-        - "import os,urllib.request; urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('SLATE_PORT','8787')}/\", timeout=3)"
+        - "import os,urllib.request; urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('VSNOTE_PORT','8787')}/\", timeout=3)"
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
 
     restart: unless-stopped
-
-  # ---------------------------------------------------------------------
-  # Optional tunnel sidecar — commented out, NOT enabled. Shows the
-  # intended topology from docs/ROADMAP-SHARING-AUTH.md §5.4 and
-  # server/README.md's "Single-origin deployment" section: a Cloudflare
-  # tunnel in front of this one process, so `vsnote` never needs a
-  # publicly bound port at all (drop the `ports:` block above too, in that
-  # case, and reach it only via the tunnel). Most operators already run
-  # their own `cloudflared` instance/token outside this compose file —
-  # this is an example, not a default.
-  # ---------------------------------------------------------------------
-  # cloudflared:
-  #   image: cloudflare/cloudflared:latest
-  #   container_name: vsnote-cloudflared
-  #   command: tunnel --no-autoupdate run
-  #   environment:
-  #     TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
-  #   depends_on:
-  #     vsnote:
-  #       condition: service_healthy
-  #   restart: unless-stopped
 
 volumes:
   vsnote-db:

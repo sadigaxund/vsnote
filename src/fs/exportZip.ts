@@ -69,9 +69,9 @@ export function downloadBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** `vault-slate-2026-08-15T14-30.zip`-style filename — sortable, no
+/** `vsnote-vault-2026-08-15T14-30.zip`-style filename — sortable, no
  * characters that need escaping in a downloaded filename. */
 export function vaultZipFilename(now: Date = new Date()): string {
   const iso = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
-  return `slate-vault-${iso}.zip`;
+  return `vsnote-vault-${iso}.zip`;
 }

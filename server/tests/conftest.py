@@ -38,7 +38,7 @@ def make_settings(tmp_path):
             git_root=str(tmp_path / f"gitroot_{counter['n']}"),
             secret_key="pytest-fixed-secret-key-not-for-prod-use",
             cookie_secure=False,
-            slate_env="dev",
+            env="dev",
             # High default limits so unrelated tests never trip a rate
             # limiter by accident; test_rate_limit.py overrides these low.
             rate_limit_default="1000/minute",

@@ -212,7 +212,7 @@ def _deny_response(request: Request, exc: "Optional[policy.PolicyDenied]") -> Re
 
 
 def _share_session_cookie_name(slug_or_alias: str) -> str:
-    return f"slate_share_{slug_or_alias}"
+    return f"vsnote_share_{slug_or_alias}"
 
 
 def _extract_bearer(request: Request) -> Optional[str]:

@@ -1,8 +1,13 @@
-# vsnote ("Slate")
+# VSNote
 
 A local-first note/code workspace: VSCode's shell and power (file tree, tabs, git, syntax
 highlighting, diffs) with Obsidian's writing experience (rendered markdown with
 live-preview editing). Browser-only — no server, no terminal, no code execution.
+Branding note: the project was internally "Slate" until 2026-08-17 (DESIGN-SPEC
+item 34 rebrand). Nothing user- or operator-visible says Slate anymore. The few
+surviving mentions are deliberate history — CHANGELOG's breaking entry, the
+spec item itself, and docs describing `SLATE_CORS_ORIGINS`, a variable that was
+deleted before the rename (renaming a dead name would falsify the record).
 
 The visual target was a reference screenshot (`app-preview.png`, removed from the
 repo 2026-08-17 along with `search.png`; both remain in git history pre-removal):

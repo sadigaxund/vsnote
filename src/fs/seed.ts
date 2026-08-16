@@ -71,7 +71,7 @@ export function parseLegacy(source: string): string[] {
 const VAULT_CONFIG_JSON = `{
   "name": "vault",
   "version": "1.4.0",
-  "theme": "slate-dark",
+  "theme": "vsnote-dark",
   "workspace": {
     "id": "wsp_8f21c3",
     "createdAt": "2025-11-02T09:14:00Z",

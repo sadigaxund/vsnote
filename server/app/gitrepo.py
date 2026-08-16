@@ -20,7 +20,7 @@ dulwich's own `url_prefix()` output, which ALWAYS starts with a leading
 throws away the first argument entirely whenever the second is
 itself absolute (`os.path.join("/a/b/", "/c") == "/c"`, a stdlib quirk, not
 a dulwich bug). That silently ignores `root` and would resolve repos
-relative to the real filesystem root instead of `SLATE_GIT_ROOT`. Verified
+relative to the real filesystem root instead of `VSNOTE_GIT_ROOT`. Verified
 by hand against dulwich 1.2.12 before writing `BareRepoBackend` below, which
 does its own name extraction + validation instead of trusting that class.
 """
@@ -71,7 +71,7 @@ def resolve_repo_path(git_root: Path, url_path_prefix: str) -> Path:
     # forbids '/' and '..' outright, so this can only ever fail if git_root
     # itself is misconfigured to something surprising.
     if candidate != root_resolved and root_resolved not in candidate.parents:
-        raise InvalidRepoName("resolved path escapes SLATE_GIT_ROOT")
+        raise InvalidRepoName("resolved path escapes VSNOTE_GIT_ROOT")
     return candidate
 
 

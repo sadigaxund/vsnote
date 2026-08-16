@@ -59,10 +59,10 @@ describe("pullAction() — fast-forward-only pull policy", () => {
 
 describe("buildGitAuth()", () => {
   it("shapes a Bearer Authorization header from a plaintext token", () => {
-    expect(buildGitAuth("slt_abc123")).toEqual({ headers: { Authorization: "Bearer slt_abc123" } });
+    expect(buildGitAuth("vsn_abc123")).toEqual({ headers: { Authorization: "Bearer vsn_abc123" } });
   });
   it("trims surrounding whitespace", () => {
-    expect(buildGitAuth("  slt_abc123  ")).toEqual({ headers: { Authorization: "Bearer slt_abc123" } });
+    expect(buildGitAuth("  vsn_abc123  ")).toEqual({ headers: { Authorization: "Bearer vsn_abc123" } });
   });
   it("returns undefined for an empty/blank token (no credentials sent)", () => {
     expect(buildGitAuth("")).toBeUndefined();

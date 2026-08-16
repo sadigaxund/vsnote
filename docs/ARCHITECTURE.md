@@ -472,11 +472,11 @@ safety, CORS) lives in `server/README.md`'s "Real git sync" section — not dupl
 here. This section is the "how it's built" summary across both sides.
 
 **Server** (`server/app/gitrepo.py`, `server/app/routers/git_http.py`): bare repos live
-under `SLATE_GIT_ROOT` (`{root}/{repo}.git`), one directory per repo name, created on
+under `VSNOTE_GIT_ROOT` (`{root}/{repo}.git`), one directory per repo name, created on
 demand on first authorized WRITE. `gitrepo.py`'s `resolve_repo_path` validates the repo
 name against `^[A-Za-z0-9_-]{1,64}$` *before* it's ever joined onto a filesystem path
 (traversal is structurally unrepresentable, same posture as `policy.py`'s share-slug
-validation) and double-checks the resolved path stays inside `SLATE_GIT_ROOT`.
+validation) and double-checks the resolved path stays inside `VSNOTE_GIT_ROOT`.
 `git_http.py`'s `GitAuthMiddleware` is a plain ASGI middleware — NOT a FastAPI
 `Depends` chain, because the thing it's guarding (`dulwich.web.HTTPGitApplication`, a
 WSGI app bridged into ASGI via `a2wsgi.WSGIMiddleware`) is opaque to FastAPI's DI —
@@ -618,8 +618,8 @@ requirement" framing above (Sharing (Phase 10) section) and the per-app CORS
 description in "Backend (v2)" — both described a genuinely cross-origin SPA/backend
 split with a configurable base URL bridging them. Roadmap §5.4's user decision
 replaced that entirely: front + back ship as ONE origin, one process
-(`server/app/main.py`), reached from outside `localhost` via a Cloudflare tunnel (the
-owner's concern, config-only, out of scope here).
+(`server/app/main.py`), reached from outside `localhost` via any HTTPS reverse
+proxy or tunnel (the owner's concern, config-only, out of scope here).
 
 **Client: no configurable origin, anywhere.** `share/api.ts` (every `/api/*` and
 `/share/*` call), `share/shareLinks.ts` (`buildShareLink`/`buildFolderShareLink`,
@@ -733,9 +733,9 @@ topology, not `vite preview`) and shows both.
 rewrites `scope["scheme"]`/`scope["client"]` from `X-Forwarded-Proto`/
 `X-Forwarded-Host` when the connecting peer is in `forwarded-allow-ips`; `'*'` (not
 uvicorn's own default, which only trusts `127.0.0.1`) is a deliberate choice for this
-single-host deployment shape — a Cloudflare tunnel client can connect from a
+single-host deployment shape — a reverse proxy or tunnel client can connect from a
 container/bridge address that isn't literally `127.0.0.1` depending on how
-`cloudflared` is run, and this process has no other untrusted network path in front
+it's run, and this process has no other untrusted network path in front
 of it. See `server/README.md`'s "Single-origin deployment" section for the full
 rationale and the cookie `Secure`/`SameSite=Lax` posture (unchanged by this phase —
 already correct since Phase 9).
@@ -745,7 +745,7 @@ variable name for continuity) gained two new unconditional entries,
 `^/api(/.*)?$` and `^/git(/.*)?$`, alongside the pre-existing `/share/*` entries
 (unchanged logic — still needs the `bypass` content-negotiation trick for the bare
 `/share/{id}` path, which is ALSO this app's own client-side route). Both proxy to
-`SLATE_SHARE_PROXY_TARGET` (env, default `http://127.0.0.1:8787`; `8788` for the e2e
+`VSNOTE_SHARE_PROXY_TARGET` (env, default `http://127.0.0.1:8787`; `8788` for the e2e
 suite) — the same target variable Phase 10 already established, just applied more
 broadly now that the client has no `baseUrl` fallback of its own to reach for.
 
@@ -754,7 +754,7 @@ broadly now that the client has no `baseUrl` fallback of its own to reach for.
 ### 26a — `/git`'s `WWW-Authenticate` challenge, gated to git-shaped clients
 
 **The bug**: `git_http.py::GitAuthMiddleware` used to send `WWW-Authenticate:
-Basic realm="slate-git"` on EVERY anonymous/failed-auth 401, unconditionally.
+Basic realm="vsnote-git"` on EVERY anonymous/failed-auth 401, unconditionally.
 A browser `fetch()` that receives that header on ANY response — regardless of
 whether the page code ever reads it — pops the browser's own NATIVE
 credential dialog. The app's own background `/git` poll (see 26b below) hits
@@ -830,7 +830,7 @@ own docstring (the "why it's safe" doc) — not duplicated here to avoid the
 three drifting. Summary for this doc's "how it's built" purpose:
 `main.py::bootstrap_user(SessionLocal, settings)` runs once per `create_app()`
 call, right after `Base.metadata.create_all`, gated on
-`SLATE_BOOTSTRAP_USER`/`SLATE_BOOTSTRAP_PASSWORD` and an empty `users` table;
+`VSNOTE_BOOTSTRAP_USER`/`VSNOTE_BOOTSTRAP_PASSWORD` and an empty `users` table;
 `scripts/create_user.py` is the interactive (`getpass`-hidden password)
 CLI companion for every other case. Both hash through the exact same
 `security.hash_password` (argon2id) path `routers/auth.py::login`'s verify
@@ -870,7 +870,7 @@ hitting the bug. Raising retries above 0 therefore requires naming the
 specific spec and the reason, in `playwright.config.ts` and in
 `.github/workflows/ci.yml`, at the time it is raised.
 
-**Base-path mechanism.** `vite.config.ts` reads `SLATE_BASE_PATH` (default
+**Base-path mechanism.** `vite.config.ts` reads `VSNOTE_BASE_PATH` (default
 `"/"`, so every local flow — dev, build, preview, the e2e suite's own
 `vite preview` on port 5290 — is unchanged) into a `BASE` constant that
 feeds four independent things, all of which have to agree or the demo
@@ -892,7 +892,7 @@ silently 404s its own assets under `/vsnote/`:
    one needs no base-awareness at all, since a relative URL resolves
    correctly against wherever `sw.js` itself is served from.
 
-CI's `pages` job builds with `SLATE_BASE_PATH=/vsnote/`; the default job
+CI's `pages` job builds with `VSNOTE_BASE_PATH=/vsnote/`; the default job
 (`test`) builds with no override, proving both paths on every run.
 
 **One-time owner action (required before the demo goes live).** The `pages`
@@ -927,7 +927,7 @@ root) is a two-stage build:
    file also doubles as the local `pytest` dependency list, see
    `server/README.md`'s "Running the tests"; the image has no test runner
    and doesn't need them), copies `server/app` + `server/scripts` and the
-   built `dist/` from stage 1, and runs as a non-root user (`slate`,
+   built `dist/` from stage 1, and runs as a non-root user (`vsnote`,
    uid/gid 1000 — created with `useradd --system ... --shell
    /usr/sbin/nologin`). Verified empirically, not assumed: `which node`
    inside the final image reports nothing, `pip list` carries no
@@ -943,15 +943,15 @@ that same relative relationship intact with zero code changes.
 
 **Persistent state — two named volumes, nothing else.** The two paths this
 process ever writes to at runtime are pointed at container-local mounts
-`/data/db` and `/data/git-repos` (owned by `slate:slate` at build time),
+`/data/db` and `/data/git-repos` (owned by `vsnote:vsnote` at build time),
 which `docker-compose.yml` backs with named volumes `vsnote-db` and
 `vsnote-git-repos`:
 
-- `SLATE_DB_URL` defaults to `sqlite:////data/db/slate.db` in the image
-  (overriding `app/config.py`'s own `sqlite:///./slate.db` default, which
+- `VSNOTE_DB_URL` defaults to `sqlite:////data/db/vsnote.db` in the image
+  (overriding `app/config.py`'s own `sqlite:///./vsnote.db` default, which
   is relative to a CWD/ownership assumption that doesn't hold in a
   container) — the owner/share/token database.
-- `SLATE_GIT_ROOT` defaults to `/data/git-repos` (overriding `app/
+- `VSNOTE_GIT_ROOT` defaults to `/data/git-repos` (overriding `app/
   config.py`'s own `./git-repos`) — the bare repos Phase 11's smart-HTTP
   git server reads/writes.
 
@@ -966,21 +966,25 @@ repo, unrecoverable) and is never run as part of a routine restart.
 
 **Healthcheck.** No dedicated `/healthz` route exists anywhere in
 `server/app/routers/`. The compose healthcheck instead hits `GET /` — the
-real single-origin front door (what a Cloudflare tunnel or browser reaches
-first) — via Python's stdlib `urllib` (deliberately not curl/wget, neither
-of which `python:3.12-slim` carries, and the image doesn't add one just for
-this). `GET /` only returns `200` once `create_app()` has fully booted
-(engine + `Base.metadata.create_all` + `bootstrap_user` + `dist/`
+real single-origin front door (what a reverse proxy, tunnel, or browser
+reaches first) — via Python's stdlib `urllib` (deliberately not curl/wget,
+neither of which `python:3.12-slim` carries, and the image doesn't add one
+just for this). `GET /` only returns `200` once `create_app()` has fully
+booted (engine + `Base.metadata.create_all` + `bootstrap_user` + `dist/`
 discovery) without raising, so a healthy status genuinely means "serving
 real traffic," not merely "process started."
 
-**Cloudflare tunnel topology.** `docker-compose.yml` includes a commented-
-out `cloudflared` sidecar service (image, `tunnel run` command, a
-`TUNNEL_TOKEN` env var, `depends_on: vsnote: condition: service_healthy`) —
-disabled by default, since most operators already run their own tunnel
-process/token outside this compose file (see server/README.md's
-"Cloudflare Access production topology" sketch, which this mirrors at the
-container level).
+**Reverse proxy / tunnel topology (DESIGN-SPEC item 35, Phase 15).**
+`docker-compose.yml` previously included a commented-out `cloudflared`
+sidecar service sketching one operator's personal tunnel topology; it was
+removed entirely — a project default should not document one vendor's tool
+as if it were the sanctioned choice. `server/README.md` instead carries one
+neutral sentence: any HTTPS reverse proxy or tunnel works, because
+`--proxy-headers --forwarded-allow-ips='*'` (above) honors proxy headers
+regardless of which one is in front. `CF_ACCESS_*` are unaffected by this —
+the Cloudflare Access SSO feature (roadmap §2) is a distinct, independent
+feature (see server/README.md's "Cloudflare Access production topology"
+sketch).
 
 **What did NOT change**: no code under `src/` or `server/app/` changed for
 this phase — the container is purely a packaging/runtime concern layered
@@ -1213,7 +1217,7 @@ stack choices in this doc.
   `[data-theme="X"]`/`[data-theme="X"].dark` selector in `@layer(theme)`) and
   verifying with Playwright: `data-theme="neon"` after a Settings change now
   measurably changes `--app-chrome-bg`'s computed value, while an unset/
-  `"dark"` `data-theme` (boot, or explicitly re-selecting "Dark (Slate
+  `"dark"` `data-theme` (boot, or explicitly re-selecting "Dark (VSNote
   default)") stays pixel-identical to every phase before this one.
 - **`LivePreviewEditor.tsx`'s new font-size `Compartment` needed
   `Prec.highest`, not just array position, to beat `livepreview/theme.ts`'s
@@ -1503,7 +1507,7 @@ stack choices in this doc.
   every `getByTestId("find-widget")` assertion in
   `tests/e2e/find-widget.spec.ts` failed with "element not found," which
   reads like a wiring bug (wrong `createPanel`, panel never opening), not a
-  context bug — the panel's own `.cm-slate-find-panel` DOM node WAS present
+  context bug — the panel's own `.cm-vsnote-find-panel` DOM node WAS present
   (confirmed by locating it directly), it just rendered nothing inside.
   Fixed by wrapping `FindWidget` in the library's own `<TooltipProvider>`
   inside `Panel.mount()`'s `root.render(...)` call — cheap (no extra
@@ -1653,7 +1657,7 @@ stack choices in this doc.
   ~0.19 luma against a texture of amplitude ~9.7, which rounds away to
   nothing. No alpha value fixes this: raising it enough to transmit texture
   also washes out the four hand-sampled surface depths that are the whole
-  point of the Slate palette.
+  point of the VSNote palette.
   ACTUAL FIX: each surface paints the theme's own texture directly on
   itself via the library's `TexturedSurface` (`texture="theme"`, which
   reads `--texture-type`/`--texture-opacity-surface`/`--texture-blend` off
@@ -1670,21 +1674,21 @@ stack choices in this doc.
   `.cm-gutters` background over `EditorPane`'s texture layer, so
   `editor/theme.ts` and `editor/livepreview/theme.ts` read
   `--app-editor-canvas-bg`, which is `transparent` under every theme except
-  Slate (where it stays the exact opaque `#101318`, a boot regression gate).
+  VSNote (where it stays the exact opaque `#101318`, a boot regression gate).
   A fourth, smaller cause surfaced while verifying: some themes' DARK
   variants never override `--texture-blend`, leaving light-mode `multiply`
   in place, which is nearly a no-op on near-black chrome — comic measured
   std-dev 0.32 that way, versus metallic (whose own dark block switches to
   `screen`) at ~8. `src/theme.css`'s `.dark` block now sets
-  `--texture-blend: screen` for dark mode generally; Slate is unaffected
+  `--texture-blend: screen` for dark mode generally; VSNote is unaffected
   because its `--texture-opacity-surface` is 0, so nothing paints regardless.
   Final independent measurement, metallic, all five text-free chrome
   regions: std-dev 7.35-8.01 with 38-42 distinct luma levels (was
-  0.000 / 1), while Slate/boot stays flat and exact-hex.
+  0.000 / 1), while VSNote/boot stays flat and exact-hex.
   THE TEST WAS ALSO FIXED, not just kept green: `tests/e2e/theme-compat.spec.ts`
   now derives two genuinely text-free regions from live element boxes (the
   sidebar below the tree, the editor's lower-right outside the prose
-  column), asserts under Slate that they are dead flat — which is what
+  column), asserts under VSNote that they are dead flat — which is what
   proves they contain no text, failing loudly if a glyph ever creeps in —
   and asserts under each theme BOTH std-dev >= 2 AND >= 8 distinct luma
   levels (`distinctLumaLevels`, `tests/e2e/pngPixels.ts`; the second half
@@ -1701,7 +1705,7 @@ stack choices in this doc.
   `--syntax-keyword`/`--syntax-function` (both derived from
   `--color-primary`) never actually change value when `data-theme` changes,
   which looked like a real bug in `theme-compat.spec.ts`'s first draft (a
-  metallic-vs-Slate comparison on `--syntax-keyword` failed with "expected
+  metallic-vs-VSNote comparison on `--syntax-keyword` failed with "expected
   not to equal, but did") before this was understood. Fixed the TEST, not
   the tokens: `--syntax-type` (derived from `--color-warning`, which has no
   such override) is the one asserted to change per theme; `--syntax-
@@ -1842,15 +1846,15 @@ stack choices in this doc.
 - **(Phase 9, backend) `pydantic-settings`' `validation_alias` silently
   drops the Pythonic constructor kwarg it's supposed to alias, unless
   `populate_by_name=True` is also set.** `server/app/config.py`'s
-  `Settings` fields each declare `validation_alias="SLATE_DB_URL"` etc. (so
-  the real process reads `SLATE_DB_URL` from the environment); the FIRST
+  `Settings` fields each declare `validation_alias="VSNOTE_DB_URL"` etc. (so
+  the real process reads `VSNOTE_DB_URL` from the environment); the FIRST
   version of `tests/conftest.py`'s fixtures constructed
   `Settings(db_url="sqlite:///...")` directly with the Pythonic field name,
   which pydantic v2 treats as an unrecognized key once a `validation_alias`
   is set (aliasing replaces the field name as an accepted input key, it
   doesn't add to it) — with `extra="ignore"` also set, this failed silently:
   the kwarg was dropped, `db_url` silently fell back to its
-  `sqlite:///./slate.db` default, and every test's isolated `tmp_path` DB
+  `sqlite:///./vsnote.db` default, and every test's isolated `tmp_path` DB
   was quietly a lie (confirmed by a two-line repro: `Settings(db_url=...).
   db_url` printed the DEFAULT, not the passed value). Fixed with
   `SettingsConfigDict(..., populate_by_name=True)`, which accepts BOTH the
@@ -1891,7 +1895,7 @@ stack choices in this doc.
   `response: Response` parameter and calling `.set_cookie(...)` directly on
   the actual `JSONResponse` instance the handler returns.
 - **(Phase 9, backend) `import app.main` had a real side effect: it built a
-  second, default-settings app and wrote a real `server/slate.db` next to
+  second, default-settings app and wrote a real `server/vsnote.db` next to
   wherever it ran, unless guarded — and the FIRST guard tried
   (`if "pytest" not in sys.modules`) was itself a heuristic that only
   covered pytest specifically, not "nobody actually asked for the
@@ -1902,7 +1906,7 @@ stack choices in this doc.
   case but would have misfired the same way for ANY other tool that
   imports `app.main` without needing the default instance (caught during
   orchestrator review, which ran a standalone verification script that
-  imported the module directly and got a stray `server/slate.db` from it).
+  imported the module directly and got a stray `server/vsnote.db` from it).
   Replaced with PEP 562 module-level `__getattr__`: `app` is no longer
   assigned at module scope at all, so plain `import app.main` never
   references the name — it's only built the first time something does a
@@ -1914,7 +1918,7 @@ stack choices in this doc.
   importer is currently running. Verified three ways: `python -c
   "import app.main"` alone writes no file; `from app.main import app`
   (or `uvicorn.importer.import_from_string("app.main:app")`, uvicorn's own
-  resolution path) does build one and writes `slate.db`, exactly as
+  resolution path) does build one and writes `vsnote.db`, exactly as
   intended; the full pytest suite still passes with zero stray files.
 - **(Phase 9, backend) The policy gate's original "existence-oracle
   carve-out" (a distinct 401 password-challenge response for GET, used for
@@ -2095,7 +2099,7 @@ stack choices in this doc.
   away its first argument entirely whenever the second is itself absolute
   (`os.path.join("/a/b/", "/c") == "/c"`, confirmed at a Python prompt before writing
   around it — a real stdlib quirk, not a dulwich bug). Left alone, this would silently
-  ignore `SLATE_GIT_ROOT` and resolve every repo relative to the real filesystem root
+  ignore `VSNOTE_GIT_ROOT` and resolve every repo relative to the real filesystem root
   instead. `gitrepo.py`'s `BareRepoBackend` does its own name extraction + validation
   (`resolve_repo_path`, shared with the pre-push bare-init check) instead of trusting
   that class — see that module's docstring for the full account.

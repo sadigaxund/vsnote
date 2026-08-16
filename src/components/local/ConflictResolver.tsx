@@ -120,7 +120,7 @@ export function ConflictResolver() {
             Resolve sync conflicts: {conflict.conflicts.length} file{conflict.conflicts.length === 1 ? "" : "s"}
           </DialogTitle>
           <DialogDescription>
-            Local and remote both changed these files in ways Slate can't auto-merge. Nothing is pushed until you resolve every
+            Local and remote both changed these files in ways VSNote can't auto-merge. Nothing is pushed until you resolve every
             file and confirm below.
           </DialogDescription>
         </DialogHeader>

@@ -56,13 +56,13 @@ RUN grep -vE '^(pytest|httpx)==' /tmp/requirements.txt > /tmp/requirements.prod.
     && rm -f /tmp/requirements.txt /tmp/requirements.prod.txt
 
 # Non-root user. Only the two paths this process ever writes to at runtime
-# (the SQLite DB's directory and SLATE_GIT_ROOT's bare-repo directory) need
+# (the SQLite DB's directory and VSNOTE_GIT_ROOT's bare-repo directory) need
 # to be owned by it — everything else (the app code, dist/) is read-only
 # from this process's point of view and can stay root-owned.
-RUN groupadd --system --gid 1000 slate \
-    && useradd --system --uid 1000 --gid slate --home-dir /app --shell /usr/sbin/nologin slate \
+RUN groupadd --system --gid 1000 vsnote \
+    && useradd --system --uid 1000 --gid vsnote --home-dir /app --shell /usr/sbin/nologin vsnote \
     && mkdir -p /data/db /data/git-repos \
-    && chown -R slate:slate /data/db /data/git-repos
+    && chown -R vsnote:vsnote /data/db /data/git-repos
 
 # Backend source (app/ + scripts/, e.g. create_user.py for an operator to
 # `docker compose exec` into). server/tests/ and server/.venv/ are excluded
@@ -78,23 +78,23 @@ COPY --from=builder /build/dist ./dist
 
 # Defaults for the two settings that must resolve to the writable, owned
 # volume-backed paths above rather than app/config.py's relative-to-CWD
-# defaults (./slate.db, ./git-repos — fine for `npm run server` from
+# defaults (./vsnote.db, ./git-repos — fine for `npm run server` from
 # server/, wrong once this process's CWD/user don't own the app tree).
-# Every other SLATE_* setting keeps app/config.py's own default and is
+# Every other VSNOTE_* setting keeps app/config.py's own default and is
 # passed through by docker-compose.yml when the operator wants to override
 # it — nothing else is hardcoded here.
-ENV SLATE_DB_URL=sqlite:////data/db/slate.db \
-    SLATE_GIT_ROOT=/data/git-repos \
-    SLATE_PORT=8787 \
+ENV VSNOTE_DB_URL=sqlite:////data/db/vsnote.db \
+    VSNOTE_GIT_ROOT=/data/git-repos \
+    VSNOTE_PORT=8787 \
     PYTHONUNBUFFERED=1
 
-USER slate
+USER vsnote
 
 EXPOSE 8787
 
-# Shell form so ${SLATE_PORT} expands at container start (compose can still
+# Shell form so ${VSNOTE_PORT} expands at container start (compose can still
 # override the published host port independently — see docker-compose.yml).
 # --proxy-headers/--forwarded-allow-ips: same single-origin-behind-a-tunnel
 # rationale as `npm run server` (server/README.md's "Running it" section) —
 # this is the one process a Cloudflare tunnel/reverse proxy points at.
-CMD ["sh", "-c", "exec python -m uvicorn app.main:app --host 0.0.0.0 --port \"${SLATE_PORT:-8787}\" --app-dir /app/server --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "exec python -m uvicorn app.main:app --host 0.0.0.0 --port \"${VSNOTE_PORT:-8787}\" --app-dir /app/server --proxy-headers --forwarded-allow-ips='*'"]

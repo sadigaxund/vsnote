@@ -9,13 +9,13 @@
  * Port 8788 (never 8787 — that's `npm run server`'s port, never 5173/5290 —
  * those are other apps'/this suite's own SPA port) per the phase brief.
  * `--reload` is deliberately omitted (spawns a harder-to-kill process
- * tree). `SLATE_COOKIE_SECURE=false` since Playwright drives everything
+ * tree). `VSNOTE_COOKIE_SECURE=false` since Playwright drives everything
  * over plain `http://127.0.0.1` in this suite.
  *
  * ONE backend for the WHOLE e2e run, not one per spec file. `playwright.
  * config.ts`'s `webServer` builds a single `vite preview` server shared by
  * every worker, and that server's share-route proxy target
- * (`SLATE_SHARE_PROXY_TARGET`, see `vite.config.ts`) is baked in once at
+ * (`VSNOTE_SHARE_PROXY_TARGET`, see `vite.config.ts`) is baked in once at
  * build time — so every worker MUST talk to the same backend on the same
  * port; per-worker ports would break the proxy. `startShareBackend()` /
  * `stopShareBackend()` are therefore called exactly once each, from
@@ -52,7 +52,7 @@
  * instance (same port 8788, same process) rather than spawning a second
  * one: it's the same `app.main:app` FastAPI app, which now also serves
  * `/git/*` (Phase 11's router) alongside `/api`/`/share`, so there's
- * nothing extra to start. `SLATE_GIT_ROOT` below points bare repos at a
+ * nothing extra to start. `VSNOTE_GIT_ROOT` below points bare repos at a
  * subdirectory of this fixture's own `dbDir`, so they're created fresh and
  * cleaned up by the exact same `rmSync(dbDir, ...)` call the sqlite file
  * already relied on — no separate teardown path to maintain.
@@ -142,25 +142,25 @@ function runPython(args: string[], env: NodeJS.ProcessEnv): Promise<void> {
  * something else. */
 export async function startShareBackend(): Promise<void> {
   if (handle) return;
-  const dbDir = mkdtempSync(path.join(tmpdir(), "slate-share-e2e-"));
+  const dbDir = mkdtempSync(path.join(tmpdir(), "vsnote-share-e2e-"));
   const dbUrl = `sqlite:///${path.join(dbDir, "test.db")}`;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    SLATE_DB_URL: dbUrl,
+    VSNOTE_DB_URL: dbUrl,
     // Phase 11 — see module docstring. tmp_path-scoped alongside the sqlite
     // file, so it's cleaned up by this fixture's own `rmSync(dbDir, ...)`.
-    SLATE_GIT_ROOT: path.join(dbDir, "git-repos"),
-    SLATE_COOKIE_SECURE: "false",
-    SLATE_ENV: "dev",
-    SLATE_SECRET_KEY: "e2e-fixed-secret-key-not-for-prod-use",
-    SLATE_SESSION_TTL_MIN: "30",
+    VSNOTE_GIT_ROOT: path.join(dbDir, "git-repos"),
+    VSNOTE_COOKIE_SECURE: "false",
+    VSNOTE_ENV: "dev",
+    VSNOTE_SECRET_KEY: "e2e-fixed-secret-key-not-for-prod-use",
+    VSNOTE_SESSION_TTL_MIN: "30",
     // Widened well past `server/app/config.py`'s defaults (5/min, 60/min):
     // one backend now serves every spec file in the run instead of each
     // file getting its own fresh in-memory limiter, so the same handful of
     // login/password-auth calls per spec now draw from one shared bucket.
     // See module docstring.
-    SLATE_RATE_LIMIT_SHARE_AUTH: "1000/minute",
-    SLATE_RATE_LIMIT_SHARE: "5000/minute",
+    VSNOTE_RATE_LIMIT_SHARE_AUTH: "1000/minute",
+    VSNOTE_RATE_LIMIT_SHARE: "5000/minute",
   };
 
   // Bootstrap the owner account directly against the DB file, same
@@ -173,7 +173,7 @@ export async function startShareBackend(): Promise<void> {
 from app.db import make_engine, make_sessionmaker, Base
 from app import models, security
 import os
-engine = make_engine(os.environ["SLATE_DB_URL"])
+engine = make_engine(os.environ["VSNOTE_DB_URL"])
 Base.metadata.create_all(engine)
 db = make_sessionmaker(engine)()
 if db.query(models.User).filter(models.User.username == "${DEMO_OWNER_USERNAME}").one_or_none() is None:

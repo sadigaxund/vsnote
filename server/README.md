@@ -1,7 +1,7 @@
-# Slate backend (Phase 9 + Phase 10.5a + Phase 11)
+# VSNote backend (Phase 9 + Phase 10.5a + Phase 11)
 
 FastAPI + SQLite backend providing sharing, auth (Phase 9), and real git sync
-(Phase 11) for the Slate SPA — and, as of Phase 10.5a's single-origin
+(Phase 11) for the VSNote SPA — and, as of Phase 10.5a's single-origin
 refactor (`../docs/ROADMAP-SHARING-AUTH.md` §5.4), the SPA's own web server.
 Spec: `../docs/ROADMAP-SHARING-AUTH.md` (the security posture in §1 is
 binding) and `../docs/IMPLEMENTATION-PLAN-V2.md`'s "Phase 9"/"Phase
@@ -36,8 +36,8 @@ server/.venv/bin/python -m uvicorn app.main:app --reload --port 8787 --app-dir s
 
 `--proxy-headers --forwarded-allow-ips='*'` (Phase 10.5a, roadmap §5.4):
 trusts `X-Forwarded-Proto`/`X-Forwarded-Host` from whatever's in front of
-this process (a Cloudflare tunnel, in the intended deployment — see
-"Single-origin deployment" below) so anything this app ever derives from the
+this process (any HTTPS reverse proxy or tunnel, in the intended deployment
+— see "Single-origin deployment" below) so anything this app ever derives from the
 request's scheme/host reflects the real external `https://` origin, not
 `http://127.0.0.1:8787`. `forwarded-allow-ips='*'` (rather than uvicorn's
 default, which only trusts `127.0.0.1`) is a deliberate, local-single-host
@@ -66,9 +66,9 @@ The whole app (this backend + the built SPA, single-origin, one process) also
 ships as one container. From the repo root:
 
 ```sh
-cp .env.example .env   # edit SLATE_SECRET_KEY, SLATE_BOOTSTRAP_USER/PASSWORD, etc.
+cp .env.example .env   # edit VSNOTE_SECRET_KEY, VSNOTE_BOOTSTRAP_USER/PASSWORD, etc.
 docker compose up -d --build
-# → http://localhost:8787/  (or ${SLATE_HOST_PORT} if you changed it)
+# → http://localhost:8787/  (or ${VSNOTE_HOST_PORT} if you changed it)
 ```
 
 `Dockerfile` (repo root) is a two-stage build: a `node:20-slim` stage runs
@@ -76,21 +76,21 @@ docker compose up -d --build
 `requirements.txt` (filtered to drop the `pytest`/`httpx` test-only
 entries — no test runner ships in the image), copies `server/app` +
 `server/scripts` and the built `dist/`, and runs as a non-root user
-(`slate`, uid/gid 1000) — never node, never a dev dependency, never root.
+(`vsnote`, uid/gid 1000) — never node, never a dev dependency, never root.
 See `../docs/ARCHITECTURE.md`'s "Containerization (Phase 14)" section for
 the full design (DIST_DIR path resolution, the healthcheck's reasoning,
 the persistence contract) — not duplicated here to avoid the two drifting.
 
 **Persistent state lives in two named volumes** (`docker-compose.yml`):
-the SQLite DB (`SLATE_DB_URL` defaults to `sqlite:////data/db/slate.db` in
-the container, not this file's local `./slate.db` default) and
-`SLATE_GIT_ROOT` (defaults to `/data/git-repos` in the container). `docker
+the SQLite DB (`VSNOTE_DB_URL` defaults to `sqlite:////data/db/vsnote.db` in
+the container, not this file's local `./vsnote.db` default) and
+`VSNOTE_GIT_ROOT` (defaults to `/data/git-repos` in the container). `docker
 compose down` leaves both intact; `docker compose down -v` is the
 deliberate factory reset (destroys the DB and every synced git repo).
 
 **Bootstrap user from env** (see "Fallback-login onboarding" above) works
-identically in the container — set `SLATE_BOOTSTRAP_USER`/
-`SLATE_BOOTSTRAP_PASSWORD` in `.env` before first `up`. To reset a password
+identically in the container — set `VSNOTE_BOOTSTRAP_USER`/
+`VSNOTE_BOOTSTRAP_PASSWORD` in `.env` before first `up`. To reset a password
 or add a second account later: `docker compose exec vsnote python
 server/scripts/create_user.py`.
 
@@ -100,12 +100,9 @@ against `http://<host>:<port>/git/vault.git` with an API token, from any
 system `git` client, was used to verify this phase (not just the app's own
 isomorphic-git client).
 
-**Optional Cloudflare tunnel sidecar**: `docker-compose.yml` has a
-commented-out `cloudflared` service showing the intended topology — most
-operators already run their own tunnel process/token outside this compose
-file, so it's disabled by default. See ".env.example"'s
-`CLOUDFLARE_TUNNEL_TOKEN` and the "Cloudflare Access production topology"
-section below for the SSO layer on top of it.
+**Reverse proxy / tunnel**: any HTTPS reverse proxy or tunnel works in front
+of this container — `--proxy-headers --forwarded-allow-ips='*'` (above)
+means proxy headers are honored regardless of which one an operator runs.
 
 ## Running the tests
 
@@ -125,16 +122,16 @@ Env-driven, see `.env.example` for the full annotated list (loaded from
 
 | Var | Default | Notes |
 |---|---|---|
-| `SLATE_DB_URL` | `sqlite:///./slate.db` | SQLAlchemy URL |
-| `SLATE_SECRET_KEY` | *(none)* | **Required** when `SLATE_ENV=prod`; auto-generated ephemeral + loud warning in dev |
-| `SLATE_PORT` | `8787` | reserved for this backend across the project — never 5173/5174/8000/5290 |
+| `VSNOTE_DB_URL` | `sqlite:///./vsnote.db` | SQLAlchemy URL |
+| `VSNOTE_SECRET_KEY` | *(none)* | **Required** when `VSNOTE_ENV=prod`; auto-generated ephemeral + loud warning in dev |
+| `VSNOTE_PORT` | `8787` | reserved for this backend across the project — never 5173/5174/8000/5290 |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | *(unset)* | leaving these unset disables the Cf-Access path entirely (not an implicit allow) |
-| `SLATE_MAX_BLOB_BYTES` | `5242880` (5 MiB) | `POST /api/blobs` and `PUT /share/{id}` both enforce this → 413 |
-| `SLATE_RATE_LIMIT_DEFAULT` / `_SHARE` / `_SHARE_AUTH` | `120/minute` / `60/minute` / `5/minute` | slowapi limit strings; `_SHARE_AUTH` is the brute-force throttle on `POST /share/{id}/auth` and `POST /api/auth/login` |
-| `SLATE_SESSION_TTL_MIN` | `30` | both the app session cookie and per-share password session cookie |
-| `SLATE_COOKIE_SECURE` | `True` | set `False` only to test over plain `http://` locally |
-| `SLATE_GIT_ROOT` | `./git-repos` | Phase 11 — where bare git repos live, `{root}/{repo}.git`, created on demand |
-| `SLATE_BOOTSTRAP_USER` / `SLATE_BOOTSTRAP_PASSWORD` | *(unset)* | Phase 12 — creates that fallback-login user at startup, iff no `User` row exists yet. See "Fallback-login onboarding" below |
+| `VSNOTE_MAX_BLOB_BYTES` | `5242880` (5 MiB) | `POST /api/blobs` and `PUT /share/{id}` both enforce this → 413 |
+| `VSNOTE_RATE_LIMIT_DEFAULT` / `_SHARE` / `_SHARE_AUTH` | `120/minute` / `60/minute` / `5/minute` | slowapi limit strings; `_SHARE_AUTH` is the brute-force throttle on `POST /share/{id}/auth` and `POST /api/auth/login` |
+| `VSNOTE_SESSION_TTL_MIN` | `30` | both the app session cookie and per-share password session cookie |
+| `VSNOTE_COOKIE_SECURE` | `True` | set `False` only to test over plain `http://` locally |
+| `VSNOTE_GIT_ROOT` | `./git-repos` | Phase 11 — where bare git repos live, `{root}/{repo}.git`, created on demand |
+| `VSNOTE_BOOTSTRAP_USER` / `VSNOTE_BOOTSTRAP_PASSWORD` | *(unset)* | Phase 12 — creates that fallback-login user at startup, iff no `User` row exists yet. See "Fallback-login onboarding" below |
 
 ## Fallback-login onboarding (Phase 12, DESIGN-SPEC Amendments round 4 item 32)
 
@@ -145,11 +142,11 @@ to log into, and no way to make one, without hand-editing the database.
 Two ways to get a working account now, both hashing with the same argon2id
 path (`app/security.py::hash_password` — never a second implementation):
 
-**1. Startup env vars — first boot only.** Set `SLATE_BOOTSTRAP_USER` and
-`SLATE_BOOTSTRAP_PASSWORD` (both, together) and start the server:
+**1. Startup env vars — first boot only.** Set `VSNOTE_BOOTSTRAP_USER` and
+`VSNOTE_BOOTSTRAP_PASSWORD` (both, together) and start the server:
 
 ```sh
-SLATE_BOOTSTRAP_USER=owner SLATE_BOOTSTRAP_PASSWORD='a real password' \
+VSNOTE_BOOTSTRAP_USER=owner VSNOTE_BOOTSTRAP_PASSWORD='a real password' \
   npm run server
 ```
 
@@ -187,7 +184,7 @@ server/.venv/bin/python server/scripts/create_user.py
 Prompts for a username, then a HIDDEN password (`getpass.getpass()` — no
 terminal echo) typed twice with a mismatch re-prompt, and writes the same
 argon2id hash straight into the same DB the running server uses
-(`SLATE_DB_URL`/`server/.env`, identical resolution to the server's own).
+(`VSNOTE_DB_URL`/`server/.env`, identical resolution to the server's own).
 Never accepts the password as a command-line argument (visible to other
 local processes via `/proc`/`ps`, and lands in shell history) and never
 echoes/logs it anywhere.
@@ -221,7 +218,7 @@ including the `info/refs?service=git-upload-pack` advertisement);
 `write`/`share-admin` is required for push (`git-receive-pack` and its
 advertisement) — a `read`-scoped token attempting to push gets `403`. No
 token, or a token that doesn't resolve at all (unknown/revoked/expired), gets
-`401` with `WWW-Authenticate: Basic realm="slate-git"` so real git clients
+`401` with `WWW-Authenticate: Basic realm="vsnote-git"` so real git clients
 know to prompt/retry with credentials — this is a genuine auth challenge
 surface, unlike `/share/*`'s deliberate uniform-404 no-oracle posture (roadmap
 §1); the two are not the same kind of endpoint and are not held to the same
@@ -231,7 +228,7 @@ response-shape rule.
 validated against `^[A-Za-z0-9_-]{1,64}$` (`app/gitrepo.py::REPO_NAME_RE`)
 *before* ever being joined onto a filesystem path — that alone makes `..` and
 `/` structurally unrepresentable in a valid name — plus a second check that
-the resolved path is still inside `SLATE_GIT_ROOT`, in case `SLATE_GIT_ROOT`
+the resolved path is still inside `VSNOTE_GIT_ROOT`, in case `VSNOTE_GIT_ROOT`
 itself is ever misconfigured. See `app/gitrepo.py`'s module docstring for why
 this is a bespoke `Backend` rather than dulwich's own
 `FileSystemBackend` (that class's `open_repository` silently ignores its own
@@ -256,7 +253,7 @@ and never needed CORS headers to read a response.
 **Fast-forward-only is enforced client-side**, not here: this server has no
 opinion about non-fast-forward pushes at the protocol level (plain dulwich
 `receive-pack` doesn't reject them the way e.g. GitHub's `receive.
-denyNonFastforwards` policy would). The Slate client (`src/git/remote.ts`)
+denyNonFastforwards` policy would). The VSNote client (`src/git/remote.ts`)
 refuses to attempt a push at all once it detects local/remote have diverged —
 see `docs/ARCHITECTURE.md`'s "Real sync (Phase 11)" section for the exact
 policy and how it's surfaced in the UI.
@@ -413,25 +410,25 @@ the rendered-share page to reflect that directly:
 
 Front + back ship as ONE origin: this process serves the built SPA
 alongside `/api`, `/share/*`, `/git/*` (see "Running it" above). The owner
-reaches it from outside `localhost` via a Cloudflare **tunnel** (`cloudflared`,
-a reverse proxy — a different thing from Cloudflare *Access*, the SSO layer
-described below; a tunnel can run with or without Access in front of it).
-Reachability itself is the owner's concern, config-only, outside this repo —
-this backend's job is to work flawlessly BEHIND that proxy:
+reaches it from outside `localhost` via any HTTPS **reverse proxy or
+tunnel** (a different thing from Cloudflare *Access*, the SSO layer
+described below; a proxy/tunnel can run with or without Access in front of
+it). Reachability itself is the owner's concern, config-only, outside this
+repo — this backend's job is to work flawlessly BEHIND that proxy:
 
 - **No settable/configurable origin anywhere.** Every client call
   (`src/share/api.ts`, `src/git/remote.ts`) is relative to
   `window.location.origin` — no `baseUrl` parameter, no Settings field for
   one. There is nothing to misconfigure into pointing at the wrong host.
 - **`--proxy-headers --forwarded-allow-ips='*'`** (see "Running it" above) —
-  uvicorn trusts `X-Forwarded-Proto`/`X-Forwarded-Host` from the tunnel, so
-  `request.url.scheme`/`.hostname` (and anything derived from them) reflect
-  the real external `https://slate.example.com`, never the local
-  `http://127.0.0.1:8787` this process actually binds.
-- **Cookies**: `Secure` (gated by `SLATE_COOKIE_SECURE`, default `True`) +
+  uvicorn trusts `X-Forwarded-Proto`/`X-Forwarded-Host` from the reverse
+  proxy or tunnel, so `request.url.scheme`/`.hostname` (and anything derived
+  from them) reflect the real external `https://vsnote.example.com`, never
+  the local `http://127.0.0.1:8787` this process actually binds.
+- **Cookies**: `Secure` (gated by `VSNOTE_COOKIE_SECURE`, default `True`) +
   `SameSite=Lax` on both the app session cookie (`app/routers/auth.py`) and
   the per-share password session cookie (`app/routers/share_public.py`) —
-  set `SLATE_COOKIE_SECURE=False` ONLY for plain-`http://localhost` dev, per
+  set `VSNOTE_COOKIE_SECURE=False` ONLY for plain-`http://localhost` dev, per
   `.env.example`'s doc. The share session cookie keeps its
   `Path=/share/<slug>` scoping (unchanged by this phase — see "Public share
   contract" above).
@@ -459,10 +456,10 @@ Browser ──HTTPS──▶   │   Cloudflare Access (SSO)    │
                                      │ added to every request that passes
                                      │ Cloudflare's own SSO challenge
                      ┌───────────────▼──────────────┐
-                     │  slate.example.com/*         │  ◀── behind CF Access
+                     │  vsnote.example.com/*         │  ◀── behind CF Access
                      │  (SPA static assets + /api)  │
                      ├───────────────────────────────┤
-                     │  slate.example.com/share/*    │  ◀── CF Access policy
+                     │  vsnote.example.com/share/*    │  ◀── CF Access policy
                      │                               │      EXCLUDES this path
                      └───────────────┬───────────────┘      (roadmap §2)
                                      │
@@ -496,5 +493,5 @@ config-only:
   leaving them unset (as in dev) makes the whole verification path
   unavailable rather than an implicit allow (tested:
   `test_cf_access_unconfigured_server_does_not_accept_assertions`).
-  `SLATE_COOKIE_SECURE=True` (the default) and a real `SLATE_SECRET_KEY`
+  `VSNOTE_COOKIE_SECURE=True` (the default) and a real `VSNOTE_SECRET_KEY`
   are both required for a real deployment.

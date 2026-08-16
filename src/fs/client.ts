@@ -7,7 +7,12 @@
  */
 import FS from "@isomorphic-git/lightning-fs";
 
-export const DB_NAME = "slate-vault-fs";
+// Renamed with the rest of the rebrand (DESIGN-SPEC item 34, user decision
+// 2026-08-17). There is deliberately NO migration: lightning-fs opens a new,
+// empty database under this name, so a vault created before the rename is not
+// read anymore. The old `slate-vault-fs` database stays inert in the browser
+// until the user clears site data. See CHANGELOG's Breaking section.
+export const DB_NAME = "vsnote-vault-fs";
 
 export const fs = new FS(DB_NAME);
 

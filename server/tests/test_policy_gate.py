@@ -137,7 +137,7 @@ def test_password_right_sets_cookie_then_get_200(anon_client, owner_client):
 
     r = anon_client.post(f"/share/{share['slug']}/auth", json={"password": "s3cret-pw"})
     assert r.status_code == 200, r.text
-    assert any(c.name.startswith("slate_share_") for c in anon_client.cookies.jar)
+    assert any(c.name.startswith("vsnote_share_") for c in anon_client.cookies.jar)
 
     r2 = anon_client.get(f"/share/{share['slug']}")
     assert r2.status_code == 200

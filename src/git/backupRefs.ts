@@ -65,7 +65,7 @@ export async function createBackupRef(now: number = Date.now()): Promise<string 
 
 declare global {
   interface Window {
-    __slateGitDebug?: { listBackupRefs: () => Promise<string[]> };
+    __vsnoteGitDebug?: { listBackupRefs: () => Promise<string[]> };
   }
 }
 
@@ -80,5 +80,5 @@ declare global {
 // never imports `git/`), so the hook is reliably present by the time any
 // spec needs it.
 if (typeof window !== "undefined") {
-  window.__slateGitDebug = { listBackupRefs };
+  window.__vsnoteGitDebug = { listBackupRefs };
 }

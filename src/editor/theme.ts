@@ -25,10 +25,10 @@ export const editorTheme = EditorView.theme(
       // DESIGN-SPEC Amendments round 3 item 22(a): reads
       // `--app-editor-canvas-bg`, not `--app-editor-bg` directly — this is
       // CodeMirror's own DOM, which paints ON TOP of `EditorPane.tsx`'s
-      // `TexturedSurface` ancestor, so under every theme except Slate this
+      // `TexturedSurface` ancestor, so under every theme except VSNote this
       // resolves to `transparent` (letting that ancestor's opaque fill +
       // theme texture show through with zero attenuation) while staying
-      // the exact opaque Slate hex for `data-theme` unset/`"dark"` — see
+      // the exact opaque VSNote hex for `data-theme` unset/`"dark"` — see
       // `src/theme.css`'s `.dark` block comment for the full reasoning.
       backgroundColor: "var(--app-editor-canvas-bg)",
       height: "100%",
@@ -107,7 +107,7 @@ export const editorTheme = EditorView.theme(
 // DESIGN-SPEC Amendments round 3 item 22(b): every color below reads a
 // `--syntax-*` role token (src/theme.css) instead of a raw hex OR a
 // general-purpose app token like `--color-primary`/`--git-modified` — the
-// nine roles are defined once per `data-theme` in theme.css (Slate's exact
+// nine roles are defined once per `data-theme` in theme.css (VSNote's exact
 // current colors as the literal base, every other theme derived from its
 // own palette), so switching themes now genuinely reflows CM6's syntax
 // colors instead of only the chrome around it. `t.link`/`t.heading` keep

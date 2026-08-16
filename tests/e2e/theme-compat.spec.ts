@@ -35,7 +35,7 @@ async function setTheme(page: import("@playwright/test").Page, theme: string | n
 }
 
 test.describe("theme compatibility (Amendments round 3 item 22)", () => {
-  test("boot / explicit Slate theme stays pixel-identical (regression gate)", async ({ page }) => {
+  test("boot / explicit VSNote theme stays pixel-identical (regression gate)", async ({ page }) => {
     await gotoApp(page);
     const tokens = await page.evaluate(() => {
       const cs = getComputedStyle(document.documentElement);
@@ -46,7 +46,7 @@ test.describe("theme compatibility (Amendments round 3 item 22)", () => {
         titlebarBg: cs.getPropertyValue("--app-titlebar-bg").trim(),
       };
     });
-    // Exact hex, unchanged since Phase 1 — the Slate-default theme.css block
+    // Exact hex, unchanged since Phase 1 — the VSNote-default theme.css block
     // reasserts these literally rather than deriving them, specifically so
     // this stays true regardless of what the OTHER themes' block computes.
     expect(tokens.chromeBg).toBe("#0e1015");
@@ -54,7 +54,7 @@ test.describe("theme compatibility (Amendments round 3 item 22)", () => {
     expect(tokens.editorBg).toBe("#101318");
     expect(tokens.titlebarBg).toBe("#17191f");
 
-    // And the resolved paint is fully OPAQUE (alpha 1) — Slate deliberately
+    // And the resolved paint is fully OPAQUE (alpha 1) — VSNote deliberately
     // renders no texture at all.
     const alpha = await page.evaluate(() => {
       const el = document.querySelector('[data-testid="app-activitybar"]')!;
@@ -74,7 +74,7 @@ test.describe("theme compatibility (Amendments round 3 item 22)", () => {
    * empty lower area of the sidebar, below the file tree, and the empty
    * lower-right of the editor pane, outside the centered prose column.
    *
-   * Their text-free-ness is not an assumption — the Slate test below
+   * Their text-free-ness is not an assumption — the VSNote test below
    * asserts these exact regions render as a single flat luma level, which
    * fails loudly if a glyph, border, or scrollbar ever creeps in. */
   async function flatChromeRegions(page: import("@playwright/test").Page) {
@@ -101,13 +101,13 @@ test.describe("theme compatibility (Amendments round 3 item 22)", () => {
     return { stdDev: lumaStdDev(png), levels: distinctLumaLevels(png) };
   }
 
-  test("Slate: the same chrome regions render dead flat (no texture, and proves the regions are text-free)", async ({ page }) => {
+  test("VSNote: the same chrome regions render dead flat (no texture, and proves the regions are text-free)", async ({ page }) => {
     await gotoApp(page);
     const regions = await flatChromeRegions(page);
     for (const [name, clip] of Object.entries(regions)) {
       const { stdDev, levels } = await regionStats(page, clip);
-      expect(stdDev, `${name} std-dev under Slate`).toBeLessThan(0.5);
-      expect(levels, `${name} distinct luma levels under Slate`).toBeLessThanOrEqual(2);
+      expect(stdDev, `${name} std-dev under VSNote`).toBeLessThan(0.5);
+      expect(levels, `${name} distinct luma levels under VSNote`).toBeLessThanOrEqual(2);
     }
   });
 
@@ -115,16 +115,16 @@ test.describe("theme compatibility (Amendments round 3 item 22)", () => {
     test(`${theme}: the theme's own texture is really painted on this app's chrome`, async ({ page }) => {
       await gotoApp(page);
 
-      // Same text-free regions, measured under Slate first: this is the
+      // Same text-free regions, measured under VSNote first: this is the
       // control, and it is what makes the comparison meaningful rather
       // than a bare threshold.
       const regions = await flatChromeRegions(page);
-      const slate = {
+      const vsnote = {
         sidebar: await regionStats(page, regions.sidebar),
         editor: await regionStats(page, regions.editor),
       };
-      expect(slate.sidebar.levels).toBeLessThanOrEqual(2);
-      expect(slate.editor.levels).toBeLessThanOrEqual(2);
+      expect(vsnote.sidebar.levels).toBeLessThanOrEqual(2);
+      expect(vsnote.editor.levels).toBeLessThanOrEqual(2);
 
       await setTheme(page, theme);
 
@@ -169,11 +169,11 @@ test.describe("theme compatibility (Amendments round 3 item 22)", () => {
     // derived roles theme-invariant by design, a poor choice for proving
     // "the theme changed the palette." `--color-warning` has no such
     // override, so it's the real per-theme signal.
-    const typeColorSlate = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--syntax-type").trim());
+    const typeColorVSNote = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--syntax-type").trim());
 
     await setTheme(page, "metallic");
     const typeColorMetallic = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--syntax-type").trim());
-    expect(typeColorMetallic).not.toBe(typeColorSlate);
+    expect(typeColorMetallic).not.toBe(typeColorVSNote);
 
     // Confirm it's not just the CSS variable that changed but an actual
     // rendered token color — read the real computed color off a live CM6

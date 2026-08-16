@@ -33,13 +33,13 @@ import { realPush, type RemoteConfig } from "../../src/git/remote";
 import { runSync, resolveConflictAndPush } from "../../src/git/sync";
 import { listBackupRefs } from "../../src/git/backupRefs";
 
-const BASE_URL = process.env.SLATE_DEMO_BASE_URL;
-const TOKEN = process.env.SLATE_DEMO_TOKEN;
-const REPO_NAME = process.env.SLATE_DEMO_REPO ?? "demo-vault";
+const BASE_URL = process.env.VSNOTE_DEMO_BASE_URL;
+const TOKEN = process.env.VSNOTE_DEMO_TOKEN;
+const REPO_NAME = process.env.VSNOTE_DEMO_REPO ?? "demo-vault";
 
 if (!BASE_URL || !TOKEN) {
   throw new Error(
-    "syncMergeDemo.spec.ts requires SLATE_DEMO_BASE_URL and SLATE_DEMO_TOKEN — run via server/scripts/sync-merge-demo.sh, not directly.",
+    "syncMergeDemo.spec.ts requires VSNOTE_DEMO_BASE_URL and VSNOTE_DEMO_TOKEN — run via server/scripts/sync-merge-demo.sh, not directly.",
   );
 }
 
@@ -97,7 +97,7 @@ it(
     // === different file and leaves it uncommitted, matching what          ===
     // === `useGitStore.ts::syncNow` does before calling `runSync`.         ===
     log("\n=== 2. Disjoint-file divergence: auto-merge, no conflict ===");
-    const cloneDir = scratchDir("slate-sync-demo-clone-");
+    const cloneDir = scratchDir("vsnote-sync-demo-clone-");
     runGit(["clone", `http://x:${TOKEN}@${new URL(BASE_URL).host}/git/${REPO_NAME}.git`, cloneDir], path.dirname(cloneDir));
     runGit(["config", "user.email", "second-device@example.com"], cloneDir);
     runGit(["config", "user.name", "Second Device"], cloneDir);
@@ -126,7 +126,7 @@ it(
     expect(backupRefsAfterMerge.some((name) => name.startsWith("pre-sync-"))).toBe(true);
     log(`  backup refs present: ${JSON.stringify(backupRefsAfterMerge)}`);
 
-    const verifyDir1 = scratchDir("slate-sync-demo-verify1-");
+    const verifyDir1 = scratchDir("vsnote-sync-demo-verify1-");
     runGit(["clone", `http://x:${TOKEN}@${new URL(BASE_URL).host}/git/${REPO_NAME}.git`, verifyDir1], path.dirname(verifyDir1));
     const otherContent = runGit(["show", `origin/${DEFAULT_BRANCH}:notes/other.md`], verifyDir1);
     const demoContent = runGit(["show", `origin/${DEFAULT_BRANCH}:notes/demo.md`], verifyDir1);
@@ -136,7 +136,7 @@ it(
 
     // === 3. Same-line conflict: both sides edit the identical line ===
     log("=== 3. Same-line conflict: detected, nothing pushed until resolved ===");
-    const cloneDir2 = scratchDir("slate-sync-demo-clone2-");
+    const cloneDir2 = scratchDir("vsnote-sync-demo-clone2-");
     runGit(["clone", `http://x:${TOKEN}@${new URL(BASE_URL).host}/git/${REPO_NAME}.git`, cloneDir2], path.dirname(cloneDir2));
     runGit(["config", "user.email", "second-device@example.com"], cloneDir2);
     runGit(["config", "user.name", "Second Device"], cloneDir2);
@@ -173,7 +173,7 @@ it(
     // divergence, not evidence of anything being clobbered). Proves the
     // conflict was genuinely detected and held back, not silently resolved
     // toward either side.
-    const midCloneDir = scratchDir("slate-sync-demo-midclone-");
+    const midCloneDir = scratchDir("vsnote-sync-demo-midclone-");
     runGit(["clone", `http://x:${TOKEN}@${new URL(BASE_URL).host}/git/${REPO_NAME}.git`, midCloneDir], path.dirname(midCloneDir));
     const midContent = runGit(["show", `origin/${DEFAULT_BRANCH}:notes/demo.md`], midCloneDir);
     expect(midContent).toContain("REMOTE-EDIT"); // the second device's own legitimate push
@@ -193,7 +193,7 @@ it(
     expect(backupRefsAfterResolve.some((name) => name.startsWith("pre-sync-"))).toBe(true);
     log(`  backup refs present after resolution: ${JSON.stringify(backupRefsAfterResolve)}`);
 
-    const verifyDir2 = scratchDir("slate-sync-demo-verify2-");
+    const verifyDir2 = scratchDir("vsnote-sync-demo-verify2-");
     runGit(["clone", `http://x:${TOKEN}@${new URL(BASE_URL).host}/git/${REPO_NAME}.git`, verifyDir2], path.dirname(verifyDir2));
     const mergeOid = runGit(["rev-parse", `origin/${DEFAULT_BRANCH}`], verifyDir2).trim();
     const parents = runGit(["log", "-1", "--format=%P", mergeOid], verifyDir2).trim().split(/\s+/);

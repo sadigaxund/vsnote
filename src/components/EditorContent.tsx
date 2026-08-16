@@ -137,7 +137,7 @@ export function EditorContent({
   const fileType = fileTypeForOrPlain(kind);
   // Defensive normalization: images only ever have "rendered" available
   // (registry `baseModes: ["rendered"]`), but a tab persisted from before
-  // this phase (localStorage `slate-tabs`) could still carry a stale
+  // this phase (localStorage `vsnote-tabs`) could still carry a stale
   // "source"/"diff" mode from when images had no renderer at all — clamp
   // rather than let a binary PNG hit the text CodeMirror/diff views.
   const mode = kind === "image" ? "rendered" : modeProp;

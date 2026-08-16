@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 from . import models, security
 from .config import Settings
 
-APP_SESSION_COOKIE = "slate_session"
+APP_SESSION_COOKIE = "vsnote_session"
 
 
 class JWKSFetcher:

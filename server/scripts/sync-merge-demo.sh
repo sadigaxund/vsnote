@@ -51,18 +51,18 @@ echo "############################################################"
 echo "# 0. Bootstrap scratch DB + owner + a real write-scoped API token,"
 echo "#    start uvicorn on $BASE"
 echo "############################################################"
-export SLATE_DB_URL="sqlite:///$DB_PATH"
-export SLATE_GIT_ROOT="$GIT_ROOT"
-export SLATE_COOKIE_SECURE=False
-export SLATE_ENV=dev
-export SLATE_SECRET_KEY="sync-merge-demo-fixed-secret-not-for-prod"
+export VSNOTE_DB_URL="sqlite:///$DB_PATH"
+export VSNOTE_GIT_ROOT="$GIT_ROOT"
+export VSNOTE_COOKIE_SECURE=False
+export VSNOTE_ENV=dev
+export VSNOTE_SECRET_KEY="sync-merge-demo-fixed-secret-not-for-prod"
 
 DEMO_TOKEN="demo-sync-merge-write-token-$(date +%s)"
-PYTHONPATH="$SERVER_DIR" SLATE_DB_URL="$SLATE_DB_URL" "$PYTHON" -c "
+PYTHONPATH="$SERVER_DIR" VSNOTE_DB_URL="$VSNOTE_DB_URL" "$PYTHON" -c "
 from app.db import make_engine, make_sessionmaker, Base
 from app import models, security
 import os
-engine = make_engine(os.environ['SLATE_DB_URL'])
+engine = make_engine(os.environ['VSNOTE_DB_URL'])
 Base.metadata.create_all(engine)
 db = make_sessionmaker(engine)()
 user = models.User(username='demo-owner', password_hash=security.hash_password('demo-owner-pw-123'), email='demo-owner@example.com', is_admin=True)
@@ -96,9 +96,9 @@ echo "# 1. Run the real proof: tests/manual/syncMergeDemo.spec.ts"
 echo "#    (real client git modules, real HTTP, real system-git checks)"
 echo "############################################################"
 cd "$REPO_ROOT"
-SLATE_DEMO_BASE_URL="$BASE" \
-SLATE_DEMO_TOKEN="$DEMO_TOKEN" \
-SLATE_DEMO_REPO="sync-merge-demo" \
+VSNOTE_DEMO_BASE_URL="$BASE" \
+VSNOTE_DEMO_TOKEN="$DEMO_TOKEN" \
+VSNOTE_DEMO_REPO="sync-merge-demo" \
   npx vitest run --config tests/manual/vitest.config.ts
 
 echo

@@ -1,4 +1,4 @@
-# Design spec — "Slate"
+# Design spec — "VSNote"
 
 Source of truth: originally `app-preview.png` (removed from the repo 2026-08-17,
 user request, along with `search.png`; available in git history pre-removal —
@@ -23,7 +23,7 @@ buildable detail. When in doubt, open the image and match it.
 ## Layout regions (top → bottom)
 
 ### 1. Title bar
-- ~~macOS traffic lights (decorative),~~ app glyph + `Slate` — `vault` (workspace
+- ~~macOS traffic lights (decorative),~~ app glyph + `VSNote` — `vault` (workspace
   name). (superseded by Amendments item 2 — no traffic lights, no placeholder; the
   bar starts directly at the glyph.)
 - Centered global search field: placeholder "Search files, symbols, commits…", `⌘K` kbd
@@ -294,7 +294,7 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     `TexturedSurface` inert. Root-cause it: almost certainly the app's `theme.css`
     token overrides (written for the default dark look) clobbering the texture/
     surface variables those themes set. Fix by scoping the app's overrides to its
-    own theme (e.g. `:root[data-theme="slate"]`) so library themes apply cleanly.
+    own theme (e.g. `:root[data-theme="vsnote"]`) so library themes apply cleanly.
     (b) Per-theme syntax highlighting: drive the CM6 highlight style entirely from
     CSS custom properties (`--syntax-keyword`, `--syntax-string`, …) with the
     current colors as the base definition, redefined per `data-theme` so each theme
@@ -335,8 +335,8 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     layout shift.
 31. **Publish modal "Sign In" button** must never wrap to two rows.
 32. **Fallback-login onboarding.** Today NO user exists and nothing creates one
-    (login is dead outside the demo script). Add: `SLATE_BOOTSTRAP_USER` +
-    `SLATE_BOOTSTRAP_PASSWORD` env vars that create that account at startup iff
+    (login is dead outside the demo script). Add: `VSNOTE_BOOTSTRAP_USER` +
+    `VSNOTE_BOOTSTRAP_PASSWORD` env vars that create that account at startup iff
     no users exist (never overwrite, never log the password), plus a
     `server/scripts/create_user.py` CLI (username prompt + hidden password
     prompt, argon2id). Document both in server/README.md; the Publish modal's
@@ -356,10 +356,15 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     release), `slate.db` → `vsnote.db` default, package.json name `slate` →
     `vsnote`, pyproject `slate-server` → `vsnote-server`, git auth realm,
     cookie names, compose env keys, `.env.example`, CI workflow, server/README
-    and docs prose. Internal identifiers/test ids may keep `slate` only where
-    renaming them would churn tests for zero user benefit — but nothing
-    user-visible or operator-visible says Slate afterwards. Record the breaking
-    env rename in CHANGELOG's Unreleased.
+    and docs prose. **Amended 2026-08-17: the browser-side persistence keys
+    rename too** (lightning-fs DB name and every zustand persist key →
+    `vsnote-*`), explicitly WITHOUT migration — the user accepts that
+    pre-rename local browser data is orphaned (a fresh store simply starts;
+    the old IndexedDB/localStorage entries are just never read again). Note it
+    in CHANGELOG as breaking. Internal identifiers/test ids may keep `slate`
+    only where renaming them would churn tests for zero user benefit — but
+    nothing user-visible or operator-visible says Slate afterwards. Record the
+    breaking env rename in CHANGELOG's Unreleased.
 35. **Remove the commented cloudflared sidecar from docker-compose.yml.** It is
     one operator's personal topology, not a project default. server/README.md
     may keep ONE sentence noting any HTTPS reverse proxy or tunnel works

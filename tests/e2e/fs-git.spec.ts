@@ -65,9 +65,9 @@ test.describe("fs + git", () => {
     await page.getByRole("menuitem", { name: "New File" }).click();
     // DESIGN-SPEC Amendments round 4 item 30: "New File" no longer writes a
     // real `untitled.md` up front — it drops an in-memory draft row
-    // (`vault/src/.slate-draft-file`, never a real fs path) with an EMPTY
+    // (`vault/src/.vsnote-draft-file`, never a real fs path) with an EMPTY
     // name field, so there's nothing to fight/clear before typing.
-    const newFileRow = treeRow(page, "vault/src/.slate-draft-file");
+    const newFileRow = treeRow(page, "vault/src/.vsnote-draft-file");
     await expect(newFileRow).toBeVisible();
     await expect(newFileRow.locator("input")).toHaveValue("");
 
@@ -108,7 +108,7 @@ test.describe("fs + git", () => {
 
     await treeRow(page, "vault/src").click({ button: "right" });
     await page.getByRole("menuitem", { name: "New File" }).click();
-    const draftRow = treeRow(page, "vault/src/.slate-draft-file");
+    const draftRow = treeRow(page, "vault/src/.vsnote-draft-file");
     await expect(draftRow).toBeVisible();
     await expect(draftRow.locator("input")).toHaveValue("");
 
@@ -116,7 +116,7 @@ test.describe("fs + git", () => {
     // `commitRename` treats `trimmed && trimmed !== node.name` as false when
     // `trimmed` is `""`, routing to cancel instead.
     await draftRow.locator("input").press("Enter");
-    await expect(treeRow(page, "vault/src/.slate-draft-file")).toHaveCount(0);
+    await expect(treeRow(page, "vault/src/.vsnote-draft-file")).toHaveCount(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
 
     const after = await page.locator('[data-tree-path^="vault/src/"]').evaluateAll((els) => els.map((el) => el.getAttribute("data-tree-path")).sort());
@@ -125,10 +125,10 @@ test.describe("fs + git", () => {
     // Same for Escape, and for a folder draft too.
     await treeRow(page, "vault/src").click({ button: "right" });
     await page.getByRole("menuitem", { name: "New Folder" }).click();
-    const folderDraftRow = treeRow(page, "vault/src/.slate-draft-folder");
+    const folderDraftRow = treeRow(page, "vault/src/.vsnote-draft-folder");
     await expect(folderDraftRow).toBeVisible();
     await folderDraftRow.locator("input").press("Escape");
-    await expect(treeRow(page, "vault/src/.slate-draft-folder")).toHaveCount(0);
+    await expect(treeRow(page, "vault/src/.vsnote-draft-folder")).toHaveCount(0);
 
     const afterEscape = await page.locator('[data-tree-path^="vault/src/"]').evaluateAll((els) => els.map((el) => el.getAttribute("data-tree-path")).sort());
     expect(afterEscape).toEqual(before);

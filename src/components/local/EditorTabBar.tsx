@@ -14,7 +14,7 @@
  *
  * Phase 6 (DESIGN-SPEC Amendments item 8, "grid split view"): every tab is
  * now `draggable` — dragstart puts `{path, paneId, name, kind}` on
- * `dataTransfer` under `application/x-slate-tab`, the payload
+ * `dataTransfer` under `application/x-vsnote-tab`, the payload
  * `EditorPane.tsx`'s drop-zone handlers (and this bar's own `onDrop`, for
  * dropping directly onto a tab strip = "merge into this pane") read back.
  * Each tab also gets a right-click `ContextMenu` (the local primitive,
@@ -80,13 +80,13 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
           minWidth: 0,
         }}
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes("application/x-slate-tab")) return;
+          if (!e.dataTransfer.types.includes("application/x-vsnote-tab")) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
         }}
         onDrop={(e) => {
           e.preventDefault();
-          const raw = e.dataTransfer.getData("application/x-slate-tab");
+          const raw = e.dataTransfer.getData("application/x-vsnote-tab");
           if (!raw) return;
           try {
             onDropExternalTab?.(JSON.parse(raw) as TabDragPayload);
@@ -109,7 +109,7 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                   draggable
                   onDragStart={(e) => {
                     const payload: TabDragPayload = { path: tab.path, paneId, name: tab.name, kind: tab.kind };
-                    e.dataTransfer.setData("application/x-slate-tab", JSON.stringify(payload));
+                    e.dataTransfer.setData("application/x-vsnote-tab", JSON.stringify(payload));
                     e.dataTransfer.effectAllowed = "move";
                   }}
                   onClick={() => onSelect?.(tab.id)}

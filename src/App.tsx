@@ -704,12 +704,12 @@ export default function App() {
   // types a name.
   const handleCreateFile = (parentPath?: string) => {
     const parent = resolveCreateParent(parentPath);
-    setCreatingNode({ id: `${parent}/.slate-draft-file`, parentPath: parent, type: "file" });
+    setCreatingNode({ id: `${parent}/.vsnote-draft-file`, parentPath: parent, type: "file" });
   };
 
   const handleCreateFolder = (parentPath?: string) => {
     const parent = resolveCreateParent(parentPath);
-    setCreatingNode({ id: `${parent}/.slate-draft-folder`, parentPath: parent, type: "folder" });
+    setCreatingNode({ id: `${parent}/.vsnote-draft-folder`, parentPath: parent, type: "folder" });
   };
 
   const handleRequestRename = (node: FileNode) => setRenamingId(node.id);

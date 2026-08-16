@@ -75,7 +75,7 @@ from ..gitrepo import BareRepoBackend, InvalidRepoName, ensure_bare_repo, resolv
 # that doesn't even shape-match never reaches auth/backend logic at all.
 GIT_REQUEST_RE = re.compile(r"^/(?P<name>[A-Za-z0-9_-]{1,64})\.git(?:/.*)?$")
 
-WWW_AUTHENTICATE = 'Basic realm="slate-git"'
+WWW_AUTHENTICATE = 'Basic realm="vsnote-git"'
 
 
 def _is_git_client(user_agent: Optional[str]) -> bool:

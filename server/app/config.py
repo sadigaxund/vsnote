@@ -16,51 +16,51 @@ class Settings(BaseSettings):
     # populate_by_name=True matters a lot here: it lets tests construct
     # `Settings(db_url=..., rate_limit_share_auth=...)` directly with the
     # Pythonic field names (used throughout tests/conftest.py), in addition
-    # to the SLATE_*/CF_ACCESS_* env var aliases used at process startup.
+    # to the VSNOTE_*/CF_ACCESS_* env var aliases used at process startup.
     # Without it, pydantic-settings only accepts the alias as a constructor
     # kwarg once validation_alias is set, silently ignoring `db_url=` (a
     # real bug caught during Phase 9 manual verification — see
     # ARCHITECTURE.md's Backend deviations note).
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
-    # "dev" (default) or "prod". Only gates whether SLATE_SECRET_KEY is
+    # "dev" (default) or "prod". Only gates whether VSNOTE_SECRET_KEY is
     # required — never used as an implicit trust/auth signal anywhere else.
-    slate_env: str = Field(default="dev", validation_alias="SLATE_ENV")
+    env: str = Field(default="dev", validation_alias="VSNOTE_ENV")
 
-    db_url: str = Field(default="sqlite:///./slate.db", validation_alias="SLATE_DB_URL")
+    db_url: str = Field(default="sqlite:///./vsnote.db", validation_alias="VSNOTE_DB_URL")
 
     # Required in prod. Auto-generated (ephemeral, per-process, with a loud
     # warning) in dev so `npm run server` works out of the box locally.
-    secret_key: Optional[str] = Field(default=None, validation_alias="SLATE_SECRET_KEY")
+    secret_key: Optional[str] = Field(default=None, validation_alias="VSNOTE_SECRET_KEY")
 
-    port: int = Field(default=8787, validation_alias="SLATE_PORT")
+    port: int = Field(default=8787, validation_alias="VSNOTE_PORT")
 
     cf_access_team_domain: Optional[str] = Field(default=None, validation_alias="CF_ACCESS_TEAM_DOMAIN")
     cf_access_aud: Optional[str] = Field(default=None, validation_alias="CF_ACCESS_AUD")
 
-    max_blob_bytes: int = Field(default=5 * 1024 * 1024, validation_alias="SLATE_MAX_BLOB_BYTES")
+    max_blob_bytes: int = Field(default=5 * 1024 * 1024, validation_alias="VSNOTE_MAX_BLOB_BYTES")
 
     # Phase 11 (real sync) — where bare git repos live, one directory per
-    # repo name (`{SLATE_GIT_ROOT}/{repo}.git`), created on demand. Relative
+    # repo name (`{VSNOTE_GIT_ROOT}/{repo}.git`), created on demand. Relative
     # paths are resolved against the CWD the process is started from (same
-    # convention as `SLATE_DB_URL`'s sqlite path) — `npm run server` runs
+    # convention as `VSNOTE_DB_URL`'s sqlite path) — `npm run server` runs
     # uvicorn with `--app-dir server`, so the default lands at
     # `server/git-repos/`. See `app/gitrepo.py`'s module docstring for the
     # path-safety contract every repo name is validated against before this
     # setting is ever joined with user input.
-    git_root: str = Field(default="./git-repos", validation_alias="SLATE_GIT_ROOT")
+    git_root: str = Field(default="./git-repos", validation_alias="VSNOTE_GIT_ROOT")
 
     # slowapi/`limits`-syntax strings, e.g. "60/minute". Kept as plain
     # strings (not parsed here) so a Limiter can consume them directly.
-    rate_limit_default: str = Field(default="120/minute", validation_alias="SLATE_RATE_LIMIT_DEFAULT")
-    rate_limit_share_auth: str = Field(default="5/minute", validation_alias="SLATE_RATE_LIMIT_SHARE_AUTH")
-    rate_limit_share: str = Field(default="60/minute", validation_alias="SLATE_RATE_LIMIT_SHARE")
+    rate_limit_default: str = Field(default="120/minute", validation_alias="VSNOTE_RATE_LIMIT_DEFAULT")
+    rate_limit_share_auth: str = Field(default="5/minute", validation_alias="VSNOTE_RATE_LIMIT_SHARE_AUTH")
+    rate_limit_share: str = Field(default="60/minute", validation_alias="VSNOTE_RATE_LIMIT_SHARE")
 
-    session_ttl_min: int = Field(default=30, validation_alias="SLATE_SESSION_TTL_MIN")
+    session_ttl_min: int = Field(default=30, validation_alias="VSNOTE_SESSION_TTL_MIN")
 
     # Defaults True (real HTTPS deployments). server/README.md documents
     # setting this False for local http:// testing only.
-    cookie_secure: bool = Field(default=True, validation_alias="SLATE_COOKIE_SECURE")
+    cookie_secure: bool = Field(default=True, validation_alias="VSNOTE_COOKIE_SECURE")
 
     # Phase 12 (DESIGN-SPEC Amendments round 4 item 32) — "fallback-login
     # onboarding": the app-level username+password login (`routers/auth.py`)
@@ -70,8 +70,8 @@ class Settings(BaseSettings):
     # error (`main.py::bootstrap_user` raises loudly rather than silently
     # creating a half-configured account) — see that function's doc for the
     # full idempotency/never-overwrite/never-log-the-password contract.
-    bootstrap_user: Optional[str] = Field(default=None, validation_alias="SLATE_BOOTSTRAP_USER")
-    bootstrap_password: Optional[str] = Field(default=None, validation_alias="SLATE_BOOTSTRAP_PASSWORD")
+    bootstrap_user: Optional[str] = Field(default=None, validation_alias="VSNOTE_BOOTSTRAP_USER")
+    bootstrap_password: Optional[str] = Field(default=None, validation_alias="VSNOTE_BOOTSTRAP_PASSWORD")
 
 
 def resolve_secret_key(settings: Settings) -> str:
@@ -81,14 +81,14 @@ def resolve_secret_key(settings: Settings) -> str:
     very next request)."""
     if settings.secret_key:
         return settings.secret_key
-    if settings.slate_env == "prod":
-        raise RuntimeError("SLATE_SECRET_KEY is required when SLATE_ENV=prod")
+    if settings.env == "prod":
+        raise RuntimeError("VSNOTE_SECRET_KEY is required when VSNOTE_ENV=prod")
     ephemeral = secrets.token_urlsafe(32)
     warnings.warn(
-        "SLATE_SECRET_KEY is not set — using an EPHEMERAL, per-process secret "
+        "VSNOTE_SECRET_KEY is not set — using an EPHEMERAL, per-process secret "
         "key for signed cookies/sessions. This is fine for local dev only: "
         "every restart invalidates all sessions, and this MUST NOT be used "
-        "for a shared or multi-worker deployment. Set SLATE_SECRET_KEY.",
+        "for a shared or multi-worker deployment. Set VSNOTE_SECRET_KEY.",
         RuntimeWarning,
         stacklevel=2,
     )

@@ -35,7 +35,7 @@ VSNote runs entirely in your browser: a real git repository (via isomorphic-git 
 ```bash
 git clone https://github.com/sadigaxund/vsnote.git
 cd vsnote
-cp .env.example .env   # set SLATE_BOOTSTRAP_USER / SLATE_BOOTSTRAP_PASSWORD
+cp .env.example .env   # set VSNOTE_BOOTSTRAP_USER / VSNOTE_BOOTSTRAP_PASSWORD
 docker compose up
 ```
 
@@ -57,14 +57,14 @@ Everything is an environment variable with a working default; see [`.env.example
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SLATE_PORT` | `8787` | Listen port |
-| `SLATE_BOOTSTRAP_USER` / `SLATE_BOOTSTRAP_PASSWORD` | unset | Create the login account on first boot if none exists |
-| `SLATE_SECRET_KEY` | unset | Session signing key, required when `SLATE_ENV=prod` |
-| `SLATE_COOKIE_SECURE` | `true` | Set `false` only for plain-HTTP LAN testing |
+| `VSNOTE_PORT` | `8787` | Listen port |
+| `VSNOTE_BOOTSTRAP_USER` / `VSNOTE_BOOTSTRAP_PASSWORD` | unset | Create the login account on first boot if none exists |
+| `VSNOTE_SECRET_KEY` | unset | Session signing key, required when `VSNOTE_ENV=prod` |
+| `VSNOTE_COOKIE_SECURE` | `true` | Set `false` only for plain-HTTP LAN testing |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | unset | Enable Cloudflare Access JWT verification |
 
 > [!IMPORTANT]
-> For any deployment reachable from the internet, set `SLATE_ENV=prod` with a real `SLATE_SECRET_KEY`, and front the app with HTTPS (a Cloudflare tunnel pointed at the container works out of the box; the server honors forwarded proto and host headers).
+> For any deployment reachable from the internet, set `VSNOTE_ENV=prod` with a real `VSNOTE_SECRET_KEY`, and front the app with HTTPS (a Cloudflare tunnel pointed at the container works out of the box; the server honors forwarded proto and host headers).
 
 ## Testing
 

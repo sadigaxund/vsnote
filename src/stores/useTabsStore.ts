@@ -578,7 +578,10 @@ export const useTabsStore = create<TabsStoreState>()(
       },
     }),
     {
-      name: "slate-tabs",
+      // Renamed with the rest of the rebrand (DESIGN-SPEC item 34, user
+      // decision 2026-08-17) — no migration: a pre-rename session's open
+      // tabs/pane layout is not read anymore.
+      name: "vsnote-tabs",
       // v1 (Phase 6): the flat single-pane `{panes: Record<paneId,
       // PaneState>, activePaneId}` shape (every phase through 5b) is
       // replaced by a recursive `{tree: PaneNode, activePaneId}` (see this

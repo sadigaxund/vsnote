@@ -1,5 +1,5 @@
 /**
- * Shared domain types for the Slate shell.
+ * Shared domain types for the VSNote shell.
  *
  * Phase 1 renders these from hardcoded demo data (see `src/data/`), but every
  * component in `src/components/` consumes them as props rather than baking

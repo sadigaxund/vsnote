@@ -37,7 +37,7 @@ export const livePreviewTheme = EditorView.theme(
       // `editor/theme.ts`'s `&` rule: this is CodeMirror's own DOM,
       // painting over `EditorPane.tsx`'s `TexturedSurface` ancestor, so it
       // reads the canvas-specific token (transparent under every theme but
-      // Slate) instead of `--app-editor-bg` directly.
+      // VSNote) instead of `--app-editor-bg` directly.
       backgroundColor: "var(--app-editor-canvas-bg)",
       height: "100%",
     },
@@ -85,7 +85,7 @@ export const livePreviewTheme = EditorView.theme(
     // `--syntax-string` role token `editor/theme.ts`'s CM6 HighlightStyle
     // uses for Source-mode string/code tokens, rather than the separate
     // `--markdown-code-color` token — both resolve to the same value for
-    // Slate (no visual change) but now move together under every other
+    // VSNote (no visual change) but now move together under every other
     // `data-theme`. ----
     ".cm-md-code": {
       fontFamily: "var(--font-mono)",

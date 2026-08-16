@@ -19,7 +19,7 @@
  * Re-runnable: the repo name is fixed ("vault", Phase 10.5a — the app's own
  * `git/remote.ts::computeGitRemoteUrl` has no configurable Remote URL field
  * anymore, roadmap §5.4), but that's still collision-free across runs
- * because `SLATE_GIT_ROOT` is a fresh `mkdtempSync` directory per backend
+ * because `VSNOTE_GIT_ROOT` is a fresh `mkdtempSync` directory per backend
  * PROCESS (see `shareFixtures.ts`) — every whole e2e run starts with an
  * empty `git-repos/`, so "vault.git" never carries state from a previous
  * run.
@@ -44,7 +44,7 @@ const DEFAULT_BRANCH = "feat/incremental-index";
 // longer a Settings-configurable URL — it's implicitly `<origin>/git/
 // vault.git`, a FIXED repo name ("vault"), same as the app's own
 // `git/remote.ts::computeGitRemoteUrl`. This is still collision-free across
-// re-runs: `shareFixtures.ts`'s `SLATE_GIT_ROOT` is a fresh `mkdtempSync`
+// re-runs: `shareFixtures.ts`'s `VSNOTE_GIT_ROOT` is a fresh `mkdtempSync`
 // directory per e2e RUN (never reused across runs), so "vault.git" starts
 // empty every time this whole suite starts, regardless of how many times
 // it's been run before.
@@ -166,7 +166,7 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
     // to actually populate rather than a bare timeout.
     await expect(tokenInput).not.toHaveValue("");
     const token = await tokenInput.inputValue();
-    expect(token.startsWith("slt_")).toBe(true);
+    expect(token.startsWith("vsn_")).toBe(true);
 
     // "Test connection" — real reachability/auth round-trip against a repo
     // that doesn't exist yet (created on first push): reachable + authed,
@@ -205,7 +205,7 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
     await expect(page.getByTestId("app-statusbar")).not.toContainText("not synced yet");
 
     // --- 3. Independent proof: system git clone, outside the app ---------
-    const workDir = mkdtempSync(path.join(tmpdir(), "slate-git-sync-e2e-"));
+    const workDir = mkdtempSync(path.join(tmpdir(), "vsnote-git-sync-e2e-"));
     try {
       const cloneDir = path.join(workDir, "clone");
       runGit(["clone", `http://x:${token}@127.0.0.1:${SHARE_BACKEND_PORT}/git/${REPO_NAME}.git`, cloneDir], workDir);
@@ -259,7 +259,7 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
     await page.getByRole("button", { name: "Push" }).click();
     await expect(page.getByText("Pushed to remote", { exact: true })).toBeVisible();
 
-    const workDir = mkdtempSync(path.join(tmpdir(), "slate-git-merge-e2e-"));
+    const workDir = mkdtempSync(path.join(tmpdir(), "vsnote-git-merge-e2e-"));
     try {
       // --- Remote-only edit: a "second device" (system git) clones at the
       // baseline, edits a DIFFERENT file, pushes — a real fast-forward the
@@ -291,7 +291,7 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
 
       // --- Backup ref genuinely exists — structural, not hopeful. ---
       const backupRefs = await page.evaluate(() =>
-        (window as unknown as { __slateGitDebug: { listBackupRefs: () => Promise<string[]> } }).__slateGitDebug.listBackupRefs(),
+        (window as unknown as { __vsnoteGitDebug: { listBackupRefs: () => Promise<string[]> } }).__vsnoteGitDebug.listBackupRefs(),
       );
       expect(backupRefs.some((name) => name.startsWith("pre-sync-"))).toBe(true);
       console.log(`--- backup refs after auto-merge: ${JSON.stringify(backupRefs)} ---`);
@@ -337,7 +337,7 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
     await page.getByRole("button", { name: "Push" }).click();
     await expect(page.getByText("Pushed to remote", { exact: true })).toBeVisible();
 
-    const workDir = mkdtempSync(path.join(tmpdir(), "slate-git-conflict-e2e-"));
+    const workDir = mkdtempSync(path.join(tmpdir(), "vsnote-git-conflict-e2e-"));
     try {
       // --- Remote-side edit: system git rewrites that EXACT line. ---
       const cloneDir = path.join(workDir, "clone");
@@ -385,7 +385,7 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
 
       // --- Backup ref genuinely exists. ---
       const backupRefs = await page.evaluate(() =>
-        (window as unknown as { __slateGitDebug: { listBackupRefs: () => Promise<string[]> } }).__slateGitDebug.listBackupRefs(),
+        (window as unknown as { __vsnoteGitDebug: { listBackupRefs: () => Promise<string[]> } }).__vsnoteGitDebug.listBackupRefs(),
       );
       expect(backupRefs.some((name) => name.startsWith("pre-sync-"))).toBe(true);
       console.log(`--- backup refs after conflict resolution: ${JSON.stringify(backupRefs)} ---`);

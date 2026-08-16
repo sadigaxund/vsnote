@@ -107,7 +107,7 @@ def test_anonymous_git_request_rejected_with_basic_challenge(client, owner):
         headers={"User-Agent": "git/2.43.0"},
     )
     assert r.status_code == 401
-    assert r.headers["www-authenticate"] == 'Basic realm="slate-git"'
+    assert r.headers["www-authenticate"] == 'Basic realm="vsnote-git"'
 
 
 def test_bad_token_rejected(client, owner):

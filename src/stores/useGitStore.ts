@@ -277,7 +277,10 @@ export const useGitStore = create<GitStoreState>()(
       cancelConflict: () => set({ conflict: null }),
     }),
     {
-      name: "slate-git-sync",
+      // Renamed with the rest of the rebrand (DESIGN-SPEC item 34, user
+      // decision 2026-08-17) — no migration: pre-rename git sync state is
+      // not read anymore.
+      name: "vsnote-git-sync",
       // v2 (Phase 11): `ahead`/`behind` are no longer persisted at all —
       // they're real, derived-from-refs values now (see module doc), and
       // persisting a stale number across reloads would be exactly the kind

@@ -61,7 +61,7 @@ def verify_password(password_hash: str, password: str) -> bool:
 # A fixed, precomputed hash so an unknown-username login still pays the same
 # argon2 verify cost as a real one — a timing-based account-enumeration
 # guard for POST /api/auth/login (roadmap §2).
-_DUMMY_PASSWORD_HASH = _ph.hash("slate-dummy-password-for-timing-parity")
+_DUMMY_PASSWORD_HASH = _ph.hash("vsnote-dummy-password-for-timing-parity")
 
 
 def verify_password_constant_time_for_missing_user(password: str) -> None:
@@ -78,7 +78,13 @@ def verify_password_constant_time_for_missing_user(password: str) -> None:
 
 
 def generate_api_token() -> str:
-    return "slt_" + secrets.token_urlsafe(32)
+    # `vsn_` (DESIGN-SPEC item 34's rebrand): the prefix is operator-visible —
+    # it is shown in the token list and is the first thing on any token an
+    # operator pastes into a git credential helper. Safe to change: each row
+    # stores its OWN prefix (`routers/auth.py`'s `prefix=plaintext[:12]`) and
+    # lookup is by that stored value, never against this constant, so tokens
+    # minted as `slt_` before the rename keep validating unchanged.
+    return "vsn_" + secrets.token_urlsafe(32)
 
 
 def hash_token(token: str) -> str:

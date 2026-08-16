@@ -31,7 +31,7 @@ export const THEME_OPTIONS = [
   "metallic",
 ] as const;
 
-export type SlateTheme = (typeof THEME_OPTIONS)[number];
+export type AppTheme = (typeof THEME_OPTIONS)[number];
 
 /** The store's own `editorFontSize` default, exported so any *other*
  * surface that reads this setting (`editor/LivePreviewEditor.tsx`'s
@@ -93,7 +93,7 @@ export const SIDEBAR_COLLAPSE_THRESHOLD = 120;
 export const MAX_SIDEBAR_WIDTH_FALLBACK = 640;
 
 interface SettingsState {
-  theme: SlateTheme;
+  theme: AppTheme;
   accent: string;
   editorFontSize: number;
   tabSize: number;
@@ -161,7 +161,7 @@ interface SettingsState {
    * from then on, exactly like every other persisted setting here. */
   gitDeviceName: string;
 
-  setTheme: (theme: SlateTheme) => void;
+  setTheme: (theme: AppTheme) => void;
   /** Cycles to the next theme in `THEME_OPTIONS` — the command palette's
    * "Toggle theme" command (DESIGN-SPEC "Misc / settings": "toggle mode,
    * theme, sync, new file…"). */
@@ -238,7 +238,10 @@ export const useSettingsStore = create<SettingsState>()(
       setGitDeviceName: (gitDeviceName) => set({ gitDeviceName }),
     }),
     {
-      name: "slate-settings",
+      // Renamed with the rest of the rebrand (DESIGN-SPEC item 34, user
+      // decision 2026-08-17) — no migration: a pre-rename session's settings
+      // are not read anymore and every value falls back to its default.
+      name: "vsnote-settings",
       // v1 (Phase 8, DESIGN-SPEC Amendments round 3 item 23): a persisted
       // pre-Phase-8 session's `uiDensity: "comfortable"` meant "the
       // pixel-sampled baseline" (the only non-compact value that ever
@@ -283,7 +286,7 @@ export const useSettingsStore = create<SettingsState>()(
 /** Pushes `theme`/`accent`/`uiDensity` onto `<html>` — see this module's
  * header doc. `theme === "dark"` deliberately clears `data-theme` rather
  * than setting it to the literal string "dark": either matches
- * `theme.css`'s "Slate default theme" selector (`:not([data-theme]),
+ * `theme.css`'s "VSNote default theme" selector (`:not([data-theme]),
  * [data-theme="dark"]`), but clearing it is the more honest boot-equivalent
  * state (no attribute is exactly what `index.html` ships before any
  * settings code has ever run). `uiDensity === "comfortable"` similarly

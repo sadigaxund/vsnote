@@ -1,5 +1,5 @@
 /**
- * Typed client for the Slate backend (`server/`) — see `server/README.md`'s
+ * Typed client for the VSNote backend (`server/`) — see `server/README.md`'s
  * "Public share contract" section, which this file implements verbatim on
  * the client side. This module never touches the vault (no `fs/`/`git/`
  * import) and is safe to import from both the normal app shell AND the

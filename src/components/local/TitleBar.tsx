@@ -24,7 +24,7 @@
  * DESIGN-SPEC Amendments round 3 item 22(a): background is a
  * `TexturedSurface` composed behind the real content, same pattern as
  * `local/ActivityBar.tsx` (see that file's doc for the full reasoning) —
- * inert under Slate, visible under `metallic`/`glass`/`comic`/`frosted`.
+ * inert under VSNote, visible under `metallic`/`glass`/`comic`/`frosted`.
  */
 import type { ReactNode } from "react";
 import { TexturedSurface } from "my-you-eye";

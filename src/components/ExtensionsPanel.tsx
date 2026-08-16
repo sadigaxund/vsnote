@@ -35,7 +35,7 @@ export function ExtensionsPanel({ width, onWidthChange, collapsed, onCollapsedCh
         <EmptyState
           icon={<Blocks size={22} />}
           title="Extensions: not implemented"
-          description="Slate is a local-first, single-purpose workspace (CLAUDE.md rule 3). No extension marketplace is planned; this is a documented stub, not a missing feature."
+          description="VSNote is a local-first, single-purpose workspace (CLAUDE.md rule 3). No extension marketplace is planned; this is a documented stub, not a missing feature."
         />
       </div>
     </SidebarContainer>

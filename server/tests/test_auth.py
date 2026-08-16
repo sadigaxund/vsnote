@@ -17,7 +17,7 @@ def test_login_success_sets_cookie(client, owner):
     r = client.post("/api/auth/login", json={"username": OWNER_USERNAME, "password": OWNER_PASSWORD})
     assert r.status_code == 200
     assert r.json()["username"] == OWNER_USERNAME
-    assert "slate_session" in client.cookies
+    assert "vsnote_session" in client.cookies
 
 
 def test_login_unknown_user_and_wrong_password_are_identical(client, owner):

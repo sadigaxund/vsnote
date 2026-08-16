@@ -65,7 +65,7 @@ import {
   RENDERED_CONTENT_WIDTH_FULL,
   THEME_OPTIONS,
   useSettingsStore,
-  type SlateTheme,
+  type AppTheme,
   type UiDensity,
 } from "../stores/useSettingsStore";
 import { defaultModeFor } from "../filetypes/registry";
@@ -94,8 +94,8 @@ export interface SettingsViewProps {
   onRequestResetVault?: () => void;
 }
 
-const THEME_LABELS: Record<SlateTheme, string> = {
-  dark: "Dark (Slate default)",
+const THEME_LABELS: Record<AppTheme, string> = {
+  dark: "Dark (VSNote default)",
   default: "Default",
   neon: "Neon",
   contrast: "Contrast",
@@ -256,7 +256,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           keywords: "appearance color scheme dark light palette",
           content: (
             <FormField label="Theme">
-              <Select value={theme} onValueChange={(v) => setTheme(v as SlateTheme)}>
+              <Select value={theme} onValueChange={(v) => setTheme(v as AppTheme)}>
                 <SelectTrigger size="sm" style={{ width: 220 }}>
                   <SelectValue />
                 </SelectTrigger>
@@ -563,7 +563,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                   <Input
                     size="sm"
                     type="password"
-                    placeholder="slt_••••••••••••••••"
+                    placeholder="vsn_••••••••••••••••"
                     value={gitTokenDraft}
                     onChange={(e) => setGitTokenDraft(e.target.value)}
                     onBlur={() => setGitAuthToken(gitTokenDraft)}
@@ -579,7 +579,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     onClick={() => {
                       setGitTokenGenerating(true);
                       setGitTokenGenerateError(null);
-                      createApiToken("slate-git-sync", "write")
+                      createApiToken("vsnote-git-sync", "write")
                         .then((created) => {
                           setGitTokenDraft(created.token);
                           setGitAuthToken(created.token);
@@ -714,7 +714,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {reachability === "offline" && (
                 <Alert variant="warning" size="sm" title="Backend not running">
-                  Start it with <code>npm run server</code> from the repo root. The rest of Slate works fine
+                  Start it with <code>npm run server</code> from the repo root. The rest of VSNote works fine
                   without it; only sharing needs it.
                 </Alert>
               )}

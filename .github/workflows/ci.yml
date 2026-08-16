@@ -9,7 +9,7 @@ name: CI
 #   `pages`        — main-only, after `test` is green: builds the SPA with a
 #                    `/vsnote/` base path and deploys it to GitHub Pages. The
 #                    demo is client-only — no backend is deployed anywhere by
-#                    this workflow. See vite.config.ts's `SLATE_BASE_PATH`
+#                    this workflow. See vite.config.ts's `VSNOTE_BASE_PATH`
 #                    handling and docs/ARCHITECTURE.md's base-path note.
 #   `image-build`  — every run: builds the single deployment Docker image
 #                    (docker/Dockerfile) with push disabled, so a broken
@@ -200,16 +200,16 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # SLATE_BASE_PATH feeds vite's `base` (see vite.config.ts) and, through
+      # VSNOTE_BASE_PATH feeds vite's `base` (see vite.config.ts) and, through
       # it, the PWA manifest's start_url/scope/icon `src` fields and the
       # service worker's registration/precache scope — all of it derived
       # from this one env var rather than assuming Pages serves from `/`.
       # Local dev/build (no env var set) is unaffected: vite.config.ts
-      # defaults SLATE_BASE_PATH to "/".
+      # defaults VSNOTE_BASE_PATH to "/".
       - name: Build for GitHub Pages
         run: npm run build
         env:
-          SLATE_BASE_PATH: /vsnote/
+          VSNOTE_BASE_PATH: /vsnote/
 
       - name: Set up Pages
         uses: actions/configure-pages@v5

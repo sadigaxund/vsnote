@@ -70,7 +70,7 @@ test.describe("shell", () => {
     await expect(page.locator('[data-tree-path="vault/assets/cover.png"]')).toBeVisible();
   });
 
-  test("applies the Slate dark theme + teal accent design tokens", async ({ page }) => {
+  test("applies the VSNote dark theme + teal accent design tokens", async ({ page }) => {
     await gotoApp(page);
     await expect(page.locator("html")).toHaveClass(/dark/);
 

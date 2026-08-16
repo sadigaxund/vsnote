@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Re-runnable curl demo for the Slate backend (Phase 9). Proves, against a
+# Re-runnable curl demo for the VSNote backend (Phase 9). Proves, against a
 # REAL running server (not TestClient): publish a blob -> publish a share ->
 # raw GET -> password auth flow (uniform 404 deny, then real auth) -> revoke
 # -> expired. See server/README.md for the full API surface this exercises,
@@ -9,17 +9,17 @@
 #
 # Usage:
 #   1. Start the server pointed at a scratch DB, e.g.:
-#        SLATE_DB_URL=sqlite:///server/demo.db SLATE_COOKIE_SECURE=False \
+#        VSNOTE_DB_URL=sqlite:///server/demo.db VSNOTE_COOKIE_SECURE=False \
 #          server/.venv/bin/python -m uvicorn app.main:app --port 8787 --app-dir server &
-#   2. SLATE_DB_URL=sqlite:///server/demo.db server/scripts/demo.sh
+#   2. VSNOTE_DB_URL=sqlite:///server/demo.db server/scripts/demo.sh
 #
 # Re-running is safe: the bootstrap owner account is idempotent, and each
 # run publishes fresh shares (new blobs/slugs) rather than reusing state.
 
 set -euo pipefail
 
-BASE="${SLATE_DEMO_BASE:-http://127.0.0.1:8787}"
-DB_URL="${SLATE_DB_URL:-sqlite:///./slate.db}"
+BASE="${VSNOTE_DEMO_BASE:-http://127.0.0.1:8787}"
+DB_URL="${VSNOTE_DB_URL:-sqlite:///./vsnote.db}"
 SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="$SERVER_DIR/.venv/bin/python"
 
@@ -37,16 +37,16 @@ json_field() {
 echo "############################################################"
 echo "# 0. Bootstrap a demo owner account (idempotent)"
 echo "############################################################"
-# Deliberately does NOT `cd` into server/ — SLATE_DB_URL (a relative sqlite
+# Deliberately does NOT `cd` into server/ — VSNOTE_DB_URL (a relative sqlite
 # path, in the common case) must resolve the SAME way here as it did for
 # the already-running uvicorn process, i.e. relative to whatever directory
 # THIS script was invoked from. PYTHONPATH makes `app.*` importable without
 # needing to change directory.
-PYTHONPATH="$SERVER_DIR" SLATE_DB_URL="$DB_URL" "$PYTHON" -c "
+PYTHONPATH="$SERVER_DIR" VSNOTE_DB_URL="$DB_URL" "$PYTHON" -c "
 from app.db import make_engine, make_sessionmaker, Base
 from app import models, security
 import os
-engine = make_engine(os.environ['SLATE_DB_URL'])
+engine = make_engine(os.environ['VSNOTE_DB_URL'])
 Base.metadata.create_all(engine)
 db = make_sessionmaker(engine)()
 existing = db.query(models.User).filter(models.User.username == 'demo-owner').one_or_none()

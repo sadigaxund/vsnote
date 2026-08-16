@@ -39,5 +39,5 @@ server/.venv/
 __pycache__/
 .pytest_cache/
 
-# server/ (Phase 11 — bare git repos, SLATE_GIT_ROOT default)
+# server/ (Phase 11 — bare git repos, VSNOTE_GIT_ROOT default)
 server/git-repos/

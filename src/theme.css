@@ -1,5 +1,5 @@
 /**
- * Slate theme — token overrides for the app-preview.png palette.
+ * VSNote theme — token overrides for the app-preview.png palette.
  *
  * The library (`my-you-eye/styles.css`) registers its full token set via
  * `@theme` in tokens.css and ships a `.dark` override block. We don't fork
@@ -104,7 +104,7 @@
    .dataset.theme` per the library's own documented mechanism (SKILL.md:
    "switching `data-theme` + `.dark` must be enough to restyle the whole
    app"). Two requirements in tension: (1) boot must render this app's own
-   pixel-sampled Slate palette regardless of the persisted setting's exact
+   pixel-sampled VSNote palette regardless of the persisted setting's exact
    value ("the app's own dark palette must remain the default at boot"),
    and (2) picking a *different* theme in Settings must visibly change the
    app, not just the library's internals our components never touch.
@@ -115,7 +115,7 @@
      library only ships `--color-*`/`--font-*`/etc.) by DERIVING them from
      the library's own theme-varying tokens, so all ten themes get a
      coherent, legible app shell even though only one was pixel-sampled.
-   - The second block (below, "Slate default theme") matches only when
+   - The second block (below, "VSNote default theme") matches only when
      `data-theme` is absent (boot) or explicitly `"dark"` (the settings
      store's own default value) and re-asserts the exact hand-sampled hex
      values for both the library tokens AND these same app-only tokens.
@@ -173,14 +173,14 @@
      (`editor/theme.ts`, `editor/livepreview/theme.ts`) paints its `&`/
      `.cm-gutters` background OVER `EditorPane.tsx`'s texture layer, so
      that specific consumer reads a token that resolves to `transparent`
-     under every theme except Slate — a single, un-stacked layer, so the
+     under every theme except VSNote — a single, un-stacked layer, so the
      ancestor's opaque-fill-plus-texture shows through with no attenuation
      at all (nothing to compound). Verified empirically (not just reasoned
      about, see `tests/e2e/theme-compat.spec.ts`): under
      `data-theme="metallic"`/`"glass"`/`"comic"`, real screenshots of the
      sidebar's and editor's text-free regions now show luma stddev ≥ 2.0
-     and ≥ 8 distinct levels, while the SAME regions under Slate/boot stay
-     at stddev 0.000 / 1 level (this file's Slate-default block below still
+     and ≥ 8 distinct levels, while the SAME regions under VSNote/boot stay
+     at stddev 0.000 / 1 level (this file's VSNote-default block below still
      wins the cascade for those cases, unchanged). */
   /* Some library themes' DARK variants never override `--texture-blend`,
      leaving the light-mode `multiply` in place — which is very nearly a
@@ -192,7 +192,7 @@
      `screen` for exactly this reason. `screen` is the correct direction on
      a dark surface, so it is applied here for every theme in dark mode —
      a theme that simply forgot the override still reads as textured
-     instead of flat. Slate is unaffected either way: its
+     instead of flat. VSNote is unaffected either way: its
      `--texture-opacity-surface` is 0 (the library's own `dark.css`/
      `tokens.css` default), so nothing is painted regardless of blend. */
   --texture-blend: screen;
@@ -210,7 +210,7 @@
      `--app-editor-bg` directly, so it can be transparent here (letting
      `EditorPane.tsx`'s `TexturedSurface` ancestor's opaque-fill-plus-
      texture show through with no attenuation) while staying the exact
-     opaque Slate hex in the Slate-default block below. */
+     opaque VSNote hex in the VSNote-default block below. */
   --app-editor-canvas-bg: transparent;
 
   /* Git status colors — reuse the library's semantic tokens where the
@@ -247,9 +247,9 @@
      `number` get a slight `color-mix` tint split off their base token so
      they're visually distinguishable from `keyword`/`type` respectively,
      without inventing new colors the theme's own author never chose. The
-     Slate-default block below reasserts the EXACT hex values these
+     VSNote-default block below reasserts the EXACT hex values these
      resolve to today (unchanged from every phase before this one) so
-     Slate's syntax highlighting is pixel-identical; only the other nine
+     VSNote's syntax highlighting is pixel-identical; only the other nine
      themes see this generic derivation. */
   --syntax-keyword: var(--color-primary);
   --syntax-function: color-mix(in oklab, var(--color-primary) 75%, var(--color-fg));
@@ -262,7 +262,7 @@
   --syntax-comment: var(--color-muted);
 }
 
-/* ---- Slate default theme — pixel-sampled from app-preview.png, and the
+/* ---- VSNote default theme — pixel-sampled from app-preview.png, and the
    ONLY palette used at boot. Wins over the derived block above (later in
    the cascade, same specificity) whenever `data-theme` is unset (boot,
    before Settings ever writes the attribute) or explicitly "dark" (the
@@ -328,7 +328,7 @@
   --app-editor-bg: #101318;
   /* Title bar, tab strip, and status bar all share this one flat surface. */
   --app-titlebar-bg: #17191f;
-  /* Slate never gets a texture (its own `TexturedSurface` composition
+  /* VSNote never gets a texture (its own `TexturedSurface` composition
      resolves to `--texture-opacity-surface: 0` for `data-theme="dark"`/
      unset, per the library's own `themes/dark.css` and `tokens.css`
      defaults, so this would already be inert) — but CodeMirror's canvas
@@ -355,11 +355,11 @@
   --markdown-body: #bac1c8;
 
   /* Per-theme syntax palette (item 22(b)) — the EXACT effective colors
-     `editor/theme.ts`'s `HighlightStyle` has always rendered for Slate
+     `editor/theme.ts`'s `HighlightStyle` has always rendered for VSNote
      (keyword/function = teal `--color-primary`, type/number = amber
      `--git-modified`, variable/punctuation = fg, operator/string = the
      lime-green `--markdown-code-color`, comment = muted) — reasserted as
-     literal hex here (not aliases) so Slate stays pixel-identical
+     literal hex here (not aliases) so VSNote stays pixel-identical
      regardless of what the generic derived block above computes. */
   --syntax-keyword: #27d2c5;
   --syntax-function: #27d2c5;

@@ -56,7 +56,7 @@ if (typeof globalThis.Buffer === "undefined") {
 // whatever the Settings dialog last saved — no flash of the wrong theme),
 // then keep it in sync with every later change (Settings dialog edits, the
 // command palette's "Toggle theme"). See useSettingsStore.ts's
-// `applyDomSettings` doc for why boot still renders this app's own Slate
+// `applyDomSettings` doc for why boot still renders this app's own VSNote
 // palette regardless of the persisted value.
 applyDomSettings(useSettingsStore.getState());
 useSettingsStore.subscribe((state) => applyDomSettings(state));

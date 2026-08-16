@@ -72,17 +72,17 @@ json_field() {
 echo "############################################################"
 echo "# 0. Bootstrap scratch DB + owner account, start uvicorn on $BASE"
 echo "############################################################"
-export SLATE_DB_URL="sqlite:///$DB_PATH"
-export SLATE_GIT_ROOT="$GIT_ROOT"
-export SLATE_COOKIE_SECURE=False
-export SLATE_ENV=dev
-export SLATE_SECRET_KEY="single-origin-demo-fixed-secret-not-for-prod"
+export VSNOTE_DB_URL="sqlite:///$DB_PATH"
+export VSNOTE_GIT_ROOT="$GIT_ROOT"
+export VSNOTE_COOKIE_SECURE=False
+export VSNOTE_ENV=dev
+export VSNOTE_SECRET_KEY="single-origin-demo-fixed-secret-not-for-prod"
 
 PYTHONPATH="$SERVER_DIR" "$PYTHON" -c "
 from app.db import make_engine, make_sessionmaker, Base
 from app import models, security
 import os
-engine = make_engine(os.environ['SLATE_DB_URL'])
+engine = make_engine(os.environ['VSNOTE_DB_URL'])
 Base.metadata.create_all(engine)
 db = make_sessionmaker(engine)()
 db.add(models.User(username='demo-owner', password_hash=security.hash_password('demo-owner-pw-123'), email='demo-owner@example.com', is_admin=True))

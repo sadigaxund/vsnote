@@ -61,7 +61,7 @@ def test_browser_shaped_request_gets_401_without_challenge(client, owner):
 def test_git_shaped_request_gets_401_with_challenge(client, owner):
     r = _get(client, user_agent=GIT_UA)
     assert r.status_code == 401
-    assert r.headers["www-authenticate"] == 'Basic realm="slate-git"'
+    assert r.headers["www-authenticate"] == 'Basic realm="vsnote-git"'
 
 
 def test_missing_user_agent_gets_401_without_challenge(client, owner):
@@ -73,7 +73,7 @@ def test_missing_user_agent_gets_401_without_challenge(client, owner):
 def test_git_ua_matching_is_case_insensitive(client, owner):
     r = _get(client, user_agent="GIT/2.43.0")
     assert r.status_code == 401
-    assert r.headers["www-authenticate"] == 'Basic realm="slate-git"'
+    assert r.headers["www-authenticate"] == 'Basic realm="vsnote-git"'
 
 
 def test_browser_and_git_responses_are_otherwise_byte_identical(client, owner):
@@ -91,7 +91,7 @@ def test_browser_and_git_responses_are_otherwise_byte_identical(client, owner):
     browser_headers = {k.lower(): v for k, v in browser_resp.headers.items()}
     git_headers = {k.lower(): v for k, v in git_resp.headers.items()}
     assert "www-authenticate" not in browser_headers
-    assert git_headers["www-authenticate"] == 'Basic realm="slate-git"'
+    assert git_headers["www-authenticate"] == 'Basic realm="vsnote-git"'
     # Every OTHER header matches between the two classes.
     only_www_authenticate_differs = {k: v for k, v in git_headers.items() if k != "www-authenticate"}
     assert browser_headers == only_www_authenticate_differs

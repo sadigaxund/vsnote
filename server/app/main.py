@@ -106,7 +106,7 @@ def bootstrap_user(session_local, settings: Settings) -> None:
 
     Contract (every clause independently load-bearing, tested in
     `tests/test_bootstrap.py`):
-      - Both `SLATE_BOOTSTRAP_USER`/`SLATE_BOOTSTRAP_PASSWORD` unset: a
+      - Both `VSNOTE_BOOTSTRAP_USER`/`VSNOTE_BOOTSTRAP_PASSWORD` unset: a
         complete, silent no-op — this feature is fully opt-in.
       - Exactly ONE set: fails LOUDLY at startup (`RuntimeError`, so the
         process never comes up half-configured) rather than silently
@@ -138,7 +138,7 @@ def bootstrap_user(session_local, settings: Settings) -> None:
         return
     if not user or not password:
         raise RuntimeError(
-            "SLATE_BOOTSTRAP_USER and SLATE_BOOTSTRAP_PASSWORD must both be set together "
+            "VSNOTE_BOOTSTRAP_USER and VSNOTE_BOOTSTRAP_PASSWORD must both be set together "
             "(or neither) — refusing to create a half-configured bootstrap account."
         )
 
@@ -181,7 +181,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     auth_deps = build_auth_deps(get_db, settings, secret_key, jwks_fetcher)
 
     # --- root app: /share/*, /git/*, the SPA — no CORS anywhere --------
-    app = FastAPI(title="Slate backend")
+    app = FastAPI(title="VSNote backend")
     app.state.settings = settings
     app.state.secret_key = secret_key
     app.state.limiter = limiter
@@ -199,7 +199,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.mount("/git", git_http_router.build_git_app(settings, SessionLocal))
 
     # --- /api sub-app: no CORS (Phase 10.5a, roadmap §5.4) --------------
-    api_app = FastAPI(title="Slate API")
+    api_app = FastAPI(title="VSNote API")
     api_app.state.settings = settings
     api_app.state.secret_key = secret_key
     api_app.state.limiter = limiter
@@ -263,7 +263,7 @@ def __getattr__(name: str):
     something that transitively imports this module), which never
     references the `app` name at all, so it never triggers this and never
     has the side effect of building a default-settings app / writing a
-    stray server/slate.db (confirmed: `python -c "import app.main"` writes
+    stray server/vsnote.db (confirmed: `python -c "import app.main"` writes
     no file — see docs/ARCHITECTURE.md's Deviations entry for the earlier,
     weaker `sys.modules` heuristic this replaced and why it was wrong: it
     only special-cased pytest specifically, not "nobody actually asked for

@@ -13,7 +13,7 @@
  * DESIGN-SPEC Amendments round 3 item 22(a): background is a
  * `TexturedSurface` composed behind the real content, same pattern as
  * `local/ActivityBar.tsx` (see that file's doc for the full reasoning) —
- * inert under Slate, visible under `metallic`/`glass`/`comic`/`frosted`.
+ * inert under VSNote, visible under `metallic`/`glass`/`comic`/`frosted`.
  */
 import { Tooltip, TexturedSurface } from "my-you-eye";
 import type { ReactNode } from "react";
@@ -54,7 +54,7 @@ export function StatusBar({ left, right }: StatusBarProps) {
           instead of being relied upon to transmit through stacked
           translucent ancestors — see `src/theme.css`'s `.dark` block for
           the measurements that ruled the transmission approach out. Inert
-          under Slate, whose `--texture-*` values render nothing. */}
+          under VSNote, whose `--texture-*` values render nothing. */}
       <TexturedSurface
         aria-hidden
         radius="none"

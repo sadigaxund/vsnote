@@ -1,7 +1,7 @@
 [project]
-name = "slate-server"
+name = "vsnote-server"
 version = "0.1.0"
-description = "Slate v2 backend: sharing, auth, real sync (FastAPI). See docs/ROADMAP-SHARING-AUTH.md."
+description = "VSNote backend: sharing, auth, real sync (FastAPI). See docs/ROADMAP-SHARING-AUTH.md."
 requires-python = ">=3.11"
 dependencies = [
     "fastapi==0.141.1",
