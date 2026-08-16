@@ -25,6 +25,30 @@
  */
 import "fake-indexeddb/auto";
 
+/**
+ * `navigator` — required by the same lightning-fs backend as `indexedDB`:
+ * `DefaultBackend`'s constructor branches on `navigator.locks` to choose
+ * between the Web Locks mutex and its IndexedDB-backed fallback
+ * (`node_modules/@isomorphic-git/lightning-fs/src/DefaultBackend.js`), so a
+ * missing global is a hard `ReferenceError`, not a soft feature-detect.
+ *
+ * This shim exists because that global's availability depends on the Node
+ * VERSION, which is exactly the kind of accidental dependency this file's
+ * docstring above says it refuses to rely on. Node 21+ exposes a global
+ * `navigator`; Node 20 does not. The suite therefore passed on a developer
+ * machine (Node 22) and failed on CI (Node 20) with six `drafts.test.ts`
+ * failures, caught by the first real GitHub Actions run in Phase 13.
+ *
+ * Deliberately WITHOUT a `locks` property: real browsers have it, Node's
+ * built-in `navigator` does not, and omitting it pins every environment to
+ * the same IndexedDB-mutex code path that `fake-indexeddb` above already
+ * supports. Adding `locks` here would silently switch the code under test
+ * onto a different branch than the one CI and local dev exercise today.
+ */
+if (!("navigator" in globalThis)) {
+  (globalThis as unknown as { navigator: Record<string, never> }).navigator = {};
+}
+
 class MemoryStorage {
   private store = new Map<string, string>();
   get length() {

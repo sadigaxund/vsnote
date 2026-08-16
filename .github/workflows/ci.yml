@@ -32,7 +32,15 @@ env:
   # hardcodes a developer machine's ports (5173, 8787); those never appear
   # here.
   PYTHON_VERSION: "3.11"
-  NODE_VERSION: "20"
+  # Node 22 matches the development machine. This was 20, and the first real
+  # CI run failed because of the gap: Node 21+ exposes a global `navigator`
+  # and Node 20 does not, so lightning-fs's `navigator.locks` feature-detect
+  # threw a ReferenceError and took out six drafts.test.ts cases that pass
+  # locally. tests/unit/setup.ts now shims `navigator` so the suite no longer
+  # depends on the runtime version at all; pinning 22 here additionally keeps
+  # CI testing what developers actually run (and GitHub now forces Node 20
+  # actions onto Node 24 anyway).
+  NODE_VERSION: "22"
 
 jobs:
   test:
