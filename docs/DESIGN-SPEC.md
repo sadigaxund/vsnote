@@ -375,21 +375,23 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     active. (For clarity: the Pages demo is static; every visitor's vault
     lives in their own browser's IndexedDB — fully isolated per visitor,
     persistent for that visitor across refreshes, invisible to everyone else.)
-37. **Editor context menu** (pattern per the user's Obsidian reference, scoped
-    to features this app actually has — NO callouts/math/footnotes, which the
-    user rejected): right-click in the editor opens the local ContextMenu with
-    Cut / Copy / Paste / Paste as plain text / Select all, plus for markdown
-    files: Format submenu (bold, italic, strikethrough, inline code, link) and
-    Insert submenu (table, code block, horizontal rule). Actions operate on the
-    CM6 selection; menu items follow the one-row/no-em-dash copy rule.
-38. **Three-dot overflow menu + Export as PDF.** A `⋯` icon button in the title
-    bar actions cluster (and per-pane header when >1 pane) opens a menu of
-    less-frequent file actions; its first tenant is "Export as PDF": renders
-    the file's Rendered view into a print-clean layout (no app chrome, sensible
-    margins, light background, syntax-highlighted code) and invokes the
-    browser's print dialog (browser print-to-PDF is the engine; no server, no
-    new deps). "Export as HTML" may ride along if it is a trivial reuse of the
-    same pipeline.
+37. **WITHDRAWN 2026-08-17 (same day, user decision): NO editor right-click
+    menu.** The browser's native editor context menu stays untouched. The
+    Format/Insert actions originally sketched here move into item 38's
+    three-dot overflow menu instead. Do not build an editor ContextMenu.
+38. **Three-dot overflow menu: Format, Insert, Export.** A `⋯` icon button in
+    the title bar actions cluster (and per-pane header when >1 pane) opens a
+    menu (amended per user: this menu is ALSO the home of text actions, not
+    just file actions):
+    - **Format** submenu (markdown files, editable modes only; disabled
+      otherwise): bold, italic, strikethrough, inline code, link — applied to
+      the focused editor's current CM6 selection/cursor.
+    - **Insert** submenu (same gating): table, code block, horizontal rule.
+    - **Export as PDF**: renders the file's Rendered view into a print-clean
+      layout (no app chrome, sensible margins, light background,
+      syntax-highlighted code) and invokes the browser's print dialog
+      (browser print-to-PDF is the engine; no server, no new deps). "Export as
+      HTML" may ride along if it is a trivial reuse of the same pipeline.
 39. **Import into the vault: OS drag-drop + clipboard paste.** (a) Dragging
     files (and, where the browser supplies directory entries, folders) from the
     OS onto the file tree copies them into the vault at the drop location, with
@@ -399,3 +401,31 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     files + images; Firefox delivers images only — degrade gracefully, never
     error on an empty clipboard read). Binary files land as-is; a pasted bare
     image gets a timestamped filename.
+40. **Share blob limit editable in Settings** (added 2026-08-17, same day):
+    the server gains a small DB-backed runtime-settings store for
+    admin-adjustable values, first tenant: max share blob size. `GET/PUT
+    /api/admin/settings` (admin/owner-scoped, behind the normal auth; PUT
+    validates bounds, e.g. 1–100 MB), enforcement reads the DB value, and the
+    `VSNOTE_MAX_BLOB_BYTES` env var becomes the initial default written on
+    first boot (env changes apply only until an admin has set a value).
+    Settings → Sharing (visible when signed in as admin) exposes it with a
+    one-row hint. Audit-log the change like other admin actions.
+41. **Friendly git configuration management** (added 2026-08-17, same day).
+    Facts first: the tree's top folder is the LOCAL vault root directory
+    (`/vault`), and the sync remote is separately hardcoded
+    `<origin>/git/vault.git` — they match by convention only. Changes:
+    - Settings → Git & Sync becomes a real management surface: shows the
+      resolved remote URL and branch; **repo name** configurable (default
+      `vault`, making the implicit remote `<origin>/git/<repo>.git`); **vault
+      display name** renameable (the tree's top-folder label; safe FS-root
+      rename or a display-name mapping — worker's choice, but tabs,
+      breadcrumbs, and paths must stay consistent).
+    - **Advanced: custom remote override** — optional full remote URL +
+      token/credential pair for external remotes (GitHub/Gitea/another
+      VSNote), off by default. Roadmap §5.4's "no settable server URL" stands
+      for the app/API origin; the GIT REMOTE specifically is user-configurable
+      per this item (it was always the roadmap's "optionally GitHub/Gitea +
+      PAT later"). Same sync semantics on any remote: fast-forward,
+      auto-merge with backup refs, never force-push. "Test connection"
+      validates whichever remote is active and reports reachability, auth,
+      and repo existence concisely.
