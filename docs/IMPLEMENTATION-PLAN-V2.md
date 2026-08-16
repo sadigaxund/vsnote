@@ -137,9 +137,31 @@ Full spec in DESIGN-SPEC round 4. Mixed client+server phase:
   `npm test` + pytest end green with the NEW behavior codified.
 Exit: every item demonstrable; suites green; visual pass on 25/27/29/30/31.
 
+## Phase 13 — CI + GitHub Pages demo (2026-08-16, after Phase 12)
+Remote is github.com/sadigaxund/vsnote (SSH, signed commits — repo git config
+already set; never force-push).
+- `ci.yml` GitHub Actions workflow, on push/PR to main: install, lint,
+  `tsc --noEmit`, build, vitest, playwright (install browsers; bound e2e
+  workers to runner cores — the suite is contention-sensitive), server pytest
+  (venv from `server/requirements.txt`). Deterministic exit codes; at most one
+  retry and only if flakes are individually justified in the workflow comments.
+- Pages deploy job (after CI green, main only): build the SPA with a
+  configurable base path (env → vite `base`, default `/` unchanged; Pages build
+  uses `/vsnote/`) — asset URLs, PWA manifest/icons, and service-worker scope
+  must all respect the base. `actions/upload-pages-artifact` +
+  `actions/deploy-pages`.
+- The Pages demo is CLIENT-ONLY by design: share/sync surfaces show their
+  normal server-offline states (round 4 copy rules apply — must read as
+  intentional, not broken). No backend is deployed anywhere by CI.
+- Owner action (one-time, documented in README): repo Settings → Pages →
+  Source = "GitHub Actions".
+- Exit: CI green on GitHub on a real push; demo at
+  `https://sadigaxund.github.io/vsnote/` boots, edits, shows live preview and
+  git state, installs as PWA, zero broken asset/SW paths under the subpath.
+
 ## Sequencing & ownership
-8 → 9 → 10 → 10.5 → 11, strictly sequential, same orchestrator/worker pattern
-as v1.
+8 → 9 → 10 → 10.5 → 11 → 12 → 13, strictly sequential, same orchestrator/worker
+pattern as v1.
 Python work needs a venv under `server/.venv` (never global installs).
 Deployment (Cloudflare, domains) stays out of scope — local uvicorn only, with a
 `server/README.md` section sketching the intended CF Access production topology.
