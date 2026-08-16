@@ -326,6 +326,31 @@ export async function createApiToken(name: string, scope: ApiTokenScope): Promis
   return parseJsonOrThrow<TokenCreateOut>(res);
 }
 
+/** Admin-only runtime settings (DESIGN-SPEC Amendments round 5, item 40) —
+ * mirrors the server's `schemas.RuntimeSettingsOut`/`RuntimeSettingsIn`.
+ * `GET`/`PUT /api/admin/settings` are behind the same app-level identity as
+ * every other `/api/*` call in this file (`credentials: "include"`); a
+ * non-admin caller gets a 403 (`ShareApiError`), surfaced by
+ * `useShareStore.updateAdminSettings`/`fetchAdminSettings`. */
+export interface AdminSettingsOut {
+  max_blob_bytes: number;
+}
+
+export async function getAdminSettings(): Promise<AdminSettingsOut> {
+  const res = await fetch(`/api/admin/settings`, { credentials: "include" });
+  return parseJsonOrThrow<AdminSettingsOut>(res);
+}
+
+export async function putAdminSettings(maxBlobBytes: number): Promise<AdminSettingsOut> {
+  const res = await fetch(`/api/admin/settings`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ max_blob_bytes: maxBlobBytes }),
+  });
+  return parseJsonOrThrow<AdminSettingsOut>(res);
+}
+
 export async function deleteShare(id: number): Promise<void> {
   const res = await fetch(`/api/shares/${id}`, {
     method: "DELETE",

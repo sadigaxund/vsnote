@@ -24,6 +24,7 @@ from .. import models, schemas, security
 from ..audit import write_audit_event
 from ..auth import AuthContext, AuthDeps
 from ..config import Settings
+from ..runtime_settings import get_max_blob_bytes
 
 
 def _manifest_count(db: Session, share: "models.Share") -> Optional[int]:
@@ -124,7 +125,12 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         db: Session = Depends(get_db),
     ):
         content = await file.read()
-        if len(content) > settings.max_blob_bytes:
+        # DESIGN-SPEC item 40: the ceiling is the DB-backed admin setting,
+        # NEVER `settings.max_blob_bytes` directly — that config value only
+        # ever seeds the DB row once, at first boot (see
+        # `runtime_settings.py`'s module docstring and
+        # `main.py::bootstrap_runtime_settings`).
+        if len(content) > get_max_blob_bytes(db):
             raise HTTPException(status_code=413, detail="Blob exceeds the configured maximum size")
         digest = hashlib.sha256(content).hexdigest()
         if db.get(models.Blob, digest) is None:

@@ -97,6 +97,7 @@ from .. import models, policy, schemas, security
 from ..audit import write_audit_event
 from ..auth import AuthDeps
 from ..config import Settings
+from ..runtime_settings import get_max_blob_bytes
 
 # Module-level constant, used UNCONDITIONALLY for the raw response — it is
 # structurally impossible for this endpoint to emit text/html because this
@@ -589,7 +590,10 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             return policy.not_found_response()
 
         body = await request.body()
-        if len(body) > settings.max_blob_bytes:
+        # DESIGN-SPEC item 40: DB-backed admin setting, not the config
+        # value directly — see routers/shares.py::create_blob's identical
+        # comment and runtime_settings.py's module docstring.
+        if len(body) > get_max_blob_bytes(db):
             raise HTTPException(status_code=413, detail="Blob exceeds maximum size")
 
         digest = hashlib.sha256(body).hexdigest()

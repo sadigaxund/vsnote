@@ -165,6 +165,7 @@ class AuthDeps:
     get_optional_auth_context: Callable
     require_auth_context: Callable
     require_scope: Callable[[Set[str]], Callable]
+    require_admin: Callable
 
 
 def build_auth_deps(get_db, settings: Settings, secret_key: str, jwks_fetcher: JWKSFetcher) -> AuthDeps:
@@ -217,8 +218,43 @@ def build_auth_deps(get_db, settings: Settings, secret_key: str, jwks_fetcher: J
 
         return _dep
 
+    def require_admin(ctx: AuthContext = Depends(require_auth_context)) -> AuthContext:
+        """`/api/admin/*` gate (DESIGN-SPEC item 40) — reuses the SAME
+        `User.is_admin` flag `GET /api/auth/whoami` already exposes, no
+        parallel notion of "admin" invented. Deny posture deliberately
+        matches every other `/api/*` route's established pattern (NOT the
+        `/share/*` uniform-404 policy gate in policy.py — that gate exists
+        specifically to prevent a slug-existence oracle on secret share
+        links guessed by an anonymous caller; there is no analogous secret
+        here, the route's existence isn't sensitive, only the caller's
+        privilege is): no identity at all -> 401 "Authentication required"
+        (`require_auth_context` above, same as e.g. `POST /api/blobs` /
+        `POST /api/shares`); identity established but not an admin -> 403,
+        the exact status `require_scope` already uses for "authenticated
+        but not permitted" (see test_shares_api.py::
+        test_read_scope_token_rejected_for_blob_write). A scoped API token
+        belonging to an admin user IS allowed through here: `TokenScope` has
+        no "admin" tier to check, and the brief was to reuse `is_admin` as
+        the sole signal rather than invent one."""
+        if not ctx.user.is_admin:
+            raise HTTPException(status_code=403, detail="Admin privileges required")
+        # API tokens are rejected here even when their owner IS an admin.
+        # `models.TokenScope` has no admin tier, so `is_admin` alone would let
+        # the WEAKEST credential the app can mint — a read-scoped token, made
+        # for a script or a git client — rewrite server runtime settings. That
+        # is privilege escalation past the scope the owner chose: a leaked
+        # read token should never be able to do more than read. Admin routes
+        # therefore require an interactive identity (session cookie or
+        # Cf-Access), which is also the only thing the Settings UI ever uses.
+        # If a non-browser admin caller is ever needed, add a real "admin"
+        # TokenScope and check it here — do not relax this to `is_admin`.
+        if ctx.scope is not None:
+            raise HTTPException(status_code=403, detail="Admin privileges required")
+        return ctx
+
     return AuthDeps(
         get_optional_auth_context=get_optional_auth_context,
         require_auth_context=require_auth_context,
         require_scope=require_scope,
+        require_admin=require_admin,
     )

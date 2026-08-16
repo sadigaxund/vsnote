@@ -78,10 +78,11 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from . import models, security
+from . import models, runtime_settings, security
 from .auth import JWKSFetcher, build_auth_deps
 from .config import Settings, resolve_secret_key
 from .db import Base, make_engine, make_sessionmaker
+from .routers import admin as admin_router
 from .routers import auth as auth_router
 from .routers import git_http as git_http_router
 from .routers import share_public as share_public_router
@@ -160,6 +161,33 @@ def bootstrap_user(session_local, settings: Settings) -> None:
         db.close()
 
 
+def bootstrap_runtime_settings(session_local, settings: Settings) -> None:
+    """DESIGN-SPEC Amendments round 5, item 40 — seeds
+    `models.RuntimeSettings` (the singleton admin-settings row) from
+    `VSNOTE_MAX_BLOB_BYTES` the FIRST time an app boots against a DB that
+    doesn't have the row yet. Idempotent and never-overwrite, same shape as
+    `bootstrap_user` above: once the row exists (from a prior boot's seed OR
+    an admin's `PUT /api/admin/settings`), this is a complete no-op, which
+    is exactly what makes "the env var seeds the initial default, then an
+    admin-set value always wins" true across restarts — see
+    `app/runtime_settings.py`'s module docstring for the full precedence
+    contract every enforcement site depends on.
+    """
+    db = session_local()
+    try:
+        if db.get(models.RuntimeSettings, runtime_settings.RUNTIME_SETTINGS_ID) is not None:
+            return
+        db.add(
+            models.RuntimeSettings(
+                id=runtime_settings.RUNTIME_SETTINGS_ID,
+                max_blob_bytes=settings.max_blob_bytes,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
     settings = settings or Settings()
     secret_key = resolve_secret_key(settings)
@@ -168,6 +196,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     SessionLocal = make_sessionmaker(engine)
     Base.metadata.create_all(engine)
     bootstrap_user(SessionLocal, settings)
+    bootstrap_runtime_settings(SessionLocal, settings)
 
     def get_db():
         db = SessionLocal()
@@ -210,6 +239,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     api_app.include_router(auth_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(shares_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(share_public_router.build_content_router(get_db, limiter, settings, secret_key, auth_deps))
+    api_app.include_router(admin_router.build_router(get_db, auth_deps))
 
     app.mount("/api", api_app)
 

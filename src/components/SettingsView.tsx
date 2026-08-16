@@ -199,6 +199,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const reachability = useShareStore((s) => s.reachability);
   const authenticated = useShareStore((s) => s.authenticated);
   const shareUsername = useShareStore((s) => s.username);
+  const isAdmin = useShareStore((s) => s.isAdmin);
   const loggingIn = useShareStore((s) => s.loggingIn);
   const loginError = useShareStore((s) => s.loginError);
   const probeShareBackend = useShareStore((s) => s.probe);
@@ -207,6 +208,29 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [editingShare, setEditingShare] = useState<ShareOut | null>(null);
+
+  // DESIGN-SPEC Amendments round 5, item 40 — admin-only share blob size
+  // limit. `adminMaxBlobBytes` lives in useShareStore (same home as every
+  // other backend-derived value here). `maxBlobMbOverride` is null until
+  // the admin actually edits the field — while null the input just DISPLAYS
+  // the store's current value (derived inline, not synced via a second
+  // effect: setState-in-effect for a value already available at render
+  // time is an anti-pattern lint flags). It's reset to null on a
+  // successful save so the field goes back to reflecting the store.
+  const isAdminSignedIn = authenticated && isAdmin;
+  const adminMaxBlobBytes = useShareStore((s) => s.adminMaxBlobBytes);
+  const adminSettingsError = useShareStore((s) => s.adminSettingsError);
+  const fetchAdminSettings = useShareStore((s) => s.fetchAdminSettings);
+  const updateAdminSettings = useShareStore((s) => s.updateAdminSettings);
+  const [maxBlobMbOverride, setMaxBlobMbOverride] = useState<string | null>(null);
+  const [savingMaxBlob, setSavingMaxBlob] = useState(false);
+  const maxBlobMbDisplay =
+    maxBlobMbOverride ?? (adminMaxBlobBytes != null ? String(Math.round(adminMaxBlobBytes / (1024 * 1024))) : "");
+
+  useEffect(() => {
+    if (isAdminSignedIn) void fetchAdminSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdminSignedIn]);
 
   // Phase 11 (real sync) — "Test connection" state for the Git & Sync
   // category. Plain local state (not a store): purely transient UI
@@ -793,6 +817,61 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           keywords: "shares links published revoke regenerate hits audit expiry password access",
           content: <SharedPanel authenticated={authenticated} onEditShare={setEditingShare} />,
         },
+        // DESIGN-SPEC Amendments round 5, item 40 — admin-only, hidden
+        // entirely (not disabled) for a non-admin/signed-out caller, same
+        // treatment `rowMatches`/search already gives every other row: a
+        // row that isn't in this array can't be found by search either.
+        ...(isAdminSignedIn
+          ? [
+              {
+                id: "admin-blob-limit",
+                label: "Share blob size limit",
+                keywords: "admin blob size limit max upload mb bytes share",
+                content: (
+                  <FormField label="Share blob size limit" hint="Maximum share upload size in MB, from 1 to 100.">
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Input
+                        size="sm"
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={maxBlobMbDisplay}
+                        onChange={(e) => setMaxBlobMbOverride(e.target.value)}
+                        aria-label="Share blob size limit in megabytes"
+                        data-testid="admin-max-blob-mb"
+                        style={{ width: 90 }}
+                      />
+                      <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>MB</span>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={savingMaxBlob}
+                        data-testid="admin-max-blob-save"
+                        onClick={() => {
+                          const mb = Number(maxBlobMbDisplay);
+                          if (!Number.isFinite(mb) || mb < 1 || mb > 100) return;
+                          setSavingMaxBlob(true);
+                          void updateAdminSettings(Math.round(mb * 1024 * 1024))
+                            .then((ok) => {
+                              if (ok) setMaxBlobMbOverride(null);
+                            })
+                            .finally(() => setSavingMaxBlob(false));
+                        }}
+                      >
+                        {savingMaxBlob ? <Loader2 size={13} className="animate-spin" /> : "Save"}
+                      </Button>
+                    </div>
+                    {adminSettingsError && (
+                      <Alert variant="danger" size="sm" style={{ marginTop: 8 }}>
+                        {adminSettingsError}
+                      </Alert>
+                    )}
+                  </FormField>
+                ),
+              },
+            ]
+          : []),
       ],
     },
     {

@@ -7,6 +7,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from .runtime_settings import MAX_MAX_BLOB_BYTES, MIN_MAX_BLOB_BYTES
+
 # --- Auth ------------------------------------------------------------------
 
 
@@ -218,3 +220,20 @@ class ShareManifestOut(BaseModel):
     tree's excluded state (an entry NOT in this list is excluded)."""
 
     entries: List[ManifestEntryOut]
+
+
+# --- Admin runtime settings (DESIGN-SPEC Amendments round 5, item 40) -----
+
+
+class RuntimeSettingsOut(BaseModel):
+    max_blob_bytes: int
+
+
+class RuntimeSettingsIn(BaseModel):
+    """`PUT /api/admin/settings` body. Bounds enforced HERE (pydantic
+    `ge`/`le`, backed by the same constants `runtime_settings.py`'s
+    enforcement sites use) so an out-of-range value is a plain 422
+    validation error at the API boundary, never a crash and never silently
+    clamped."""
+
+    max_blob_bytes: int = Field(ge=MIN_MAX_BLOB_BYTES, le=MAX_MAX_BLOB_BYTES)

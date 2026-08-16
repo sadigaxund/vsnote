@@ -15,7 +15,8 @@ from . import models
 # Recognized event names (roadmap-driven; not DB-enforced, kept as a plain
 # string column so new event kinds don't need a migration):
 #   auth.failure, policy.deny, share.publish, share.revoke, share.access,
-#   token.create, token.revoke, login.success, login.failure
+#   token.create, token.revoke, login.success, login.failure,
+#   admin.settings_update
 
 
 def write_audit_event(

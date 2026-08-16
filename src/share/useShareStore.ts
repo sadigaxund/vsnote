@@ -19,6 +19,10 @@ interface ShareStoreState {
   reachability: BackendReachability;
   authenticated: boolean;
   username: string | null;
+  /** DESIGN-SPEC Amendments round 5, item 40 — mirrors `whoami().is_admin`,
+   * re-derived on every `probe()` the same way `authenticated` is. Gates
+   * the Settings -> Sharing "Share blob size limit" control. */
+  isAdmin: boolean;
   loginError: string | null;
   loggingIn: boolean;
 
@@ -26,12 +30,24 @@ interface ShareStoreState {
   sharesLoading: boolean;
   sharesError: string | null;
 
+  /** Item 40 admin runtime setting — the current DB-backed max share blob
+   * size in bytes, or `null` before the first successful fetch. */
+  adminMaxBlobBytes: number | null;
+  adminSettingsLoading: boolean;
+  adminSettingsError: string | null;
+
   /** Re-runs the reachability + auth probe (`GET /api/auth/whoami`,
    * fail-closed — see `api.ts`'s doc). Safe to call on every boot and every
    * time the Settings "Sharing" category mounts; never throws. */
   probe: () => Promise<void>;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
+  /** Item 40 — `GET /api/admin/settings`. Never throws; failures (network,
+   * non-admin) land in `adminSettingsError`. */
+  fetchAdminSettings: () => Promise<void>;
+  /** Item 40 — `PUT /api/admin/settings`. Returns whether it succeeded;
+   * failures also land in `adminSettingsError` for the caller to show. */
+  updateAdminSettings: (maxBlobBytes: number) => Promise<boolean>;
   refreshShares: () => Promise<void>;
   publish: (input: PublishInput) => Promise<api.ShareOut>;
   /** Phase 10.5 — publish a NEW folder share. Uploads one blob per included
@@ -70,6 +86,7 @@ export const useShareStore = create<ShareStoreState>()((set, get) => ({
   reachability: "unknown",
   authenticated: false,
   username: null,
+  isAdmin: false,
   loginError: null,
   loggingIn: false,
 
@@ -77,21 +94,37 @@ export const useShareStore = create<ShareStoreState>()((set, get) => ({
   sharesLoading: false,
   sharesError: null,
 
+  adminMaxBlobBytes: null,
+  adminSettingsLoading: false,
+  adminSettingsError: null,
+
   probe: async () => {
     set({ reachability: "checking" });
     const who = await api.whoami();
     if (who === null) {
-      set({ reachability: "offline", authenticated: false, username: null });
+      set({ reachability: "offline", authenticated: false, username: null, isAdmin: false });
       return;
     }
-    set({ reachability: "online", authenticated: who.authenticated, username: who.username ?? null });
+    set({
+      reachability: "online",
+      authenticated: who.authenticated,
+      username: who.username ?? null,
+      isAdmin: who.is_admin ?? false,
+    });
   },
 
   login: async (username, password) => {
     set({ loggingIn: true, loginError: null });
     try {
       await api.login(username, password);
-      set({ authenticated: true, username, loggingIn: false, reachability: "online" });
+      const who = await api.whoami();
+      set({
+        authenticated: true,
+        username,
+        isAdmin: who?.is_admin ?? false,
+        loggingIn: false,
+        reachability: "online",
+      });
       return true;
     } catch (err) {
       const message = err instanceof api.ShareApiError ? err.message : "Could not reach the backend.";
@@ -102,7 +135,31 @@ export const useShareStore = create<ShareStoreState>()((set, get) => ({
 
   logout: async () => {
     await api.logout();
-    set({ authenticated: false, username: null, shares: [] });
+    set({ authenticated: false, username: null, isAdmin: false, shares: [], adminMaxBlobBytes: null });
+  },
+
+  fetchAdminSettings: async () => {
+    set({ adminSettingsLoading: true, adminSettingsError: null });
+    try {
+      const settings = await api.getAdminSettings();
+      set({ adminMaxBlobBytes: settings.max_blob_bytes, adminSettingsLoading: false });
+    } catch (err) {
+      const message = err instanceof api.ShareApiError ? err.message : "Could not load the share size limit.";
+      set({ adminSettingsLoading: false, adminSettingsError: message });
+    }
+  },
+
+  updateAdminSettings: async (maxBlobBytes) => {
+    set({ adminSettingsLoading: true, adminSettingsError: null });
+    try {
+      const settings = await api.putAdminSettings(maxBlobBytes);
+      set({ adminMaxBlobBytes: settings.max_blob_bytes, adminSettingsLoading: false });
+      return true;
+    } catch (err) {
+      const message = err instanceof api.ShareApiError ? err.message : "Could not save the share size limit.";
+      set({ adminSettingsLoading: false, adminSettingsError: message });
+      return false;
+    }
   },
 
   refreshShares: async () => {

@@ -188,6 +188,28 @@ class ShareGrant(Base):
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
+class RuntimeSettings(Base):
+    """Singleton row (`id` is always `RUNTIME_SETTINGS_ID`, see
+    `app/runtime_settings.py`) holding admin-adjustable runtime values
+    (DESIGN-SPEC Amendments round 5, item 40). This phase's only tenant is
+    `max_blob_bytes` — the ceiling enforced on `POST /api/blobs`
+    (`routers/shares.py`) and the share-editor `PUT /share/{id}` write-back
+    (`routers/share_public.py`). Seeded ONCE, at first boot, from
+    `Settings.max_blob_bytes` (env `VSNOTE_MAX_BLOB_BYTES`) by
+    `main.py::bootstrap_runtime_settings`; after that the row is
+    authoritative and the env var has no further effect (see
+    `app/runtime_settings.py`'s module docstring for the full precedence
+    contract). A future admin-adjustable value becomes a new column on this
+    same row, not a new table — keeps this a genuinely "small" settings
+    store rather than a generic key/value blob."""
+
+    __tablename__ = "runtime_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    max_blob_bytes: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
