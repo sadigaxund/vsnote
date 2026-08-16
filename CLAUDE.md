@@ -4,8 +4,10 @@ A local-first note/code workspace: VSCode's shell and power (file tree, tabs, gi
 highlighting, diffs) with Obsidian's writing experience (rendered markdown with
 live-preview editing). Browser-only — no server, no terminal, no code execution.
 
-The visual target is `app-preview.png` at the repo root. Match it closely: near-black
-surfaces, teal/cyan accent, mono UI chrome. Read `docs/DESIGN-SPEC.md` before building UI.
+The visual target was a reference screenshot (`app-preview.png`, removed from the
+repo 2026-08-17 along with `search.png`; both remain in git history pre-removal):
+near-black surfaces, teal/cyan accent, mono UI chrome. `docs/DESIGN-SPEC.md` is now
+the sole visual authority — read it before building UI.
 
 ## Rules for every agent working in this repo
 

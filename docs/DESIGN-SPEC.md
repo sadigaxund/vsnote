@@ -1,6 +1,8 @@
 # Design spec — "Slate"
 
-Source of truth: `app-preview.png` (repo root). This doc translates that image into
+Source of truth: originally `app-preview.png` (removed from the repo 2026-08-17,
+user request, along with `search.png`; available in git history pre-removal —
+this doc is now the standalone authority). This doc translates that image into
 buildable detail. When in doubt, open the image and match it.
 
 ## Overall look

@@ -179,6 +179,21 @@ stage runs `npm ci && npm run build`, final python-slim stage installs
     tunnel topology (user runs one already; example only, not enabled).
 - CI (extends Phase 13's workflow): a job that builds the image so a broken
   Dockerfile fails CI. No registry publishing unless the user asks.
+- CI finalization (user request 2026-08-17):
+  - `workflow_dispatch` manual trigger on the CI workflow.
+  - CalVer ("datever") releases: a release job, manually triggered
+    (`workflow_dispatch`) or on `v*`/date tag push, that tags `YYYY.MM.DD`
+    (same-day reruns suffix `.N`), creates a GitHub release with generated
+    notes seeded from CHANGELOG.md's Unreleased section, and attaches the
+    Docker deployment files as assets: `Dockerfile`, `docker-compose.yml`,
+    `.env.example`. Release job runs only after the test + image-build jobs
+    are green. Image publishing to a registry stays owner-driven (single
+    image, dockerhub-ready) — CI does not push images.
+- Repo hygiene (same date, done by the coordinator): CHANGELOG.md added
+  (CalVer, intro summary, Unreleased section that release notes draw from);
+  `app-preview.png` + `search.png` removed from the tree (git history keeps
+  them; CLAUDE.md + DESIGN-SPEC updated — DESIGN-SPEC is now the sole visual
+  authority).
 - Docs: server/README.md gains a Docker section; root README (housekeeping)
   shows `docker compose up` as the quickest full-stack start.
 - Exit: from a clean checkout, `docker compose up` alone serves the full app on
