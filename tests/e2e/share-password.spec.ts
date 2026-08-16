@@ -15,13 +15,22 @@ import { publishFileViaContextMenu, signInToShareBackend } from "./shareUiHelper
 // This spec shares that one backend/database with the other three
 // `share-*.spec.ts` files; its own share is a fresh, uniquely-slugged row
 // so other specs' shares in the same DB never affect it.
+//
+// Phase 12c flake fix: this used to target the same file
+// (`vault/notes/architecture.md`) as `share-panel.spec.ts` AND
+// `share-publish-revoke.spec.ts`, under the same `e2e-owner` account — a
+// real cross-spec race (see `share-publish-revoke.spec.ts`'s longer note),
+// since the Explorer row context menu flips from "Publish…" to "Manage
+// share…" the instant ANY of the three specs' publish call for that exact
+// path lands first on the shared backend. Each of the three now targets a
+// different seeded vault file so none of them can collide.
 test.describe("password-protected share", () => {
   test("wrong password shows the identical generic state; correct password renders content", async ({ page, browser }) => {
     await gotoApp(page);
     await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 
     const link = await publishFileViaContextMenu(page, {
-      treePath: "vault/notes/architecture.md",
+      treePath: "vault/notes/daily-2026-08-14.md",
       generalAccess: "link",
       renderMode: "rendered",
       password: "correct-share-password-1",
@@ -48,6 +57,6 @@ test.describe("password-protected share", () => {
     // Correct password — content renders.
     await secondPage.getByTestId("share-password-input").fill("correct-share-password-1");
     await secondPage.getByTestId("share-password-submit").click();
-    await expect(secondPage.getByText("Indexing architecture", { exact: false })).toBeVisible();
+    await expect(secondPage.getByText("Wired the git status matrix", { exact: false })).toBeVisible();
   });
 });

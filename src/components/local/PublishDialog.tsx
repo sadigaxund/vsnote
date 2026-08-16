@@ -357,6 +357,12 @@ export function PublishDialog({
             <Alert variant="info" size="sm" title="Sign in to publish">
               Publishing requires an owner session on the backend.
             </Alert>
+            {/* DESIGN-SPEC Amendments round 4 item 32: the fallback-login
+                onboarding hint the signed-out state was missing, one row
+                per item 28. */}
+            <p style={{ fontSize: 12, color: "var(--color-muted)", margin: 0, whiteSpace: "nowrap" }}>
+              No account yet? Set SLATE_BOOTSTRAP_USER/PASSWORD or run create_user.py.
+            </p>
             <div style={{ display: "flex", gap: 8 }}>
               <Input
                 size="sm"
