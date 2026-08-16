@@ -159,9 +159,36 @@ already set; never force-push).
   `https://sadigaxund.github.io/vsnote/` boots, edits, shows live preview and
   git state, installs as PWA, zero broken asset/SW paths under the subpath.
 
+## Phase 14 — Containerization (2026-08-16, after Phase 13)
+Single-origin (roadmap §5.4) means ONE image: multi-stage Dockerfile — node
+stage runs `npm ci && npm run build`, final python-slim stage installs
+`server/requirements.txt`, copies `server/` + built `dist/`, runs uvicorn with
+`--proxy-headers` as a NON-ROOT user. No dev deps, no node, in the final image.
+- `docker-compose.yml` at repo root, service `vsnote`:
+  - Port: host-configurable via env (default 8787).
+  - Named volumes for ALL persistent state: the SQLite DB and `SLATE_GIT_ROOT`
+    (bare sync repos). Nothing persistent may live outside a volume — verify by
+    `compose down && up` (data survives) vs `down -v` (documented as the
+    factory reset).
+  - Every `SLATE_*` setting passes through as compose env with sane defaults;
+    ship `.env.example` for compose (bootstrap user/password, cookie-secure,
+    Cf-Access issuer/audience, port). Secrets only via env/.env, never baked
+    into the image.
+  - Container healthcheck hitting the health endpoint.
+  - Optional commented-out `cloudflared` sidecar service showing the intended
+    tunnel topology (user runs one already; example only, not enabled).
+- CI (extends Phase 13's workflow): a job that builds the image so a broken
+  Dockerfile fails CI. No registry publishing unless the user asks.
+- Docs: server/README.md gains a Docker section; root README (housekeeping)
+  shows `docker compose up` as the quickest full-stack start.
+- Exit: from a clean checkout, `docker compose up` alone serves the full app on
+  the configured port; bootstrap user from env works; publish + sync verified
+  against the container; state survives down/up; image build job green in CI.
+
 ## Sequencing & ownership
-8 → 9 → 10 → 10.5 → 11 → 12 → 13, strictly sequential, same orchestrator/worker
-pattern as v1.
+8 → 9 → 10 → 10.5 → 11 → 12 → 13 → 14, strictly sequential, same
+orchestrator/worker pattern as v1. Housekeeping (README/LICENSE) and the
+backlog→issues export run after Phase 14.
 Python work needs a venv under `server/.venv` (never global installs).
 Deployment (Cloudflare, domains) stays out of scope — local uvicorn only, with a
 `server/README.md` section sketching the intended CF Access production topology.
