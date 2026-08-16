@@ -2,7 +2,14 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- The BASE_URL placeholder below is Vite's own built-in index.html
+         substitution (resolves to the configured `base`, e.g. "/" locally
+         or "/vsnote/" on GitHub Pages — see vite.config.ts's BASE) for
+         exactly this case: a raw reference to a public/ asset, which Vite
+         does NOT auto-rewrite the way it rewrites <script>/<link> tags it
+         processes as part of the module graph. A hardcoded "/favicon.svg"
+         here would 404 under any non-root base. -->
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VSNote</title>
   </head>

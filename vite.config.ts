@@ -53,6 +53,26 @@ function computeExcludedIconChunkNames(): Set<string> {
 const EXCLUDED_ICON_CHUNKS = computeExcludedIconChunkNames();
 
 /**
+ * Phase 13 (CI + GitHub Pages demo) — configurable deploy base path.
+ * Defaults to "/" so every existing local flow (dev, build, preview, the
+ * e2e suite's `vite preview` on port 5290) is byte-for-byte unchanged from
+ * before this phase. CI's Pages job sets `SLATE_BASE_PATH=/vsnote/` (see
+ * `.github/workflows/ci.yml`'s `pages` job) because GitHub Pages serves a
+ * project site from `https://<user>.github.io/<repo>/`, not from the
+ * origin root — every asset URL, the PWA manifest, and the service worker
+ * all need to know that prefix, or the demo 404s its own assets the moment
+ * it's not served from `/`. See docs/ARCHITECTURE.md's base-path note.
+ *
+ * Always ends with a trailing slash (vite's own `base` contract — see
+ * https://vite.dev/config/shared-options.html#base) so `${BASE}foo.png`
+ * concatenation below never needs a separate separator.
+ */
+const BASE = (() => {
+  const raw = process.env.SLATE_BASE_PATH ?? "/";
+  return raw.endsWith("/") ? raw : `${raw}/`;
+})();
+
+/**
  * Phase 10 (sharing), extended Phase 10.5a (single-origin refactor, roadmap
  * §5.4) — dev/preview-only proxy for backend routes that need to be reached
  * SAME-ORIGIN from the SPA. In production this is moot: `server/app/
@@ -206,6 +226,14 @@ export default defineConfig({
       // nothing ever told the page to reload onto it).
       injectRegister: false,
       includeAssets: ["favicon.svg", "icons.svg"],
+      // `base`/`scope` (the plugin's own top-level options, distinct from
+      // the `manifest.scope` web-manifest field below) already default to
+      // vite's resolved `base` per vite-plugin-pwa's own docs — passed
+      // explicitly here anyway so the SW registration path and precache
+      // URL prefix are visibly tied to `BASE` rather than relying on an
+      // implicit default reading vite's config correctly.
+      base: BASE,
+      scope: BASE,
       manifest: {
         name: "Slate",
         short_name: "Slate",
@@ -214,12 +242,20 @@ export default defineConfig({
         theme_color: "#0e1015",
         background_color: "#0e1015",
         display: "standalone",
-        start_url: "/",
-        scope: "/",
+        // Unlike the plugin's own top-level `base`/`scope` above, these are
+        // literal Web App Manifest fields (the W3C spec's `start_url`/
+        // `scope`) — vite-plugin-pwa does NOT derive them from vite's
+        // `base` on its own, so they're computed from `BASE` explicitly.
+        // Left hardcoded at "/" (as this file did pre-Phase-13), a
+        // `/vsnote/`-hosted install would register a PWA whose manifest
+        // claims scope "/" — outside what the origin actually lets it
+        // control, breaking install/standalone-launch on GitHub Pages.
+        start_url: BASE,
+        scope: BASE,
         icons: [
-          { src: "/pwa-192x192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-          { src: "/pwa-maskable-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+          { src: `${BASE}pwa-192x192.png`, sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: `${BASE}pwa-512x512.png`, sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: `${BASE}pwa-maskable-512x512.png`, sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
       workbox: {
@@ -249,6 +285,12 @@ export default defineConfig({
       },
     }),
   ],
+  // See `BASE`'s doc above — this is the one setting that actually drives
+  // where Vite emits/expects every built asset URL (JS/CSS chunks, the
+  // entry script tag rewritten into index.html, and `%BASE_URL%` in
+  // index.html itself). Defaults to "/", so a plain `npm run build`/`vite
+  // preview`/`vite dev` with no env var is unchanged.
+  base: BASE,
   // Phase 10 (sharing) — see `shareAuthProxy`'s doc above. Both `vite dev`
   // (`server.proxy`) and `vite preview` (`preview.proxy` — a SEPARATE Vite
   // option; `server.proxy` alone does NOT apply to `vite preview`) need it,
