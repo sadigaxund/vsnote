@@ -232,7 +232,7 @@ export async function runSync(
   if (state === "behind-only") {
     const { changedCount } = await computeStatus();
     if (changedCount > 0) {
-      throw new SyncError("dirty", "You have uncommitted changes — commit them before syncing (fast-forward would touch the working tree).");
+      throw new SyncError("dirty", "You have uncommitted changes. Commit them before syncing.");
     }
     const backupRef = await createBackupRef();
     await fastForwardBranch(branch);
@@ -247,13 +247,13 @@ export async function runSync(
   // Diverged — roadmap §5.2's auto-merge policy.
   const { changedCount } = await computeStatus();
   if (changedCount > 0) {
-    throw new SyncError("dirty", "You have uncommitted changes — commit them before syncing (a merge needs a clean working tree to start from).");
+    throw new SyncError("dirty", "You have uncommitted changes. Commit them before syncing.");
   }
 
   const ourOid = await git.resolveRef({ fs, dir: GIT_DIR, ref: branch });
   const theirOid = await remoteTrackingOid(branch);
   if (!theirOid) {
-    throw new SyncError("unknown", "The remote-tracking ref vanished mid-sync — try again.");
+    throw new SyncError("unknown", "The remote-tracking ref vanished mid-sync. Try again.");
   }
   const bases = await git.findMergeBase({ fs, dir: GIT_DIR, oids: [ourOid, theirOid] });
   const baseOid: string | null = bases[0] ?? null;

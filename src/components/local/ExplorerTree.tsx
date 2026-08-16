@@ -76,7 +76,7 @@ function shareIndicatorTooltip(share: ExplorerShareRow, own: boolean): string {
   const access = share.general_access === "link" ? "Anyone with the link" : "Restricted";
   const kindLabel = share.kind === "folder" ? "folder" : "file";
   const prefix = own ? `Shared ${kindLabel}` : `Inside a shared folder`;
-  return `${prefix}: /share/${id} — ${access} — ${share.hit_count} hit${share.hit_count === 1 ? "" : "s"}`;
+  return `${prefix}: /share/${id} (${access}, ${share.hit_count} hit${share.hit_count === 1 ? "" : "s"})`;
 }
 
 function parentOfPath(path: string): string {
@@ -117,6 +117,14 @@ export interface ExplorerTreeProps {
    * matches nested in collapsed folders (e.g. `assets/`) stay visible. */
   expandAll?: boolean;
   renamingId?: string | null;
+  /** DESIGN-SPEC Amendments round 4 item 30 — forces this one folder id
+   * open regardless of its own collapsed/`userExpanded` state, same
+   * mechanism as the existing drag-hover `autoExpandPath` below just
+   * driven by "a new-file/folder draft was just created inside it" instead
+   * of a drag gesture. `App.tsx` passes the draft's `parentPath` here so a
+   * collapsed folder still reveals the draft row the moment "New file" is
+   * chosen on it. */
+  forceExpandId?: string | null;
   onRenameCommit?: (node: FileNode, newName: string) => void;
   onRenameCancel?: () => void;
   onCreateFile?: (parentPath: string) => void;
@@ -144,6 +152,7 @@ export function ExplorerTree({
   onSelect,
   expandAll,
   renamingId,
+  forceExpandId,
   onRenameCommit,
   onRenameCancel,
   onCreateFile,
@@ -238,6 +247,7 @@ export function ExplorerTree({
           onSelect={onSelect}
           expandAll={expandAll}
           renamingId={renamingId}
+          forceExpandId={forceExpandId ?? null}
           onRenameCommit={onRenameCommit}
           onRenameCancel={onRenameCancel}
           onCreateFile={onCreateFile}
@@ -269,6 +279,7 @@ interface TreeRowProps {
   onSelect?: (node: FileNode, opts?: { pin?: boolean }) => void;
   expandAll?: boolean;
   renamingId?: string | null;
+  forceExpandId: string | null;
   onRenameCommit?: (node: FileNode, newName: string) => void;
   onRenameCancel?: () => void;
   onCreateFile?: (parentPath: string) => void;
@@ -296,6 +307,7 @@ function TreeRow({
   onSelect,
   expandAll,
   renamingId,
+  forceExpandId,
   onRenameCommit,
   onRenameCancel,
   onCreateFile,
@@ -319,7 +331,7 @@ function TreeRow({
   const [userExpanded, setUserExpanded] = useState(
     isFolder ? !node.collapsed && node.defaultExpanded !== false : false,
   );
-  const expanded = expandAll || userExpanded || node.id === autoExpandPath;
+  const expanded = expandAll || userExpanded || node.id === autoExpandPath || node.id === forceExpandId;
   const selected = node.id === selectedId;
   const deleted = node.status === "D";
   const isRenaming = renamingId === node.id;
@@ -351,12 +363,18 @@ function TreeRow({
   // on our `<Input>` (which lives in the sidebar tree, outside the trapped
   // menu container) and yanks it straight back into the still-mounted
   // (animating-out) menu — before our `<Input>`'s own `onFocus` ever fires,
-  // confirmed by that trace: the "New File" flow (whose rename input mounts
-  // well after the menu has fully closed, since `handleCreateFile` `await`s
-  // `fs.createFile()` first) reliably logs one clean focus event, while
-  // this same-tick Rename flow logs ZERO — the input's `autoFocus` call
-  // never even briefly wins, it's out-competed by an active trap, not
-  // merely raced by a delayed restore. (`onCloseAutoFocus` — Radix's
+  // confirmed by that trace: this same-tick Rename flow logs ZERO focus
+  // events — the input's `autoFocus` call never even briefly wins, it's
+  // out-competed by an active trap, not merely raced by a delayed restore.
+  // (At the time this was diagnosed, "New File" was NOT same-tick —
+  // `handleCreateFile` used to `await fs.createFile()` before setting
+  // `renamingId`, mounting its input well after the menu had fully closed,
+  // so it logged one clean focus event and never hit this bug. DESIGN-SPEC
+  // Amendments round 4 item 30 made `handleCreateFile` synchronous — no fs
+  // write until a real name is committed, see `App.tsx`'s `insertDraftNode`
+  // doc — so "New File" is now ALSO same-tick with the menu closing. That's
+  // fine: the fix below doesn't care which flow triggered `isRenaming`, it
+  // re-asserts focus for either one.) (`onCloseAutoFocus` — Radix's
   // documented escape hatch for the *separate* "restore focus to the
   // trigger on unmount" step — is still set with `preventDefault()` below;
   // it's necessary but not sufficient on its own, since it can't be
@@ -637,6 +655,7 @@ function TreeRow({
               onSelect={onSelect}
               expandAll={expandAll}
               renamingId={renamingId}
+              forceExpandId={forceExpandId}
               onRenameCommit={onRenameCommit}
               onRenameCancel={onRenameCancel}
               onCreateFile={onCreateFile}

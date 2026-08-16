@@ -375,7 +375,20 @@ export function PublishDialog({
                 aria-label="Backend password"
                 data-testid="publish-login-password"
               />
-              <Button type="button" size="sm" onClick={handleLogin} disabled={loggingIn} data-testid="publish-login-submit">
+              {/* DESIGN-SPEC Amendments round 4 item 31: this row's two
+                  `Input`s are the library's `w-full` variant, so they
+                  compete with the Button for the flex row's space — without
+                  pinning the Button to its own content size it can shrink
+                  enough for "Sign in" to wrap onto two rows (same mechanism
+                  as item 27's Test Connection button). */}
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleLogin}
+                disabled={loggingIn}
+                data-testid="publish-login-submit"
+                style={{ whiteSpace: "nowrap", flexShrink: 0 }}
+              >
                 {loggingIn ? <Loader2 size={13} className="animate-spin" /> : "Sign in"}
               </Button>
             </div>
@@ -396,7 +409,7 @@ export function PublishDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="restricted">
-                    <Lock size={13} style={{ marginRight: 6 }} /> Restricted — only listed people
+                    <Lock size={13} style={{ marginRight: 6 }} /> Restricted to listed people
                   </SelectItem>
                   <SelectItem value="link">
                     <Globe2 size={13} style={{ marginRight: 6 }} /> Anyone with the link
@@ -409,7 +422,7 @@ export function PublishDialog({
               label="Mode"
               hint={
                 isFolder
-                  ? "Applies per file — Markdown/HTML render, everything else falls back to raw."
+                  ? "Markdown/HTML render; everything else falls back to raw."
                   : canRenderShare(fileKind)
                     ? undefined
                     : "Rendered mode is only available for Markdown and HTML files."
@@ -526,7 +539,7 @@ export function PublishDialog({
                   </SelectContent>
                 </Select>
                 <Badge variant="neutral" tone="soft">
-                  Commenter — later
+                  Commenter (soon)
                 </Badge>
               </div>
             </FormField>

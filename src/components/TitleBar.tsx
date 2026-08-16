@@ -56,7 +56,6 @@ import { SegmentedControl } from "./local/SegmentedControl";
 import type { DiffLayout, DiffStat, EditorMode } from "../types";
 
 export interface AppTitleBarProps {
-  vaultName: string;
   /** The focused pane's active tab path, split on `/` — omitted (no
    * breadcrumb rendered at all) when no tab is open or the focused tab is
    * the virtual Settings view (same "no editor surface" treatment
@@ -82,7 +81,6 @@ export interface AppTitleBarProps {
 }
 
 export function AppTitleBar({
-  vaultName,
   breadcrumb,
   diff,
   mode,
@@ -121,8 +119,7 @@ export function AppTitleBar({
           <Layout size={12} strokeWidth={2.5} />
         </span>
       }
-      title="Slate"
-      subtitle={vaultName}
+      title="VSNote"
       breadcrumb={
         breadcrumb ? (
           <Breadcrumbs

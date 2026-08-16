@@ -74,7 +74,10 @@ export async function publishFileViaContextMenu(page: Page, opts: PublishOptions
 export async function createFileWithContent(page: Page, parentPath: string, filename: string, content: string): Promise<string> {
   await treeRow(page, parentPath).click({ button: "right" });
   await page.getByRole("menuitem", { name: "New File" }).click();
-  const draftPath = `${parentPath}/untitled.md`;
+  // DESIGN-SPEC Amendments round 4 item 30: the draft row is an in-memory
+  // placeholder (`.slate-draft-file`, never a real fs path) with an empty
+  // name field, not a real `untitled.md`.
+  const draftPath = `${parentPath}/.slate-draft-file`;
   const draftRow = treeRow(page, draftPath);
   await expect(draftRow).toBeVisible();
   await draftRow.locator("input").fill(filename);

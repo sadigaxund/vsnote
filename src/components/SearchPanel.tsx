@@ -129,7 +129,7 @@ export function SearchPanel({ onOpenResult, width, onWidthChange, collapsed, onC
             <EmptyState
               icon={<SearchIcon size={22} />}
               title="Search your vault"
-              description="Full-text search across every note and file. Results are grouped by file — click a line to jump to it."
+              description="Full-text search across every note and file."
             />
           </div>
         ) : results.length === 0 ? (

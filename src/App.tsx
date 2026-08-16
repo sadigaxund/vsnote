@@ -103,6 +103,11 @@ export default function App() {
   const [activePanel, setActivePanel] = useState<ActivityPanel>("explorer");
   const [selectedId, setSelectedId] = useState<string | undefined>(ACTIVE_ON_BOOT);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  /** DESIGN-SPEC Amendments round 4 item 30 — the in-memory "new file/folder"
+   * draft row (see `insertDraftNode` below); `null` when no create is in
+   * progress. Deliberately separate from `renamingId` (an existing real
+   * node being renamed) since a draft has no fs path of its own yet. */
+  const [creatingNode, setCreatingNode] = useState<{ id: string; parentPath: string; type: "file" | "folder" } | null>(null);
   const [booted, setBooted] = useState(false);
 
   // Phase 5a UI state — palette (⌘K grouped / ⌘P file-jump), Zen mode
@@ -145,6 +150,23 @@ export default function App() {
   const { toast } = useToast();
 
   const tree = useDecoratedTree();
+  // DESIGN-SPEC Amendments round 4 item 30 — see `insertDraftNode`'s doc:
+  // the empty-named "new file/folder" draft row is purely a render-time
+  // splice over the real tree, never written into `useFsStore` itself, so
+  // it never survives a real refresh/reload and there's nothing to clean
+  // up on cancel.
+  const treeWithDraft = useMemo(() => {
+    if (!creatingNode) return tree;
+    const draft: FileNode = {
+      id: creatingNode.id,
+      name: "",
+      kind: creatingNode.type === "folder" ? "folder" : "unknown",
+      path: creatingNode.id,
+      type: creatingNode.type,
+      ...(creatingNode.type === "folder" ? { children: [] } : {}),
+    };
+    return insertDraftNode(tree, creatingNode.parentPath, draft);
+  }, [tree, creatingNode]);
   const git = useGitStore();
   const tabs = useTabsStore();
   // Targeted selector (DESIGN-SPEC Amendments item 10) — only re-renders App
@@ -385,7 +407,7 @@ export default function App() {
       // field; this toast is just the honest "why did nothing finish"
       // signal for whoever's watching the status bar.
       toast({
-        title: "Sync paused — conflicts to resolve",
+        title: "Sync paused: conflicts to resolve",
         description: `${conflict.conflicts.length} file${conflict.conflicts.length === 1 ? "" : "s"} need your input.`,
       });
       return;
@@ -675,24 +697,52 @@ export default function App() {
     return node.type === "folder" ? node.path : parentOf(node.path);
   }
 
-  const handleCreateFile = async (parentPath?: string) => {
+  // DESIGN-SPEC Amendments round 4 item 30: no fs write here anymore — just
+  // drop an empty-named draft into the tree (see `insertDraftNode`'s doc)
+  // and point `renamingId` at it. The real `createFile` call happens only
+  // from `handleTreeRenameCommit` below, and only if the user actually
+  // types a name.
+  const handleCreateFile = (parentPath?: string) => {
     const parent = resolveCreateParent(parentPath);
-    const newPath = await useFsStore.getState().createFile(parent, "untitled.md");
-    setSelectedId(newPath);
-    setRenamingId(newPath);
-    tabs.openFile({ path: newPath, name: newPath.slice(newPath.lastIndexOf("/") + 1), kind: "md" }, { pin: true });
-    await git.refresh();
+    setCreatingNode({ id: `${parent}/.slate-draft-file`, parentPath: parent, type: "file" });
   };
 
-  const handleCreateFolder = async (parentPath?: string) => {
+  const handleCreateFolder = (parentPath?: string) => {
     const parent = resolveCreateParent(parentPath);
-    const newPath = await useFsStore.getState().createFolder(parent, "untitled-folder");
-    setSelectedId(newPath);
-    setRenamingId(newPath);
+    setCreatingNode({ id: `${parent}/.slate-draft-folder`, parentPath: parent, type: "folder" });
   };
 
   const handleRequestRename = (node: FileNode) => setRenamingId(node.id);
   const handleRenameCancel = () => setRenamingId(null);
+
+  // Wraps `handleRenameCancel`/`handleRenameCommit` (existing-node rename)
+  // so `Sidebar`/`ExplorerTree` can stay unaware of the draft-vs-real-node
+  // distinction — they always just call "the current row's" rename
+  // commit/cancel prop, whichever node that happens to be.
+  const handleTreeRenameCancel = () => {
+    if (creatingNode) {
+      setCreatingNode(null);
+      return;
+    }
+    handleRenameCancel();
+  };
+
+  const handleTreeRenameCommit = async (node: FileNode, newName: string) => {
+    if (creatingNode && node.id === creatingNode.id) {
+      setCreatingNode(null);
+      if (creatingNode.type === "file") {
+        const newPath = await useFsStore.getState().createFile(creatingNode.parentPath, newName);
+        setSelectedId(newPath);
+        tabs.openFile({ path: newPath, name: newPath.slice(newPath.lastIndexOf("/") + 1), kind: inferFileKind(newPath.slice(newPath.lastIndexOf("/") + 1)) }, { pin: true });
+      } else {
+        const newPath = await useFsStore.getState().createFolder(creatingNode.parentPath, newName);
+        setSelectedId(newPath);
+      }
+      await git.refresh();
+      return;
+    }
+    await handleRenameCommit(node, newName);
+  };
 
   const handleRenameCommit = async (node: FileNode, newName: string) => {
     setRenamingId(null);
@@ -891,7 +941,7 @@ export default function App() {
         void handleSyncNow();
         break;
       case "new-file":
-        void handleCreateFile();
+        handleCreateFile();
         break;
       case "export-zip":
         void handleExportVaultZip();
@@ -941,7 +991,6 @@ export default function App() {
           per-pane floating filename/exit pill on hover, `EditorPane.tsx`). */}
       {!zenMode && (
         <AppTitleBar
-          vaultName="vault"
           breadcrumb={titlebarBreadcrumb}
           diff={activeDiff}
           mode={activeTab?.mode}
@@ -980,12 +1029,13 @@ export default function App() {
             drag-resizable/collapsible. */}
         {!zenMode && activePanel === "explorer" && (
           <Sidebar
-            tree={tree}
+            tree={treeWithDraft}
             selectedId={selectedId}
             onSelect={handleSelectFile}
-            renamingId={renamingId}
-            onRenameCommit={handleRenameCommit}
-            onRenameCancel={handleRenameCancel}
+            renamingId={creatingNode ? creatingNode.id : renamingId}
+            forceExpandId={creatingNode?.parentPath ?? null}
+            onRenameCommit={handleTreeRenameCommit}
+            onRenameCancel={handleTreeRenameCancel}
             onRequestRename={handleRequestRename}
             onCreateFile={handleCreateFile}
             onCreateFolder={handleCreateFolder}
@@ -1153,6 +1203,35 @@ function findNode(nodes: FileNode[], id: string): FileNode | undefined {
     }
   }
   return undefined;
+}
+
+/** DESIGN-SPEC Amendments round 4 item 30: "New file"/"New folder" no
+ * longer write to the fs (and no longer prefill `untitled.md`) up front —
+ * that's what forced the user to fight/clear a prefilled name, and left a
+ * stray real file behind if they backed out. Instead a purely-in-memory
+ * draft `FileNode` (`name: ""`) is spliced into the rendered tree as the
+ * FIRST child of its parent, and `renamingId` is pointed at it — it's
+ * rendered by the exact same `TreeRow`/rename-`<Input>` machinery real
+ * renames use (`ExplorerTree.tsx`), so its position/font/row-height are
+ * pixel-identical to a real row by construction, not by separately
+ * matching CSS. `ExplorerTree`'s own `commitRename` already treats an
+ * empty/unchanged draft name as a cancel (`trimmed && trimmed !==
+ * node.name`, and this draft's `node.name` is exactly `""`), so "empty
+ * confirms cancels silently" falls out of existing logic for free — the
+ * caller (`handleTreeRenameCommit`/`handleTreeRenameCancel` below) only
+ * needs to route a real commit to `createFile`/`createFolder` (the ONLY
+ * point a real fs write ever happens for a new node) and route a cancel to
+ * just dropping the draft, no fs call at all. */
+function insertDraftNode(nodes: FileNode[], parentPath: string, draft: FileNode): FileNode[] {
+  return nodes.map((node) => {
+    if (node.id === parentPath) {
+      return { ...node, children: [draft, ...(node.children ?? [])] };
+    }
+    if (node.children) {
+      return { ...node, children: insertDraftNode(node.children, parentPath, draft) };
+    }
+    return node;
+  });
 }
 
 /**

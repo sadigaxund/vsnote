@@ -31,7 +31,7 @@ export interface SharedPanelProps {
 }
 
 function formatEpoch(epoch: number | null | undefined): string {
-  if (!epoch) return "—";
+  if (!epoch) return "Never";
   return new Date(epoch * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 

@@ -63,8 +63,7 @@ export function pullAction(state: DivergenceState): "fast-forward" | "noop" | "r
  * `useGitStore.ts`'s `syncNow` → `sync.ts`'s `runSync`) auto-merges it
  * (backup ref, three-way diff3, merge commit, push) or opens the in-app
  * conflict resolver when it genuinely can't. */
-export const DIVERGED_MESSAGE =
-  "Local and remote have diverged — use Sync (status bar, or ⌘K → \"Sync now\") to auto-merge; it'll open a conflict resolver if any file needs your input.";
+export const DIVERGED_MESSAGE = "Local and remote have diverged. Use Sync to auto-merge.";
 
 /** Shapes an isomorphic-git `GitAuth` value from a plaintext token — used
  * as the return value of every `onAuth` callback in `git/remote.ts`. Uses

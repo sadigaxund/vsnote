@@ -267,7 +267,7 @@ function MissingBanner({ missing }: { missing: boolean }) {
         flexShrink: 0,
       }}
     >
-      Deleted from the working tree — showing the last committed version (read-only).
+      Deleted from the working tree. Showing the last committed version (read-only).
     </div>
   );
 }

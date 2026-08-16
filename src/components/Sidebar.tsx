@@ -22,6 +22,8 @@ export interface SidebarProps {
   selectedId?: string;
   onSelect?: (node: FileNode, opts?: { pin?: boolean }) => void;
   renamingId?: string | null;
+  /** DESIGN-SPEC Amendments round 4 item 30 — see `ExplorerTree.tsx`'s doc. */
+  forceExpandId?: string | null;
   onRenameCommit: (node: FileNode, newName: string) => void;
   onRenameCancel: () => void;
   onRequestRename: (node: FileNode) => void;
@@ -56,6 +58,7 @@ export function Sidebar({
   selectedId,
   onSelect,
   renamingId,
+  forceExpandId,
   onRenameCommit,
   onRenameCancel,
   onRequestRename,
@@ -130,6 +133,7 @@ export function Sidebar({
               onSelect={onSelect}
               expandAll={!!filter}
               renamingId={renamingId}
+              forceExpandId={forceExpandId}
               onRenameCommit={onRenameCommit}
               onRenameCancel={onRenameCancel}
               onRequestRename={onRequestRename}

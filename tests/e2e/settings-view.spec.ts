@@ -116,6 +116,34 @@ test.describe("Settings view", () => {
     expect(after.lineHeight).not.toBe(before.lineHeight);
   });
 
+  test("content max-width slider's top position is Full — removes the cap, labeled, and persists across reload", async ({ page }) => {
+    // DESIGN-SPEC Amendments round 4 item 25.
+    await gotoApp(page);
+    await openSettingsTab(page);
+    await page.getByTestId("settings-nav-rendered-view").click();
+
+    const row = page.getByTestId("settings-row-content-width");
+    const slider = page.getByLabel("Rendered content max-width");
+    await slider.fill("100");
+
+    // The readout above the slider reads "Full", not a ch number.
+    await expect(row.getByText("Full", { exact: true })).toBeVisible();
+
+    // Switching to the live markdown tab, the cap is really gone.
+    await tab(page, "vault/notes/architecture.md").click();
+    const content = page.locator(".cm-content").first();
+    await expect(content).toHaveCSS("max-width", "none");
+
+    // Persists across reload — a fresh boot must still show "Full" and
+    // still render with no cap, not silently fall back to a ch value.
+    await page.reload();
+    await openSettingsTab(page);
+    await page.getByTestId("settings-nav-rendered-view").click();
+    await expect(page.getByTestId("settings-row-content-width").getByText("Full", { exact: true })).toBeVisible();
+    await tab(page, "vault/notes/architecture.md").click();
+    await expect(page.locator(".cm-content").first()).toHaveCSS("max-width", "none");
+  });
+
   test("Git & Sync shows real repo info and a live, enabled remote-sync form (no SSH key UI)", async ({ page }) => {
     await gotoApp(page);
     await openSettingsTab(page);

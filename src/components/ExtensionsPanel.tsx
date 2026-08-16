@@ -34,7 +34,7 @@ export function ExtensionsPanel({ width, onWidthChange, collapsed, onCollapsedCh
       <div style={{ padding: "24px 16px" }}>
         <EmptyState
           icon={<Blocks size={22} />}
-          title="Extensions — not implemented"
+          title="Extensions: not implemented"
           description="Slate is a local-first, single-purpose workspace (CLAUDE.md rule 3). No extension marketplace is planned; this is a documented stub, not a missing feature."
         />
       </div>

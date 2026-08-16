@@ -63,8 +63,13 @@ test.describe("fs + git", () => {
     // `selectedId`) — the deterministic way to target src/ specifically.
     await treeRow(page, "vault/src").click({ button: "right" });
     await page.getByRole("menuitem", { name: "New File" }).click();
-    const newFileRow = treeRow(page, "vault/src/untitled.md");
+    // DESIGN-SPEC Amendments round 4 item 30: "New File" no longer writes a
+    // real `untitled.md` up front — it drops an in-memory draft row
+    // (`vault/src/.slate-draft-file`, never a real fs path) with an EMPTY
+    // name field, so there's nothing to fight/clear before typing.
+    const newFileRow = treeRow(page, "vault/src/.slate-draft-file");
     await expect(newFileRow).toBeVisible();
+    await expect(newFileRow.locator("input")).toHaveValue("");
 
     // Inline rename input replaces the row's label — scoped to the row
     // itself (`treeRow(...).locator("input")`) rather than an `:focus`
@@ -90,6 +95,43 @@ test.describe("fs + git", () => {
     await page.getByRole("menuitem", { name: "Delete" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
     await expect(treeRow(page, "vault/src/renamed-again.md")).toHaveCount(0);
+  });
+
+  test("New File with an empty name cancels silently — no stray file, no error", async ({ page }) => {
+    // DESIGN-SPEC Amendments round 4 item 30: confirming an empty name must
+    // cancel silently. Since the draft row is purely in-memory until a real
+    // (non-empty) name is committed, there's no fs write to roll back —
+    // this test proves the negative: the src/ folder's real children are
+    // byte-for-byte the same set before and after.
+    await gotoApp(page);
+    const before = await page.locator('[data-tree-path^="vault/src/"]').evaluateAll((els) => els.map((el) => el.getAttribute("data-tree-path")).sort());
+
+    await treeRow(page, "vault/src").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New File" }).click();
+    const draftRow = treeRow(page, "vault/src/.slate-draft-file");
+    await expect(draftRow).toBeVisible();
+    await expect(draftRow.locator("input")).toHaveValue("");
+
+    // Enter on an empty name commits nothing — `ExplorerTree`'s own
+    // `commitRename` treats `trimmed && trimmed !== node.name` as false when
+    // `trimmed` is `""`, routing to cancel instead.
+    await draftRow.locator("input").press("Enter");
+    await expect(treeRow(page, "vault/src/.slate-draft-file")).toHaveCount(0);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+
+    const after = await page.locator('[data-tree-path^="vault/src/"]').evaluateAll((els) => els.map((el) => el.getAttribute("data-tree-path")).sort());
+    expect(after).toEqual(before);
+
+    // Same for Escape, and for a folder draft too.
+    await treeRow(page, "vault/src").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New Folder" }).click();
+    const folderDraftRow = treeRow(page, "vault/src/.slate-draft-folder");
+    await expect(folderDraftRow).toBeVisible();
+    await folderDraftRow.locator("input").press("Escape");
+    await expect(treeRow(page, "vault/src/.slate-draft-folder")).toHaveCount(0);
+
+    const afterEscape = await page.locator('[data-tree-path^="vault/src/"]').evaluateAll((els) => els.map((el) => el.getAttribute("data-tree-path")).sort());
+    expect(afterEscape).toEqual(before);
   });
 
   test("right-click Rename focuses the inline input immediately — no extra click needed", async ({ page }) => {

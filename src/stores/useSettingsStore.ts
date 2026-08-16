@@ -68,6 +68,15 @@ export type UiDensity = "compact" | "default" | "comfortable";
  * `fontSizeCompartment`'s `Prec.highest` requirement doesn't recur here). */
 export const DEFAULT_EDITOR_LINE_SPACING = 1.6;
 export const DEFAULT_RENDERED_CONTENT_WIDTH_CH = 54;
+/** DESIGN-SPEC Amendments round 4 item 25: the content-max-width slider's
+ * TOP position no longer clamps to a ch value at all — it removes the
+ * `max-width` cap entirely so the reading column spans the whole editor
+ * area. Persisted as this sentinel (not a real ch value; the slider's
+ * actual range is 40-100) so `renderedContentWidth` stays a plain `number`
+ * end-to-end — no new "mode" field, no union type, `LivePreviewEditor.tsx`
+ * just checks for this one value and emits `maxWidth: "none"` instead of a
+ * `ch` string. */
+export const RENDERED_CONTENT_WIDTH_FULL = -1;
 export const DEFAULT_RENDERED_MARGIN_PX = 32;
 export const DEFAULT_RENDERED_LINE_SPACING = 1.8;
 export const DEFAULT_SIDEBAR_WIDTH = 288;

@@ -117,7 +117,7 @@ export function ConflictResolver() {
         <DialogHeader>
           <DialogTitle>
             <GitMerge size={16} style={{ marginRight: 6, verticalAlign: "-3px" }} />
-            Resolve sync conflicts — {conflict.conflicts.length} file{conflict.conflicts.length === 1 ? "" : "s"}
+            Resolve sync conflicts: {conflict.conflicts.length} file{conflict.conflicts.length === 1 ? "" : "s"}
           </DialogTitle>
           <DialogDescription>
             Local and remote both changed these files in ways Slate can't auto-merge. Nothing is pushed until you resolve every
@@ -181,7 +181,7 @@ export function ConflictResolver() {
                           Take theirs
                         </Button>
                       </Tooltip>
-                      <Tooltip content="Concatenate both versions in full — nothing is dropped, clean up by hand below">
+                      <Tooltip content="Concatenate both versions in full">
                         <Button
                           type="button"
                           size="sm"

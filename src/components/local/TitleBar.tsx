@@ -86,7 +86,7 @@ export function TitleBar({ title, subtitle, glyph, breadcrumb, actions }: TitleB
               flexShrink: 0,
             }}
           >
-            — {subtitle}
+            · {subtitle}
           </span>
         )}
         {breadcrumb && (

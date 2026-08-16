@@ -30,6 +30,22 @@ test.describe("shell", () => {
     await expect(page.getByTestId("app-statusbar")).toBeVisible();
   });
 
+  test("app title is a static \"VSNote\" — no dynamic vault suffix (item 29)", async ({ page }) => {
+    await gotoApp(page);
+    await expect(page).toHaveTitle("VSNote");
+    const titlebar = page.getByTestId("app-titlebar");
+    await expect(titlebar).toContainText("VSNote");
+    // The old build appended a "vault" SUBTITLE next to the app name
+    // (`local/TitleBar.tsx`'s `subtitle` slot, rendered as "· {subtitle}")
+    // — gone entirely now (tree + breadcrumbs already show location), not
+    // just de-dashed. Checking for the separator glyph rather than the bare
+    // word "vault": the breadcrumb (a SEPARATE, legitimate element further
+    // right in this same bar) shows "vault / notes / ..." as the real
+    // folder path, so asserting "no 'vault' text anywhere in the bar" would
+    // wrongly fail on that.
+    await expect(titlebar).not.toContainText("·");
+  });
+
   test("opening the command palette from the title bar's compact affordance works (item 18)", async ({ page }) => {
     await gotoApp(page);
     await page.getByTestId("app-titlebar").getByRole("button", { name: "Command palette" }).click();

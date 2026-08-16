@@ -166,7 +166,7 @@ export function mapError(err: unknown): SyncError {
     if (statusCode === 401 || statusCode === 403) {
       return new SyncError(
         "auth",
-        "The remote rejected the credentials — check the Personal access token in Settings → Git & Sync.",
+        "The remote rejected the credentials. Check the token in Settings → Git & Sync.",
         statusCode,
       );
     }
@@ -177,14 +177,14 @@ export function mapError(err: unknown): SyncError {
   }
   const message = err instanceof Error ? err.message : String(err);
   if (/failed to fetch|networkerror|econnrefused|fetch failed/i.test(message)) {
-    return new SyncError("offline", "Could not reach the git remote — check the server is running and the Remote URL is correct.");
+    return new SyncError("offline", "Could not reach the git remote. Check the server is running.");
   }
   return new SyncError("unknown", message || "Sync failed for an unknown reason.");
 }
 
 function requireConfig(config: RemoteConfig): void {
   if (!config.url.trim()) {
-    throw new SyncError("not-configured", "No remote URL configured — set one in Settings → Git & Sync.");
+    throw new SyncError("not-configured", "No remote URL configured. Set one in Settings → Git & Sync.");
   }
 }
 
@@ -236,7 +236,7 @@ export async function fastForwardBranch(branch: string): Promise<void> {
   try {
     const targetOid = await remoteTrackingOid(branch);
     if (!targetOid) {
-      throw new SyncError("unknown", "The remote-tracking ref vanished mid-sync — try again.");
+      throw new SyncError("unknown", "The remote-tracking ref vanished mid-sync. Try again.");
     }
     await git.writeRef({ fs, dir: GIT_DIR, ref: `refs/heads/${branch}`, value: targetOid, force: true });
     await git.checkout({ fs, dir: GIT_DIR, ref: branch, force: true });
@@ -263,7 +263,7 @@ export async function realPull(config: RemoteConfig, branch: string): Promise<Sy
     if (changedCount > 0) {
       throw new SyncError(
         "dirty",
-        "You have uncommitted changes — commit or discard them before pulling (fast-forward would touch the working tree).",
+        "You have uncommitted changes. Commit or discard them before pulling.",
       );
     }
     await fastForwardBranch(branch);

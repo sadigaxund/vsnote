@@ -67,7 +67,7 @@ import { livePreviewExtensions } from "./livepreview";
 import { fontSizeCompartment, fontSizeTheme } from "./baseExtensions";
 import { createFindPanel } from "./findPanel";
 import { getActiveEditorView, setActiveEditorView } from "./activeView";
-import { useSettingsStore, DEFAULT_EDITOR_FONT_SIZE } from "../stores/useSettingsStore";
+import { useSettingsStore, DEFAULT_EDITOR_FONT_SIZE, RENDERED_CONTENT_WIDTH_FULL } from "../stores/useSettingsStore";
 import type { CursorPos } from "./CodeMirrorEditor";
 
 /** Matches `livepreview/theme.ts`'s own `"&": { fontSize: "17px" }` — the
@@ -86,8 +86,13 @@ function renderedFontSize(settingFontSize: number): number {
 const renderedLayoutCompartment = new Compartment();
 
 function renderedLayoutTheme(contentWidthCh: number, marginPx: number, lineSpacing: number) {
+  // DESIGN-SPEC Amendments round 4 item 25: the slider's top position is
+  // "Full" (`RENDERED_CONTENT_WIDTH_FULL`), not a ch value — remove the cap
+  // entirely instead of clamping to some large number, so the reading
+  // column genuinely spans the whole editor area on any monitor width.
+  const maxWidth = contentWidthCh === RENDERED_CONTENT_WIDTH_FULL ? "none" : `${contentWidthCh}ch`;
   return EditorView.theme({
-    ".cm-content": { maxWidth: `${contentWidthCh}ch`, padding: `56px ${marginPx}px 160px` },
+    ".cm-content": { maxWidth, padding: `56px ${marginPx}px 160px` },
     ".cm-scroller": { lineHeight: String(lineSpacing) },
   });
 }

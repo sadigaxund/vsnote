@@ -1380,10 +1380,16 @@ stack choices in this doc.
   `ContextMenu` returns focus to its own trigger (this row) as part of ITS
   OWN close lifecycle — a real focus race, and Radix's own
   `requestAnimationFrame`-scheduled focus-restore was winning it often
-  enough to matter. ("New File" only ever worked by accident:
-  `handleCreateFile` `await`s `fs.createFile()` before setting
-  `renamingId`, which pushes the input's mount well past Radix's
-  focus-return window entirely.) Fixed in `ExplorerTree.tsx`'s `TreeRow` by
+  enough to matter. ("New File" only ever worked by accident, AT THE TIME:
+  `handleCreateFile` `await`ed `fs.createFile()` before setting
+  `renamingId`, which pushed the input's mount well past Radix's
+  focus-return window entirely — no longer true as of DESIGN-SPEC
+  Amendments round 4 item 30, which made `handleCreateFile` synchronous
+  (an in-memory draft row, no fs write until a real name is committed —
+  see `App.tsx`'s `insertDraftNode` doc); "New File" is now ALSO same-tick
+  with the menu closing, same as Rename always was, which is fine because
+  the fix below never depended on which flow triggered it.) Fixed in
+  `ExplorerTree.tsx`'s `TreeRow` by
   replacing `autoFocus` with an imperative `useEffect` that defers the
   actual `.focus()`/`.select()` call to a `setTimeout(fn, 0)` macrotask:
   since rAF callbacks always run before the next macrotask is picked off

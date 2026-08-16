@@ -90,7 +90,7 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
           />
           <StatusBarItem
             label={`↑${git.ahead} ↓${git.behind}`}
-            tooltip="Ahead / behind remote (real — see Settings → Git & Sync) — click to sync"
+            tooltip="Ahead/behind remote. Click to sync."
             onClick={onSync}
           />
           <StatusBarItem
@@ -116,7 +116,7 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
             <StatusBarItem
               icon={<ShieldAlert size={12} />}
               label="storage not persisted"
-              tooltip="The browser denied persistent storage for this vault — it may be evicted under disk pressure (e.g. low disk space). Your work still saves locally; consider exporting a backup (⌘K → Export vault as .zip)."
+              tooltip="Storage wasn't persisted; this vault may be evicted under disk pressure."
             />
           )}
         </>

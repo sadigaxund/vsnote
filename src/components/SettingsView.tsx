@@ -62,6 +62,7 @@ import {
 } from "lucide-react";
 import {
   DEFAULT_GIT_COMMIT_TEMPLATE,
+  RENDERED_CONTENT_WIDTH_FULL,
   THEME_OPTIONS,
   useSettingsStore,
   type SlateTheme,
@@ -119,13 +120,13 @@ const DEFAULT_MODE_KINDS: { kind: FileKind; label: string }[] = [
 ];
 
 const SHORTCUTS: { keys: string; description: string }[] = [
-  { keys: "⌘K", description: "Command palette — file jump + commands, grouped" },
+  { keys: "⌘K", description: "Command palette: file jump and commands" },
   { keys: "⌘P", description: "Go to file" },
-  { keys: "⌘S", description: "Save the active buffer (clears the dirty dot, keeps git-dirty)" },
-  { keys: "⌘F", description: "Find — CM6 search in Source/Diff, note-text search in Rendered" },
-  { keys: "⌘E", description: "Toggle Rendered / Source (Obsidian muscle memory)" },
-  { keys: "⌘W", description: "Close the active tab (best-effort — some browsers reserve this)" },
-  { keys: "⌘⇧W", description: "Close the active tab — guaranteed fallback for ⌘W" },
+  { keys: "⌘S", description: "Save the active buffer" },
+  { keys: "⌘F", description: "Find in the current view" },
+  { keys: "⌘E", description: "Toggle Rendered / Source" },
+  { keys: "⌘W", description: "Close the active tab (best-effort)" },
+  { keys: "⌘⇧W", description: "Close the active tab (fallback for ⌘W)" },
   { keys: "⌘⇧Z", description: "Toggle zen mode (content-area fullscreen)" },
   { keys: "Esc", description: "Exit zen mode, or close the palette / find widget / dialogs" },
 ];
@@ -304,7 +305,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           content: (
             <FormField
               label="UI density"
-              hint="Title bar, tab strip, pane header, sidebar header, tree row, and status bar heights — plus row/tab padding and icon spacing."
+              hint="Scales chrome height, row/tab padding, and icon spacing."
             >
               <RadioGroup
                 value={uiDensity}
@@ -380,7 +381,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           label: "Word wrap",
           keywords: "wrap long lines source diff",
           content: (
-            <FormField label="Word wrap" hint="Source and Diff modes — Rendered always wraps.">
+            <FormField label="Word wrap" hint="Source and Diff modes only.">
               <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                 <Switch checked={wordWrap} onCheckedChange={setWordWrap} aria-label="Word wrap" />
                 <span style={{ fontSize: 13, color: "var(--color-muted)" }}>Wrap long lines</span>
@@ -416,18 +417,27 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         {
           id: "content-width",
           label: "Content max-width",
-          keywords: "column measure reading width ch rendered markdown",
+          keywords: "column measure reading width ch rendered markdown full",
           content: (
-            <FormField label="Content max-width" hint="The rendered markdown reading column, in characters (ch).">
-              <Slider
-                min={40}
-                max={100}
-                step={2}
-                value={renderedContentWidth}
-                showValue
-                onChange={(e) => setRenderedContentWidth(Number(e.target.value))}
-                aria-label="Rendered content max-width"
-              />
+            <FormField label="Content max-width" hint="The rendered markdown reading column width.">
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <span style={{ fontSize: 13, fontFamily: "var(--font-mono)", color: "var(--color-muted)" }}>
+                    {renderedContentWidth === RENDERED_CONTENT_WIDTH_FULL ? "Full" : renderedContentWidth}
+                  </span>
+                </div>
+                <Slider
+                  min={40}
+                  max={100}
+                  step={2}
+                  value={renderedContentWidth === RENDERED_CONTENT_WIDTH_FULL ? 100 : renderedContentWidth}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    setRenderedContentWidth(next >= 100 ? RENDERED_CONTENT_WIDTH_FULL : next);
+                  }}
+                  aria-label="Rendered content max-width"
+                />
+              </div>
             </FormField>
           ),
         },
@@ -479,7 +489,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           content: (
             <FormField
               label="Default view mode"
-              hint="Which view a file of this type opens in — Rendered (WYSIWYG) or Source (raw text)."
+              hint="Rendered or Source, per file type."
             >
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {DEFAULT_MODE_KINDS.map(({ kind, label }) => {
@@ -542,7 +552,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-fg)" }}>Remote sync</span>
                 <Badge variant={gitTestResult?.ok ? "success" : "neutral"} tone="soft">
-                  {gitTestResult?.ok ? (gitTestResult.repoExists ? "Connected" : "Connected — repo not created yet") : "Fast-forward only"}
+                  {gitTestResult?.ok ? (gitTestResult.repoExists ? "Connected" : "Connected, repo not created yet") : "Fast-forward only"}
                 </Badge>
               </div>
               <FormField
@@ -586,7 +596,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
               </FormField>
               {!authenticated && (
                 <span style={{ fontSize: 12, color: "var(--color-muted)" }}>
-                  Sign in under Sharing below to generate a token here — or paste one you already have.
+                  Sign in under Sharing to generate a token, or paste one you have.
                 </span>
               )}
               {gitTokenGenerateError && (
@@ -600,6 +610,16 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                   variant="secondary"
                   size="sm"
                   data-testid="git-test-connection"
+                  // DESIGN-SPEC Amendments round 4 item 27: this button's own
+                  // label ("Test connection") was overflowing/wrapping inside
+                  // the fixed `h-8` button height at some densities — the
+                  // library's `Button` doesn't set `whitespace-nowrap` on its
+                  // own (unlike some of its other primitives), so a squeezed
+                  // flex row could wrap the label onto a second line and clip
+                  // it. `shrink: 0` keeps the button at its natural
+                  // (label-sized) width instead of letting the flex row
+                  // shrink it below that.
+                  style={{ whiteSpace: "nowrap", flexShrink: 0 }}
                   onClick={() => {
                     setGitAuthToken(gitTokenDraft);
                     setGitTesting(true);
@@ -620,8 +640,8 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                   >
                     {gitTestResult.ok
                       ? gitTestResult.repoExists
-                        ? "Reachable — repo exists."
-                        : "Reachable — repo will be created on first push."
+                        ? "Reachable, repo exists."
+                        : "Reachable, repo will be created on first push."
                       : gitTestResult.message}
                   </span>
                 )}
@@ -637,7 +657,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <FormField
                 label="Default commit message"
-                hint="Prefills the Source Control commit box (still editable per-commit) and composes one-click Sync's auto-commits and merge commits. Variables: {device} {timestamp} {date} {time} {files} {branch} — unknown {vars} pass through as-is."
+                hint="Prefills the commit box. Supports {device} {timestamp} {date} {time} {files} {branch}."
               >
                 <Input
                   size="sm"
@@ -667,7 +687,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           label: "Device name",
           keywords: "device name hostname computer template sync",
           content: (
-            <FormField label="Device name" hint="The {device} template variable — auto-detected from your browser, editable.">
+            <FormField label="Device name" hint="Auto-detected from your browser; editable.">
               <Input
                 size="sm"
                 value={gitDeviceName}
@@ -863,7 +883,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "40px 32px 120px" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--color-fg)", margin: "0 0 4px" }}>Settings</h1>
         <p style={{ fontSize: 13, color: "var(--color-muted)", margin: "0 0 20px" }}>
-          Editor, theme, and per-file-type defaults — saved automatically.
+          Editor, theme, and per-file-type defaults, saved automatically.
         </p>
 
         <div style={{ position: "relative", marginBottom: 24 }}>
