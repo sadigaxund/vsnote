@@ -911,6 +911,82 @@ entries were all fetched over real HTTP from a copy of the build served
 under an actual `/vsnote/` subpath on a scratch port, plus a real headless
 Chromium load asserting zero failed requests and zero console errors.
 
+## Containerization (Phase 14)
+
+One image, one process — a direct consequence of single-origin (Phase
+10.5a, roadmap §5.4): the same uvicorn/FastAPI process that already serves
+`/api`, `/share/*`, `/git/*`, and the built SPA off one port needs nothing
+else added to become the whole deployable artifact. `Dockerfile` (repo
+root) is a two-stage build:
+
+1. **`builder` (`node:20-slim`)** — `npm ci && npm run build`, producing
+   `dist/`. Node, npm, and every dev dependency (vite, typescript, eslint,
+   playwright, ...) live only in this stage and are never copied forward.
+2. **final stage (`python:3.12-slim`)** — installs `server/requirements.txt`
+   filtered to drop its two test-only entries (`pytest`, `httpx` — that
+   file also doubles as the local `pytest` dependency list, see
+   `server/README.md`'s "Running the tests"; the image has no test runner
+   and doesn't need them), copies `server/app` + `server/scripts` and the
+   built `dist/` from stage 1, and runs as a non-root user (`slate`,
+   uid/gid 1000 — created with `useradd --system ... --shell
+   /usr/sbin/nologin`). Verified empirically, not assumed: `which node`
+   inside the final image reports nothing, `pip list` carries no
+   pytest/httpx, and `docker compose exec vsnote id` / `/proc/1/status`'s
+   `Uid:` line both confirm PID 1 runs as uid 1000, never root.
+
+**Where DIST_DIR resolves.** `server/app/main.py` computes `DIST_DIR` as
+`Path(__file__).resolve().parents[2] / "dist"` — three levels up from
+`server/app/main.py` is the repo root locally. Inside the image, `server/app`
+is copied to `/app/server/app`, so `parents[2]` is `/app`; the Dockerfile
+therefore copies the builder stage's `dist/` to exactly `/app/dist` to keep
+that same relative relationship intact with zero code changes.
+
+**Persistent state — two named volumes, nothing else.** The two paths this
+process ever writes to at runtime are pointed at container-local mounts
+`/data/db` and `/data/git-repos` (owned by `slate:slate` at build time),
+which `docker-compose.yml` backs with named volumes `vsnote-db` and
+`vsnote-git-repos`:
+
+- `SLATE_DB_URL` defaults to `sqlite:////data/db/slate.db` in the image
+  (overriding `app/config.py`'s own `sqlite:///./slate.db` default, which
+  is relative to a CWD/ownership assumption that doesn't hold in a
+  container) — the owner/share/token database.
+- `SLATE_GIT_ROOT` defaults to `/data/git-repos` (overriding `app/
+  config.py`'s own `./git-repos`) — the bare repos Phase 11's smart-HTTP
+  git server reads/writes.
+
+Everything else in the image (app code, `dist/`) is read-only from this
+process's point of view. **The persistence contract, verified against a
+real `docker compose down` / `up` cycle** (not assumed from the compose
+file alone): a share published and a git repo pushed to before `down`
+both still resolve correctly after a subsequent `up` — same slug content,
+same commit hash on `git clone`. `docker compose down -v` is the
+deliberate factory reset (drops both named volumes — the DB and every bare
+repo, unrecoverable) and is never run as part of a routine restart.
+
+**Healthcheck.** No dedicated `/healthz` route exists anywhere in
+`server/app/routers/`. The compose healthcheck instead hits `GET /` — the
+real single-origin front door (what a Cloudflare tunnel or browser reaches
+first) — via Python's stdlib `urllib` (deliberately not curl/wget, neither
+of which `python:3.12-slim` carries, and the image doesn't add one just for
+this). `GET /` only returns `200` once `create_app()` has fully booted
+(engine + `Base.metadata.create_all` + `bootstrap_user` + `dist/`
+discovery) without raising, so a healthy status genuinely means "serving
+real traffic," not merely "process started."
+
+**Cloudflare tunnel topology.** `docker-compose.yml` includes a commented-
+out `cloudflared` sidecar service (image, `tunnel run` command, a
+`TUNNEL_TOKEN` env var, `depends_on: vsnote: condition: service_healthy`) —
+disabled by default, since most operators already run their own tunnel
+process/token outside this compose file (see server/README.md's
+"Cloudflare Access production topology" sketch, which this mirrors at the
+container level).
+
+**What did NOT change**: no code under `src/` or `server/app/` changed for
+this phase — the container is purely a packaging/runtime concern layered
+on top of the exact same single-origin process `npm run server` already
+runs locally.
+
 ## Deviations
 
 Real friction points found while building against the actual `my-you-eye@0.4.0` npm

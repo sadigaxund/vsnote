@@ -1,0 +1,60 @@
+# Phase 14 (containerization) — keeps the build context small and makes sure
+# nothing from this working tree's own dev state (node_modules, a build
+# already on disk, a Python venv, dev databases/repos, test artifacts)
+# leaks into the image. The Dockerfile builds dist/ and installs
+# server/requirements.txt itself, from source, inside the build — none of
+# that needs to (or should) come in from the host.
+
+# --- VCS / editor / agent state ---
+.git
+.github
+.claude
+.vscode
+.idea
+*.DS_Store
+
+# --- node ---
+node_modules
+dist
+dist-ssr
+*.tsbuildinfo
+npm-debug.log*
+*.log
+
+# --- python / server dev state ---
+server/.venv
+server/git-repos
+server/__pycache__
+server/**/__pycache__
+server/.pytest_cache
+server/tests
+*.db
+*.db-journal
+
+# --- test artifacts (not needed to build or run the image) ---
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache
+tests
+
+# --- docs / non-build-essential project files ---
+docs
+skills
+CHANGELOG.md
+CLAUDE.md
+app-preview.png
+search.png
+
+# --- secrets — never allow an accidental .env into build context ---
+.env
+.env.local
+server/.env
+*.env
+!.env.example
+!server/.env.example
+
+# --- the docker files themselves don't need to be in their own context ---
+Dockerfile
+docker-compose.yml
+.dockerignore

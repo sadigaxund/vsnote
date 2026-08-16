@@ -60,6 +60,53 @@ Interactive API docs: `http://127.0.0.1:8787/docs` (owner/`/api` routes only
 — `/share/*` isn't a documented-schema surface on purpose, it's raw/JSON
 content negotiation, see below).
 
+## Docker (Phase 14)
+
+The whole app (this backend + the built SPA, single-origin, one process) also
+ships as one container. From the repo root:
+
+```sh
+cp .env.example .env   # edit SLATE_SECRET_KEY, SLATE_BOOTSTRAP_USER/PASSWORD, etc.
+docker compose up -d --build
+# → http://localhost:8787/  (or ${SLATE_HOST_PORT} if you changed it)
+```
+
+`Dockerfile` (repo root) is a two-stage build: a `node:20-slim` stage runs
+`npm ci && npm run build`; the final `python:3.12-slim` stage installs
+`requirements.txt` (filtered to drop the `pytest`/`httpx` test-only
+entries — no test runner ships in the image), copies `server/app` +
+`server/scripts` and the built `dist/`, and runs as a non-root user
+(`slate`, uid/gid 1000) — never node, never a dev dependency, never root.
+See `../docs/ARCHITECTURE.md`'s "Containerization (Phase 14)" section for
+the full design (DIST_DIR path resolution, the healthcheck's reasoning,
+the persistence contract) — not duplicated here to avoid the two drifting.
+
+**Persistent state lives in two named volumes** (`docker-compose.yml`):
+the SQLite DB (`SLATE_DB_URL` defaults to `sqlite:////data/db/slate.db` in
+the container, not this file's local `./slate.db` default) and
+`SLATE_GIT_ROOT` (defaults to `/data/git-repos` in the container). `docker
+compose down` leaves both intact; `docker compose down -v` is the
+deliberate factory reset (destroys the DB and every synced git repo).
+
+**Bootstrap user from env** (see "Fallback-login onboarding" above) works
+identically in the container — set `SLATE_BOOTSTRAP_USER`/
+`SLATE_BOOTSTRAP_PASSWORD` in `.env` before first `up`. To reset a password
+or add a second account later: `docker compose exec vsnote python
+server/scripts/create_user.py`.
+
+**Real git sync** (see "Real git sync" below) also works identically
+against the container's `/git/{repo}.git` — a real `git clone`/`push`
+against `http://<host>:<port>/git/vault.git` with an API token, from any
+system `git` client, was used to verify this phase (not just the app's own
+isomorphic-git client).
+
+**Optional Cloudflare tunnel sidecar**: `docker-compose.yml` has a
+commented-out `cloudflared` service showing the intended topology — most
+operators already run their own tunnel process/token outside this compose
+file, so it's disabled by default. See ".env.example"'s
+`CLOUDFLARE_TUNNEL_TOKEN` and the "Cloudflare Access production topology"
+section below for the SSO layer on top of it.
+
 ## Running the tests
 
 ```sh
