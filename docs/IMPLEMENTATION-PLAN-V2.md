@@ -220,6 +220,17 @@ Full spec in DESIGN-SPEC round 5. Mixed client+server+ops phase:
   drop and paste verified in Chromium, image-paste in Firefox.
 
 ## Phase 16 — Round 6 refinement pass (2026-08-17, confirmed by user)
+**Status: COMPLETED 2026-08-17** — all 23 items, in four commits (fcf30c8
+batch 1: items 1/14/15/16/20/21/22; a7187d0 batch 2: items 2-9; fd8e53a
+batch 3: items 17/18/19; dff25cf batch 4: items 10-13/23). Suite at close:
+238 vitest / 97 playwright / 167 pytest, retries 0. Notable scope grown in
+flight: clear_expiry + source_path PATCH sentinels, POST
+/api/git-repos/{name}/reset, PUT /share/{id}/{relpath} + vaultcommit.py
+(editor write-back as real bare-repo commits), and a dev-proxy fix (only
+GET/HEAD are navigations). Item 13's root cause: the old reader forced a
+white canvas under dark-theme selection colors, so selections painted
+invisibly.
+
 Executed DIRECTLY by the coordinating session (user lifted the "docs only" rule
 for this pass — judgment-density polish work); suites + CI as safety net; same
 commit/push discipline. Items (user-confirmed list):
