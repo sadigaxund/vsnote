@@ -367,7 +367,17 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
               paddingTop: 6,
             }}
           >
-            <ExplorerTree readOnly data={tree ?? []} selectedId={activeRelpath ?? undefined} onSelect={handleSelectTreeNode} />
+            {/* Phase 17 Milestone D: gives `ExplorerTree`'s own root a real
+             * bounded height — needed only once it virtualizes (its
+             * internal `VirtualList` needs a definite height to scroll
+             * within, rather than nesting a second scrollable region
+             * under this `<aside>`'s own `overflow: auto`). Below the
+             * threshold `ExplorerTree`'s root is a plain `<ul>` with
+             * natural content height that still overflows this wrapper
+             * and gets scrolled by the `<aside>` exactly as before. */}
+            <div style={{ height: "100%" }}>
+              <ExplorerTree readOnly data={tree ?? []} selectedId={activeRelpath ?? undefined} onSelect={handleSelectTreeNode} />
+            </div>
           </aside>
         )}
         <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--app-editor-bg)" }} data-testid="share-folder-content">

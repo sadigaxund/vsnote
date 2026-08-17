@@ -134,7 +134,19 @@ export function Sidebar({
         </div>
 
         <ScrollArea className="flex-1" style={{ minHeight: 0 }}>
-          <div style={{ paddingBottom: 12 }}>
+          {/* Phase 17 Milestone D: `height: 100%` (+ `boxSizing: border-box`
+           * so `paddingBottom` doesn't push past it) gives a real bounded
+           * height all the way down to `ExplorerTree`'s own root — needed
+           * ONLY once it virtualizes (`VirtualList`'s internal `ScrollArea`
+           * needs a definite height to scroll within, rather than nesting
+           * a second scrollable region under this one). Below the
+           * virtualization threshold `ExplorerTree`'s root is still a
+           * plain `<ul>` with natural (content-driven) height, so this
+           * wrapper being `height: 100%` changes nothing visible for that
+           * — a shorter tree just leaves the same empty space below it
+           * that it always has, still scrolled by this outer `ScrollArea`
+           * if it ever overflows. */}
+          <div style={{ height: "100%", boxSizing: "border-box", paddingBottom: 12, display: "flex", flexDirection: "column", minHeight: 0 }}>
             <ExplorerTree
               key={filter ? "filtered" : "full"}
               data={filtered}

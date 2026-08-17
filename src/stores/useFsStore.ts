@@ -203,3 +203,43 @@ export const useFsStore = create<FsStoreState>((set, get) => ({
     await get().refresh();
   },
 }));
+
+/**
+ * Phase 17 Milestone D (docs/COMPONENT-BACKLOG.md row 25, VirtualList) —
+ * an e2e-only bulk seed so a Playwright spec can build a "hundreds of
+ * files" tree without a server/terminal to script it another way (the app
+ * is browser-only per CLAUDE.md; the demo vault's own seed is a small,
+ * fixed showcase, not a scale fixture). Writes `count` flat files directly
+ * under `<vault>/<folderName>` in parallel, then does exactly one
+ * `refresh()` — same reasoning `createFile`'s single-file path doesn't
+ * apply here: awaiting `refresh()` (a full `readTree` + `sortChildren`)
+ * after every individual write would make seeding hundreds of files
+ * needlessly slow.
+ *
+ * Permanent, read-only-in-effect e2e hook — same precedent as
+ * `git/backupRefs.ts`'s `window.__vsnoteGitDebug` (inert unless a spec
+ * calls it; harmless in production since no production code path ever
+ * invokes `window.__vsnoteTestSeed`).
+ */
+async function seedLargeFolderForTests(folderName: string, count: number): Promise<string> {
+  const parentFsPath = `${VAULT_DIR}/${folderName}`;
+  await ensureDir(parentFsPath);
+  await Promise.all(
+    Array.from({ length: count }, (_, i) => {
+      const name = `file-${String(i).padStart(4, "0")}.md`;
+      return writeFile(`${parentFsPath}/${name}`, `# File ${i}\n`);
+    }),
+  );
+  await useFsStore.getState().refresh();
+  return fsToDisplayPath(parentFsPath);
+}
+
+declare global {
+  interface Window {
+    __vsnoteTestSeed?: { seedLargeFolder: (folderName: string, count: number) => Promise<string> };
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.__vsnoteTestSeed = { seedLargeFolder: seedLargeFolderForTests };
+}

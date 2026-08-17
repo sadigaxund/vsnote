@@ -54,6 +54,40 @@
  * whenever any row inside has keyboard focus, per spec's "with the tree
  * focused". Actual fs writes + conflict rename-or-replace happen in
  * `App.tsx` (`fs/importEntries.ts`), same split as `onMove`/`onDelete`/etc.
+ *
+ * Virtualization (Phase 17 Milestone D, docs/COMPONENT-BACKLOG.md row 25):
+ * this component used to render every row's DOM node unconditionally,
+ * recursively, whether visible or not beneath a collapsed folder didn't
+ * matter — small trees (this app's own demo vault, under 20 rows fully
+ * expanded) never noticed. A real FS-backed vault with hundreds of notes
+ * does. Expand/collapse state used to live as a private `useState` inside
+ * each row (`TreeRow`'s old `userExpanded`); it's now lifted to this
+ * component (`expandOverrides`, a `Map<nodeId, boolean>` of only the ids a
+ * user has actually toggled away from their default — see
+ * `lib/treeFlatten.ts`'s `defaultExpandedFor`/`computeExpanded`) because
+ * both rendering paths below need the SAME answer to "what's visible right
+ * now, and how many rows is that": `lib/treeFlatten.ts`'s `flattenTree()`
+ * walks `data` with that state and produces a flat, depth-first array of
+ * only the currently-visible rows.
+ *
+ * Below `VIRTUALIZE_ROW_THRESHOLD` (200) flattened rows, `ExplorerTree`
+ * renders the ORIGINAL nested recursive markup, byte-for-byte identical to
+ * before this phase (`TreeRow` below still emits `<li>` wrapping a
+ * `<ul role="group">` of child `<li>`s) — this app's own tree never
+ * crosses that threshold, so every existing e2e spec stays on this exact
+ * code path, unchanged. At/above it, rows come from `VirtualList`
+ * (`components/local/VirtualList.tsx`) windowing over the SAME flattened
+ * array `FlatRow` below renders. A flattened list has no nested
+ * `<ul role="group">` left to express "this row is 3 levels deep, 2nd of 5
+ * siblings" the way DOM nesting used to — so the flat path switches to the
+ * WAI-ARIA "flattened tree" alternative: `aria-level`/`aria-setsize`/
+ * `aria-posinset` directly on each `role="treeitem"` row (added to BOTH
+ * rendering paths for consistency; it's a pure DOM addition, nothing
+ * removed, so the non-virtualized path's existing markup is unaffected
+ * beyond that one new attribute). Both rendering paths share every other
+ * behavior — selection, rename, context menu, drag & drop, OS import/paste,
+ * git/share decoration, `readOnly` — through the single `TreeRowContent`
+ * component both `TreeRow` (recursive) and `FlatRow` (virtualized) wrap.
  */
 import {
   useEffect,
@@ -63,6 +97,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { Input, Tooltip } from "my-you-eye";
 import {
@@ -77,6 +112,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { FileIcon } from "./FileIcon";
+import { VirtualList } from "./VirtualList";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -91,6 +127,7 @@ import { collectDescendantIds } from "../../lib/fileTree";
 import { STATUS_COLOR } from "../../lib/gitStatusColor";
 import { computeShareIndicator, type ShareIndicatorInput } from "../../share/shareIndicators";
 import { captureDataTransferItems, extractClipboardFiles, flattenCapturedItems, type FlattenedEntry } from "../../fs/importEntries";
+import { computeExpanded, defaultExpandedFor, flattenTree, VIRTUALIZE_ROW_THRESHOLD, type FlatTreeRow } from "../../lib/treeFlatten";
 import type { FileNode } from "../../types";
 
 /** Tooltip text for the share indicator glyph — "link + policy + hits" per
@@ -111,6 +148,42 @@ function shareIndicatorTooltip(share: ExplorerShareRow, tier: ShareIndicatorTier
 function parentOfPath(path: string): string {
   const idx = path.lastIndexOf("/");
   return idx === -1 ? path : path.slice(0, idx);
+}
+
+/** Default theme's `--app-chrome-tree-row-h` (see `theme.css`) — used only
+ * as the initial value before the real, density-aware computed value is
+ * read from the DOM (`useTreeRowHeightPx` below); never the other way
+ * around, so a non-default density theme is never stuck at this number. */
+const FALLBACK_TREE_ROW_HEIGHT = 24;
+
+function readTreeRowHeightPx(): number {
+  if (typeof document === "undefined") return FALLBACK_TREE_ROW_HEIGHT;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--app-chrome-tree-row-h");
+  const parsed = parseFloat(raw);
+  return !Number.isNaN(parsed) && parsed > 0 ? parsed : FALLBACK_TREE_ROW_HEIGHT;
+}
+
+/** Reads `--app-chrome-tree-row-h` off the root element so `VirtualList`
+ * windows at the SAME row height the (non-virtualized) CSS-driven rows
+ * already render at, rather than a second, hardcoded number that could
+ * drift from the token. The initial value comes from a lazy `useState`
+ * initializer (synchronous, no effect needed); a `MutationObserver` on
+ * `<html>`'s `data-ui-density` attribute (`useSettingsStore`'s live,
+ * no-reload density toggle — `theme.css`'s `--app-chrome-tree-row-h` is
+ * 20/24/28px per tier) re-reads it and updates state from that observer's
+ * OWN callback, not synchronously in the effect body — the pattern
+ * `react-hooks/set-state-in-effect` requires ("calling setState in a
+ * callback function when external state changes", not directly in the
+ * effect). */
+function useTreeRowHeightPx(): number {
+  const [height, setHeight] = useState(readTreeRowHeightPx);
+  useEffect(() => {
+    const target = document.documentElement;
+    const observer = new MutationObserver(() => setHeight(readTreeRowHeightPx()));
+    observer.observe(target, { attributes: true, attributeFilter: ["data-ui-density"] });
+    return () => observer.disconnect();
+  }, []);
+  return height;
 }
 
 /**
@@ -220,6 +293,15 @@ export function ExplorerTree({
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const [autoExpandPath, setAutoExpandPath] = useState<string | null>(null);
   const cancelledRef = useRef(false);
+  // Lifted out of each row's own `useState` (Phase 17 Milestone D — see
+  // this file's module doc) so both the recursive and the flat/virtualized
+  // rendering paths compute "is this folder expanded" the same way. Only
+  // holds ids the user has actually toggled away from their
+  // `defaultExpandedFor()` value — everything else falls back to that
+  // default, computed fresh from `data` each time (safe: `collapsed`/
+  // `defaultExpanded` are static per-id flags set once at tree
+  // construction, never mutated in place for an existing id).
+  const [expandOverrides, setExpandOverrides] = useState<Map<string, boolean>>(new Map());
 
   const invalidTargets = useMemo(
     () => (dragPath ? collectDescendantIds(data, dragPath) : new Set<string>()),
@@ -328,7 +410,7 @@ export function ExplorerTree({
   // `App.tsx`'s `resolveCreateParent` already uses for "New file"/"New
   // folder", kept local here since the tree already has `data`/`selectedId`
   // in scope and this never needs to leave the component.
-  function handlePaste(e: ClipboardEvent<HTMLUListElement>) {
+  function handlePaste(e: ClipboardEvent<HTMLElement>) {
     if (!onImportEntries) return;
     const entries = extractClipboardFiles(e.clipboardData);
     if (entries.length === 0) return;
@@ -340,6 +422,67 @@ export function ExplorerTree({
         : parentOfPath(selectedNode.id)
       : (data[0]?.id ?? "vault");
     onImportEntries(targetFolderPath, entries);
+  }
+
+  function toggleExpandNode(node: FileNode) {
+    setExpandOverrides((prev) => {
+      const next = new Map(prev);
+      const currentBase = prev.has(node.id) ? (prev.get(node.id) ?? false) : defaultExpandedFor(node);
+      next.set(node.id, !currentBase);
+      return next;
+    });
+  }
+
+  // Recomputed whenever the tree or any expand-affecting state changes —
+  // both the threshold decision AND (once virtualized) the literal row
+  // data VirtualList windows over.
+  const flatRows = useMemo(
+    () => flattenTree(data, { expandOverrides, expandAll, forceExpandId: forceExpandId ?? null, autoExpandPath }),
+    [data, expandOverrides, expandAll, forceExpandId, autoExpandPath],
+  );
+  const virtualize = flatRows.length > VIRTUALIZE_ROW_THRESHOLD;
+  const rowHeightPx = useTreeRowHeightPx();
+
+  const sharedRowProps: SharedTreeRowProps = {
+    selectedId,
+    onSelect,
+    renamingId,
+    onRenameCommit,
+    onRenameCancel,
+    onCreateFile,
+    onCreateFolder,
+    onRequestRename,
+    onDelete,
+    onCopyPath,
+    onPublish,
+    shares,
+    onCopyShareLink,
+    onManageShare,
+    onRevokeShare,
+    dragPath,
+    dropTarget,
+    autoExpandPath,
+    onDragStartNode: handleDragStart,
+    onDragOverNode: handleDragOver,
+    onDropNode: handleDrop,
+    onDragEndNode: resetDrag,
+    onToggleExpandNode: toggleExpandNode,
+    readOnly,
+  };
+
+  if (virtualize) {
+    return (
+      <VirtualList<FlatTreeRow>
+        items={flatRows}
+        rowHeight={rowHeightPx}
+        getKey={(row) => row.node.id}
+        className={className}
+        role="tree"
+        data-testid="explorer-tree-viewport"
+        onPaste={readOnly ? undefined : handlePaste}
+        renderRow={(row) => <FlatRow row={row} {...sharedRowProps} />}
+      />
+    );
   }
 
   return (
@@ -354,45 +497,25 @@ export function ExplorerTree({
           key={node.id}
           node={node}
           depth={0}
-          selectedId={selectedId}
-          onSelect={onSelect}
           expandAll={expandAll}
-          renamingId={renamingId}
           forceExpandId={forceExpandId ?? null}
-          onRenameCommit={onRenameCommit}
-          onRenameCancel={onRenameCancel}
-          onCreateFile={onCreateFile}
-          onCreateFolder={onCreateFolder}
-          onRequestRename={onRequestRename}
-          onDelete={onDelete}
-          onCopyPath={onCopyPath}
-          onPublish={onPublish}
-          shares={shares}
-          onCopyShareLink={onCopyShareLink}
-          onManageShare={onManageShare}
-          onRevokeShare={onRevokeShare}
-          dragPath={dragPath}
-          dropTarget={dropTarget}
-          autoExpandPath={autoExpandPath}
-          onDragStartNode={handleDragStart}
-          onDragOverNode={handleDragOver}
-          onDropNode={handleDrop}
-          onDragEndNode={resetDrag}
-          readOnly={readOnly}
+          expandOverrides={expandOverrides}
+          {...sharedRowProps}
         />
       ))}
     </ul>
   );
 }
 
-interface TreeRowProps {
-  node: FileNode;
-  depth: number;
+/** Props every row-rendering path (`TreeRow`, `FlatRow`, `TreeRowContent`)
+ * shares — everything about a row EXCEPT the node/depth/expand-state
+ * itself, which each caller resolves its own way (recursive `useState`-free
+ * computation for `TreeRow`, precomputed `FlatTreeRow` fields for
+ * `FlatRow`). */
+interface SharedTreeRowProps {
   selectedId?: string;
   onSelect?: (node: FileNode, opts?: { pin?: boolean }) => void;
-  expandAll?: boolean;
   renamingId?: string | null;
-  forceExpandId: string | null;
   onRenameCommit?: (node: FileNode, newName: string) => void;
   onRenameCancel?: () => void;
   onCreateFile?: (parentPath: string) => void;
@@ -412,17 +535,120 @@ interface TreeRowProps {
   onDragOverNode: (e: DragEvent<HTMLDivElement>, node: FileNode, isFolder: boolean) => void;
   onDropNode: (e: DragEvent<HTMLDivElement>) => void;
   onDragEndNode: () => void;
+  onToggleExpandNode: (node: FileNode) => void;
   readOnly?: boolean;
 }
 
-function TreeRow({
+interface TreeRowProps extends SharedTreeRowProps {
+  node: FileNode;
+  depth: number;
+  expandAll?: boolean;
+  forceExpandId: string | null;
+  expandOverrides: ReadonlyMap<string, boolean>;
+}
+
+/** Recursive, non-virtualized row — renders `node` plus (if it's an
+ * expanded folder) a nested `<ul role="group">` of its children, exactly
+ * the DOM shape this component has always produced. Used whenever the
+ * flattened row count is below `VIRTUALIZE_ROW_THRESHOLD`. */
+function TreeRow({ node, depth, expandAll, forceExpandId, expandOverrides, ...shared }: TreeRowProps) {
+  const isFolder = node.type === "folder";
+  const expanded = computeExpanded(node, { expandOverrides, expandAll, forceExpandId, autoExpandPath: shared.autoExpandPath });
+
+  const groupChildren: ReactNode =
+    isFolder && expanded && node.children && node.children.length > 0 ? (
+      <ul role="group" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {node.children.map((child) => (
+          <TreeRow
+            key={child.id}
+            node={child}
+            depth={depth + 1}
+            expandAll={expandAll}
+            forceExpandId={forceExpandId}
+            expandOverrides={expandOverrides}
+            {...shared}
+          />
+        ))}
+      </ul>
+    ) : undefined;
+
+  return (
+    <TreeRowContent
+      node={node}
+      depth={depth}
+      expanded={expanded}
+      ariaLevel={depth + 1}
+      groupChildren={groupChildren}
+      {...shared}
+    />
+  );
+}
+
+interface FlatRowProps extends SharedTreeRowProps {
+  row: FlatTreeRow;
+}
+
+/** Virtualized row — one `FlatTreeRow` (already resolved by
+ * `lib/treeFlatten.ts`'s `flattenTree()`, including its `expanded` state),
+ * rendered as a sibling with no nested `<ul role="group">` at all: the
+ * flattened array already contains every visible descendant in order, so
+ * `aria-level`/`aria-setsize`/`aria-posinset` (not DOM nesting) carry the
+ * hierarchy — see this file's module doc. */
+function FlatRow({ row, ...shared }: FlatRowProps) {
+  return (
+    <TreeRowContent
+      node={row.node}
+      depth={row.depth}
+      expanded={row.expanded}
+      ariaLevel={row.depth + 1}
+      ariaSetsize={row.setsize}
+      ariaPosinset={row.posinset}
+      flat
+      {...shared}
+    />
+  );
+}
+
+interface TreeRowContentProps extends SharedTreeRowProps {
+  node: FileNode;
+  depth: number;
+  expanded: boolean;
+  ariaLevel: number;
+  ariaSetsize?: number;
+  ariaPosinset?: number;
+  /** Non-virtualized mode only — `TreeRow`'s recursive `<ul role="group">`
+   * of this folder's children, rendered inside this row's own wrapper
+   * element (matching the original nested DOM exactly). `undefined` in
+   * flat/virtualized mode, where `flattenTree()` already produced every
+   * visible descendant as a sibling row. */
+  groupChildren?: ReactNode;
+  /** True only for `FlatRow` (virtualized rendering): swaps the wrapper
+   * element from `<li>` (today's nested-list DOM, unchanged for the
+   * common below-threshold path) to a plain `<div>` — a flattened row list
+   * is no longer a semantic `<ul>`/`<li>` structure. */
+  flat?: boolean;
+}
+
+/**
+ * The actual row: icon, filename (git-tinted / struck-through), inline
+ * rename input, share indicator, status letter, drag/drop wiring, and (for
+ * a mutable, non-`readOnly` tree) the right-click context menu. Shared by
+ * both `TreeRow` (recursive) and `FlatRow` (virtualized) — see this file's
+ * module doc for why the wrapper element and children are the only things
+ * that differ between the two.
+ */
+function TreeRowContent({
   node,
   depth,
+  expanded,
+  ariaLevel,
+  ariaSetsize,
+  ariaPosinset,
+  groupChildren,
+  flat,
   selectedId,
   onSelect,
-  expandAll,
   renamingId,
-  forceExpandId,
   onRenameCommit,
   onRenameCancel,
   onCreateFile,
@@ -437,18 +663,14 @@ function TreeRow({
   onRevokeShare,
   dragPath,
   dropTarget,
-  autoExpandPath,
   onDragStartNode,
   onDragOverNode,
   onDropNode,
   onDragEndNode,
+  onToggleExpandNode,
   readOnly,
-}: TreeRowProps) {
+}: TreeRowContentProps) {
   const isFolder = node.type === "folder";
-  const [userExpanded, setUserExpanded] = useState(
-    isFolder ? !node.collapsed && node.defaultExpanded !== false : false,
-  );
-  const expanded = expandAll || userExpanded || node.id === autoExpandPath || node.id === forceExpandId;
   const selected = node.id === selectedId;
   const deleted = node.status === "D";
   const isRenaming = renamingId === node.id;
@@ -533,7 +755,7 @@ function TreeRow({
 
   const handleActivate = (opts?: { pin?: boolean }) => {
     if (isFolder) {
-      setUserExpanded((e) => !e);
+      onToggleExpandNode(node);
     } else {
       onSelect?.(node, opts);
     }
@@ -562,6 +784,9 @@ function TreeRow({
       role="treeitem"
       aria-expanded={isFolder ? expanded : undefined}
       aria-selected={selected}
+      aria-level={ariaLevel}
+      aria-setsize={ariaSetsize}
+      aria-posinset={ariaPosinset}
       data-tree-path={node.id}
       data-tree-kind={node.type}
       tabIndex={0}
@@ -736,44 +961,22 @@ function TreeRow({
     </div>
   );
 
+  const Wrapper = flat ? "div" : "li";
+
   // Round 6 item 10 — readOnly rows carry no context menu at all: every
   // menu action is a vault mutation or a share-owner action, neither of
   // which exists for a share visitor.
   if (readOnly) {
     return (
-      <li role={isFolder ? undefined : "none"} style={{ position: "relative" }}>
+      <Wrapper role={isFolder ? undefined : "none"} style={{ position: "relative" }}>
         {row}
-        {isFolder && expanded && node.children && (
-          <ul role="group" style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {node.children.map((child) => (
-              <TreeRow
-                key={child.id}
-                node={child}
-                depth={depth + 1}
-                selectedId={selectedId}
-                onSelect={onSelect}
-                expandAll={expandAll}
-                renamingId={renamingId}
-                forceExpandId={forceExpandId}
-                shares={shares}
-                dragPath={dragPath}
-                dropTarget={dropTarget}
-                autoExpandPath={autoExpandPath}
-                onDragStartNode={onDragStartNode}
-                onDragOverNode={onDragOverNode}
-                onDropNode={onDropNode}
-                onDragEndNode={onDragEndNode}
-                readOnly
-              />
-            ))}
-          </ul>
-        )}
-      </li>
+        {!flat && groupChildren}
+      </Wrapper>
     );
   }
 
   return (
-    <li role={isFolder ? undefined : "none"} style={{ position: "relative" }}>
+    <Wrapper role={isFolder ? undefined : "none"} style={{ position: "relative" }}>
       <ContextMenu>
         <ContextMenuTrigger asChild disabled={isRenaming}>
           {row}
@@ -824,43 +1027,8 @@ function TreeRow({
           )}
         </ContextMenuContent>
       </ContextMenu>
-      {isFolder && expanded && node.children && (
-        <ul role="group" style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {node.children.map((child) => (
-            <TreeRow
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              selectedId={selectedId}
-              onSelect={onSelect}
-              expandAll={expandAll}
-              renamingId={renamingId}
-              forceExpandId={forceExpandId}
-              onRenameCommit={onRenameCommit}
-              onRenameCancel={onRenameCancel}
-              onCreateFile={onCreateFile}
-              onCreateFolder={onCreateFolder}
-              onRequestRename={onRequestRename}
-              onDelete={onDelete}
-              onCopyPath={onCopyPath}
-              onPublish={onPublish}
-              shares={shares}
-              onCopyShareLink={onCopyShareLink}
-              onManageShare={onManageShare}
-              onRevokeShare={onRevokeShare}
-              dragPath={dragPath}
-              dropTarget={dropTarget}
-              autoExpandPath={autoExpandPath}
-              onDragStartNode={onDragStartNode}
-              onDragOverNode={onDragOverNode}
-              onDropNode={onDropNode}
-              onDragEndNode={onDragEndNode}
-              readOnly={readOnly}
-            />
-          ))}
-        </ul>
-      )}
-    </li>
+      {!flat && groupChildren}
+    </Wrapper>
   );
 }
 
