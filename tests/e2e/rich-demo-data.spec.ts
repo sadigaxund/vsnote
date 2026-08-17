@@ -210,6 +210,6 @@ test.describe("representative demo data", () => {
     await expect(header).toContainText("-5");
 
     await expect(page.getByTestId("app-statusbar")).toContainText("1 untracked");
-    await expect(page.getByTestId("app-statusbar")).toContainText("feat/incremental-index");
+    await expect(page.getByTestId("app-statusbar")).toContainText("main");
   });
 });

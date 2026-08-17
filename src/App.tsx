@@ -212,8 +212,16 @@ export default function App() {
   if (autoSyncSchedulerRef.current === null) {
     autoSyncSchedulerRef.current = createAutoSyncScheduler({
       getPolicy: () => {
-        const { gitSyncPolicy, gitSyncIntervalMinutes } = useSettingsStore.getState();
-        return { policy: gitSyncPolicy, intervalMinutes: gitSyncIntervalMinutes };
+        const { gitSyncOnInterval, gitSyncOnOpenClose, gitSyncOnSave, gitSyncIntervalMinutes, gitSyncSetupComplete } =
+          useSettingsStore.getState();
+        // Round 7 item 52 — nothing fires until setup was explicitly
+        // completed, whatever the individual toggles say.
+        return {
+          interval: gitSyncSetupComplete && gitSyncOnInterval,
+          openClose: gitSyncSetupComplete && gitSyncOnOpenClose,
+          onSave: gitSyncSetupComplete && gitSyncOnSave,
+          intervalMinutes: gitSyncIntervalMinutes,
+        };
       },
       // Mirrors the EXACT gate the 60s background-fetch interval effect
       // below already uses (`!syncing && authenticated`) plus one more
@@ -278,7 +286,8 @@ export default function App() {
   // discipline as `sidebarWidth` above: this component only needs to
   // re-run the scheduler-(re)start effect below when either actually
   // changes, never on an unrelated settings edit.
-  const gitSyncPolicy = useSettingsStore((s) => s.gitSyncPolicy);
+  const gitSyncOnInterval = useSettingsStore((s) => s.gitSyncOnInterval);
+  const gitSyncSetupComplete = useSettingsStore((s) => s.gitSyncSetupComplete);
   const gitSyncIntervalMinutes = useSettingsStore((s) => s.gitSyncIntervalMinutes);
   // Phase 10.5 — the Explorer tree's share indicator glyph (roadmap §5.1)
   // reads whatever `useShareStore.shares` currently holds. That list is
@@ -401,7 +410,7 @@ export default function App() {
   }, []);
 
   // Phase 17 Milestone C1 — (re)starts the auto-sync scheduler's "interval"
-  // timer whenever `gitSyncPolicy`/`gitSyncIntervalMinutes` actually
+  // timer whenever the interval toggle/minutes (or setup gate) actually
   // change: `start()` is a no-op for every policy except "interval" (see
   // `git/autoSyncPolicy.ts`'s doc), so this effect is safe to run
   // unconditionally regardless of which policy is active — it's the ONLY
@@ -414,7 +423,7 @@ export default function App() {
   useEffect(() => {
     autoSyncSchedulerRef.current?.start();
     return () => autoSyncSchedulerRef.current?.stop();
-  }, [gitSyncPolicy, gitSyncIntervalMinutes]);
+  }, [gitSyncOnInterval, gitSyncSetupComplete, gitSyncIntervalMinutes]);
 
   // Phase 17 Milestone C1 — "open-close" policy: one attempt at app open
   // (this effect's mount) and one at app close/hide (`visibilitychange` ->

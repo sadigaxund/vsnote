@@ -307,7 +307,7 @@ this is a bespoke `Backend` rather than dulwich's own
 confirmed by hand against dulwich 1.2.12 before writing around it).
 
 **Repos are created on demand** — bare, empty, HEAD pointed at this app's own
-default branch name (`feat/incremental-index` — see `client.ts`'s
+default branch name (`main` — see `client.ts`'s
 `DEFAULT_BRANCH`) — the first time an authorized WRITE request touches a name
 that doesn't exist yet. A read-only request against a repo that was never
 pushed to gets a normal

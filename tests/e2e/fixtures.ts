@@ -122,12 +122,17 @@ export async function openSettingsTab(page: Page): Promise<void> {
  * the UI instead, covering the toggle end to end; the rest use this seed so
  * they don't all repeat that navigation. */
 export async function seedShowGitStatusInExplorer(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      "vsnote-settings",
-      JSON.stringify({ state: { showGitStatusInExplorer: true }, version: 3 }),
-    );
-  });
+  await seedSettings(page, { showGitStatusInExplorer: true });
+}
+
+/** Round 7 — seeds arbitrary persisted settings BEFORE first navigation
+ * (the store's current persist version, so no migration reinterprets the
+ * seeded values). Used e.g. to mark sync setup complete so Git & Sync
+ * specs land on the full category instead of the item 52 setup gate. */
+export async function seedSettings(page: Page, state: Record<string, unknown>): Promise<void> {
+  await page.addInitScript((seeded) => {
+    localStorage.setItem("vsnote-settings", JSON.stringify({ state: seeded, version: 4 }));
+  }, state);
 }
 
 /** Resets in-page state that must not leak across a single spec file's

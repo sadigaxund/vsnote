@@ -33,7 +33,6 @@ import {
   Alert,
   Badge,
   Button,
-  DataList,
   FormField,
   Input,
   Kbd,
@@ -70,14 +69,12 @@ import {
 } from "../stores/useSettingsStore";
 import { defaultModeFor } from "../filetypes/registry";
 import { useGitStore } from "../stores/useGitStore";
-import { useFsStore } from "../stores/useFsStore";
 import {
   computeGitRemoteUrl,
   DEFAULT_GIT_REPO_NAME,
   describeConnectionTest,
   resolveGitCredential,
   testGitConnection,
-  validateRepoName,
   type ConnectionTestResult,
 } from "../git/remote";
 import { isHttpRemoteUrl } from "../git/syncStatus";
@@ -88,6 +85,7 @@ import { isDemoVaultBuild } from "../fs/seed";
 import { useShareStore } from "../share/useShareStore";
 import { SharedPanel } from "./local/SharedPanel";
 import { VaultSetupPanel } from "./local/VaultSetupPanel";
+import { SyncSetupPanel } from "./SyncSetupPanel";
 import { createApiToken, type ShareOut } from "../share/api";
 import type { EditorMode, FileKind } from "../types";
 
@@ -188,9 +186,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   // DESIGN-SPEC Amendments round 5 item 41 — repository name, vault display
   // name, and the Advanced custom-remote override.
   const gitRepoName = useSettingsStore((s) => s.gitRepoName);
-  const setGitRepoName = useSettingsStore((s) => s.setGitRepoName);
-  const vaultDisplayName = useSettingsStore((s) => s.vaultDisplayName);
-  const setVaultDisplayName = useSettingsStore((s) => s.setVaultDisplayName);
   const gitRemoteOverrideEnabled = useSettingsStore((s) => s.gitRemoteOverrideEnabled);
   const setGitRemoteOverrideEnabled = useSettingsStore((s) => s.setGitRemoteOverrideEnabled);
   const gitRemoteOverrideUrl = useSettingsStore((s) => s.gitRemoteOverrideUrl);
@@ -203,9 +198,15 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const setGitDeviceName = useSettingsStore((s) => s.setGitDeviceName);
   const showGitStatusInExplorer = useSettingsStore((s) => s.showGitStatusInExplorer);
   const setShowGitStatusInExplorer = useSettingsStore((s) => s.setShowGitStatusInExplorer);
-  // Phase 17 Milestone C1 — auto-sync policy.
-  const gitSyncPolicy = useSettingsStore((s) => s.gitSyncPolicy);
-  const setGitSyncPolicy = useSettingsStore((s) => s.setGitSyncPolicy);
+  // Phase 17 Milestone C1, reworked round 7 item 54 — combinable toggles.
+  const gitSyncOnInterval = useSettingsStore((s) => s.gitSyncOnInterval);
+  const setGitSyncOnInterval = useSettingsStore((s) => s.setGitSyncOnInterval);
+  const gitSyncOnOpenClose = useSettingsStore((s) => s.gitSyncOnOpenClose);
+  const setGitSyncOnOpenClose = useSettingsStore((s) => s.setGitSyncOnOpenClose);
+  const gitSyncOnSave = useSettingsStore((s) => s.gitSyncOnSave);
+  const setGitSyncOnSave = useSettingsStore((s) => s.setGitSyncOnSave);
+  const gitSyncSetupComplete = useSettingsStore((s) => s.gitSyncSetupComplete);
+  const setGitSyncSetupComplete = useSettingsStore((s) => s.setGitSyncSetupComplete);
   const gitSyncIntervalMinutes = useSettingsStore((s) => s.gitSyncIntervalMinutes);
   const setGitSyncIntervalMinutes = useSettingsStore((s) => s.setGitSyncIntervalMinutes);
 
@@ -277,6 +278,15 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   // `loggingIn` would get if they weren't ALSO needed by the boot-time
   // probe effect above (they are, hence useShareStore; this isn't).
   const [gitTokenDraft, setGitTokenDraft] = useState(gitAuthToken);
+  // Round 7 item 52 — the sync-setup panel (and anything else) can write
+  // gitAuthToken while this view is mounted; resync the draft via the
+  // codebase's render-time adjustment pattern (see ExplorerTree's
+  // renamingSnapshot) so the Remote sync field shows the minted token.
+  const [seenAuthToken, setSeenAuthToken] = useState(gitAuthToken);
+  if (gitAuthToken !== seenAuthToken) {
+    setSeenAuthToken(gitAuthToken);
+    setGitTokenDraft(gitAuthToken);
+  }
   // Phase 17 Milestone C1 — same draft-then-blur-commit pattern as
   // `gitTokenDraft` above: free typing while focused (never clamped
   // mid-keystroke, which would otherwise fight a user clearing the field to
@@ -302,7 +312,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
     [gitRepoName, gitRemoteOverrideEnabled, gitRemoteOverrideUrl],
   );
   const resolvedRemoteUrl = computeGitRemoteUrl(gitRemoteSettings);
-  const repoNameError = gitRepoName.trim() === "" ? null : validateRepoName(gitRepoName);
   const overrideUrlError =
     gitRemoteOverrideEnabled && gitRemoteOverrideUrl.trim() !== "" && !isHttpRemoteUrl(gitRemoteOverrideUrl)
       ? "Enter a full http or https URL."
@@ -610,7 +619,20 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
       id: "git-sync",
       label: "Git & Sync",
       icon: <GitBranch size={15} />,
-      rows: [
+      // Round 7 item 52 — until the user explicitly opts in, this category
+      // is NOTHING but the setup view: no rows, no defaults, no implicit
+      // server URL anywhere.
+      rows: !gitSyncSetupComplete
+        ? [
+            {
+              id: "sync-setup",
+              wide: true,
+              label: "Set up sync",
+              keywords: "git sync setup enable remote server token begin start",
+              content: <SyncSetupPanel />,
+            },
+          ]
+        : [
         // Phase 17 Milestone C2 — the server-mounted vault setup wizard /
         // mirror-remotes management surface. First row in this category:
         // when the server has no vault repo yet, this IS the primary thing
@@ -623,25 +645,56 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           keywords: "vault wizard init mirror remote ssh key token setup server github gitlab gitea mounted legacy branch",
           content: <VaultSetupPanel clientRepoName={gitRepoName} />,
         },
+        // Round 7 item 53 — the old "Repository"/"Repository name"/"Vault
+        // name" trio collapses into one derived, read-only identity card.
+        // Item 52: the implicit server URL is never displayed as if
+        // configured; only an explicit custom override shows a URL.
         {
           id: "repo-info",
-          label: "Repository",
-          keywords: "branch repo git info vault ahead behind resolved",
+          label: "Vault identity",
+          keywords: "branch repo git info vault ahead behind identity name",
           content: (
-            <FormField label="Repository" hint="Exactly what Sync talks to right now, not a guess.">
-              <DataList
-                items={[
-                  { label: "Repository", value: gitRepoName.trim() || DEFAULT_GIT_REPO_NAME },
-                  { label: "Branch", value: branch },
-                  { label: "Ahead / behind", value: `↑${ahead} ↓${behind}` },
-                  // Item 41(a) — the SAME `computeGitRemoteUrl` call (and the
-                  // same `gitRemoteSettings`) that `useGitStore.ts`'s
-                  // `remoteConfig()` uses for every real push/pull/fetch, so
-                  // this can never drift from what Sync actually does.
-                  { label: "Remote URL", value: resolvedRemoteUrl },
-                ]}
-                density="compact"
-              />
+            <FormField label="Vault identity" hint="What Sync talks to right now, not a guess.">
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span
+                    data-testid="vault-identity-chip"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 7,
+                      padding: "5px 12px",
+                      borderRadius: "var(--radius-ui)",
+                      border: "1px solid var(--color-border)",
+                      background: "var(--color-surface)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12.5,
+                      color: "var(--color-fg)",
+                    }}
+                  >
+                    <GitBranch size={13} style={{ color: "var(--color-primary)" }} aria-hidden />
+                    {gitRepoName.trim() || DEFAULT_GIT_REPO_NAME}
+                    <span style={{ color: "var(--color-muted)" }}>·</span>
+                    {branch}
+                  </span>
+                  <Badge variant="neutral" tone="soft">{`↑${ahead} ↓${behind}`}</Badge>
+                </div>
+                <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>
+                  {gitRemoteOverrideEnabled && gitRemoteOverrideUrl.trim() !== ""
+                    ? `Syncs with ${gitRemoteOverrideUrl.trim()}`
+                    : "Syncs with this VSNote server."}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  style={{ alignSelf: "flex-start" }}
+                  data-testid="sync-rerun-setup"
+                  onClick={() => setGitSyncSetupComplete(false)}
+                >
+                  Rerun setup
+                </Button>
+              </div>
             </FormField>
           ),
         },
@@ -666,49 +719,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           ),
         },
         {
-          id: "repo-name",
-          label: "Repository name",
-          keywords: "repo name url path vault git",
-          content: (
-            <FormField
-              label="Repository name"
-              hint="Becomes the implicit remote path. Letters, digits, hyphens, underscores only."
-              error={repoNameError ?? undefined}
-            >
-              <Input
-                size="sm"
-                value={gitRepoName}
-                invalid={!!repoNameError}
-                onChange={(e) => setGitRepoName(e.target.value)}
-                aria-label="Repository name"
-                data-testid="git-repo-name"
-                style={{ width: 220, fontFamily: "var(--font-mono)" }}
-              />
-            </FormField>
-          ),
-        },
-        {
-          id: "vault-name",
-          label: "Vault name",
-          keywords: "vault display name rename tree folder label",
-          content: (
-            <FormField label="Vault name" hint="Renames the tree's top folder label only, not any file path.">
-              <Input
-                size="sm"
-                value={vaultDisplayName}
-                placeholder="vault"
-                onChange={(e) => {
-                  setVaultDisplayName(e.target.value);
-                  void useFsStore.getState().refresh();
-                }}
-                aria-label="Vault name"
-                data-testid="vault-display-name"
-                style={{ width: 220 }}
-              />
-            </FormField>
-          ),
-        },
-        {
           id: "remote-sync",
           label: "Remote sync",
           keywords: "remote url https token sync auth push pull ssh key test connection generate",
@@ -722,7 +732,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
               </div>
               <FormField
                 label="Personal access token"
-                hint="A write scoped API token. Sign in under Sharing, then click Generate token."
+                hint="Authenticates sync to this server. Generate one right here once signed in."
               >
                 <div style={{ display: "flex", gap: 8 }}>
                   <Input
@@ -934,44 +944,60 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         {
           id: "auto-sync",
           label: "Auto-sync",
-          keywords: "auto sync automatic interval minutes open close save schedule background",
+          keywords: "auto sync automatic interval minutes open close save schedule background queue",
           content: (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <FormField label="Auto-sync" hint="Every policy runs the same Sync pipeline; this only decides when.">
-                <Select value={gitSyncPolicy} onValueChange={(v) => setGitSyncPolicy(v as typeof gitSyncPolicy)}>
-                  <SelectTrigger size="sm" data-testid="git-sync-policy" style={{ width: 240 }}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="manual">Manual, click Sync</SelectItem>
-                    <SelectItem value="interval">Every N minutes</SelectItem>
-                    <SelectItem value="open-close">On app open and close</SelectItem>
-                    <SelectItem value="on-save">After each save</SelectItem>
-                  </SelectContent>
-                </Select>
+              <FormField label="Auto-sync" hint="All off means manual. Any combination can be on at once.">
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                    <Switch
+                      checked={gitSyncOnInterval}
+                      onCheckedChange={setGitSyncOnInterval}
+                      aria-label="Sync every N minutes"
+                      data-testid="git-sync-on-interval"
+                    />
+                    <span style={{ fontSize: 13, color: "var(--color-fg)" }}>Every</span>
+                    <Input
+                      size="sm"
+                      type="number"
+                      min={MIN_SYNC_INTERVAL_MINUTES}
+                      disabled={!gitSyncOnInterval}
+                      value={gitSyncIntervalDraft}
+                      onChange={(e) => setGitSyncIntervalDraft(e.target.value)}
+                      onBlur={() => {
+                        const clamped = clampSyncIntervalMinutes(Number(gitSyncIntervalDraft));
+                        setGitSyncIntervalDraft(String(clamped));
+                        setGitSyncIntervalMinutes(clamped);
+                      }}
+                      aria-label="Auto-sync interval in minutes"
+                      data-testid="git-sync-interval-minutes"
+                      style={{ width: 72 }}
+                    />
+                    <span style={{ fontSize: 13, color: "var(--color-fg)" }}>minutes</span>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                    <Switch
+                      checked={gitSyncOnOpenClose}
+                      onCheckedChange={setGitSyncOnOpenClose}
+                      aria-label="Sync on app open and close"
+                      data-testid="git-sync-on-open-close"
+                    />
+                    <span style={{ fontSize: 13, color: "var(--color-fg)" }}>On app open and close</span>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                    <Switch
+                      checked={gitSyncOnSave}
+                      onCheckedChange={setGitSyncOnSave}
+                      aria-label="Sync after each save"
+                      data-testid="git-sync-on-save"
+                    />
+                    <span style={{ fontSize: 13, color: "var(--color-fg)" }}>After each save</span>
+                  </label>
+                </div>
               </FormField>
-              {gitSyncPolicy === "interval" && (
-                <FormField label="Interval" hint={`Minutes between syncs. Minimum ${MIN_SYNC_INTERVAL_MINUTES}.`}>
-                  <Input
-                    size="sm"
-                    type="number"
-                    min={MIN_SYNC_INTERVAL_MINUTES}
-                    value={gitSyncIntervalDraft}
-                    onChange={(e) => setGitSyncIntervalDraft(e.target.value)}
-                    onBlur={() => {
-                      const clamped = clampSyncIntervalMinutes(Number(gitSyncIntervalDraft));
-                      setGitSyncIntervalDraft(String(clamped));
-                      setGitSyncIntervalMinutes(clamped);
-                    }}
-                    aria-label="Auto-sync interval in minutes"
-                    data-testid="git-sync-interval-minutes"
-                    style={{ width: 100 }}
-                  />
-                </FormField>
-              )}
-              {gitSyncPolicy !== "manual" && (
+              {(gitSyncOnInterval || gitSyncOnOpenClose || gitSyncOnSave) && (
                 <span style={{ fontSize: 12, color: "var(--color-muted)" }}>
-                  Skips a run while a sync is in progress, while signed out, or while a conflict is waiting on you.
+                  Triggers queue into one sync at a time with a short quiet window between runs.
                 </span>
               )}
             </div>

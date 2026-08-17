@@ -1,18 +1,18 @@
 /**
  * Pins `git/autoSyncPolicy.ts`'s scheduling contract (Phase 17 Milestone
- * C1): when each policy fires, that it always funnels through the ONE
- * `runSync` dependency (never a second pipeline), and every gate ("never
- * while syncing", "never while signed out", "never retry a paused conflict
- * in a loop") holds for every policy.
+ * C1, reworked round 7 item 54): the three COMBINABLE trigger toggles, that
+ * every trigger funnels through the ONE `runSync` dependency via the
+ * coalescing queue (at most one run in flight; a completed run opens a
+ * quiet window that merges further triggers into a single follow-up), and
+ * every gate ("never while syncing", "never while signed out", "never
+ * retry a paused conflict in a loop") holds for every trigger.
  *
  * Uses a tiny hand-rolled fake clock instead of real timers OR vitest's
- * `vi.useFakeTimers()` — the module's own `setTimeoutFn`/`clearTimeoutFn`
- * injection seam (mirroring `fs/drafts.ts`'s `setDraftDebounceMsForTests`)
- * is the thing under test here as much as the scheduling logic itself, so
- * exercising it directly (rather than swapping vitest's global clock) is
- * both a more direct test of the actual production wiring (`App.tsx` passes
- * the real `setTimeout`/`clearTimeout` the exact same way) and keeps this
- * suite at zero real wall-clock cost.
+ * `vi.useFakeTimers()` — the module's own `setTimeoutFn`/`clearTimeoutFn`/
+ * `nowFn` injection seam is the thing under test here as much as the
+ * scheduling logic itself. Queue tests are async: a run's completion
+ * bookkeeping lands on the microtask queue (`runSync().finally(...)`), so
+ * each `advance` is followed by a microtask flush.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -22,16 +22,11 @@ import {
   isAutoSyncAllowed,
   MIN_SYNC_INTERVAL_MINUTES,
   ON_SAVE_DEBOUNCE_MS,
+  SYNC_QUIET_WINDOW_MS,
   type AutoSyncGateState,
-  type SyncPolicy,
+  type SyncTriggers,
 } from "../../src/git/autoSyncPolicy";
 
-/** A minimal manual fake clock: `setTimeout`/`clearTimeout` stand-ins that
- * record pending callbacks instead of scheduling anything real, plus an
- * `advance(ms)` that fires every callback whose delay has now elapsed, in
- * due-time order — including any timer a fired callback itself schedules
- * (e.g. `scheduleNextInterval`'s self-rescheduling), so a single `advance`
- * call can cross several ticks at once. */
 class FakeClock {
   private now = 0;
   private nextId = 1;
@@ -46,6 +41,8 @@ class FakeClock {
   clearTimeout = (id: unknown): void => {
     this.timers = this.timers.filter((t) => t.id !== id);
   };
+
+  nowMs = (): number => this.now;
 
   advance(ms: number): void {
     const target = this.now + ms;
@@ -64,29 +61,37 @@ class FakeClock {
   }
 }
 
+/** Drains the microtask queue so a completed `runSync`'s `.finally`
+ * bookkeeping (running=false, lastCompletedAt, pending drain scheduling)
+ * has settled before the next assertion/advance. */
+async function flush(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 const OK_GATE: AutoSyncGateState = { syncing: false, authenticated: true, conflict: null };
+const OFF: SyncTriggers = { interval: false, openClose: false, onSave: false, intervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES };
 
 function makeScheduler(opts: {
   clock: FakeClock;
-  policy: SyncPolicy;
-  intervalMinutes?: number;
+  triggers?: Partial<SyncTriggers>;
   gate?: AutoSyncGateState;
   runSync: () => Promise<void>;
 }) {
-  let policy = opts.policy;
-  let intervalMinutes = opts.intervalMinutes ?? DEFAULT_SYNC_INTERVAL_MINUTES;
+  let triggers: SyncTriggers = { ...OFF, ...opts.triggers };
   let gate = opts.gate ?? OK_GATE;
   const scheduler = createAutoSyncScheduler({
-    getPolicy: () => ({ policy, intervalMinutes }),
+    getPolicy: () => triggers,
     getGateState: () => gate,
     runSync: opts.runSync,
     setTimeoutFn: opts.clock.setTimeout,
     clearTimeoutFn: opts.clock.clearTimeout,
+    nowFn: opts.clock.nowMs,
   });
   return {
     scheduler,
-    setPolicy: (p: SyncPolicy) => (policy = p),
-    setIntervalMinutes: (m: number) => (intervalMinutes = m),
+    setTriggers: (next: Partial<SyncTriggers>) => (triggers = { ...triggers, ...next }),
     setGate: (g: AutoSyncGateState) => (gate = g),
   };
 }
@@ -126,74 +131,62 @@ describe("git/autoSyncPolicy.ts — createAutoSyncScheduler", () => {
     runSync = vi.fn(async () => {});
   });
 
-  it('"manual" policy: start() schedules nothing, ever', () => {
-    const { scheduler } = makeScheduler({ clock, policy: "manual", runSync });
+  it("all toggles off (manual): start() schedules nothing, ever", () => {
+    const { scheduler } = makeScheduler({ clock, runSync });
     scheduler.start();
-    clock.advance(24 * 60 * 60_000); // a full day
+    clock.advance(24 * 60 * 60_000);
     expect(runSync).not.toHaveBeenCalled();
     expect(clock.pendingCount()).toBe(0);
   });
 
-  it('"interval" policy: fires once per interval, using the CURRENT intervalMinutes', () => {
-    const { scheduler } = makeScheduler({ clock, policy: "interval", intervalMinutes: 5, runSync });
+  it("interval: fires once per interval, using the CURRENT intervalMinutes", async () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 5 }, runSync });
     scheduler.start();
     clock.advance(5 * 60_000 - 1);
     expect(runSync).not.toHaveBeenCalled();
     clock.advance(1);
+    await flush();
     expect(runSync).toHaveBeenCalledTimes(1);
     clock.advance(5 * 60_000);
+    await flush();
     expect(runSync).toHaveBeenCalledTimes(2);
   });
 
-  it('"interval" policy: re-invoking start() after a live interval change reschedules IMMEDIATELY off the new value', () => {
-    // Mirrors App.tsx's real wiring: a Settings edit to gitSyncIntervalMinutes
-    // re-runs `start()` (its effect's dep array includes the interval), which
-    // tears down whatever's pending and reschedules fresh off the CURRENT
-    // (now-changed) value — no need to wait out the stale 10-minute timer.
-    const { scheduler, setIntervalMinutes } = makeScheduler({ clock, policy: "interval", intervalMinutes: 10, runSync });
+  it("interval: re-invoking start() after a live interval change reschedules IMMEDIATELY off the new value", async () => {
+    const { scheduler, setTriggers } = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 10 }, runSync });
     scheduler.start();
-    clock.advance(5 * 60_000); // partway through the original 10-minute wait
+    clock.advance(5 * 60_000);
     expect(runSync).not.toHaveBeenCalled();
-    setIntervalMinutes(1);
+    setTriggers({ intervalMinutes: 1 });
     scheduler.start();
     clock.advance(60_000 - 1);
     expect(runSync).not.toHaveBeenCalled();
     clock.advance(1);
+    await flush();
     expect(runSync).toHaveBeenCalledTimes(1);
   });
 
-  it('"interval" policy: WITHOUT re-invoking start(), a live interval change is picked up at latest by the reschedule after the tick already in flight', () => {
-    const { scheduler, setIntervalMinutes } = makeScheduler({ clock, policy: "interval", intervalMinutes: 10, runSync });
+  it("interval: switching it off mid-flight stops future ticks once start() is re-run", () => {
+    const { scheduler, setTriggers } = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 5 }, runSync });
     scheduler.start();
-    clock.advance(10 * 60_000); // the already-scheduled tick fires (still on the OLD 10-minute cadence)
-    expect(runSync).toHaveBeenCalledTimes(1);
-    setIntervalMinutes(1); // changed AFTER that tick already rescheduled itself off the old value
-    clock.advance(10 * 60_000 - 1); // the pending reschedule was computed at 10 minutes, before the change
-    expect(runSync).toHaveBeenCalledTimes(1);
-    clock.advance(1);
-    expect(runSync).toHaveBeenCalledTimes(2);
-  });
-
-  it('"interval" policy: switching to "manual" mid-flight stops future ticks once start() is re-run', () => {
-    const { scheduler, setPolicy } = makeScheduler({ clock, policy: "interval", intervalMinutes: 5, runSync });
+    setTriggers({ interval: false });
     scheduler.start();
-    setPolicy("manual");
-    scheduler.start(); // App.tsx re-runs start() on every policy/interval change (see its own wiring)
     clock.advance(60 * 60_000);
     expect(runSync).not.toHaveBeenCalled();
   });
 
-  it('"interval" policy: interval bound — a sub-minimum interval still schedules at MIN_SYNC_INTERVAL_MINUTES, never a runaway sub-minute loop', () => {
-    const { scheduler } = makeScheduler({ clock, policy: "interval", intervalMinutes: 0, runSync });
+  it("interval: a sub-minimum interval still schedules at MIN_SYNC_INTERVAL_MINUTES, never a runaway sub-minute loop", async () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 0 }, runSync });
     scheduler.start();
     clock.advance(MIN_SYNC_INTERVAL_MINUTES * 60_000 - 1);
     expect(runSync).not.toHaveBeenCalled();
     clock.advance(1);
+    await flush();
     expect(runSync).toHaveBeenCalledTimes(1);
   });
 
-  it('"interval" policy: stop() cancels the pending tick', () => {
-    const { scheduler } = makeScheduler({ clock, policy: "interval", intervalMinutes: 5, runSync });
+  it("interval: stop() cancels the pending tick", () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 5 }, runSync });
     scheduler.start();
     scheduler.stop();
     clock.advance(60 * 60_000);
@@ -201,88 +194,135 @@ describe("git/autoSyncPolicy.ts — createAutoSyncScheduler", () => {
     expect(clock.pendingCount()).toBe(0);
   });
 
-  it('"on-save" policy: notifySaveSettled debounces/coalesces a burst of saves into ONE sync attempt', () => {
-    const { scheduler } = makeScheduler({ clock, policy: "on-save", runSync });
+  it("onSave: notifySaveSettled debounces/coalesces a burst of saves into ONE sync attempt", async () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { onSave: true }, runSync });
     scheduler.notifySaveSettled();
     clock.advance(ON_SAVE_DEBOUNCE_MS - 1);
-    scheduler.notifySaveSettled(); // resets the debounce window
+    scheduler.notifySaveSettled();
     clock.advance(ON_SAVE_DEBOUNCE_MS - 1);
     expect(runSync).not.toHaveBeenCalled();
     clock.advance(1);
+    await flush();
     expect(runSync).toHaveBeenCalledTimes(1);
   });
 
-  it('"on-save" policy: two saves far enough apart produce two sync attempts', () => {
-    const { scheduler } = makeScheduler({ clock, policy: "on-save", runSync });
+  it("onSave: a second save inside the quiet window coalesces into ONE follow-up run at window close (round 7 item 54)", async () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { onSave: true }, runSync });
     scheduler.notifySaveSettled();
     clock.advance(ON_SAVE_DEBOUNCE_MS);
-    expect(runSync).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(1); // completed; quiet window open
+
+    // Two more saves land within the window — both merge into one pending.
     scheduler.notifySaveSettled();
     clock.advance(ON_SAVE_DEBOUNCE_MS);
-    expect(runSync).toHaveBeenCalledTimes(2);
+    await flush();
+    scheduler.notifySaveSettled();
+    clock.advance(ON_SAVE_DEBOUNCE_MS);
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(1); // still inside the window
+    clock.advance(SYNC_QUIET_WINDOW_MS);
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(2); // exactly one follow-up
   });
 
-  it('notifySaveSettled is a no-op under every OTHER policy', () => {
-    for (const policy of ["manual", "interval", "open-close"] as const) {
-      const { scheduler } = makeScheduler({ clock, policy, runSync });
-      scheduler.notifySaveSettled();
-      clock.advance(ON_SAVE_DEBOUNCE_MS * 2);
-    }
+  it("notifySaveSettled is a no-op while the onSave toggle is off, whatever else is on", () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { interval: true, openClose: true }, runSync });
+    scheduler.notifySaveSettled();
+    clock.advance(ON_SAVE_DEBOUNCE_MS * 2);
     expect(runSync).not.toHaveBeenCalled();
   });
 
-  it('"open-close" policy: triggerOpenClose fires an IMMEDIATE attempt, no timer involved', () => {
-    const { scheduler } = makeScheduler({ clock, policy: "open-close", runSync });
+  it("openClose: triggerOpenClose fires an IMMEDIATE attempt", async () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { openClose: true }, runSync });
     scheduler.triggerOpenClose();
+    await flush();
     expect(runSync).toHaveBeenCalledTimes(1);
-    expect(clock.pendingCount()).toBe(0);
-    scheduler.triggerOpenClose();
-    expect(runSync).toHaveBeenCalledTimes(2);
   });
 
-  it("triggerOpenClose is a no-op under every OTHER policy", () => {
-    for (const policy of ["manual", "interval", "on-save"] as const) {
-      const { scheduler } = makeScheduler({ clock, policy, runSync });
-      scheduler.triggerOpenClose();
-    }
+  it("triggerOpenClose is a no-op while the openClose toggle is off", () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { interval: true, onSave: true }, runSync });
+    scheduler.triggerOpenClose();
     expect(runSync).not.toHaveBeenCalled();
   });
 
-  it("never fires while a sync is already running, for every policy", () => {
+  it("all three toggles on: stacked triggers inside one quiet window collapse to a single follow-up run", async () => {
+    const { scheduler } = makeScheduler({
+      clock,
+      triggers: { interval: true, openClose: true, onSave: true, intervalMinutes: 1 },
+      runSync,
+    });
+    scheduler.start();
+    scheduler.triggerOpenClose(); // app open: immediate run
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(1);
+
+    // Inside the quiet window: a save debounce fires AND an interval tick
+    // would… (interval is 1 minute, still pending) — plus another
+    // open/close trigger. All merge into one pending follow-up.
+    scheduler.notifySaveSettled();
+    clock.advance(ON_SAVE_DEBOUNCE_MS);
+    await flush();
+    scheduler.triggerOpenClose();
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(1);
+    clock.advance(SYNC_QUIET_WINDOW_MS);
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("at most one run in flight: triggers during a slow run set ONE pending follow-up", async () => {
+    let release: () => void = () => {};
+    const slowRun = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const { scheduler } = makeScheduler({ clock, triggers: { openClose: true }, runSync: slowRun });
+    scheduler.triggerOpenClose(); // starts, does not complete yet
+    scheduler.triggerOpenClose(); // during the run
+    scheduler.triggerOpenClose(); // during the run
+    expect(slowRun).toHaveBeenCalledTimes(1);
+    release();
+    await flush();
+    expect(slowRun).toHaveBeenCalledTimes(1); // follow-up waits out the window
+    clock.advance(SYNC_QUIET_WINDOW_MS);
+    await flush();
+    expect(slowRun).toHaveBeenCalledTimes(2); // the three extra triggers = one run
+  });
+
+  it("never fires while a sync is already running (manual click), for every trigger", () => {
     const busyGate: AutoSyncGateState = { syncing: "sync", authenticated: true, conflict: null };
-    const interval = makeScheduler({ clock, policy: "interval", intervalMinutes: 1, gate: busyGate, runSync });
+    const interval = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 1 }, gate: busyGate, runSync });
     interval.scheduler.start();
     clock.advance(60_000);
-    const onSave = makeScheduler({ clock, policy: "on-save", gate: busyGate, runSync });
+    const onSave = makeScheduler({ clock, triggers: { onSave: true }, gate: busyGate, runSync });
     onSave.scheduler.notifySaveSettled();
     clock.advance(ON_SAVE_DEBOUNCE_MS);
-    const openClose = makeScheduler({ clock, policy: "open-close", gate: busyGate, runSync });
+    const openClose = makeScheduler({ clock, triggers: { openClose: true }, gate: busyGate, runSync });
     openClose.scheduler.triggerOpenClose();
     expect(runSync).not.toHaveBeenCalled();
   });
 
-  it("never fires while signed out, for every policy", () => {
+  it("never fires while signed out, for every trigger", () => {
     const signedOutGate: AutoSyncGateState = { syncing: false, authenticated: false, conflict: null };
-    const interval = makeScheduler({ clock, policy: "interval", intervalMinutes: 1, gate: signedOutGate, runSync });
+    const interval = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 1 }, gate: signedOutGate, runSync });
     interval.scheduler.start();
     clock.advance(60_000);
-    const onSave = makeScheduler({ clock, policy: "on-save", gate: signedOutGate, runSync });
+    const onSave = makeScheduler({ clock, triggers: { onSave: true }, gate: signedOutGate, runSync });
     onSave.scheduler.notifySaveSettled();
     clock.advance(ON_SAVE_DEBOUNCE_MS);
-    const openClose = makeScheduler({ clock, policy: "open-close", gate: signedOutGate, runSync });
+    const openClose = makeScheduler({ clock, triggers: { openClose: true }, gate: signedOutGate, runSync });
     openClose.scheduler.triggerOpenClose();
     expect(runSync).not.toHaveBeenCalled();
   });
 
-  it('"interval" policy: a paused conflict from a prior sync suppresses every later tick, no retry loop', () => {
+  it("interval: a paused conflict from a prior sync suppresses every later tick, no retry loop", async () => {
     let gate: AutoSyncGateState = OK_GATE;
     let runCount = 0;
-    // Simulates the real pipeline: the FIRST run pauses on a true conflict
-    // — `useGitStore.ts`'s `syncNow` clears `syncing` but leaves `conflict`
-    // set, exactly what `isAutoSyncAllowed` must respect on every later
-    // attempt (no auto-retry/auto-resolve).
     const scheduler = createAutoSyncScheduler({
-      getPolicy: () => ({ policy: "interval", intervalMinutes: 1 }),
+      getPolicy: () => ({ interval: true, openClose: false, onSave: false, intervalMinutes: 1 }),
       getGateState: () => gate,
       runSync: async () => {
         runCount++;
@@ -290,11 +330,14 @@ describe("git/autoSyncPolicy.ts — createAutoSyncScheduler", () => {
       },
       setTimeoutFn: clock.setTimeout,
       clearTimeoutFn: clock.clearTimeout,
+      nowFn: clock.nowMs,
     });
     scheduler.start();
-    clock.advance(60_000); // first tick: runs, pauses on conflict
+    clock.advance(60_000);
+    await flush();
     expect(runCount).toBe(1);
-    clock.advance(60_000 * 5); // several more ticks: must NOT retry while conflict is pending
+    clock.advance(60_000 * 5);
+    await flush();
     expect(runCount).toBe(1);
     expect(isAutoSyncAllowed(gate)).toBe(false);
   });

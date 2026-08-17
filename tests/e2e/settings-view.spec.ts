@@ -9,7 +9,7 @@
  * nothing reads.
  */
 import { test, expect } from "@playwright/test";
-import { gotoApp, openSettingsTab, tab } from "./fixtures";
+import { gotoApp, openSettingsTab, seedSettings, tab } from "./fixtures";
 
 test.describe("Settings view", () => {
   test("opens as a tab (not a dialog), with a gear icon in the tab strip", async ({ page }) => {
@@ -144,44 +144,61 @@ test.describe("Settings view", () => {
     await expect(page.locator(".cm-content").first()).toHaveCSS("max-width", "none");
   });
 
-  test("Git & Sync shows real repo info and a live, enabled remote-sync form (no SSH key UI)", async ({ page }) => {
+  test("Git & Sync gates behind the opt-in setup view; the implicit server URL never shows (round 7 item 52)", async ({ page }) => {
     await gotoApp(page);
     await openSettingsTab(page);
     await page.getByTestId("settings-nav-git-sync").click();
 
-    const repoInfo = page.getByTestId("settings-row-repo-info");
-    await expect(repoInfo.getByText("feat/incremental-index")).toBeVisible();
-    // Phase 11 (real sync): a fresh vault that has never talked to a
-    // remote reports real ↑0 ↓0 — never the old simulated ↑3 ↓1 seed.
-    await expect(repoInfo.getByText(/↑0 ↓0/)).toBeVisible();
+    // A fresh vault sees NOTHING but the setup invitation — no repo rows,
+    // no token form, no auto-sync, and above all no implicit server URL
+    // rendered as if the user had configured it.
+    await expect(page.getByTestId("sync-setup-intro")).toBeVisible();
+    await expect(page.getByTestId("settings-row-repo-info")).toHaveCount(0);
+    await expect(page.getByLabel("Personal access token")).toHaveCount(0);
+    await expect(page.getByText(/\/git\/vault\.git/)).toHaveCount(0);
 
-    // No more "Coming soon" placeholder — the form is live.
-    await expect(page.getByTestId("settings-row-remote-sync").getByText("Coming soon")).toHaveCount(0);
-    // Phase 10.5a (single-origin refactor, roadmap §5.4): no more editable
-    // Remote URL field — the sync remote is implicit (`<origin>/git/
-    // vault.git`), shown read-only in the Repository DataList above.
-    await expect(page.getByLabel("Remote URL")).toHaveCount(0);
-    await expect(repoInfo.getByText(/\/git\/vault\.git$/)).toBeVisible();
+    // Step through to the destination step: plain-language choices, the
+    // derived read-only identity chip (repo + branch, item 53), still no
+    // URL for the this-server choice.
+    await page.getByTestId("sync-setup-begin").click();
+    await expect(page.getByTestId("sync-setup-destination")).toBeVisible();
+    await expect(page.getByTestId("sync-setup-identity")).toContainText("vault");
+    await expect(page.getByTestId("sync-setup-identity")).toContainText("main");
+    await expect(page.getByText(/\/git\/vault\.git/)).toHaveCount(0);
+    // Not signed in, no token: the finish button must be disabled.
+    await expect(page.getByTestId("sync-setup-finish")).toBeDisabled();
+  });
+
+  test("Git & Sync after setup: identity chip, live remote-sync form, combinable auto-sync (no SSH key UI)", async ({ page }) => {
+    await seedSettings(page, { gitSyncSetupComplete: true });
+    await gotoApp(page);
+    await openSettingsTab(page);
+    await page.getByTestId("settings-nav-git-sync").click();
+
+    // Item 53 — the derived identity chip replaces the old freeform
+    // Repository-name input and DataList; `main` is the default branch now.
+    const repoInfo = page.getByTestId("settings-row-repo-info");
+    await expect(repoInfo.getByTestId("vault-identity-chip")).toContainText("vault");
+    await expect(repoInfo.getByTestId("vault-identity-chip")).toContainText("main");
+    await expect(repoInfo.getByText(/↑0 ↓0/)).toBeVisible();
+    await expect(page.getByTestId("git-repo-name")).toHaveCount(0);
+    await expect(page.getByTestId("vault-display-name")).toHaveCount(0);
+    // Item 52 — the sync target is named in words, never as a URL.
+    await expect(repoInfo.getByText("Syncs with this VSNote server.")).toBeVisible();
+    await expect(page.getByText(/\/git\/vault\.git/)).toHaveCount(0);
+
     const tokenInput = page.getByLabel("Personal access token");
     await expect(tokenInput).toBeEnabled();
     await expect(page.getByTestId("git-test-connection")).toBeVisible();
 
-    // This test deliberately never signs in first (see `git-sync.spec.ts`
-    // for the real, signed-in/token-generated/backend-up path) — clicking
-    // "Test connection" with an empty token exercises the real
-    // "reachable, but the credentials are rejected" path against the e2e
-    // run's actual shared backend (port 8788, proxied same-origin — see
-    // `vite.config.ts`): a real 401 from `GET /git/vault.git/info/refs`,
-    // mapped by `git/remote.ts::mapError` to `SyncError("auth", ...)`. Must
-    // degrade to a clear, specific message — never hang, never crash, never
-    // an unhandled rejection (this whole page would otherwise show a
-    // Playwright "pageerror" — there is none here because the test doesn't
-    // fail).
+    // Item 54 — three combinable switches, not an exclusive select.
+    await expect(page.getByTestId("git-sync-on-interval")).toBeVisible();
+    await expect(page.getByTestId("git-sync-on-open-close")).toBeVisible();
+    await expect(page.getByTestId("git-sync-on-save")).toBeVisible();
+
+    // Unsigned "Test connection" still degrades to a clear, specific
+    // message against the real backend (a real 401, never a hang/crash).
     await page.getByTestId("git-test-connection").click();
-    // DESIGN-SPEC item 41(e) split "Test connection" into three distinct
-    // outcomes, so this message is now the auth-rejected one specifically
-    // ("credential", singular). Still asserts the message is about the
-    // credential rather than merely non-empty.
     await expect(page.getByTestId("git-test-result")).toHaveText(/credential|auth/i);
     // No SSH-key management anywhere in this category (DESIGN-SPEC
     // Amendments item 11: browsers can't speak SSH).

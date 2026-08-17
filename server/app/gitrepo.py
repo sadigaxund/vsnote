@@ -41,7 +41,7 @@ REPO_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 # Mirrors `src/git/client.ts::DEFAULT_BRANCH` — see `ensure_bare_repo`'s
 # docstring for why a freshly-created bare repo's HEAD points here.
-DEFAULT_CLIENT_BRANCH = "feat/incremental-index"
+DEFAULT_CLIENT_BRANCH = "main"
 
 
 class InvalidRepoName(ValueError):

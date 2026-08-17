@@ -20,7 +20,17 @@
  * `setTimeout`/`clearTimeout` below.
  */
 
-export type SyncPolicy = "manual" | "interval" | "open-close" | "on-save";
+/** Round 7 item 54 — the exclusive single policy became three
+ * independently-combinable toggles (all off = manual). Every enabled
+ * trigger funnels into ONE coalescing queue (`requestSync` below): at most
+ * one sync runs at a time, and a completed run opens a quiet window during
+ * which further triggers merge into a single pending follow-up run. */
+export interface SyncTriggers {
+  interval: boolean;
+  openClose: boolean;
+  onSave: boolean;
+  intervalMinutes: number;
+}
 
 /** Sane floor for "every N minutes" — never a zero/negative/sub-minute
  * timer, which would turn "auto-sync" into a busy-loop against the backend. */
@@ -33,6 +43,11 @@ export const DEFAULT_SYNC_INTERVAL_MINUTES = 15;
  * sync attempt, matching `fs/drafts.ts`'s own coalescing discipline for the
  * draft checkpoint write (`scheduleDraftSave`'s doc). */
 export const ON_SAVE_DEBOUNCE_MS = 4_000;
+/** Round 7 item 54 — after a sync run completes, further triggers within
+ * this window coalesce into ONE pending run that fires when it closes.
+ * Keeps stacked policies (interval + on-save + open/close all on) from
+ * ever hammering the backend with back-to-back syncs. */
+export const SYNC_QUIET_WINDOW_MS = 12_000;
 
 /** Clamps a user-entered/persisted interval to a sane minimum. Non-finite
  * input (NaN, an empty-string parse, Infinity) falls back to the default
@@ -92,7 +107,7 @@ export interface AutoSyncSchedulerDeps {
    * (see `App.tsx`'s wiring: every `gitSyncPolicy`/`gitSyncIntervalMinutes`
    * change re-runs it) — no remount needed, and no risk of a stale closure
    * over the settings object this scheduler was built with. */
-  getPolicy: () => { policy: SyncPolicy; intervalMinutes: number };
+  getPolicy: () => SyncTriggers;
   /** Reads the CURRENT gate state — same live-read discipline as
    * `getPolicy`. In production this is `() => ({ syncing: useGitStore.
    * getState().syncing, authenticated: useShareStore.getState().
@@ -107,6 +122,8 @@ export interface AutoSyncSchedulerDeps {
   /** Test seam — see module doc. Defaults to the real globals below. */
   setTimeoutFn?: (fn: () => void, ms: number) => unknown;
   clearTimeoutFn?: (handle: unknown) => void;
+  /** Test seam for the quiet-window clock (round 7 item 54). */
+  nowFn?: () => number;
 }
 
 export interface AutoSyncScheduler {
@@ -140,13 +157,55 @@ export interface AutoSyncScheduler {
 export function createAutoSyncScheduler(deps: AutoSyncSchedulerDeps): AutoSyncScheduler {
   const setTimeoutFn = deps.setTimeoutFn ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   const clearTimeoutFn = deps.clearTimeoutFn ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+  const nowFn = deps.nowFn ?? (() => Date.now());
 
   let intervalHandle: unknown = null;
   let debounceHandle: unknown = null;
+  let quietHandle: unknown = null;
 
-  function attemptSync(): void {
+  // --- the coalescing queue (round 7 item 54) ---------------------------
+  // Every trigger (interval tick, settled-save debounce, open/close) calls
+  // `requestSync`, never `runSync` directly. Invariants: at most one run in
+  // flight; a run's completion stamps `lastCompletedAt` and opens a
+  // SYNC_QUIET_WINDOW_MS window; triggers inside the window (or during the
+  // run itself) set ONE pending flag that drains as a single follow-up run
+  // when the window closes. Gate failures (signed out, paused conflict)
+  // DROP the request outright — no retry loops (the module's standing
+  // contract), and `syncing` from the gate state is redundant with
+  // `running` below but kept: a MANUAL click also flips it, and the queue
+  // must never double-run alongside one.
+  let running = false;
+  let pending = false;
+  let lastCompletedAt = -Infinity;
+
+  function drainLater(delay: number): void {
+    if (quietHandle !== null) return; // one drain timer at a time
+    quietHandle = setTimeoutFn(() => {
+      quietHandle = null;
+      if (!pending) return;
+      pending = false;
+      requestSync();
+    }, delay);
+  }
+
+  function requestSync(): void {
+    if (running) {
+      pending = true;
+      return;
+    }
+    const sinceCompleted = nowFn() - lastCompletedAt;
+    if (sinceCompleted < SYNC_QUIET_WINDOW_MS) {
+      pending = true;
+      drainLater(SYNC_QUIET_WINDOW_MS - sinceCompleted);
+      return;
+    }
     if (!isAutoSyncAllowed(deps.getGateState())) return;
-    void deps.runSync();
+    running = true;
+    void deps.runSync().finally(() => {
+      running = false;
+      lastCompletedAt = nowFn();
+      if (pending) drainLater(SYNC_QUIET_WINDOW_MS);
+    });
   }
 
   function clearIntervalTimer(): void {
@@ -163,20 +222,26 @@ export function createAutoSyncScheduler(deps: AutoSyncSchedulerDeps): AutoSyncSc
     }
   }
 
-  // Recursive setTimeout, not setInterval: re-reads the CURRENT policy/
-  // interval every time a tick reschedules itself, so a policy/interval
-  // change is picked up by the tick already in flight's OWN reschedule at
-  // the latest — and immediately, with no wait at all, if the caller
-  // re-invokes `start()` itself (it tears down whatever's pending first —
-  // see below). Also never compounds drift the way a fixed `setInterval`
-  // can if a single tick's `attemptSync` call ever took noticeably long.
+  function clearQuietTimer(): void {
+    if (quietHandle !== null) {
+      clearTimeoutFn(quietHandle);
+      quietHandle = null;
+    }
+  }
+
+  // Recursive setTimeout, not setInterval: re-reads the CURRENT toggles/
+  // interval every time a tick reschedules itself, so a Settings change is
+  // picked up by the tick already in flight's OWN reschedule at the latest
+  // — and immediately if the caller re-invokes `start()` (it tears down
+  // whatever's pending first). Also never compounds drift the way a fixed
+  // `setInterval` can if a single tick's sync call ever took long.
   function scheduleNextInterval(): void {
     clearIntervalTimer();
-    const { policy, intervalMinutes } = deps.getPolicy();
-    if (policy !== "interval") return;
+    const { interval, intervalMinutes } = deps.getPolicy();
+    if (!interval) return;
     intervalHandle = setTimeoutFn(() => {
       intervalHandle = null;
-      attemptSync();
+      requestSync();
       scheduleNextInterval();
     }, intervalMinutesToMs(intervalMinutes));
   }
@@ -188,20 +253,19 @@ export function createAutoSyncScheduler(deps: AutoSyncSchedulerDeps): AutoSyncSc
     stop: () => {
       clearIntervalTimer();
       clearDebounceTimer();
+      clearQuietTimer();
     },
     notifySaveSettled: () => {
-      const { policy } = deps.getPolicy();
-      if (policy !== "on-save") return;
+      if (!deps.getPolicy().onSave) return;
       clearDebounceTimer();
       debounceHandle = setTimeoutFn(() => {
         debounceHandle = null;
-        attemptSync();
+        requestSync();
       }, ON_SAVE_DEBOUNCE_MS);
     },
     triggerOpenClose: () => {
-      const { policy } = deps.getPolicy();
-      if (policy !== "open-close") return;
-      attemptSync();
+      if (!deps.getPolicy().openClose) return;
+      requestSync();
     },
   };
 }

@@ -30,7 +30,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { DEFAULT_ACTIVE_PATH, gotoApp, tab } from "./fixtures";
+import { DEFAULT_ACTIVE_PATH, gotoApp, seedSettings, tab } from "./fixtures";
 import { signInToShareBackend } from "./shareUiHelpers";
 import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME, SHARE_BACKEND_PORT } from "./shareFixtures";
 
@@ -38,7 +38,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const HANDLE_FILE = path.join(REPO_ROOT, "test-results", "share-backend-handle.json");
 
-const DEFAULT_BRANCH = "feat/incremental-index";
+const DEFAULT_BRANCH = "main";
 
 // Phase 10.5a (single-origin refactor, roadmap §5.4): the sync remote is no
 // longer a Settings-configurable URL — it's implicitly `<origin>/git/
@@ -122,6 +122,7 @@ function pushExtraCommit(cloneDir: string, relFile: string, appendLine: string, 
  * below need their own fresh one (isolated browser context per test, so
  * neither the session nor any token from another test carries over). */
 async function signInAndGenerateToken(page: Page): Promise<string> {
+  await seedSettings(page, { gitSyncSetupComplete: true }); // round 7 item 52 gate
   await gotoApp(page);
   await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
   await page.getByTestId("settings-nav-git-sync").click();
@@ -151,14 +152,15 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
     const marker = `sync-proof-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // --- 1. Sign in + generate a real write-scoped token, from the UI ----
+    await seedSettings(page, { gitSyncSetupComplete: true }); // round 7 item 52 gate
     await gotoApp(page);
     await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 
     await page.getByTestId("settings-nav-git-sync").click();
-    // No more Remote URL field to fill (Phase 10.5a, roadmap §5.4) — the
-    // remote is implicitly `<origin>/git/vault.git`, visible read-only in
-    // the Repository DataList above this row.
-    await expect(page.getByText(/\/git\/vault\.git$/)).toBeVisible();
+    // Round 7 item 52 — the implicit server remote is named in words, never
+    // rendered as a URL the user did not configure.
+    await expect(page.getByText("Syncs with this VSNote server.")).toBeVisible();
+    await expect(page.getByText(/\/git\/vault\.git/)).toHaveCount(0);
 
     await page.getByTestId("git-generate-token").click();
     const tokenInput = page.getByLabel("Personal access token");

@@ -18,7 +18,7 @@ import { persist } from "zustand/middleware";
 import { ACCENT_TEXT_MIN_CONTRAST, ensureReadableOn, readableForeground } from "../lib/accentContrast";
 import { defaultDeviceName } from "../git/commitTemplate";
 import { DEFAULT_GIT_REPO_NAME } from "../git/remote";
-import { DEFAULT_SYNC_INTERVAL_MINUTES, type SyncPolicy } from "../git/autoSyncPolicy";
+import { DEFAULT_SYNC_INTERVAL_MINUTES } from "../git/autoSyncPolicy";
 import type { EditorMode, FileKind } from "../types";
 
 export const THEME_OPTIONS = [
@@ -227,7 +227,9 @@ interface SettingsState {
    * Control panel's buttons). Every OTHER policy still ends up calling that
    * exact same `syncNow` pipeline — this setting only decides WHEN, never
    * HOW (see `git/autoSyncPolicy.ts`'s module doc). */
-  gitSyncPolicy: SyncPolicy;
+  gitSyncOnInterval: boolean;
+  gitSyncOnOpenClose: boolean;
+  gitSyncOnSave: boolean;
   /** The `N` in "every N minutes" — only consulted while `gitSyncPolicy` is
    * `"interval"`. Clamped to `MIN_SYNC_INTERVAL_MINUTES` (never a
    * zero/negative/fractional timer delay) by `git/autoSyncPolicy.ts`'s
@@ -236,6 +238,11 @@ interface SettingsState {
    * scheduler — this field itself stays a plain, unclamped user-typed
    * number so the Settings input doesn't fight the user's keystrokes. */
   gitSyncIntervalMinutes: number;
+  /** Round 7 item 52 — Git & Sync shows ONLY the opt-in setup view until
+   * this flips true (nothing sync-related is on by default). The v4
+   * migration marks it complete for sessions that had already configured
+   * sync (a token, a custom remote, or a non-manual policy). */
+  gitSyncSetupComplete: boolean;
 
   setTheme: (theme: AppTheme) => void;
   /** Cycles to the next theme in `THEME_OPTIONS` — the command palette's
@@ -264,8 +271,11 @@ interface SettingsState {
   setGitCommitTemplate: (template: string) => void;
   setGitDeviceName: (name: string) => void;
   setShowGitStatusInExplorer: (show: boolean) => void;
-  setGitSyncPolicy: (policy: SyncPolicy) => void;
+  setGitSyncOnInterval: (on: boolean) => void;
+  setGitSyncOnOpenClose: (on: boolean) => void;
+  setGitSyncOnSave: (on: boolean) => void;
   setGitSyncIntervalMinutes: (minutes: number) => void;
+  setGitSyncSetupComplete: (complete: boolean) => void;
 }
 
 /** Roadmap §5.3's exact default template string. Exported so
@@ -299,8 +309,11 @@ export const useSettingsStore = create<SettingsState>()(
       gitCommitTemplate: DEFAULT_GIT_COMMIT_TEMPLATE,
       gitDeviceName: defaultDeviceName(),
       showGitStatusInExplorer: false,
-      gitSyncPolicy: "manual",
+      gitSyncOnInterval: false,
+      gitSyncOnOpenClose: false,
+      gitSyncOnSave: false,
       gitSyncIntervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES,
+      gitSyncSetupComplete: false,
       setTheme: (theme) => set({ theme }),
       cycleTheme: () => {
         const idx = THEME_OPTIONS.indexOf(get().theme);
@@ -334,8 +347,11 @@ export const useSettingsStore = create<SettingsState>()(
       setGitCommitTemplate: (gitCommitTemplate) => set({ gitCommitTemplate }),
       setGitDeviceName: (gitDeviceName) => set({ gitDeviceName }),
       setShowGitStatusInExplorer: (showGitStatusInExplorer) => set({ showGitStatusInExplorer }),
-      setGitSyncPolicy: (gitSyncPolicy) => set({ gitSyncPolicy }),
+      setGitSyncOnInterval: (gitSyncOnInterval) => set({ gitSyncOnInterval }),
+      setGitSyncOnOpenClose: (gitSyncOnOpenClose) => set({ gitSyncOnOpenClose }),
+      setGitSyncOnSave: (gitSyncOnSave) => set({ gitSyncOnSave }),
       setGitSyncIntervalMinutes: (gitSyncIntervalMinutes) => set({ gitSyncIntervalMinutes }),
+      setGitSyncSetupComplete: (gitSyncSetupComplete) => set({ gitSyncSetupComplete }),
     }),
     {
       // Renamed with the rest of the rebrand (DESIGN-SPEC item 34, user
@@ -377,9 +393,17 @@ export const useSettingsStore = create<SettingsState>()(
       // apply exactly as if this were a fresh store. A version bump is only
       // needed when an old persisted VALUE needs reinterpreting (v1) or a
       // field needs deleting (v3) — pure additions never need one.
-      version: 3,
+      // v4 (round 7 items 52/54): the single exclusive `gitSyncPolicy`
+      // becomes three combinable toggles, and `gitSyncSetupComplete` gates
+      // the whole Git & Sync category behind an explicit opt-in — a
+      // returning session that had ALREADY configured sync (token, custom
+      // remote, or a non-manual policy) is marked complete so the setup
+      // view never re-appears over a working configuration.
+      version: 4,
       migrate: (persisted, version) => {
-        let state = persisted as (Partial<SettingsState> & { gitRemoteUrl?: string; shareBackendUrl?: string }) | undefined;
+        let state = persisted as
+          | (Partial<SettingsState> & { gitRemoteUrl?: string; shareBackendUrl?: string; gitSyncPolicy?: string })
+          | undefined;
         if (version < 1 && state?.uiDensity === "comfortable") {
           state = { ...state, uiDensity: "default" };
         }
@@ -387,6 +411,21 @@ export const useSettingsStore = create<SettingsState>()(
           state = { ...state };
           delete state.gitRemoteUrl;
           delete state.shareBackendUrl;
+        }
+        if (version < 4 && state) {
+          const oldPolicy = state.gitSyncPolicy;
+          state = {
+            ...state,
+            gitSyncOnInterval: oldPolicy === "interval",
+            gitSyncOnOpenClose: oldPolicy === "open-close",
+            gitSyncOnSave: oldPolicy === "on-save",
+            gitSyncSetupComplete: Boolean(
+              (state.gitAuthToken && state.gitAuthToken !== "") ||
+                state.gitRemoteOverrideEnabled ||
+                (oldPolicy && oldPolicy !== "manual"),
+            ),
+          };
+          delete state.gitSyncPolicy;
         }
         return state;
       },

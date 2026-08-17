@@ -3,7 +3,7 @@
  * "Git features" describes as REAL isomorphic-git history + working-tree
  * edits, not hardcoded status letters:
  *
- *  - two real commits on `feat/incremental-index`
+ *  - two real commits on the default branch (`main`)
  *  - `architecture.md` modified unstaged (M) — its committed vs working
  *    content is hand-authored so `git/diff.ts`'s real LCS diff genuinely
  *    computes +12 -5 (verified with the exact production `toLines()`

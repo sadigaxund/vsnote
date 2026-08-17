@@ -9,7 +9,12 @@ import { VAULT_DIR } from "../fs/paths";
 
 export { fs };
 export const GIT_DIR = VAULT_DIR;
-export const DEFAULT_BRANCH = "feat/incremental-index";
+// Round 7 item 53 — `main`, the boring correct default. The scaffold-era
+// `feat/incremental-index` (a demo-fiction name) leaked into every fresh
+// vault and even prefilled the server-vault wizard; existing vaults keep
+// whatever branch they already sit on (this constant only seeds NEW inits
+// and serves as a last-resort fallback when no branch is resolvable).
+export const DEFAULT_BRANCH = "main";
 
 export const DEMO_AUTHOR = {
   name: "VSNote Demo",

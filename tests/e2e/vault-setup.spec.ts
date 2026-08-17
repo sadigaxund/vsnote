@@ -32,11 +32,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { gotoApp } from "./fixtures";
+import { gotoApp, seedSettings } from "./fixtures";
 import { signInToShareBackend } from "./shareUiHelpers";
 import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 
-const DEFAULT_BRANCH = "feat/incremental-index";
+const DEFAULT_BRANCH = "main";
 
 const MOCK_VAULT_UNINITIALIZED = {
   path: "/tmp/mock-git-root/vault.git",
@@ -77,6 +77,7 @@ test.describe("Vault setup wizard (mocked, deterministic)", () => {
       }
     });
 
+    await seedSettings(page, { gitSyncSetupComplete: true }); // round 7 item 52 gate
     await gotoApp(page);
     await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
     await page.getByTestId("settings-nav-git-sync").click();
@@ -119,6 +120,7 @@ test.describe("Vault setup wizard (mocked, deterministic)", () => {
 
 test.describe("Vault setup, real backend", () => {
   test("Git & Sync renders the real server vault state and manages a mirror remote end to end", async ({ page }) => {
+    await seedSettings(page, { gitSyncSetupComplete: true }); // round 7 item 52 gate
     await gotoApp(page);
     await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
     await page.getByTestId("settings-nav-git-sync").click();

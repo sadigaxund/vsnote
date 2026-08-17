@@ -20,7 +20,7 @@
  * never touching the same repo name at all.
  */
 import { expect, test } from "@playwright/test";
-import { DEFAULT_ACTIVE_PATH, gotoApp, tab } from "./fixtures";
+import { DEFAULT_ACTIVE_PATH, gotoApp, seedSettings, tab } from "./fixtures";
 import { signInToShareBackend } from "./shareUiHelpers";
 import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 
@@ -28,27 +28,31 @@ import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 // any timer-granularity noise.
 const TIMER_SCALE = 0.05;
 
-test("the \"on-save\" auto-sync policy triggers a real sync run with no manual Sync click", async ({ page }) => {
+test("the \"on-save\" auto-sync toggle triggers a real sync run with no manual Sync click", async ({ page }) => {
   await page.addInitScript((scale) => {
     (window as unknown as { __vsnoteAutoSyncTimerScaleOverride?: number }).__vsnoteAutoSyncTimerScaleOverride = scale;
   }, TIMER_SCALE);
+
+  // A fresh, unique repo name for this run only — see module doc. Round 7
+  // item 53 retired the freeform Repository-name input, so the isolation
+  // repo is seeded straight into the persisted settings; item 52's setup
+  // gate is likewise seeded complete (the guided flow has its own spec,
+  // sync-setup.spec.ts).
+  const repoName = `autosync-e2e-${Date.now()}`;
+  await seedSettings(page, { gitSyncSetupComplete: true, gitRepoName: repoName });
 
   await gotoApp(page);
   await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 
   await page.getByTestId("settings-nav-git-sync").click();
 
-  // A fresh, unique repo name for this run only — see module doc.
-  const repoName = `autosync-e2e-${Date.now()}`;
-  await page.getByTestId("git-repo-name").fill(repoName);
-
   await page.getByTestId("git-generate-token").click();
   const tokenInput = page.getByLabel("Personal access token");
   await expect(tokenInput).not.toHaveValue("");
 
-  // Switch the auto-sync policy to "on-save".
-  await page.getByTestId("git-sync-policy").click();
-  await page.getByRole("option", { name: "After each save" }).click();
+  // Flip on the "After each save" toggle (round 7 item 54: combinable
+  // switches, not an exclusive select).
+  await page.getByTestId("git-sync-on-save").click();
 
   // Edit and save a real file — no Commit/Push/Sync click anywhere below.
   await tab(page, DEFAULT_ACTIVE_PATH).click();
