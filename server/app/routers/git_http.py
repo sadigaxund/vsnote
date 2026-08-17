@@ -48,6 +48,22 @@ conditional — the authorization decision itself never changes, so `git
 clone`/`push`/`pull` from a real git client (which always sends a `git/…`
 UA) keeps getting the challenge it depends on
 (`tests/test_git_sync.py::test_live_tokenless_push_rejected`, unchanged).
+
+**Phase 17 Milestone A — the vault repo NAME routes to the definitive path**:
+every OTHER repo name still resolves via `gitrepo.resolve_repo_path`
+(`{git_root}/{name}.git`, created on demand on first authorized write,
+completely unchanged). The one name matching `settings.vault_repo_name`
+instead resolves via `vault.resolve_git_repo_path`/`vault.vault_repo_path` —
+either the legacy bare repo (identical shape+behavior to before) or, once
+`VSNOTE_VAULT_PATH` is set, the real mounted working tree. See `vault.py`'s
+module docstring for the full identity + working-tree contract; this file
+only wires it into three places: `_VaultAwareBackend` (reads, below),
+`GitAuthMiddleware`'s pre-request init check (a MOUNTED-but-uninitialized
+vault is NEVER auto-created — see that class's docstring for the exact
+status codes), and the pre-serve-commit / post-receive-checkout hooks
+(`vault.commit_worktree_changes`/`vault.checkout_head_into_worktree`) that
+keep a mounted vault's on-disk files and its git history from clobbering
+each other.
 """
 
 from __future__ import annotations
@@ -59,12 +75,15 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from a2wsgi import WSGIMiddleware
+from dulwich.errors import NotGitRepository
+from dulwich.repo import Repo
 from dulwich.server import CAPABILITY_OFS_DELTA, CAPABILITY_SIDE_BAND_64K, UploadPackHandler
 from dulwich.web import HTTPGitApplication
 from starlette.datastructures import Headers
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .. import vault
 from ..auth import resolve_bearer_token
 from ..config import Settings
 from ..gitrepo import BareRepoBackend, InvalidRepoName, ensure_bare_repo, resolve_repo_path
@@ -76,6 +95,43 @@ from ..gitrepo import BareRepoBackend, InvalidRepoName, ensure_bare_repo, resolv
 GIT_REQUEST_RE = re.compile(r"^/(?P<name>[A-Za-z0-9_-]{1,64})\.git(?:/.*)?$")
 
 WWW_AUTHENTICATE = 'Basic realm="vsnote-git"'
+
+# Phase 17 Milestone A — a WRITE request against a mounted vault path that
+# hasn't been explicitly initialized yet (`POST /api/vault/init`) is refused
+# with this, never auto-created. One row, no em dash (this is a real
+# response body a git client's stderr can surface verbatim).
+VAULT_NOT_INITIALIZED_MESSAGE = "Vault not initialized. Use POST /api/vault/init first.\n"
+
+
+class _VaultAwareBackend(BareRepoBackend):
+    """Identical to `gitrepo.BareRepoBackend`, except repo-name resolution
+    goes through `vault.resolve_git_repo_path` so the ONE name matching
+    `settings.vault_repo_name` opens the definitive vault path (mounted or
+    legacy) instead of the plain `{git_root}/{name}.git` guess every other
+    repo name still uses, completely unchanged. Defined here rather than in
+    `gitrepo.py` to avoid a `gitrepo` <-> `vault` import cycle: `vault.py`
+    already imports `gitrepo.py` for `REPO_NAME_RE`/`resolve_repo_path`/
+    `DEFAULT_CLIENT_BRANCH`, so the routing decision has to live on the
+    `vault` side, and this thin subclass is what wires it into dulwich's
+    `Backend` interface (`open_repository`, dulwich's own read-path entry
+    point — the mirror of `open_repository`'s override in the base class,
+    see that docstring for the bytes-vs-str path-normalization note, which
+    applies identically here)."""
+
+    def __init__(self, settings: Settings) -> None:
+        super().__init__(Path(settings.git_root))
+        self.settings = settings
+
+    def open_repository(self, path: "str | bytes"):
+        if isinstance(path, bytes):
+            path = path.decode("utf-8")
+        try:
+            resolved = vault.resolve_git_repo_path(self.settings, path)
+        except InvalidRepoName as exc:
+            raise NotGitRepository(str(exc)) from exc
+        if not resolved.exists():
+            raise NotGitRepository(f"No repository at {path!r}")
+        return Repo(str(resolved))
 
 
 def _is_git_client(user_agent: Optional[str]) -> bool:
@@ -210,12 +266,28 @@ def _candidate_tokens(auth_header: Optional[str]) -> Iterable[str]:
 class GitAuthMiddleware:
     """See module docstring. Pure ASGI — no FastAPI `Depends` involved,
     since the inner app (dulwich via `WSGIMiddleware`) isn't a set of
-    FastAPI routes."""
+    FastAPI routes.
 
-    def __init__(self, app: ASGIApp, *, session_local, git_root: Path) -> None:
+    Phase 17 Milestone A adds three things around the vault repo name
+    specifically (every other repo name is completely untouched):
+    a MOUNTED-but-uninitialized vault's WRITE requests are refused (409,
+    `VAULT_NOT_INITIALIZED_MESSAGE`) instead of auto-created —
+    `ensure_bare_repo` never runs against a mounted vault path, only
+    against the legacy bare shape and every non-vault repo, exactly as
+    before; `vault.commit_worktree_changes` runs before EVERY request
+    (read or write) against a MOUNTED vault, so a disk edit is folded into
+    history before dulwich advertises refs or accepts a push;
+    `vault.checkout_head_into_worktree` runs after a WRITE against a
+    MOUNTED vault that dulwich actually accepted (HTTP status < 400,
+    captured via a thin `send` wrapper — the only reason this class now
+    needs to inspect the inner app's response at all), so the working tree
+    reflects the pushed branch tip immediately."""
+
+    def __init__(self, app: ASGIApp, *, session_local, settings: Settings) -> None:
         self.app = app
         self.session_local = session_local
-        self.git_root = git_root
+        self.settings = settings
+        self.git_root = Path(settings.git_root)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -269,15 +341,70 @@ class GitAuthMiddleware:
             token_row.last_used_at = time.time()
             db.commit()
 
+            repo_name = match.group("name")
+            repo_is_vault = repo_name == self.settings.vault_repo_name
+            vault_mounted = repo_is_vault and vault.is_mounted(self.settings)
+
             if write_request:
-                try:
-                    resolved = resolve_repo_path(self.git_root, "/" + match.group("name") + ".git")
-                except InvalidRepoName:
-                    await PlainTextResponse("Invalid repository name", status_code=400)(scope, receive, send)
-                    return
-                ensure_bare_repo(resolved)
+                if repo_is_vault:
+                    vault_path = vault.vault_repo_path(self.settings)
+                    if vault.is_mounted(self.settings):
+                        # Never auto-created — see module docstring and
+                        # `vault.py`'s "respecting an existing .git is
+                        # binding" contract. A write against an
+                        # uninitialized mounted vault must go through the
+                        # explicit `POST /api/vault/init` first.
+                        if not vault.vault_repo_exists(vault_path):
+                            await PlainTextResponse(
+                                VAULT_NOT_INITIALIZED_MESSAGE, status_code=409
+                            )(scope, receive, send)
+                            return
+                    else:
+                        # Legacy shape — same on-demand bare-repo creation
+                        # every other repo name has always gotten.
+                        ensure_bare_repo(vault_path)
+                else:
+                    try:
+                        resolved = resolve_repo_path(self.git_root, "/" + repo_name + ".git")
+                    except InvalidRepoName:
+                        await PlainTextResponse("Invalid repository name", status_code=400)(scope, receive, send)
+                        return
+                    ensure_bare_repo(resolved)
+
+            if vault_mounted:
+                # Before serving ANY request (read or write) — see
+                # `vault.py`'s "Working-tree semantics" doc for why this
+                # has to run before a push is even evaluated.
+                vault.commit_worktree_changes(vault.vault_repo_path(self.settings))
         finally:
             db.close()
+
+        if write_request and vault_mounted:
+            # BUFFER the whole response instead of streaming it straight
+            # through: an HTTP response is the client's actual completion
+            # signal (a real `git push` returns control the instant it has
+            # read the final response byte), so if we forwarded messages as
+            # dulwich produced them, a client could see "success" and move
+            # on (e.g. read the file it just pushed) before this coroutine
+            # ever got to run `checkout_head_into_worktree` below — a real,
+            # observed race, not a hypothetical one. Buffering means the
+            # working tree is guaranteed to already reflect the new HEAD by
+            # the time the client's HTTP call returns at all.
+            buffered_messages: list = []
+
+            async def _buffering_send(message):
+                buffered_messages.append(message)
+
+            await self.app(scope, receive, _buffering_send)
+            status = next(
+                (m["status"] for m in buffered_messages if m["type"] == "http.response.start"),
+                500,
+            )
+            if status < 400:
+                vault.checkout_head_into_worktree(vault.vault_repo_path(self.settings))
+            for message in buffered_messages:
+                await send(message)
+            return
 
         await self.app(scope, receive, send)
 
@@ -290,10 +417,16 @@ def build_git_app(settings: Settings, session_local) -> ASGIApp:
     wraps the auth middleware anymore."""
     git_root = Path(settings.git_root)
     git_root.mkdir(parents=True, exist_ok=True)
+    if vault.is_mounted(settings):
+        # Only ensures the MOUNT DIRECTORY exists (mirroring git_root's own
+        # mkdir above) — never a repo. Respecting an existing `.git` is
+        # binding; only the explicit `POST /api/vault/init` ever creates
+        # one (see `vault.py`'s module docstring).
+        Path(settings.vault_path).mkdir(parents=True, exist_ok=True)
 
-    backend = BareRepoBackend(git_root)
+    backend = _VaultAwareBackend(settings)
     dulwich_app = HTTPGitApplication(
         backend, dumb=False, handlers={b"git-upload-pack": BrowserCompatibleUploadPackHandler}
     )
     wsgi_bridge = WSGIMiddleware(dulwich_app)
-    return GitAuthMiddleware(wsgi_bridge, session_local=session_local, git_root=git_root)
+    return GitAuthMiddleware(wsgi_bridge, session_local=session_local, settings=settings)

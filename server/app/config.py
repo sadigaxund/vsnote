@@ -73,6 +73,27 @@ class Settings(BaseSettings):
     bootstrap_user: Optional[str] = Field(default=None, validation_alias="VSNOTE_BOOTSTRAP_USER")
     bootstrap_password: Optional[str] = Field(default=None, validation_alias="VSNOTE_BOOTSTRAP_PASSWORD")
 
+    # Phase 17 Milestone A — the server-mounted, AUTHORITATIVE vault. Unset
+    # (the default): no change from every earlier phase — the vault is just
+    # the ordinary bare repo `{git_root}/{vault_repo_name}.git`, created on
+    # demand like any other synced repo. Set to a filesystem path (a docker
+    # volume mount or a host path) to make the vault a real, non-bare
+    # working tree the owner can also read/edit directly (over SSH, another
+    # editor, ...) — see `app/vault.py`'s module docstring for the full
+    # identity-resolution + working-tree contract every other module (
+    # `gitrepo.py`/`routers/git_http.py`/`vaultcommit.py`/`routers/
+    # git_admin.py`) now goes through instead of guessing. An existing repo
+    # at this path is always respected: nothing here ever auto-creates or
+    # overwrites it, only the explicit `POST /api/vault/init` does.
+    vault_path: Optional[str] = Field(default=None, validation_alias="VSNOTE_VAULT_PATH")
+
+    # The repo NAME clients use in `<origin>/git/<name>.git` to reach the
+    # vault (whichever shape it is). Must match `gitrepo.REPO_NAME_RE` — see
+    # `app/vault.py::validate_vault_repo_name`, called at `create_app()` time
+    # so a misconfigured value fails loudly at startup rather than silently
+    # 404ing every request for it later.
+    vault_repo_name: str = Field(default="vault", validation_alias="VSNOTE_VAULT_REPO_NAME")
+
 
 def resolve_secret_key(settings: Settings) -> str:
     """Computed once per app instance (see create_app) — never re-derived

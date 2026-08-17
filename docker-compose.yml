@@ -58,6 +58,20 @@ services:
       # CWD/ownership reason as VSNOTE_DB_URL above — /data/git-repos is the
       # named volume mounted below.
       VSNOTE_GIT_ROOT: ${VSNOTE_GIT_ROOT:-/data/git-repos}
+      # Phase 17 — server-mounted, AUTHORITATIVE vault. Empty by default,
+      # same as VSNOTE_SECRET_KEY above: an unset value here means "legacy
+      # shape, no change from Phase 11/14" (the vault is just the ordinary
+      # bare repo under VSNOTE_GIT_ROOT). Set in .env to
+      # VSNOTE_VAULT_PATH=/data/vault to opt in — matches the commented
+      # `vsnote-vault` volume mount below, which you must also uncomment.
+      # See server/README.md's "Server-mounted vault" section: a fresh
+      # mount needs one explicit POST /api/vault/init call before use, and
+      # an existing repo already at the mount is always respected.
+      VSNOTE_VAULT_PATH: ${VSNOTE_VAULT_PATH:-}
+      # The repo name clients use in <origin>/git/<name>.git to reach the
+      # vault (whichever shape it is above). Only change together with the
+      # client's own "Repository name" setting.
+      VSNOTE_VAULT_REPO_NAME: ${VSNOTE_VAULT_REPO_NAME:-vault}
       VSNOTE_RATE_LIMIT_DEFAULT: ${VSNOTE_RATE_LIMIT_DEFAULT:-120/minute}
       VSNOTE_RATE_LIMIT_SHARE: ${VSNOTE_RATE_LIMIT_SHARE:-60/minute}
       VSNOTE_RATE_LIMIT_SHARE_AUTH: ${VSNOTE_RATE_LIMIT_SHARE_AUTH:-5/minute}
@@ -80,6 +94,12 @@ services:
     volumes:
       - vsnote-db:/data/db
       - vsnote-git-repos:/data/git-repos
+      # Phase 17 — server-mounted vault (opt-in). Uncomment both this mount
+      # AND the matching named volume below (or point at a host path
+      # instead, e.g. "/srv/my-notes:/data/vault") once VSNOTE_VAULT_PATH
+      # above is also set to /data/vault. Left commented by default so the
+      # legacy (bare-repo) shape stays the out-of-the-box behavior.
+      # - vsnote-vault:/data/vault
 
     # No dedicated /healthz route exists in this backend (confirmed against
     # server/app/main.py and every router under server/app/routers/) — `GET
@@ -106,3 +126,8 @@ services:
 volumes:
   vsnote-db:
   vsnote-git-repos:
+  # Phase 17 — server-mounted vault (opt-in, see the commented mount +
+  # VSNOTE_VAULT_PATH above). Declared even while unused so uncommenting
+  # the mount above is a one-line change; an unused named volume costs
+  # nothing.
+  vsnote-vault:

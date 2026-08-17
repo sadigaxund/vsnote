@@ -86,7 +86,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -612,7 +611,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         # Round 6 item 12 — the edit also lands as a real commit in the
         # bare sync repo (best-effort, see vaultcommit.py's doc), so the
         # owner receives it through the ordinary sync pipeline.
-        committed = commit_share_edit(Path(settings.git_root), access.share.source_path, body, access.principal)
+        committed = commit_share_edit(settings, access.share.source_path, body, access.principal)
         write_audit_event(
             db, "share.access", slug=access.share.slug, principal=access.principal, reason="editor_put", request=request
         )
@@ -660,7 +659,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         entry.size = len(body)
         db.commit()
         committed = commit_share_edit(
-            Path(settings.git_root), f"{share.source_path}/{relpath}", body, access.principal
+            settings, f"{share.source_path}/{relpath}", body, access.principal
         )
         write_audit_event(
             db, "share.access", slug=share.slug, principal=access.principal, reason="editor_put", request=request

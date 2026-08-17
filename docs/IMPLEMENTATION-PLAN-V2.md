@@ -292,6 +292,19 @@ auto-created or overwritten. Browser keeps a full local clone in IndexedDB
 - Known flag: full clone per client includes history; fine at text scale,
   shallow-clone mitigation only if it ever hurts.
 
+**Milestone A shipped (2026-08-17, server-only, `src/` untouched):** vault
+identity + working-tree semantics. `VSNOTE_VAULT_PATH`/
+`VSNOTE_VAULT_REPO_NAME` settings; `app/vault.py` (`vault_repo_path`,
+`describe_vault`, `init_vault`, `commit_worktree_changes`,
+`checkout_head_into_worktree`) as the single source of truth, replacing
+`vaultcommit.py`'s old `_pick_repo_path` guesswork; `/git/<vault>.git`
+routes through it (mounted-but-uninitialized is never auto-created — 404
+reads, 409 writes); `GET`/`POST /api/vault[/init]`; reset (item 19) refuses
+on a mounted vault. Full design in `docs/ARCHITECTURE.md`'s "Server-mounted
+vault (Phase 17 Milestone A)" section. Remaining Phase 17 scope (setup
+wizard, external-remote mirroring/credentials, auto-sync policies, the
+login gate, tree virtualization) is Milestone B+, unstarted.
+
 ## After Phases 16–17
 - Redo all 18 my-you-eye backlog issues against the FINAL polished components
   (refined source, distilled prop APIs, "what the library needs to absorb

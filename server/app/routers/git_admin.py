@@ -15,6 +15,14 @@ dialog client-side.
 Auth: an interactive session only (same reasoning as `routers/admin.py`'s
 token rejection) — a leaked read- or even write-scoped API token made for
 a git client must never be able to erase the server's copy of the history.
+
+Phase 17 Milestone A: a MOUNTED, server-side authoritative vault is refused
+outright (409) rather than deleted — it may be the owner's only copy of
+their data (a real filesystem mount, not just a sync cache the client can
+always regenerate by pushing again). The legacy (non-mounted) shape,
+including a vault repo name that hasn't been mounted, keeps today's exact
+delete-and-recreate behavior, unchanged — see `vault.py` for the
+mounted/legacy distinction this defers to.
 """
 
 from __future__ import annotations
@@ -25,6 +33,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from .. import vault
 from ..audit import write_audit_event
 from ..auth import AuthContext, AuthDeps
 from ..gitrepo import InvalidRepoName, ensure_bare_repo, resolve_repo_path
@@ -42,6 +51,20 @@ def build_router(get_db, settings, auth_deps: AuthDeps) -> APIRouter:
     ):
         if ctx.scope is not None:
             raise HTTPException(status_code=403, detail="An interactive session is required")
+
+        if repo_name == settings.vault_repo_name and vault.is_mounted(settings):
+            write_audit_event(
+                db,
+                "git.vault_reset_refused",
+                principal=ctx.principal,
+                reason=f"repo={repo_name}",
+                request=request,
+            )
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot reset a server-mounted vault. It may be your only copy of this data.",
+            )
+
         try:
             # Same validation + containment the git HTTP layer uses — one
             # path-resolution implementation, not a second guess.

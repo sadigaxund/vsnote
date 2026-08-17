@@ -78,7 +78,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from . import models, runtime_settings, security
+from . import models, runtime_settings, security, vault
 from .auth import JWKSFetcher, build_auth_deps
 from .config import Settings, resolve_secret_key
 from .db import Base, make_engine, make_sessionmaker
@@ -88,6 +88,7 @@ from .routers import git_admin as git_admin_router
 from .routers import git_http as git_http_router
 from .routers import share_public as share_public_router
 from .routers import shares as shares_router
+from .routers import vault as vault_router
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +193,11 @@ def bootstrap_runtime_settings(session_local, settings: Settings) -> None:
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
     settings = settings or Settings()
     secret_key = resolve_secret_key(settings)
+    # Phase 17 Milestone A: fail loudly at startup for a misconfigured
+    # VSNOTE_VAULT_REPO_NAME rather than silently 404ing every `/git/<name>
+    # .git` request for the vault later — same "loud at boot" posture as
+    # `resolve_secret_key` above.
+    vault.validate_vault_repo_name(settings.vault_repo_name)
 
     engine = make_engine(settings.db_url)
     SessionLocal = make_sessionmaker(engine)
@@ -242,6 +248,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     api_app.include_router(share_public_router.build_content_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(admin_router.build_router(get_db, auth_deps))
     api_app.include_router(git_admin_router.build_router(get_db, settings, auth_deps))
+    api_app.include_router(vault_router.build_router(get_db, settings, auth_deps))
 
     app.mount("/api", api_app)
 

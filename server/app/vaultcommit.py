@@ -2,22 +2,25 @@
 
 A share editor's PUT already repoints the share's snapshot blob (so every
 subsequent viewer sees the edit). This module adds the second half: a real
-git commit into the backend's bare sync repo, updating the same file the
-share was published from, so the OWNER receives the edit through the
-ordinary sync pipeline (fetch -> merge with backup refs -> conflict
-resolver if they edited the same lines). Plain object surgery on the bare
-repo; the sync protocol itself is untouched and still never force-pushes.
+git commit into the vault repo, updating the same file the share was
+published from, so the OWNER receives the edit through the ordinary sync
+pipeline (fetch -> merge with backup refs -> conflict resolver if they
+edited the same lines). Plain object surgery; the sync protocol itself is
+untouched and still never force-pushes.
 
-Best-effort by design: the bare repo only exists once the owner has synced
-at least once, its name is a client-side setting the share record does not
-carry, and an empty repo has no history to edit. Every bail-out returns
-False (blob-only edit) rather than failing the PUT: the share edit itself
-must succeed even when the vault mirror can't take it.
+Best-effort by design: the vault only exists once it's been initialized
+(pushed to once, for the legacy bare shape, or explicitly `POST
+/api/vault/init`-ed for a mounted one), and an empty repo has no history to
+edit yet. Every bail-out returns False (blob-only edit) rather than failing
+the PUT: the share edit itself must succeed even when the vault mirror
+can't take it.
 
-Repo choice: `vault.git` (the client's `DEFAULT_GIT_REPO_NAME`) when
-present; otherwise, if EXACTLY one bare repo exists under the git root,
-that one (covers a renamed "Repository name" setting); otherwise ambiguous
--> skip. Phase 17's server-mounted vault removes this guesswork entirely.
+Repo identity: `vault.vault_repo_path(settings)` — Phase 17's single source
+of truth, replacing this module's old `_pick_repo_path` heuristic (a
+`vault.git`-name-or-sole-bare-repo guess) entirely. Works for BOTH shapes:
+a bare repo (object surgery only, as before) and a mounted non-bare vault
+(object surgery PLUS `vault.checkout_head_into_worktree` afterward, so the
+edit is visible on disk immediately, not just in git history).
 
 Path mapping: `Share.source_path` is a display path (`vault/notes/x.md`,
 `fs/paths.ts`: display = "vault/" + repo-relative), so the repo path is
@@ -28,23 +31,13 @@ from __future__ import annotations
 
 import stat
 import time
-from pathlib import Path
 from typing import Optional
 
 from dulwich.objects import Blob, Commit, Tree
 from dulwich.repo import Repo
 
-DEFAULT_REPO_DIRNAME = "vault.git"
-
-
-def _pick_repo_path(git_root: Path) -> Optional[Path]:
-    default = git_root / DEFAULT_REPO_DIRNAME
-    if (default / "HEAD").exists():
-        return default
-    if not git_root.exists():
-        return None
-    candidates = [p for p in git_root.iterdir() if p.name.endswith(".git") and (p / "HEAD").exists()]
-    return candidates[0] if len(candidates) == 1 else None
+from . import vault
+from .config import Settings
 
 
 def source_path_to_repo_path(source_path: str) -> Optional[str]:
@@ -78,19 +71,19 @@ def _rebuild_tree(repo: Repo, tree: Tree, segments: list[str], blob_id: bytes) -
     return new_tree
 
 
-def commit_share_edit(git_root: Path, source_path: str, content: bytes, principal: Optional[str]) -> bool:
-    """Commits `content` at `source_path`'s repo-relative path onto the bare
-    repo's current HEAD branch. Returns True when a commit landed, False
-    for every best-effort bail-out (no repo, empty repo, unmappable path,
-    concurrent ref move)."""
+def commit_share_edit(settings: Settings, source_path: str, content: bytes, principal: Optional[str]) -> bool:
+    """Commits `content` at `source_path`'s repo-relative path onto the
+    vault's current HEAD branch. Returns True when a commit landed, False
+    for every best-effort bail-out (no vault yet, empty vault, unmappable
+    path, concurrent ref move)."""
     repo_path = source_path_to_repo_path(source_path)
     if repo_path is None:
         return False
-    bare_path = _pick_repo_path(git_root)
-    if bare_path is None:
+    vault_path = vault.vault_repo_path(settings)
+    if not vault.vault_repo_exists(vault_path):
         return False
 
-    repo = Repo(str(bare_path))
+    repo = Repo(str(vault_path))
     try:
         head_ref = repo.refs.follow(b"HEAD")[0][-1]  # e.g. b"refs/heads/main"
         try:
@@ -123,6 +116,14 @@ def commit_share_edit(git_root: Path, source_path: str, content: bytes, principa
 
         # Atomic: only advance if HEAD is still where we built from — a
         # concurrent push wins and this edit stays blob-only.
-        return bool(repo.refs.set_if_equals(head_ref, head_oid, commit.id))
+        landed = bool(repo.refs.set_if_equals(head_ref, head_oid, commit.id))
+        bare = repo.bare
     finally:
         repo.close()
+
+    if landed and not bare:
+        # Mounted, non-bare vault — same post-receive-checkout semantics a
+        # real git-http push gets (see vault.py's module docstring), so the
+        # edit is visible on disk right away, not just in git history.
+        vault.checkout_head_into_worktree(vault_path)
+    return landed

@@ -251,3 +251,33 @@ class RuntimeSettingsIn(BaseModel):
     clamped."""
 
     max_blob_bytes: int = Field(ge=MIN_MAX_BLOB_BYTES, le=MAX_MAX_BLOB_BYTES)
+
+
+# --- Vault (Phase 17 Milestone A) ------------------------------------------
+
+
+class VaultOut(BaseModel):
+    """`GET /api/vault` and `POST /api/vault/init` response — mirrors
+    `app.vault.VaultDescription` field for field. No secrets: `path` is a
+    server-local filesystem path, fine to show an already-authenticated
+    owner (same posture as every other `/api` response), never sent
+    anywhere unauthenticated."""
+
+    path: str
+    mounted: bool
+    initialized: bool
+    bare: bool
+    repo_name: str
+    head_branch: Optional[str]
+    has_commits: bool
+    worktree_dirty: bool
+    last_commit_message: Optional[str]
+    last_commit_time: Optional[int]
+
+
+class VaultInitIn(BaseModel):
+    """`POST /api/vault/init` body. `branch` defaults to the client's own
+    default branch name (`gitrepo.DEFAULT_CLIENT_BRANCH`) when omitted —
+    see `routers/vault.py`."""
+
+    branch: Optional[str] = None

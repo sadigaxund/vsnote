@@ -132,6 +132,8 @@ Env-driven, see `.env.example` for the full annotated list (loaded from
 | `VSNOTE_COOKIE_SECURE` | `True` | set `False` only to test over plain `http://` locally |
 | `VSNOTE_GIT_ROOT` | `./git-repos` | Phase 11 — where bare git repos live, `{root}/{repo}.git`, created on demand |
 | `VSNOTE_BOOTSTRAP_USER` / `VSNOTE_BOOTSTRAP_PASSWORD` | *(unset)* | Phase 12 — creates that fallback-login user at startup, iff no `User` row exists yet. See "Fallback-login onboarding" below |
+| `VSNOTE_VAULT_PATH` | *(unset)* | Phase 17 — mounts a real, non-bare, plaintext working tree at this path as the AUTHORITATIVE vault. Unset (default): no change from Phase 11 — the vault is just the ordinary bare repo below. See "Server-mounted vault" below |
+| `VSNOTE_VAULT_REPO_NAME` | `vault` | Phase 17 — the repo name clients use in `<origin>/git/<name>.git` to reach the vault (whichever shape it is). Must match `gitrepo.REPO_NAME_RE`; validated at startup |
 
 ## Fallback-login onboarding (Phase 12, DESIGN-SPEC Amendments round 4 item 32)
 
@@ -257,6 +259,73 @@ denyNonFastforwards` policy would). The VSNote client (`src/git/remote.ts`)
 refuses to attempt a push at all once it detects local/remote have diverged —
 see `docs/ARCHITECTURE.md`'s "Real sync (Phase 11)" section for the exact
 policy and how it's surfaced in the UI.
+
+## Server-mounted vault (Phase 17 Milestone A)
+
+By default (`VSNOTE_VAULT_PATH` unset), the vault is just the ordinary bare
+repo at `{VSNOTE_GIT_ROOT}/{VSNOTE_VAULT_REPO_NAME}.git` — nothing here
+changes from "Real git sync" above. Setting `VSNOTE_VAULT_PATH` to a
+filesystem path makes that path the AUTHORITATIVE vault instead: a real,
+non-bare git working tree the server keeps in sync with pushes, readable
+and editable directly by anything with filesystem access to the path (a
+text editor over SSH, `git clone` from the host, ...) — not just a git
+object store other clients push bytes into. The vault stays PLAINTEXT
+always, in both shapes; never encrypted at rest.
+
+**Mounting it (docker compose):**
+
+```yaml
+    environment:
+      VSNOTE_VAULT_PATH: /data/vault
+      VSNOTE_VAULT_REPO_NAME: vault   # default — only change if you also
+                                       # change the client's "Repository name"
+    volumes:
+      - vsnote-vault:/data/vault
+```
+
+(the checked-in `docker-compose.yml` already wires this in, commented, next
+to the existing `vsnote-git-repos` volume — uncomment it to opt in). For a
+host path instead of a named volume, bind-mount it:
+
+```yaml
+    volumes:
+      - /srv/my-notes:/data/vault
+```
+
+**First boot with an empty mount**: nothing is auto-created. Log in and
+call `POST /api/vault/init` (session-authenticated, no request body
+required — an optional `{"branch": "..."}` picks the branch name, default
+matches the client's own default branch) exactly once. Every git request
+against an uninitialized mounted vault is refused until then — reads get a
+plain `404`, writes get `409` with a one-line body explaining why — nothing
+is ever silently auto-created for this one repo name the way legacy repo
+names still are.
+
+**An existing `.git` is always respected.** If the mount already contains a
+real git repository — the owner set one up by hand, or a previous
+deployment's data — `POST /api/vault/init` refuses (`409`) rather than
+touching it in any way, and the git-http surface serves it exactly as if
+VSNote had initialized it itself. Nothing in this codebase ever overwrites,
+re-initializes, or deletes a repo that's already there; only the explicit
+init call above ever creates one.
+
+**Disk edits and pushes never clobber each other.** Any file changed
+directly on the mounted disk is committed (author `VSNote server
+<vault@vsnote>`) before the NEXT git request is served, whether that's a
+push evaluating fast-forward/divergence or a plain fetch — so a disk edit
+is always real history by the time anything else touches it. After a push
+lands, the working tree is updated to match the new branch tip before the
+push's own HTTP response reaches the client, so `git clone`/a text editor
+reading the mount immediately afterward always sees the pushed content,
+never a stale window. `GET /api/vault` (session-only) reports the current
+state: whether it's mounted, initialized, the current branch, whether the
+working tree has uncommitted changes, and the last commit.
+
+**Reset is refused for a mounted vault.** `POST /api/git-repos/{name}/reset`
+("Replace remote with local", see "Real git sync" above) still works
+exactly as documented for a legacy (unmounted) repo, but refuses with
+`409` for the vault name while it's mounted — it may be the only copy of
+the owner's data.
 
 ## Data model, policy gate, auth model
 

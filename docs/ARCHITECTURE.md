@@ -611,6 +611,136 @@ final pass)**: two new rows, "Default commit message" (the template `Input`, wit
 live-rendered preview line underneath) and "Device name" (the `{device}` setting) — no
 remaining "isn't wired up yet" placeholder anywhere in this category.
 
+## Server-mounted vault (Phase 17 Milestone A)
+
+`server/app/vault.py` is the single source of truth for "where is the
+vault" and "what does its working tree look like right now" — every other
+module (`gitrepo.py`/`routers/git_http.py`/`vaultcommit.py`/`routers/
+git_admin.py`/the new `routers/vault.py`) asks it instead of guessing.
+Before this phase, `vaultcommit.py`'s `_pick_repo_path` guessed which bare
+repo under `VSNOTE_GIT_ROOT` was "the vault" (a `vault.git`-named dir, or
+the sole `.git`-suffixed dir if exactly one existed) — that guesswork is
+gone.
+
+**Identity resolution.** Two new settings (`VSNOTE_VAULT_PATH`,
+`VSNOTE_VAULT_REPO_NAME` — see `server/README.md`): `vault_repo_path(settings)`
+returns `Path(settings.vault_path)` when set, else the unchanged legacy
+formula `{git_root}/{vault_repo_name}.git`. `VSNOTE_VAULT_REPO_NAME`
+(default `vault`) is validated against the exact `gitrepo.REPO_NAME_RE`
+shape at `create_app()` time — a bad value fails loudly at startup, not
+with a silent 404 later. `resolve_git_repo_path(settings, url_path_prefix)`
+is the one routing decision every `/git/<name>.git/...` request goes
+through: the ONE name matching `vault_repo_name` resolves via
+`vault_repo_path()`; every other name keeps `gitrepo.resolve_repo_path`'s
+`{git_root}/{name}.git` behavior, completely unchanged (all Phase 11 tests
+still pass unmodified).
+
+**Two shapes.** LEGACY (`VSNOTE_VAULT_PATH` unset, the default): the vault
+is an ordinary BARE repo, created on demand exactly like every other synced
+repo — zero behavior change from Phase 11/12. MOUNTED
+(`VSNOTE_VAULT_PATH` set to a docker volume or host path): the vault is a
+real, NON-bare repo living directly at that path — its `.git` metadata sits
+inside it, the rest of the directory IS the plaintext working tree,
+readable/editable by anything with filesystem access to the mount (a text
+editor over SSH, `git clone` from the host, ...). This is the point of the
+milestone: the server's own copy becomes the browsable, authoritative
+vault, not just a git object store other clients push bytes into. Per
+roadmap §4, the vault stays PLAINTEXT always, in both shapes — never
+encrypted at rest.
+
+**Respecting an existing `.git` is binding.** Nothing auto-creates or
+overwrites a vault repo. `init_vault(settings, branch)` is the ONLY
+function that ever creates one, called from exactly one place —
+`POST /api/vault/init`, session-authenticated, same posture as
+`routers/admin.py`/`routers/git_admin.py` (a scoped API token, even a
+write-scoped one, is rejected: 403). It refuses (`VaultAlreadyInitialized`,
+surfaced as `409 {"detail": "Vault is already initialized."}`) if a repo
+already exists at the vault path — this is what makes a pre-existing repo
+an operator dropped onto the mount (by hand, or from a previous
+deployment) survive untouched. `GET /api/vault` (`describe_vault()`,
+session-only, no secrets) reports path/mounted/initialized/bare/
+repo_name/head_branch/has_commits/worktree_dirty/last_commit_message/
+last_commit_time.
+
+**A MOUNTED-but-uninitialized vault is never auto-created by a git
+request**, unlike every other (legacy) repo name, which still gets
+`ensure_bare_repo`'s on-demand creation on first authorized write exactly
+as before. `GitAuthMiddleware` (`routers/git_http.py`) special-cases only
+the one name matching `vault_repo_name`: a WRITE request (`git-receive-pack`
+and its `info/refs` advertisement) against a mounted-but-uninitialized
+vault gets `409` with a one-line plaintext body
+(`"Vault not initialized. Use POST /api/vault/init first.\n"`) and never
+reaches dulwich at all; a READ request gets a plain `404` — no special
+case needed, since the dulwich `Backend` (`_VaultAwareBackend`) simply
+finds nothing at the resolved path and raises `NotGitRepository`, exactly
+like any other missing repo.
+
+**Working-tree semantics (the crux, MOUNTED shape only).** A mounted
+vault's working tree can be written from two directions: the owner editing
+files directly on disk, and a git client pushing over
+`/git/<vault>.git`. Two hooks keep those from clobbering each other, both
+no-ops for the legacy bare shape or an uninitialized path:
+- `commit_worktree_changes()` runs BEFORE every git-http request served
+  for the vault (both reads and writes — a fetch should see the freshest
+  disk state too, and a push's fast-forward/divergence decision must
+  already account for any disk edit that happened first). It stages
+  whatever changed since the last commit (new/modified files, and files
+  that disappeared from disk, via dulwich's `porcelain` add/remove) and
+  commits with a fixed, clearly attributable identity
+  (`VSNote server <vault@vsnote>`) and a one-line message. A disk edit is
+  therefore always real git history by the time a push is evaluated
+  against it — never silently lost to an incoming push.
+- `checkout_head_into_worktree()` runs AFTER a `git-receive-pack` (push)
+  request the server actually accepted, updating the index + working tree
+  to match the new branch tip (`dulwich.diff_tree.tree_changes` +
+  `dulwich.index.update_working_tree`) WITHOUT moving `HEAD`/the branch ref
+  itself (a push already moved those directly; this only reconciles files
+  on disk with them).
+
+  **A real ordering hazard, found and fixed while building this**: an
+  HTTP response IS the client's completion signal — a real `git push`
+  returns control to the caller the instant it has read the final response
+  byte. Streaming dulwich's response straight through as it's generated
+  (the obvious first implementation) let a client see "push succeeded" and
+  immediately act on that (e.g. read the file it just pushed, or another
+  process fetch) before this coroutine had actually gotten around to
+  running `checkout_head_into_worktree` — a real race, reproduced by a live
+  round-trip test, not a theoretical one. The fix: for a write request
+  against a mounted vault, `GitAuthMiddleware` BUFFERS the entire ASGI
+  response from dulwich (collects every message instead of forwarding it),
+  runs `checkout_head_into_worktree` once dulwich's own coroutine has fully
+  completed, and only THEN replays the buffered messages to the real
+  client. The working tree is therefore guaranteed to already reflect the
+  new HEAD by the time the client's HTTP call returns at all — no window
+  where "succeeded" and "the file is actually there" can be observed out
+  of order. Every other request shape (reads, and writes against any
+  non-vault or legacy-shape repo) is untouched and still streams normally.
+
+**`vaultcommit.py`** (share-editor write-back, Round 6 item 12) now calls
+`vault.vault_repo_path(settings)` instead of `_pick_repo_path` (deleted),
+and — when the resolved repo turns out to be the mounted, non-bare shape —
+also calls `checkout_head_into_worktree` after a successful commit, so a
+share edit shows up on disk immediately, not just in git history. The bare
+shape's object-surgery path is byte-for-byte unchanged; the existing
+`tests/test_share_editor_writeback.py` suite passes unmodified since the
+default `vault_repo_name` (`"vault"`) resolves to the exact same
+`{git_root}/vault.git` path those tests always assumed.
+
+**Reset refusal** (`routers/git_admin.py`'s `POST /api/git-repos/{name}/reset`,
+Round 6 item 19's "Replace remote with local"): refuses with `409` for the
+vault repo name while it's MOUNTED — it may be the owner's only copy of
+their data, unlike a legacy bare repo the client can always regenerate by
+pushing again. Writes an audit event (`git.vault_reset_refused`) either
+way. Every other repo name, and the vault name in its legacy (unmounted)
+shape, keeps today's exact delete-and-recreate behavior — the existing
+`tests/test_git_repo_reset.py` suite passes unmodified.
+
+**Deferred to Milestone B** (not built this phase, see
+`docs/IMPLEMENTATION-PLAN-V2.md`'s Phase 17 section): mirroring to
+external remotes, SSH/HTTPS credentials, the setup-wizard UI, auto-sync
+policies, the app-wide login gate, tree virtualization. This milestone is
+server-only — no `src/` changes at all.
+
 ## Single-origin deployment (Phase 10.5a)
 
 Supersedes this doc's earlier "Two link shapes" / "The `/share/*` same-origin
