@@ -44,6 +44,16 @@ export interface WhoAmI {
   source?: string | null;
 }
 
+/** `GET /api/app-config` — Phase 17's public, unauthenticated login-gate
+ * contract (`server/app/routers/app_config.py`). Mirrors
+ * `schemas.AppConfigOut` verbatim: three booleans and nothing else (no
+ * vault path, no repo name, no counts — see that router's doc for why). */
+export interface AppConfigOut {
+  login_required: boolean;
+  password_login: boolean;
+  cf_access: boolean;
+}
+
 export interface BlobOut {
   id: string;
   size: number;
@@ -232,6 +242,52 @@ export async function whoami(): Promise<WhoAmI | null> {
     });
     if (!res.ok) return null;
     return (await res.json()) as WhoAmI;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Phase 17's login-gate probe — `GET /api/app-config`, same short-timeout,
+ * NEVER-throws discipline as `whoami()` above (see that function's doc):
+ * an unreachable/slow backend resolves to `null` rather than rejecting, so
+ * `main.tsx`'s gate check (which runs unconditionally on EVERY boot, unlike
+ * every other call in this file) can never surface as an unhandled
+ * rejection or a thrown exception, and a `null` result is exactly what lets
+ * the gate's own logic read as "never gate on an unreachable backend" with
+ * no separate offline branch (CLAUDE.md rule 3).
+ *
+ * Because this fires on every single boot — including a genuinely offline
+ * PWA cold start, which `tests/e2e/probes.spec.ts`'s hard-gate spec
+ * exercises — a plain client-side `fetch()` failure here is not enough on
+ * its own: Chromium logs "Failed to load resource: net::ERR_..." to the
+ * page console for ANY request that fails at the network layer, regardless
+ * of whether application code catches the rejection (confirmed empirically;
+ * see `App.tsx`'s boot-effect doc for the identical finding that kept this
+ * app's OTHER probes lazy/opt-in instead of unconditional at boot). Unlike
+ * those, this one genuinely needs to run on every boot to decide gating —
+ * so the offline-safe fallback lives one layer down instead, in
+ * `vite.config.ts`'s `runtimeCaching` entry for this exact path: the
+ * service worker intercepts the request and, only when its OWN internal
+ * fetch to the network fails, resolves it with a synthetic
+ * `{login_required:false,...}` response rather than letting the browser's
+ * resource loader ever see (and log) a failed load. This function's own
+ * try/catch below is still real defense in depth for a request the SW
+ * genuinely can't intercept (e.g. no SW support at all, or a fresh
+ * never-cached load with no active worker yet) — those are inherently
+ * outside what a client-side fix can silence at the console level, but
+ * they're also not the tested/expected path. */
+export async function getAppConfig(): Promise<AppConfigOut | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`/api/app-config`, {
+      credentials: "include",
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as AppConfigOut;
   } catch {
     return null;
   } finally {

@@ -32,6 +32,7 @@ import { resolveVaultDisplayLabel } from "./lib/vaultLabel";
 import { probeRender } from "./lib/renderProbe";
 import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
 import { useShareStore, type FolderPublishEntry } from "./share/useShareStore";
+import { createAutoSyncScheduler } from "./git/autoSyncPolicy";
 import { buildFolderShareLink, buildShareLink } from "./share/shareLinks";
 import type { ExplorerShareRow } from "./components/local/ExplorerTree";
 import type { CheckboxTreeNode } from "./components/local/CheckboxTree";
@@ -78,6 +79,23 @@ const GIT_BACKGROUND_FETCH_MS =
   (typeof window !== "undefined" &&
     (window as unknown as { __gitBackgroundFetchMsOverride?: number }).__gitBackgroundFetchMsOverride) ||
   60_000;
+
+/** Phase 17 Milestone C1 — a multiplier applied to every real delay the
+ * auto-sync scheduler (`git/autoSyncPolicy.ts`) ever requests (an
+ * "interval" tick, the "on-save" debounce), same inert-unless-opted-in
+ * shape as `GIT_BACKGROUND_FETCH_MS` above: a spec that needs to observe a
+ * scheduled auto-sync actually fire without a real multi-minute/multi-
+ * second wait sets `window.__vsnoteAutoSyncTimerScaleOverride` (e.g.
+ * `0.001`, turning a 4s on-save debounce into 4ms) via `page.
+ * addInitScript` BEFORE navigating. Absent (every non-test load), this is
+ * exactly `1` — a plain pass-through with zero effect on the real
+ * `ON_SAVE_DEBOUNCE_MS`/interval-minutes math, which stays entirely
+ * test-agnostic inside `git/autoSyncPolicy.ts` itself (this scaling lives
+ * ONLY in the `setTimeoutFn` seam passed to it below, never inside that
+ * pure module). */
+const AUTO_SYNC_TIMER_SCALE =
+  (typeof window !== "undefined" &&
+    (window as unknown as { __vsnoteAutoSyncTimerScaleOverride?: number }).__vsnoteAutoSyncTimerScaleOverride) || 1;
 
 const ACTIVE_ON_BOOT = "vault/notes/architecture.md";
 
@@ -178,6 +196,48 @@ export default function App() {
   // that effect tell "a fresh view mounted" apart from "still reading the
   // view that's about to be torn down").
   const pendingJumpStaleView = useRef<ReturnType<typeof getActiveEditorView>>(null);
+  // Phase 17 Milestone C1 (auto-sync policies, docs/IMPLEMENTATION-PLAN-V2.md's
+  // Phase 17 section) — ONE scheduler instance for this app's whole
+  // lifetime, created lazily on first render (the `if (!ref.current)` guard
+  // is the standard React pattern for "expensive/stateful object that must
+  // be created exactly once", same reasoning every other `useRef(...)`
+  // "created once" value in this file already relies on). Every dependency
+  // is a live `.getState()` read, never a captured snapshot, so the
+  // scheduler always sees the CURRENT settings/git/share state at the
+  // moment it actually needs it (see `git/autoSyncPolicy.ts`'s doc) — this
+  // ref never needs to be recreated when any of that changes, only
+  // re-`start()`ed (the effect below).
+  const autoSyncSchedulerRef = useRef<ReturnType<typeof createAutoSyncScheduler> | null>(null);
+  if (autoSyncSchedulerRef.current === null) {
+    autoSyncSchedulerRef.current = createAutoSyncScheduler({
+      getPolicy: () => {
+        const { gitSyncPolicy, gitSyncIntervalMinutes } = useSettingsStore.getState();
+        return { policy: gitSyncPolicy, intervalMinutes: gitSyncIntervalMinutes };
+      },
+      // Mirrors the EXACT gate the 60s background-fetch interval effect
+      // below already uses (`!syncing && authenticated`) plus one more
+      // condition specific to auto-sync: `conflict == null`, so a paused
+      // conflict from a previous sync (auto or manual) is never silently
+      // retried/looped — see `git/autoSyncPolicy.ts`'s `isAutoSyncAllowed`
+      // doc for why.
+      getGateState: () => {
+        const gitState = useGitStore.getState();
+        return {
+          syncing: gitState.syncing,
+          authenticated: useShareStore.getState().authenticated,
+          conflict: gitState.conflict,
+        };
+      },
+      // The ONE real sync entry point — same pipeline `handleSyncNow` below
+      // (the status bar / command palette's manual "Sync now") calls.
+      // Never a second sync implementation.
+      runSync: () => useGitStore.getState().syncNow(),
+      // See `AUTO_SYNC_TIMER_SCALE`'s own doc above — a plain 1x
+      // pass-through outside a test that opts in.
+      setTimeoutFn: (fn, ms) => setTimeout(fn, ms * AUTO_SYNC_TIMER_SCALE),
+      clearTimeoutFn: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    });
+  }
   const { toast } = useToast();
 
   const tree = useDecoratedTree();
@@ -213,6 +273,12 @@ export default function App() {
   // discipline as `sidebarWidth` above, so the title bar's breadcrumb (below)
   // reacts live when the vault display name changes.
   const vaultDisplayName = useSettingsStore((s) => s.vaultDisplayName);
+  // Phase 17 Milestone C1 (auto-sync policies) — targeted selectors, same
+  // discipline as `sidebarWidth` above: this component only needs to
+  // re-run the scheduler-(re)start effect below when either actually
+  // changes, never on an unrelated settings edit.
+  const gitSyncPolicy = useSettingsStore((s) => s.gitSyncPolicy);
+  const gitSyncIntervalMinutes = useSettingsStore((s) => s.gitSyncIntervalMinutes);
   // Phase 10.5 — the Explorer tree's share indicator glyph (roadmap §5.1)
   // reads whatever `useShareStore.shares` currently holds. That list is
   // populated lazily (Settings → Sharing's mount effect, or the first
@@ -333,6 +399,37 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // Phase 17 Milestone C1 — (re)starts the auto-sync scheduler's "interval"
+  // timer whenever `gitSyncPolicy`/`gitSyncIntervalMinutes` actually
+  // change: `start()` is a no-op for every policy except "interval" (see
+  // `git/autoSyncPolicy.ts`'s doc), so this effect is safe to run
+  // unconditionally regardless of which policy is active — it's the ONLY
+  // place `start()` is called from a live settings value, so a mid-session
+  // switch INTO "interval" (or a shorter/longer N) takes effect immediately
+  // rather than waiting for a reload. Cleanup tears down whatever's
+  // pending; the effect body's own `start()` immediately rebuilds it off
+  // the current values, so this never leaves the scheduler idle between an
+  // old and a new setting.
+  useEffect(() => {
+    autoSyncSchedulerRef.current?.start();
+    return () => autoSyncSchedulerRef.current?.stop();
+  }, [gitSyncPolicy, gitSyncIntervalMinutes]);
+
+  // Phase 17 Milestone C1 — "open-close" policy: one attempt at app open
+  // (this effect's mount) and one at app close/hide (`visibilitychange` ->
+  // "hidden", the same signal the dirty-draft-flush effect elsewhere in
+  // this file already uses for the analogous "about to go away" moment).
+  // `triggerOpenClose` is a no-op under every OTHER policy, so this effect
+  // is likewise safe to run unconditionally.
+  useEffect(() => {
+    autoSyncSchedulerRef.current?.triggerOpenClose();
+    function onVisibilityChange() {
+      if (document.visibilityState === "hidden") autoSyncSchedulerRef.current?.triggerOpenClose();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
   // Phase 6: "the active tab" is now the FOCUSED pane's active tab —
   // `tabs.activePaneId` doubles as "which pane the user last interacted
   // with" (see `useTabsStore.ts`'s module doc). Every pane's own buffer-
@@ -386,6 +483,22 @@ export default function App() {
     useTabsStore.getState().setMode(activeTab.path, activeTab.mode === "rendered" ? "source" : "rendered");
   }
 
+  // Saves the active tab if it's dirty (⌘S and the command palette's "Save
+  // file" command both call this — previously duplicated inline at both
+  // call sites). Phase 17 Milestone C1 — the SAME choke point notifies the
+  // auto-sync scheduler's "on-save" policy hook once the save (and the git
+  // status refresh that follows it) has settled; `notifySaveSettled` is a
+  // no-op under every other policy, so this is safe to call unconditionally
+  // on every save regardless of which policy is active.
+  function saveActiveTabIfDirty(): void {
+    if (!activeTab || !useBufferStore.getState().buffers[activeTab.path]?.dirty) return;
+    void useBufferStore
+      .getState()
+      .save(activeTab.path)
+      .then(() => useGitStore.getState().refresh())
+      .then(() => autoSyncSchedulerRef.current?.notifySaveSettled());
+  }
+
   // Best-effort ⌘W (DESIGN-SPEC Amendments item 5: "⌘W is best-effort —
   // browsers may reserve it"): closes the active tab when the browser lets
   // the keydown through at all (many browsers intercept Ctrl/⌘W before any
@@ -400,14 +513,16 @@ export default function App() {
   // `onChangeRef`/`onCursorChangeRef` already use) so the global keydown
   // effect below — deliberately scoped to `[activeTab?.path]`, not every
   // render — can always call the CURRENT `toggleRenderedSource`/
-  // `closeActiveTab` (both plain functions recreated every render) without
-  // either going stale or forcing the effect (and its
+  // `closeActiveTab`/`saveActiveTabIfDirty` (all plain functions recreated
+  // every render) without either going stale or forcing the effect (and its
   // addEventListener/removeEventListener churn) to rerun on every render.
   const toggleRenderedSourceRef = useRef(toggleRenderedSource);
   const closeActiveTabRef = useRef(closeActiveTab);
+  const saveActiveTabIfDirtyRef = useRef(saveActiveTabIfDirty);
   useEffect(() => {
     toggleRenderedSourceRef.current = toggleRenderedSource;
     closeActiveTabRef.current = closeActiveTab;
+    saveActiveTabIfDirtyRef.current = saveActiveTabIfDirty;
   });
 
   function enterZenMode(): void {
@@ -564,9 +679,7 @@ export default function App() {
       const key = e.key.toLowerCase();
       if (key === "s") {
         e.preventDefault();
-        if (activeTab && useBufferStore.getState().buffers[activeTab.path]?.dirty) {
-          void useBufferStore.getState().save(activeTab.path).then(() => useGitStore.getState().refresh());
-        }
+        saveActiveTabIfDirtyRef.current();
       } else if (key === "f") {
         e.preventDefault();
         void openSearchInActiveView();
@@ -1089,9 +1202,7 @@ export default function App() {
         setActivePanel("search");
         break;
       case "save":
-        if (activeTab && useBufferStore.getState().buffers[activeTab.path]?.dirty) {
-          void useBufferStore.getState().save(activeTab.path).then(() => useGitStore.getState().refresh());
-        }
+        saveActiveTabIfDirty();
         break;
       case "close-tab":
         closeActiveTab();

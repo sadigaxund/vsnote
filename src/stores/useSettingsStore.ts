@@ -18,6 +18,7 @@ import { persist } from "zustand/middleware";
 import { ensureReadableOn, readableForeground } from "../lib/accentContrast";
 import { defaultDeviceName } from "../git/commitTemplate";
 import { DEFAULT_GIT_REPO_NAME } from "../git/remote";
+import { DEFAULT_SYNC_INTERVAL_MINUTES, type SyncPolicy } from "../git/autoSyncPolicy";
 import type { EditorMode, FileKind } from "../types";
 
 export const THEME_OPTIONS = [
@@ -216,6 +217,26 @@ interface SettingsState {
    * decoration and ignores this flag. */
   showGitStatusInExplorer: boolean;
 
+  /** Phase 17 Milestone C1 (docs/IMPLEMENTATION-PLAN-V2.md's Phase 17
+   * section: "Auto-sync policies: manual / every N minutes / on open+close /
+   * on-save (debounced)") — how `src/git/autoSyncPolicy.ts`'s scheduler
+   * decides when to invoke `useGitStore.getState().syncNow()` on its own,
+   * with no click. `"manual"` (the default) preserves every behavior this
+   * app had before this phase: sync only ever runs from an explicit click
+   * (the status bar segment, the command palette's "Sync now", the Source
+   * Control panel's buttons). Every OTHER policy still ends up calling that
+   * exact same `syncNow` pipeline — this setting only decides WHEN, never
+   * HOW (see `git/autoSyncPolicy.ts`'s module doc). */
+  gitSyncPolicy: SyncPolicy;
+  /** The `N` in "every N minutes" — only consulted while `gitSyncPolicy` is
+   * `"interval"`. Clamped to `MIN_SYNC_INTERVAL_MINUTES` (never a
+   * zero/negative/fractional timer delay) by `git/autoSyncPolicy.ts`'s
+   * `clampSyncIntervalMinutes` at the one point it's actually used for
+   * scheduling, so a stray persisted/typed value can never wedge the
+   * scheduler — this field itself stays a plain, unclamped user-typed
+   * number so the Settings input doesn't fight the user's keystrokes. */
+  gitSyncIntervalMinutes: number;
+
   setTheme: (theme: AppTheme) => void;
   /** Cycles to the next theme in `THEME_OPTIONS` — the command palette's
    * "Toggle theme" command (DESIGN-SPEC "Misc / settings": "toggle mode,
@@ -243,6 +264,8 @@ interface SettingsState {
   setGitCommitTemplate: (template: string) => void;
   setGitDeviceName: (name: string) => void;
   setShowGitStatusInExplorer: (show: boolean) => void;
+  setGitSyncPolicy: (policy: SyncPolicy) => void;
+  setGitSyncIntervalMinutes: (minutes: number) => void;
 }
 
 /** Roadmap §5.3's exact default template string. Exported so
@@ -276,6 +299,8 @@ export const useSettingsStore = create<SettingsState>()(
       gitCommitTemplate: DEFAULT_GIT_COMMIT_TEMPLATE,
       gitDeviceName: defaultDeviceName(),
       showGitStatusInExplorer: false,
+      gitSyncPolicy: "manual",
+      gitSyncIntervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES,
       setTheme: (theme) => set({ theme }),
       cycleTheme: () => {
         const idx = THEME_OPTIONS.indexOf(get().theme);
@@ -309,6 +334,8 @@ export const useSettingsStore = create<SettingsState>()(
       setGitCommitTemplate: (gitCommitTemplate) => set({ gitCommitTemplate }),
       setGitDeviceName: (gitDeviceName) => set({ gitDeviceName }),
       setShowGitStatusInExplorer: (showGitStatusInExplorer) => set({ showGitStatusInExplorer }),
+      setGitSyncPolicy: (gitSyncPolicy) => set({ gitSyncPolicy }),
+      setGitSyncIntervalMinutes: (gitSyncIntervalMinutes) => set({ gitSyncIntervalMinutes }),
     }),
     {
       // Renamed with the rest of the rebrand (DESIGN-SPEC item 34, user

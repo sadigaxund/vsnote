@@ -8,49 +8,92 @@ import { VitePWA } from "vite-plugin-pwa";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Names (pre-hash) of build output chunks the SW precache manifest must
- * NOT include: the two "full manifest" escape-hatch chunks
- * (`materialIconLoader.ts`'s own chunk + the ~450KB upstream JSON it
- * fetches) and every material-icon-theme SVG that ONLY that fallback tier
- * ever references — i.e. every icon EXCEPT the ~96
- * `materialIcons.curated.ts` already statically lists (those genuinely
- * render at boot — the demo vault's own tree/tab icons — and stay
- * precached like any other boot-critical asset).
- *
- * Caught in review: the naive `globPatterns: "**\/*.js"` swept up all
- * ~1250 of `import.meta.glob`'s per-icon chunks (`materialIconLoader.ts`'s
- * "only fetch the one icon that's actually missing" design exists
- * specifically so a cold boot never pays for that pack — precaching them
- * unconditionally defeats the entire point and, worse, spends the same
- * origin quota `navigator.storage.persist()` is trying to protect on
- * ~1300 Cache Storage entries that are, by that module's own design,
- * essentially never fetched). Computed from the actual installed package
- * + the curated file's real import specifiers (not a hardcoded number)
- * so this stays correct if either changes.
- */
-function computeExcludedIconChunkNames(): Set<string> {
-  const excluded = new Set(["materialIconLoader", "material-icons"]);
+/** ALWAYS excluded, regardless of size, no name-collision risk: the two
+ * chunks ARE the fallback tier itself (`materialIconLoader.ts`'s own JS +
+ * the ~450KB upstream manifest JSON it fetches), not an `import.meta.glob`
+ * per-icon wrapper — see `ICON_URL_WRAPPER_MAX_BYTES`'s doc for why these
+ * two must NOT get the size guard the per-icon names below do. */
+const ALWAYS_EXCLUDED_ICON_CHUNKS = new Set(["materialIconLoader", "material-icons"]);
+
+function computeIconUrlWrapperNames(): Set<string> {
   let allIconFiles: string[];
   try {
     allIconFiles = readdirSync(path.join(ROOT, "node_modules/material-icon-theme/icons"));
   } catch {
-    return excluded; // package not found at config-eval time — exclude nothing icon-related, fail safe
+    return new Set(); // package not found at config-eval time — exclude nothing icon-related, fail safe
   }
   const curatedSrc = readFileSync(
     path.join(ROOT, "src/components/local/materialIcons.curated.ts"),
     "utf8",
   );
   const curated = new Set([...curatedSrc.matchAll(/icons\/([\w.-]+)\.svg\?url/g)].map((m) => m[1]));
+  const names = new Set<string>();
   for (const file of allIconFiles) {
     if (!file.endsWith(".svg")) continue;
     const name = file.slice(0, -4);
-    if (!curated.has(name)) excluded.add(name);
+    if (!curated.has(name)) names.add(name);
   }
-  return excluded;
+  return names;
 }
 
-const EXCLUDED_ICON_CHUNKS = computeExcludedIconChunkNames();
+/** Names (pre-hash) of `import.meta.glob(...,{query:"?url"})` per-icon
+ * WRAPPER chunks (`materialIconLoader.ts`'s "only fetch the one icon that's
+ * actually missing" design exists specifically so a cold boot never pays
+ * for that pack) — every icon EXCEPT the ~96 `materialIcons.curated.ts`
+ * already statically lists (those genuinely render at boot — the demo
+ * vault's own tree/tab icons — and stay precached like any other
+ * boot-critical asset).
+ *
+ * Caught in review: the naive `globPatterns: "**\/*.js"` swept up all
+ * ~1250 of these (precaching them unconditionally defeats the entire point
+ * of the lazy fallback tier and, worse, spends the same origin quota
+ * `navigator.storage.persist()` is trying to protect on ~1300 Cache
+ * Storage entries that are, by that module's own design, essentially never
+ * fetched). Computed from the actual installed package + the curated
+ * file's real import specifiers (not a hardcoded number) so this stays
+ * correct if either changes. See `ICON_URL_WRAPPER_MAX_BYTES`'s doc for why
+ * this set alone (not `ALWAYS_EXCLUDED_ICON_CHUNKS` above) needs the size
+ * guard applied to it in `manifestTransforms` below. */
+const ICON_URL_WRAPPER_NAMES = computeIconUrlWrapperNames();
+
+/**
+ * Phase 17 Milestone C1 fix — a REAL bug this phase's own offline-cold-
+ * start e2e coverage caught (not a pre-existing regression this phase
+ * introduced, but one this phase's restructuring of `main.tsx` into
+ * `main.tsx` -> `boot.tsx` -> `App.tsx` was the first thing to expose):
+ * `ICON_URL_WRAPPER_NAMES` above is a set of ICON NAMES (SVG basenames from
+ * material-icon-theme's pack), used below to drop each icon's tiny
+ * `import.meta.glob(...,{query:"?url"})` WRAPPER chunk (`materialIconLoader.
+ * ts`'s per-icon lazy loader — a JS module whose entire body is a URL
+ * string, always a few hundred bytes) from the precache. A name-only filter
+ * can only see the FINAL chunk basename, not which source module produced
+ * it — so it would silently also drop any UNRELATED chunk that happens to
+ * share an icon's name (this is exactly why `ALWAYS_EXCLUDED_ICON_CHUNKS`
+ * above is kept SEPARATE and unguarded: those two names have no plausible
+ * collision, since nothing else in this build could ever be named exactly
+ * "materialIconLoader" or "material-icons"). Confirmed concretely: material-icon-theme ships a real
+ * `diff.svg` icon, and restructuring the entry graph for this phase's login
+ * gate (an extra `boot.tsx` module between `main.tsx` and `App.tsx`) tipped
+ * Rollup's chunking heuristic into splitting the (pre-existing, unrelated)
+ * `diff` npm package — used by `@codemirror/merge`'s diff machinery,
+ * pulled in by `App.tsx` itself now — into its OWN chunk, ALSO named
+ * "diff" by Rollup. The name-only filter then excluded that 100KB+ vendor
+ * chunk from precache right alongside the real ~0.4KB icon wrapper of the
+ * same name — invisible until something offline actually needed to load
+ * `App.tsx`'s chunk graph (a genuinely offline cold start reload), which
+ * failed with "Failed to fetch dynamically imported module" once this
+ * missing dependency chunk 404'd against the SW's own cache.
+ *
+ * The real, structural distinguisher between "a `?url` icon wrapper" and
+ * "an unrelated chunk that happens to share its name" isn't the name at
+ * all — it's SIZE: an icon wrapper's entire body is one URL string, so it
+ * can never be more than a couple hundred bytes, while every real JS chunk
+ * in this app is at minimum multiple KB. `manifestTransforms` below only
+ * excludes a name match when the entry is ALSO small enough to plausibly
+ * BE one of those wrapper chunks — generous headroom over the largest real
+ * one observed (`architecture-*.js`, ~740 bytes) while staying far below
+ * the smallest genuine vendor/app chunk this build has ever produced. */
+const ICON_URL_WRAPPER_MAX_BYTES = 4096;
 
 /**
  * Phase 13 (CI + GitHub Pages demo) — configurable deploy base path.
@@ -287,16 +330,80 @@ export default defineConfig({
         // already-resolved candidate list) instead of `globIgnores` (glob
         // patterns) because the exclusion set is a ~1150-name membership
         // test, not a path-shape rule; a Set lookup here is both correct
-        // and cheap where ~1150 glob patterns would be neither.
+        // and cheap where ~1150 glob patterns would be neither. The `size`
+        // guard is `ICON_URL_WRAPPER_MAX_BYTES`'s own fix — see that
+        // constant's doc for the exact collision it prevents.
         manifestTransforms: [
           (entries) => ({
             manifest: entries.filter((entry) => {
               const fileName = entry.url.split("/").pop() ?? "";
               const match = HASHED_CHUNK_NAME.exec(fileName);
               const baseName = match ? match[1] : fileName;
-              return !EXCLUDED_ICON_CHUNKS.has(baseName);
+              if (ALWAYS_EXCLUDED_ICON_CHUNKS.has(baseName)) return false;
+              const looksLikeIconWrapper = entry.size <= ICON_URL_WRAPPER_MAX_BYTES;
+              return !(ICON_URL_WRAPPER_NAMES.has(baseName) && looksLikeIconWrapper);
             }),
           }),
+        ],
+        // Phase 17 Milestone C1 (the app-wide login gate, `src/main.tsx` +
+        // `src/share/api.ts::getAppConfig`) — this is the ONE runtime-
+        // caching route in this app, and it exists purely to keep a
+        // genuinely offline cold boot silent, not to cache anything.
+        //
+        // `getAppConfig()` runs UNCONDITIONALLY on every single boot (it
+        // has to, to decide whether to gate) — unlike every other backend
+        // probe in this app (`whoami()`, share reachability), which are all
+        // deliberately lazy/opt-in specifically because an eager one at
+        // boot was found to break `tests/e2e/probes.spec.ts`'s offline
+        // cold-start probe (see `src/App.tsx`'s boot-effect doc for the
+        // full empirical finding): Chromium logs "Failed to load resource:
+        // net::ERR_..." to the page console for ANY request that fails at
+        // the network layer, independent of whether app code catches the
+        // rejection, and `navigator.onLine` can't be used to dodge the
+        // attempt because Playwright's `context.setOffline(true)` doesn't
+        // flip it the way a real disconnected NIC does. Confirmed directly
+        // for this exact case (a throwaway repro) rather than assumed: a
+        // service worker's OWN internal `fetch()` to the network, wrapped
+        // in try/catch inside a `fetch` event handler, produces ZERO
+        // console output when it fails, because the browser's resource-load
+        // accounting is against the PAGE-visible request (which the SW's
+        // `respondWith` always resolves successfully), not the SW's private
+        // network attempt behind it.
+        //
+        // So: intercept exactly `GET /api/app-config`, try the real
+        // network first, and on failure resolve with a synthetic
+        // `{login_required:false,...}` response instead of letting the
+        // request fail — the client-side `getAppConfig()` never even sees
+        // a rejection in this case, and per the gate's own contract
+        // (`login_required:false` never gates) this is EXACTLY the right
+        // answer for "backend unreachable" anyway (CLAUDE.md rule 3: an
+        // unreachable backend must never gate the shell). A plain function
+        // handler (not a named Workbox strategy) so nothing here writes to
+        // Cache Storage at all — this must never interact with
+        // `tests/e2e/probes.spec.ts`'s precache-budget assertions, and it
+        // doesn't: no `caches.open`/`cache.put` call exists anywhere below.
+        //
+        // This function is inlined verbatim into the generated service
+        // worker's source (`workbox-build`'s documented behavior for a
+        // function `handler`, confirmed in `runtime-caching-converter.js`:
+        // `entry.handler.toString()`), so it must be entirely
+        // self-contained — no reference to anything in this module's outer
+        // scope (`BASE`, `ICON_URL_WRAPPER_NAMES`, etc.) survives that
+        // serialization.
+        runtimeCaching: [
+          {
+            urlPattern: /\/api\/app-config$/,
+            handler: async ({ request }) => {
+              try {
+                return await fetch(request);
+              } catch {
+                return new Response(
+                  JSON.stringify({ login_required: false, password_login: false, cf_access: false }),
+                  { status: 200, headers: { "Content-Type": "application/json" } },
+                );
+              }
+            },
+          },
         ],
       },
     }),

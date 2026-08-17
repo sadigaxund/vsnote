@@ -1,7 +1,6 @@
 import { Buffer } from "buffer";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { TooltipProvider, Toaster } from "my-you-eye";
 import { registerSW } from "virtual:pwa-register";
 import "./index.css";
 import { applyDomSettings, useSettingsStore } from "./stores/useSettingsStore";
@@ -68,14 +67,23 @@ useSettingsStore.subscribe((state) => applyDomSettings(state));
 // mount — never both. This is the actual mechanism behind
 // `share/ShareApp.tsx`'s "never touches vault storage" guarantee: `<App/>`
 // (and everything it statically imports — `fs/seed.ts`, every
-// `stores/use{Fs,Buffer,Tabs,Git}Store.ts`, isomorphic-git, lightning-fs)
-// is now behind a DYNAMIC `import()`, reached only on the non-share branch,
-// so the `/share/<slug>` route's JS bundle never even downloads that code,
-// let alone executes it — not just "unused", structurally absent from that
-// page load (confirmed in this phase's manual verification: see the final
+// `stores/use{Fs,Buffer,Tabs,Git}Store.ts`, isomorphic-git, lightning-fs) is
+// now behind a DYNAMIC `import()`, reached only on the non-share branch, so
+// the `/share/<slug>` route's JS bundle never even downloads that code, let
+// alone executes it — not just "unused", structurally absent from that page
+// load (confirmed in this phase's manual verification: see the final
 // report's network-tab check). `vite build`'s default code-splitting turns
 // each dynamic `import()` into its own chunk automatically, so this needs
 // no bundler config of its own.
+//
+// Phase 17 (`boot.tsx`, the app-wide login gate) extended this without
+// weakening it: the non-share branch now dynamically imports `./boot`
+// instead of `./App` directly, but `boot.tsx` is ITSELF reached only from
+// here, and its own imports (`LoginGate.tsx`, `share/api.ts`'s
+// `getAppConfig`/`whoami`, and `App.tsx` behind its own further dynamic
+// import) stay just as absent from the share route's bundle as `App.tsx`
+// always was — see `boot.tsx`'s own header doc for the gate's full
+// contract and why it lives in its own file rather than inline here.
 //
 // Route shape: `/share/<slug>` (rendered-mode file shares), extended Phase
 // 10.5 to `/share/<slug>/<relpath...>` for folder shares (roadmap §5.1) —
@@ -106,22 +114,14 @@ if (shareMatch) {
     );
   });
 } else {
-  void import("./App").then(({ default: App }) => {
+  // Phase 17 — `boot.tsx` owns the app-wide login gate + the shell's own
+  // TooltipProvider/Toaster wiring (moved there verbatim from this file;
+  // see its header doc for both the gate contract and the Toaster-must-
+  // wrap-App reasoning that used to live in this comment).
+  void import("./boot").then(({ Boot }) => {
     root.render(
       <StrictMode>
-        <TooltipProvider>
-          {/* `Toaster` IS the toast context provider (`ToastContext.Provider`,
-              confirmed in node_modules/my-you-eye/dist/index.js) as well as the
-              viewport that renders active toasts — it must WRAP whatever calls
-              `useToast()`, not sit as a sibling. Phase 1-4 never called
-              `useToast` from anywhere, so `<App /><Toaster />` as siblings never
-              threw; Phase 5a's `App.tsx` (sync/reset-vault toasts) is the first
-              real consumer and surfaced this pre-existing wiring bug — fixed
-              here rather than worked around in App.tsx. */}
-          <Toaster>
-            <App />
-          </Toaster>
-        </TooltipProvider>
+        <Boot />
       </StrictMode>,
     );
   });

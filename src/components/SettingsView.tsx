@@ -81,6 +81,7 @@ import {
   type ConnectionTestResult,
 } from "../git/remote";
 import { isHttpRemoteUrl } from "../git/syncStatus";
+import { clampSyncIntervalMinutes, MIN_SYNC_INTERVAL_MINUTES } from "../git/autoSyncPolicy";
 import { buildTemplateVars, renderCommitTemplate } from "../git/commitTemplate";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
 import { isDemoVaultBuild } from "../fs/seed";
@@ -194,6 +195,11 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const setGitDeviceName = useSettingsStore((s) => s.setGitDeviceName);
   const showGitStatusInExplorer = useSettingsStore((s) => s.showGitStatusInExplorer);
   const setShowGitStatusInExplorer = useSettingsStore((s) => s.setShowGitStatusInExplorer);
+  // Phase 17 Milestone C1 — auto-sync policy.
+  const gitSyncPolicy = useSettingsStore((s) => s.gitSyncPolicy);
+  const setGitSyncPolicy = useSettingsStore((s) => s.setGitSyncPolicy);
+  const gitSyncIntervalMinutes = useSettingsStore((s) => s.gitSyncIntervalMinutes);
+  const setGitSyncIntervalMinutes = useSettingsStore((s) => s.setGitSyncIntervalMinutes);
 
   const setTheme = useSettingsStore((s) => s.setTheme);
   const setAccent = useSettingsStore((s) => s.setAccent);
@@ -263,6 +269,12 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   // `loggingIn` would get if they weren't ALSO needed by the boot-time
   // probe effect above (they are, hence useShareStore; this isn't).
   const [gitTokenDraft, setGitTokenDraft] = useState(gitAuthToken);
+  // Phase 17 Milestone C1 — same draft-then-blur-commit pattern as
+  // `gitTokenDraft` above: free typing while focused (never clamped
+  // mid-keystroke, which would otherwise fight a user clearing the field to
+  // type a new value), clamped via `clampSyncIntervalMinutes` only once, on
+  // blur.
+  const [gitSyncIntervalDraft, setGitSyncIntervalDraft] = useState(String(gitSyncIntervalMinutes));
   const [gitTesting, setGitTesting] = useState(false);
   const [gitTestResult, setGitTestResult] = useState<ConnectionTestResult | null>(null);
   const [gitTokenGenerating, setGitTokenGenerating] = useState(false);
@@ -894,6 +906,55 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                 style={{ width: 220, fontFamily: "var(--font-mono)" }}
               />
             </FormField>
+          ),
+        },
+        // Phase 17 Milestone C1 — every policy still runs the exact same
+        // Sync pipeline (`useGitStore.getState().syncNow()`); this only
+        // decides when it fires on its own. See `git/autoSyncPolicy.ts`.
+        {
+          id: "auto-sync",
+          label: "Auto-sync",
+          keywords: "auto sync automatic interval minutes open close save schedule background",
+          content: (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <FormField label="Auto-sync" hint="Every policy runs the same Sync pipeline; this only decides when.">
+                <Select value={gitSyncPolicy} onValueChange={(v) => setGitSyncPolicy(v as typeof gitSyncPolicy)}>
+                  <SelectTrigger size="sm" data-testid="git-sync-policy" style={{ width: 240 }}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual">Manual, click Sync</SelectItem>
+                    <SelectItem value="interval">Every N minutes</SelectItem>
+                    <SelectItem value="open-close">On app open and close</SelectItem>
+                    <SelectItem value="on-save">After each save</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              {gitSyncPolicy === "interval" && (
+                <FormField label="Interval" hint={`Minutes between syncs. Minimum ${MIN_SYNC_INTERVAL_MINUTES}.`}>
+                  <Input
+                    size="sm"
+                    type="number"
+                    min={MIN_SYNC_INTERVAL_MINUTES}
+                    value={gitSyncIntervalDraft}
+                    onChange={(e) => setGitSyncIntervalDraft(e.target.value)}
+                    onBlur={() => {
+                      const clamped = clampSyncIntervalMinutes(Number(gitSyncIntervalDraft));
+                      setGitSyncIntervalDraft(String(clamped));
+                      setGitSyncIntervalMinutes(clamped);
+                    }}
+                    aria-label="Auto-sync interval in minutes"
+                    data-testid="git-sync-interval-minutes"
+                    style={{ width: 100 }}
+                  />
+                </FormField>
+              )}
+              {gitSyncPolicy !== "manual" && (
+                <span style={{ fontSize: 12, color: "var(--color-muted)" }}>
+                  Skips a run while a sync is in progress, while signed out, or while a conflict is waiting on you.
+                </span>
+              )}
+            </div>
           ),
         },
       ],

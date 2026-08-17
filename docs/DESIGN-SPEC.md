@@ -434,3 +434,37 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
       auto-merge with backup refs, never force-push. "Test connection"
       validates whichever remote is active and reports reachability, auth,
       and repo existence concisely.
+
+## Phase 17 amendments — server-mounted vault, login gate, auto-sync (2026-08-17)
+
+42. **App-wide login gate.** On boot, the client reads the public, unauthenticated
+    `GET /api/app-config` (`login_required`/`password_login`/`cf_access`). When a
+    REACHABLE backend answers `login_required: true` and the caller has no session
+    (`whoami().authenticated === false`), the shell never mounts — a login screen
+    renders instead: the VSNote wordmark (the title bar's own gradient glyph, larger),
+    a `Card` with username/password `Input`s and a `Button` (library components only,
+    same dark near-black + teal/cyan accent surface as the shell), a one-row `Alert`
+    on a wrong-credentials failure, and a distinct "Working offline" `Alert` state when
+    a login attempt itself can't reach the backend. A successful sign-in flips straight
+    into the shell with no reload. An UNREACHABLE backend (fetch failed/timed out) or
+    `login_required: false` NEVER gates — CLAUDE.md rule 3's local-first guarantee
+    wins outright: an already-loaded or PWA-cached app keeps editing its own local
+    clone fully offline, gate or no gate. Cloudflare Access in front needs no
+    gate-specific client code at all — an Access-authenticated request already
+    resolves `whoami()` to authenticated before the gate ever has a reason to render.
+    The vault does not seed behind the gate: `App.tsx`'s own boot sequence (seed, fs/git
+    store refresh) only starts once the shell itself mounts, so a visitor who never
+    signs in never touches local IndexedDB at all. The gate must never flash the shell
+    first and must not delay a normal (ungated) boot beyond the one `/api/app-config`
+    round trip it already needs to decide.
+43. **Auto-sync policies.** Settings → Git & Sync gains an "Auto-sync" row: `Manual,
+    click Sync` (today's behavior, still the default), `Every N minutes` (interval
+    input, one-minute floor), `On app open and close`, and `After each save`
+    (debounced, so a burst of saves collapses into one sync attempt). Every policy
+    invokes the exact same one-button Sync pipeline a manual click uses (fetch →
+    fast-forward/push → clean auto-merge with backup refs → the resolver only for a
+    true conflict) — the setting only decides WHEN it fires, never a second sync
+    implementation. An auto-sync attempt never fires while a sync is already running,
+    while signed out, or while a previous run is paused on an unresolved conflict (no
+    silent auto-resolve, no retry loop), and it never competes with the existing ~60s
+    background ahead/behind fetch. One-row hints throughout, no em dashes.

@@ -15,6 +15,15 @@ import { shareCreatePayload, shareFolderCreatePayload } from "./sharePolicy";
 
 export type BackendReachability = "unknown" | "checking" | "online" | "offline";
 
+/** The exact message `login()` below sets when the failure was a network
+ * error rather than a real credential rejection (`api.ShareApiError`) —
+ * exported so callers can tell the two apart without string-matching a
+ * literal in two places. `LoginGate.tsx` (Phase 17's app-wide login gate)
+ * uses this to show a distinct "working offline" state instead of a plain
+ * "wrong password"-shaped error when a login attempt simply couldn't reach
+ * the backend. */
+export const LOGIN_UNREACHABLE_MESSAGE = "Could not reach the backend.";
+
 interface ShareStoreState {
   reachability: BackendReachability;
   authenticated: boolean;
@@ -135,7 +144,7 @@ export const useShareStore = create<ShareStoreState>()((set, get) => ({
       });
       return true;
     } catch (err) {
-      const message = err instanceof api.ShareApiError ? err.message : "Could not reach the backend.";
+      const message = err instanceof api.ShareApiError ? err.message : LOGIN_UNREACHABLE_MESSAGE;
       set({ loggingIn: false, loginError: message });
       return false;
     }
