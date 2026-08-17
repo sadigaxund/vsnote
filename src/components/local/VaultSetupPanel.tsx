@@ -71,7 +71,8 @@ import {
 } from "my-you-eye";
 import { Loader2, Pencil, PlugZap, RefreshCw, Server, Trash2 } from "lucide-react";
 import { DEFAULT_BRANCH } from "../../git/client";
-import { deriveVaultWizardPhase } from "../../git/vaultWizard";
+import { deriveVaultWizardPhase, hasVaultBranchMismatch } from "../../git/vaultWizard";
+import { useGitStore } from "../../stores/useGitStore";
 import {
   describeMirrorRunResult,
   describeMirrorStatus,
@@ -539,6 +540,11 @@ export function VaultSetupPanel({ clientRepoName }: VaultSetupPanelProps) {
   const reachability = useShareStore((s) => s.reachability);
   const authenticated = useShareStore((s) => s.authenticated);
 
+  // Targeted selector (the discipline every store read in this app follows):
+  // only the branch name, so a commit/status refresh that leaves the branch
+  // alone never re-renders this panel.
+  const clientBranch = useGitStore((s) => s.branch);
+
   const vault = useVaultStore((s) => s.vault);
   const vaultLoading = useVaultStore((s) => s.vaultLoading);
   const vaultError = useVaultStore((s) => s.vaultError);
@@ -590,6 +596,9 @@ export function VaultSetupPanel({ clientRepoName }: VaultSetupPanelProps) {
 
   const phase = deriveVaultWizardPhase({ vaultInitialized: vault.initialized, awaitingRemoteStep });
   const repoNameMismatch = clientRepoName.trim() !== "" && clientRepoName.trim() !== vault.repo_name;
+  // Only meaningful for the mounted shape: a bare vault has no working tree
+  // to fall out of step in the first place (see hasVaultBranchMismatch).
+  const branchMismatch = vault.mounted && hasVaultBranchMismatch(clientBranch, vault.head_branch);
 
   if (phase === "create") {
     return (
@@ -662,7 +671,10 @@ export function VaultSetupPanel({ clientRepoName }: VaultSetupPanelProps) {
             { label: "Server path", value: vault.path },
             { label: "Shape", value: vault.mounted ? "Mounted (real working tree)" : "Legacy (bare repo)" },
             { label: "Branch", value: vault.head_branch ?? "None yet" },
-            { label: "Server vault repo name", value: vault.repo_name },
+            // Short label on purpose: the library's DataList truncates a
+            // longer one mid-word (seen in verification), and this row's
+            // meaning is already carried by the panel's heading.
+            { label: "Server repo name", value: vault.repo_name },
             { label: "Last commit", value: vault.last_commit_message ?? "No commits yet" },
             { label: "Last commit time", value: formatEpoch(vault.last_commit_time) },
             ...(vault.mounted ? [{ label: "Working tree", value: vault.worktree_dirty ? "Has uncommitted changes on disk" : "Clean" }] : []),
@@ -674,6 +686,11 @@ export function VaultSetupPanel({ clientRepoName }: VaultSetupPanelProps) {
         <Alert variant="warning" size="sm" data-testid="vault-repo-name-mismatch">
           Settings' "Repository name" is "{clientRepoName.trim()}", but this server vault is "{vault.repo_name}". Sync uses the
           Repository name field above, not this value, so a mismatch means Sync is not talking to this vault.
+        </Alert>
+      )}
+      {branchMismatch && (
+        <Alert variant="warning" size="sm" data-testid="vault-branch-mismatch">
+          The server's files show "{vault.head_branch}" while you sync "{clientBranch}", so your pushes stay invisible on disk.
         </Alert>
       )}
       <RemotesTable />

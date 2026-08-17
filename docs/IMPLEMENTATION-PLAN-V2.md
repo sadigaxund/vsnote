@@ -320,8 +320,45 @@ explicitly via the API. Dockerfile/compose gained `git`+`openssh-client`
 in the final stage and a `vsnote-secrets` volume. Full design in
 `docs/ARCHITECTURE.md`'s "Mirroring to external remotes (Phase 17
 Milestone B)" section; operator docs in `server/README.md`'s "Mirroring to
-external remotes" section. Remaining Phase 17 scope (setup wizard, auto-sync
-policies, the login gate, tree virtualization) is Milestone C+, unstarted.
+external remotes" section.
+
+**Milestone D shipped (2026-08-17, client-only):** explorer tree
+virtualization — the backlog's `VirtualList`, built locally, with the pure
+flatten/window math in `src/lib/treeFlatten.ts`/`src/lib/virtualization.ts`.
+Below `VIRTUALIZE_ROW_THRESHOLD` (200 visible rows) the DOM is unchanged;
+at or above it, flat WAI-ARIA rows in a windowed viewport. See
+`docs/ARCHITECTURE.md`'s "Explorer virtualization" section.
+
+**Milestone C shipped (2026-08-17, client + one public server route):** the
+app-wide login gate (`GET /api/app-config`, `VSNOTE_REQUIRE_LOGIN`,
+`src/boot.tsx`), auto-sync policies reusing the existing pipeline
+(`src/git/autoSyncPolicy.ts`), and Settings → Git & Sync's setup wizard plus
+mirror-remote management (`src/components/local/VaultSetupPanel.tsx`,
+`src/share/vaultApi.ts`). Gate contract, including why an unreachable
+backend never gates, is in `docs/ARCHITECTURE.md`'s "App-wide login gate and
+auto-sync" section; UI semantics are DESIGN-SPEC Phase 17 items 42-44.
+
+**Milestone E shipped (2026-08-17):** compose now defaults to the mounted
+vault (`VSNOTE_VAULT_PATH=/data/vault`, `vsnote-vault` volume), with
+`VSNOTE_VAULT_PATH=` as the documented opt-out for a deployment whose
+history lives in the legacy bare repo; CHANGELOG records both as breaking.
+Verified by hand against a real mounted vault on a throwaway port: 409
+before init, init, a real `git push` landing files on disk, a server-side
+disk edit committed and reaching the client's next fetch, auto-mirror to an
+external bare repo after a client push, reset refused, an SSH key never
+returned by any GET and never in the log (0600 in a 0700 dir). That run also
+surfaced the one gap this phase closed last: a vault initialized on a
+different branch than the client syncs keeps real history but stops updating
+the files on disk, so the panel now says so explicitly
+(`hasVaultBranchMismatch`).
+
+**Phase 17 complete.** Deferred deliberately: pulling FROM an external
+mirror remote into the vault (mirroring is push-only; an inbound direction
+would need the merge policy that lives in the client pipeline), the
+shallow-clone mitigation (the accepted flag above: full history per client
+is fine at text scale), and a client-side "replace local with the server
+copy" recovery action (the mounted vault refuses the old destructive reset;
+the counterpart re-clone is not built).
 
 ## After Phases 16–17
 - Redo all 18 my-you-eye backlog issues against the FINAL polished components

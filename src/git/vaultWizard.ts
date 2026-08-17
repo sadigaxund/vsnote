@@ -41,3 +41,25 @@ export function deriveVaultWizardPhase(input: VaultWizardPhaseInput): VaultWizar
   if (input.awaitingRemoteStep) return "connect-remote";
   return "management";
 }
+
+/** Found during Phase 17 verification against a real mounted vault, not
+ * theorised: a mounted vault's working tree only ever reflects the branch
+ * its HEAD points at (`app/vault.py::checkout_head_into_worktree` updates
+ * files from HEAD, and never moves HEAD itself — a push updates whichever
+ * ref it names). So if the vault was initialized on one branch and this
+ * client syncs another, the push still lands as real git history, but the
+ * files on the server's disk silently stop tracking it: `git clone` and an
+ * editor reading the mount keep showing the OTHER branch.
+ *
+ * That is invisible without being told, so the panel says it. Pure and
+ * separate from the component for the usual testability reason.
+ *
+ * Returns `false` (nothing to warn about) unless BOTH branch names are
+ * actually known and actually differ — an empty/unknown server branch means
+ * a vault with no commits yet, where nothing is being tracked either way. */
+export function hasVaultBranchMismatch(clientBranch: string, serverHeadBranch: string | null | undefined): boolean {
+  const client = clientBranch.trim();
+  const server = (serverHeadBranch ?? "").trim();
+  if (!client || !server) return false;
+  return client !== server;
+}

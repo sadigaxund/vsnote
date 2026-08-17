@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveVaultWizardPhase } from "../../src/git/vaultWizard";
+import { deriveVaultWizardPhase, hasVaultBranchMismatch } from "../../src/git/vaultWizard";
 
 describe("deriveVaultWizardPhase", () => {
   it("stays on the create step while the server reports no vault yet", () => {
@@ -23,5 +23,29 @@ describe("deriveVaultWizardPhase", () => {
     // local component state, never persisted) — this is exactly what makes
     // "initialized: true -> no wizard" hold on reload, per the module doc.
     expect(deriveVaultWizardPhase({ vaultInitialized: true, awaitingRemoteStep: false })).toBe("management");
+  });
+});
+
+describe("hasVaultBranchMismatch", () => {
+  it("flags a real disagreement between the client's branch and the vault's checked-out branch", () => {
+    expect(hasVaultBranchMismatch("feat/incremental-index", "main")).toBe(true);
+  });
+
+  it("is quiet when both agree", () => {
+    expect(hasVaultBranchMismatch("main", "main")).toBe(false);
+  });
+
+  it("is quiet when the server branch is unknown (a vault with no commits yet)", () => {
+    expect(hasVaultBranchMismatch("main", null)).toBe(false);
+    expect(hasVaultBranchMismatch("main", undefined)).toBe(false);
+    expect(hasVaultBranchMismatch("main", "   ")).toBe(false);
+  });
+
+  it("is quiet when the client branch is unknown", () => {
+    expect(hasVaultBranchMismatch("", "main")).toBe(false);
+  });
+
+  it("ignores surrounding whitespace rather than reporting a phantom mismatch", () => {
+    expect(hasVaultBranchMismatch("  main  ", "main")).toBe(false);
   });
 });
