@@ -87,6 +87,7 @@ import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/p
 import { isDemoVaultBuild } from "../fs/seed";
 import { useShareStore } from "../share/useShareStore";
 import { SharedPanel } from "./local/SharedPanel";
+import { VaultSetupPanel } from "./local/VaultSetupPanel";
 import { createApiToken, type ShareOut } from "../share/api";
 import type { EditorMode, FileKind } from "../types";
 
@@ -603,6 +604,17 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
       label: "Git & Sync",
       icon: <GitBranch size={15} />,
       rows: [
+        // Phase 17 Milestone C2 — the server-mounted vault setup wizard /
+        // mirror-remotes management surface. First row in this category:
+        // when the server has no vault repo yet, this IS the primary thing
+        // to do here (the rows below still work, but sync has nothing
+        // authoritative to talk to until this wizard's step 1 completes).
+        {
+          id: "server-vault",
+          label: "Server vault",
+          keywords: "vault wizard init mirror remote ssh key token setup server github gitlab gitea mounted legacy branch",
+          content: <VaultSetupPanel clientRepoName={gitRepoName} />,
+        },
         {
           id: "repo-info",
           label: "Repository",

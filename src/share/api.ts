@@ -213,7 +213,11 @@ export class ShareApiError extends Error {
   }
 }
 
-async function parseJsonOrThrow<T>(res: Response): Promise<T> {
+/** Exported so sibling modules (`share/vaultApi.ts`, Phase 17 Milestone C2)
+ * reuse the exact same "throw a typed `ShareApiError` on a non-ok response,
+ * reading `detail` when the body is JSON" contract rather than a second,
+ * independently-drifting copy. */
+export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
     try {

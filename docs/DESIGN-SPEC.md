@@ -468,3 +468,34 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     while signed out, or while a previous run is paused on an unresolved conflict (no
     silent auto-resolve, no retry loop), and it never competes with the existing ~60s
     background ahead/behind fetch. One-row hints throughout, no em dashes.
+44. **Server-vault setup wizard + mirror-remotes management (Phase 17 Milestone C2).**
+    Settings → Git & Sync's new first row ("Server vault") renders one of two shapes,
+    inline in this same category, never a modal, never a new route:
+    - `GET /api/vault` reports `initialized: false`: a stepped wizard. Step 1 ("Create
+      the vault repository") shows the resolved server path and an editable branch
+      name defaulting to this client's own default branch, explains in one row that an
+      existing repository is never overwritten, and calls `POST /api/vault/init`. Step
+      2 ("Connect an external remote", optional, skippable) reuses the exact same
+      mirror-remotes table/dialog the management surface below uses to add one remote
+      (URL plus either an SSH private key paste or an HTTPS token), with "Test
+      connection" and "Mirror now" available immediately; "Skip for now" or "Done"
+      either way reveals the management surface. The step-2 gate is a purely
+      client-side, this-session affordance (the server has no "wizard progress"
+      concept, only `initialized`) — a reload after step 1 completes never re-shows
+      the wizard.
+    - `initialized: true`: no wizard at all. Shows the server's real reported state
+      (path, mounted vs. legacy shape, branch, last commit, whether the server's own
+      working tree has uncommitted changes) alongside the existing Git & Sync rows,
+      plus the mirror-remotes management table: add / edit / replace credential /
+      clear credential (destructive, `ConfirmDialog`) / delete (destructive,
+      `ConfirmDialog`) / test connection / mirror now, each row showing its last
+      status and error. A submitted SSH key or HTTPS token is write-only end to end
+      (never stored, echoed, or redisplayed client-side after it is sent) and copy
+      says plainly that keys and tokens stay on the server, never "stored in the
+      browser". When the server's own vault repository name differs from this
+      client's "Repository name" setting, a one-row `Alert` names both values and
+      states explicitly that Sync uses the client setting, not the server's name.
+    - Backend unreachable or not signed in: the whole row degrades to a one-row
+      explanation (same treatment the Sharing category already gives), never blocking
+      the rest of Settings, never a console error. One-row hints throughout, no em
+      dashes.

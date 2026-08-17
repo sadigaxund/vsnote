@@ -63,6 +63,15 @@ Notes
   a future pass doesn't go looking for a missing "rendered-mode sandbox" component that
   was never needed — the sandbox IS `HtmlPreview`, unchanged.
 
+`VaultSetupPanel` (`src/components/local/VaultSetupPanel.tsx`), Phase 17 Milestone C2
+(server-mounted vault setup wizard + mirror-remotes management, Settings → Git & Sync's
+new "Server vault" row) — solved by composition, same precedent as `PublishDialog`/
+`SharedPanel` above: `Alert`/`Badge`/`Button`/`ConfirmDialog`/`DataList`/`Dialog`/
+`DialogHeader`/`DialogTitle`/`DialogDescription`/`DialogFooter`/`FormField`/`Input`/
+`Select`/`Skeleton`/`Switch`/`Table`/`TableHeader`/`TableBody`/`TableRow`/`TableHead`/
+`TableCell`/`Textarea`/`Tooltip`/`useToast` for both the wizard steps and the
+mirror-remotes add/edit dialog and management table. No new local primitive.
+
 `ImportConflictDialog` (`src/components/local/ImportConflictDialog.tsx`), DESIGN-SPEC
 Amendments round 5 item 39 (OS drag-drop + Ctrl+V paste import) — solved by
 composition: `ConfirmDialog` is confirm/cancel only, so the Rename-or-Replace-or-Cancel
