@@ -44,6 +44,22 @@ export const editorTheme = EditorView.theme(
     // change always wins with no precedence fight (see that file's doc).
     ".cm-scroller": {
       fontFamily: "var(--font-mono)",
+      // DESIGN-SPEC Amendments round 7 item 48. `.cm-content` (and every
+      // `.cm-line`/`.cm-activeLine` inside it) grows via flexbox to fill
+      // whatever content-box width `.cm-scroller` actually has, and this
+      // app's custom scrollbar (`--scrollbar-width`, `my-you-eye`'s
+      // `styles.css`) is a classic reserved-space scrollbar, not an overlay
+      // one: with a vertical scrollbar the content box is narrower by that
+      // width; without one (short file, nothing to scroll) it's wider by
+      // the same amount, so `.cm-activeLine`'s highlight reached further
+      // right in that case — painting past where the boundary line sits
+      // once a scrollbar reappears. `scrollbar-gutter: stable` reserves the
+      // scrollbar's track space unconditionally (Chromium/Firefox; Safari
+      // without support just keeps the old, still-correct-when-scrolled
+      // behavior), so `.cm-scroller`'s content-box width — and therefore
+      // the active-line highlight's right edge — never depends on whether
+      // a scrollbar happens to be visible.
+      scrollbarGutter: "stable",
     },
     "&.cm-focused": { outline: "none" },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--color-primary)" },
