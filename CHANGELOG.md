@@ -12,6 +12,10 @@ client and the v2 backend, August 2026) lives in the git log.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2026.08.17.1] — the VSNote rebrand
+
 ### Breaking
 - **Full Slate → VSNote rebrand — no back-compat.** Every server-side
   `SLATE_*` environment variable is renamed to `VSNOTE_*`
