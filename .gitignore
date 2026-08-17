@@ -41,3 +41,4 @@ __pycache__/
 
 # server/ (Phase 11 — bare git repos, VSNOTE_GIT_ROOT default)
 server/git-repos/
+nice.png
