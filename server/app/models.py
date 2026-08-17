@@ -137,6 +137,12 @@ class Share(Base):
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
     last_access_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Round 7 item 57 — the DEFAULT role for "anyone with the link" access;
+    # explicit ShareGrant rows still override per principal, and restricted
+    # shares ignore this entirely (their role comes only from grants).
+    # Existing pre-round-7 databases get this column added at startup by
+    # `main.py`'s ensure-columns step (create_all never alters tables).
+    link_role: Mapped[GrantRole] = mapped_column(_enum_col(GrantRole), default=GrantRole.viewer)
 
 
 class ShareManifestEntry(Base):

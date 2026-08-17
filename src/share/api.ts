@@ -91,6 +91,8 @@ export interface ShareCreateIn {
   alias?: string;
   expires_at?: number;
   grants?: GrantIn[];
+  /** Round 7 item 57 — default role for "anyone with the link". */
+  link_role?: GrantRole;
 }
 
 export interface SharePatchIn {
@@ -108,6 +110,10 @@ export interface SharePatchIn {
   auth_mode?: AuthMode;
   render_mode?: RenderMode;
   live?: boolean;
+  /** Round 7 items 57/60 — link-wide default role, and wholesale grant
+   * replacement (omit = untouched, [] = remove everyone). */
+  link_role?: GrantRole;
+  grants?: GrantIn[];
 }
 
 export interface ShareOut {
@@ -130,6 +136,9 @@ export interface ShareOut {
   created_at: number;
   last_access_at?: number | null;
   hit_count: number;
+  /** Round 7 items 57/60. */
+  link_role: GrantRole;
+  grants: GrantIn[];
 }
 
 export interface ShareContentOut {
@@ -150,6 +159,9 @@ export interface ShareContentOut {
   created_at: number;
   last_access_at?: number | null;
   hit_count: number;
+  /** Round 7 items 57/60. */
+  link_role: GrantRole;
+  grants: GrantIn[];
 }
 
 export interface TokenCreateOut {
@@ -191,6 +203,9 @@ export interface ShareListingOut {
   created_at: number;
   last_access_at?: number | null;
   hit_count: number;
+  /** Round 7 items 57/60. */
+  link_role: GrantRole;
+  grants: GrantIn[];
 }
 
 export interface ManifestEntryOut {

@@ -90,3 +90,19 @@ describe("shareFolderCreatePayload()", () => {
     expect(payload.alias).toBe("my-folder");
   });
 });
+
+describe("round 7 item 57: link_role", () => {
+  it("sends link_role only for link access", () => {
+    const base = {
+      sourcePath: "vault/x.md",
+      filename: "x.md",
+      content: "hi",
+      renderMode: "rendered" as const,
+      authMode: "none" as const,
+    };
+    const linked = shareCreatePayload({ ...base, generalAccess: "link", linkRole: "editor" }, "blob1");
+    expect(linked.link_role).toBe("editor");
+    const restricted = shareCreatePayload({ ...base, generalAccess: "restricted", linkRole: "editor" }, "blob1");
+    expect(restricted.link_role).toBeUndefined();
+  });
+});

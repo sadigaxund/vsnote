@@ -52,7 +52,8 @@ export async function publishFileViaContextMenu(page: Page, opts: PublishOptions
     await page.getByRole("option", { name: "Anyone with the link" }).click();
   }
   if (opts.renderMode) {
-    await dialog.getByRole("radio", { name: opts.renderMode === "rendered" ? "Rendered" : "Raw" }).click();
+    // Round 7 item 57 — delivery labels: Viewer page / Raw file.
+    await dialog.getByRole("radio", { name: opts.renderMode === "rendered" ? "Viewer page" : "Raw file" }).click();
   }
   if (opts.password) {
     // Round 6 item 4 — the old Password switch is now a three-way
@@ -65,20 +66,14 @@ export async function publishFileViaContextMenu(page: Page, opts: PublishOptions
     await dialog.getByTestId("publish-alias").fill(opts.alias);
   }
   if (opts.grant) {
-    await dialog.getByLabel("Add a per-principal role").click();
-    const principalInput = dialog.getByLabel("Principal", { exact: true });
-    await principalInput.fill(opts.grant.principal);
+    // Round 7 item 60 — the People list: fill the add row, pick the role,
+    // press Add (grants are visible state now, not a write-only switch).
+    await dialog.getByTestId("publish-grant-principal").fill(opts.grant.principal);
     if (opts.grant.role === "editor") {
-      // The role <Select>'s trigger carries neither a testid nor an
-      // aria-label/aria-labelledby, and ARIA's "name from content" rule
-      // doesn't apply to role="combobox" — so `getByRole(..., { name })`
-      // can never match it by its visible "Viewer" text. Scope to the
-      // Roles row (the principal input's own parent) instead, where it's
-      // the only combobox.
-      const rolesRow = principalInput.locator("xpath=..");
-      await rolesRow.locator('[role="combobox"]').click();
-      await page.getByRole("option", { name: "Editor" }).click();
+      await dialog.getByLabel("Role for the new person").click();
+      await page.getByRole("option", { name: "Can edit" }).click();
     }
+    await dialog.getByTestId("publish-grant-add").click();
   }
 
   await dialog.getByTestId("publish-submit").click();
@@ -157,7 +152,7 @@ export async function publishFolderViaContextMenu(page: Page, opts: PublishFolde
     await page.getByRole("option", { name: "Anyone with the link" }).click();
   }
   if (opts.renderMode) {
-    await dialog.getByRole("radio", { name: opts.renderMode === "rendered" ? "Rendered" : "Raw" }).click();
+    await dialog.getByRole("radio", { name: opts.renderMode === "rendered" ? "Viewer page" : "Raw file" }).click();
   }
   for (const relpath of opts.excludeRelpaths ?? []) {
     await dialog.getByTestId(`checkbox-tree-toggle-${relpath}`).click();

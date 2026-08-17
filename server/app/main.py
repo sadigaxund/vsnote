@@ -100,6 +100,23 @@ logger = logging.getLogger(__name__)
 DIST_DIR = Path(__file__).resolve().parents[2] / "dist"
 
 
+def _ensure_added_columns(engine) -> None:
+    """Round 7 item 57 — `Base.metadata.create_all` creates missing TABLES
+    but never alters existing ones, so a column added to a released model
+    needs this one explicit step until a real migration tool lands (db.py's
+    module doc). Idempotent, additive-only, one entry per released column."""
+    from sqlalchemy import inspect, text
+
+    added = {"shares": [("link_role", "VARCHAR(9) NOT NULL DEFAULT 'viewer'")]}
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table, columns in added.items():
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            for name, ddl in columns:
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
 def bootstrap_user(session_local, settings: Settings) -> None:
     """Phase 12 (DESIGN-SPEC Amendments round 4, item 32) — "fallback-login
     onboarding". Before this, NOTHING ever created a `User` row outside
@@ -204,6 +221,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     engine = make_engine(settings.db_url)
     SessionLocal = make_sessionmaker(engine)
     Base.metadata.create_all(engine)
+    _ensure_added_columns(engine)
     bootstrap_user(SessionLocal, settings)
     bootstrap_runtime_settings(SessionLocal, settings)
 

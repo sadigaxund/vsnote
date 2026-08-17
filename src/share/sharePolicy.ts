@@ -24,6 +24,9 @@ export function shareCreatePayload(input: PublishInput, blobId: string): ShareCr
     alias: input.alias && input.alias.length > 0 ? input.alias : undefined,
     expires_at: input.expiresAt,
     grants,
+    // Round 7 item 57 — only meaningful for link access; omitted otherwise
+    // so restricted shares never carry a stray editor default.
+    link_role: input.generalAccess === "link" ? input.linkRole : undefined,
   };
 }
 
@@ -50,5 +53,6 @@ export function shareFolderCreatePayload(input: PublishInput, manifest: Manifest
     alias: input.alias && input.alias.length > 0 ? input.alias : undefined,
     expires_at: input.expiresAt,
     grants,
+    link_role: input.generalAccess === "link" ? input.linkRole : undefined,
   };
 }

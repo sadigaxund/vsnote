@@ -226,9 +226,11 @@ def resolve_share(
             write_audit_event(db, "policy.deny", slug=share.slug, reason="restricted_wrong_identity", request=request)
             raise PolicyDenied("restricted_wrong_identity")
     else:
-        # "link" (anyone with the link) defaults to viewer; an explicit
-        # grant for the resolved principal (if any) can upgrade to editor.
-        role = _grant_role(db, share, principal) or "viewer"
+        # "link" (anyone with the link) gets the share's link_role (round 7
+        # item 57 — owner-set, viewer unless explicitly opened to editor);
+        # an explicit grant for the resolved principal still overrides.
+        link_role = share.link_role.value if hasattr(share.link_role, "value") else str(share.link_role or "viewer")
+        role = _grant_role(db, share, principal) or link_role
 
     # commenter is not a usable role yet (rejected at the API for new
     # grants — schemas.GrantIn); if one somehow exists, treat as viewer.

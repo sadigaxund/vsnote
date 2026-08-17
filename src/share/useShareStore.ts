@@ -97,6 +97,8 @@ export interface PublishInput {
   alias?: string;
   expiresAt?: number;
   grants?: api.GrantIn[];
+  /** Round 7 item 57 — default role for "anyone with the link". */
+  linkRole?: api.GrantRole;
 }
 
 export const useShareStore = create<ShareStoreState>()((set, get) => ({

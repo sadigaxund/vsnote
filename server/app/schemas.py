@@ -85,6 +85,14 @@ class GrantIn(BaseModel):
     role: Literal["viewer", "editor"]
 
 
+class GrantOut(BaseModel):
+    """Round 7 item 60 — grants are readable back on the owner API so the
+    publish dialog can SHOW the people list instead of write-only adds."""
+
+    principal: str
+    role: str
+
+
 class ManifestEntryIn(BaseModel):
     """One INCLUDED file in a folder share's snapshot manifest (roadmap
     §5.1). `relpath` is vault-relative display text ONLY — never used for a
@@ -112,6 +120,10 @@ class ShareCreateIn(BaseModel):
     alias: Optional[str] = None
     expires_at: Optional[float] = None
     grants: List[GrantIn] = Field(default_factory=list)
+    # Round 7 item 57 — the default role handed to "anyone with the link";
+    # ignored (stored but never consulted) while general_access is
+    # "restricted".
+    link_role: Literal["viewer", "editor"] = "viewer"
 
 
 class ManifestUpdateIn(BaseModel):
@@ -142,6 +154,10 @@ class SharePatchIn(BaseModel):
     auth_mode: Optional[Literal["none", "password", "token"]] = None
     render_mode: Optional[Literal["raw", "rendered"]] = None
     live: Optional[bool] = None
+    # Round 7 item 57/60 — link-wide default role, and wholesale grant-list
+    # replacement (None = leave grants untouched; [] = remove them all).
+    link_role: Optional[Literal["viewer", "editor"]] = None
+    grants: Optional[List[GrantIn]] = None
 
 
 class ShareOut(BaseModel):
@@ -164,6 +180,9 @@ class ShareOut(BaseModel):
     created_at: float
     last_access_at: Optional[float] = None
     hit_count: int
+    # Round 7 items 57/60.
+    link_role: str = "viewer"
+    grants: List[GrantOut] = Field(default_factory=list)
 
 
 # --- Public share endpoints ---------------------------------------------

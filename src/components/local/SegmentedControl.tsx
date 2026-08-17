@@ -45,6 +45,10 @@ export interface SegmentedControlProps<T extends string> {
    * the segment's `Tooltip` content instead) — the Diff layout toggle's
    * "compact icon-only" presentation, DESIGN-SPEC Amendments item 13. */
   iconOnly?: boolean;
+  /** Round 7 item 55 — stretch to the container's width, segments sharing
+   * it equally (the Publish dialog's delivery picker). Default keeps the
+   * intrinsic inline-flex sizing every chrome usage relies on. */
+  fullWidth?: boolean;
   "aria-label"?: string;
 }
 
@@ -54,6 +58,7 @@ export function SegmentedControl<T extends string>({
   onChange,
   size = "sm",
   iconOnly = false,
+  fullWidth = false,
   "aria-label": ariaLabel = "Editor mode",
 }: SegmentedControlProps<T>) {
   const height = size === "md" ? 32 : size === "sm" ? 26 : 18;
@@ -62,7 +67,8 @@ export function SegmentedControl<T extends string>({
       role="radiogroup"
       aria-label={ariaLabel}
       style={{
-        display: "inline-flex",
+        display: fullWidth ? "flex" : "inline-flex",
+        width: fullWidth ? "100%" : undefined,
         alignItems: "stretch",
         gap: 2,
         padding: 2,
@@ -87,6 +93,7 @@ export function SegmentedControl<T extends string>({
               alignItems: "center",
               justifyContent: "center",
               gap: 5,
+              flex: fullWidth ? 1 : undefined,
               height,
               width: iconOnly ? height : undefined,
               padding: iconOnly ? 0 : size === "xs" ? "0 7px" : "0 10px",

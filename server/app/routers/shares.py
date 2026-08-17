@@ -52,6 +52,14 @@ def _share_out(db: Session, share: "models.Share") -> schemas.ShareOut:
         created_at=share.created_at,
         last_access_at=share.last_access_at,
         hit_count=share.hit_count,
+        link_role=share.link_role.value if hasattr(share.link_role, "value") else str(share.link_role or "viewer"),
+        grants=[
+            schemas.GrantOut(principal=g.principal, role=g.role.value if hasattr(g.role, "value") else str(g.role))
+            for g in db.query(models.ShareGrant)
+            .filter(models.ShareGrant.share_id == share.id)
+            .order_by(models.ShareGrant.created_at)
+            .all()
+        ],
     )
 
 
@@ -178,6 +186,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             alias=payload.alias,
             owner_id=ctx.user.id,
             source_path=payload.source_path,
+            link_role=models.GrantRole(payload.link_role),
             kind=models.ShareKind.folder if is_folder else models.ShareKind.file,
             blob_id=None if is_folder else payload.blob_id,
             live=payload.live,
@@ -298,6 +307,27 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             share.render_mode = models.RenderMode(payload.render_mode)
         if payload.live is not None:
             share.live = payload.live
+        if payload.link_role is not None:
+            share.link_role = models.GrantRole(payload.link_role)
+        # Round 7 item 60 — grants are a wholesale replacement (None means
+        # untouched, [] means remove everyone), mirroring the manifest's
+        # replace semantics rather than inventing per-row endpoints.
+        if payload.grants is not None:
+            seen = set()
+            for grant in payload.grants:
+                principal = grant.principal.strip()
+                if not principal:
+                    raise HTTPException(status_code=422, detail="grant principal must not be empty")
+                if principal.lower() in seen:
+                    raise HTTPException(status_code=422, detail=f"duplicate grant principal: {principal}")
+                seen.add(principal.lower())
+            db.query(models.ShareGrant).filter(models.ShareGrant.share_id == share.id).delete()
+            for grant in payload.grants:
+                db.add(
+                    models.ShareGrant(
+                        share_id=share.id, principal=grant.principal.strip(), role=models.GrantRole(grant.role)
+                    )
+                )
 
         try:
             db.commit()

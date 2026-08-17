@@ -174,3 +174,80 @@ def test_editor_put_without_bare_repo_is_blob_only_but_succeeds(owner_client):
     assert r.status_code == 200, r.text
     assert r.json()["vault_committed"] is False
     assert owner_client.get(f"/share/{share['slug']}").content == b"blob only"
+
+
+# --- round 7 item 57: link_role (anyone-with-the-link default role) --------
+
+
+def test_link_role_defaults_viewer_and_round_trips(owner_client):
+    share = publish_share(owner_client, general_access="link")
+    assert share["link_role"] == "viewer"
+    r = owner_client.patch(f"/api/shares/{share['id']}", json={"link_role": "editor"})
+    assert r.status_code == 200
+    assert r.json()["link_role"] == "editor"
+
+
+def test_link_role_editor_lets_anonymous_edit_folder_entry(anon_client, owner_client):
+    share = publish_folder_share(
+        owner_client,
+        files={"a.md": b"# original"},
+        general_access="link",
+        auth_mode="none",
+        render_mode="rendered",
+        link_role="editor",
+    )
+    r = anon_client.put(f"/share/{share['slug']}/a.md", content=b"edited anonymously")
+    assert r.status_code == 200
+    r = anon_client.get(f"/share/{share['slug']}/a.md", headers={"Accept": "application/json"})
+    assert r.json()["content"] == "edited anonymously"
+    assert r.json()["role"] == "editor"
+
+
+def test_link_role_viewer_keeps_put_uniform_404(anon_client, owner_client):
+    share = publish_folder_share(owner_client, files={"a.md": b"x"}, general_access="link", auth_mode="none")
+    r = anon_client.put(f"/share/{share['slug']}/a.md", content=b"nope")
+    assert r.status_code == 404
+    assert r.json() == NOT_FOUND
+
+
+def test_restricted_share_ignores_link_role(anon_client, owner_client):
+    """restricted + link_role=editor: an anonymous caller still gets the
+    uniform 404 — link_role must never leak through restricted access."""
+    share = publish_folder_share(
+        owner_client, files={"a.md": b"x"}, general_access="restricted", auth_mode="none", link_role="editor"
+    )
+    r = anon_client.get(f"/share/{share['slug']}/a.md")
+    assert r.status_code == 404
+    assert r.json() == NOT_FOUND
+
+
+# --- round 7 item 60: grants read-back + wholesale replacement -------------
+
+
+def test_share_out_lists_grants_and_patch_replaces_them(owner_client):
+    share = publish_share(
+        owner_client,
+        general_access="restricted",
+        grants=[{"principal": "a@example.com", "role": "viewer"}],
+    )
+    assert share["grants"] == [{"principal": "a@example.com", "role": "viewer"}]
+    r = owner_client.patch(
+        f"/api/shares/{share['id']}",
+        json={"grants": [{"principal": "b@example.com", "role": "editor"}]},
+    )
+    assert r.status_code == 200
+    assert r.json()["grants"] == [{"principal": "b@example.com", "role": "editor"}]
+    # [] removes everyone; omitting the field leaves the list untouched.
+    r = owner_client.patch(f"/api/shares/{share['id']}", json={"grants": []})
+    assert r.json()["grants"] == []
+    r = owner_client.patch(f"/api/shares/{share['id']}", json={"alias": ""})
+    assert r.json()["grants"] == []
+
+
+def test_patch_grants_rejects_duplicate_principals(owner_client):
+    share = publish_share(owner_client, general_access="restricted")
+    r = owner_client.patch(
+        f"/api/shares/{share['id']}",
+        json={"grants": [{"principal": "a@example.com", "role": "viewer"}, {"principal": "A@example.com ", "role": "editor"}]},
+    )
+    assert r.status_code == 422
