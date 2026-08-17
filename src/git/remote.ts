@@ -192,6 +192,37 @@ async function ensureOrigin(url: string): Promise<void> {
   await git.addRemote({ fs, dir: GIT_DIR, remote: "origin", url, force: true });
 }
 
+/** Round 6 item 19 — asks the backend to delete + re-create the bare repo
+ * (`server/app/routers/git_admin.py`). Session-cookie auth (same-origin);
+ * a scoped API token is deliberately refused server-side. NOT a git
+ * operation: sync's never-force-push rule is untouched, the next plain
+ * push just lands in a fresh, empty repo. */
+export async function resetRemoteRepo(repoName: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/git-repos/${encodeURIComponent(repoName)}/reset`, {
+      method: "POST",
+      credentials: "same-origin",
+    });
+  } catch {
+    throw new SyncError("offline", "The backend is unreachable.");
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new SyncError("auth", "Sign in under Settings → Sharing first; resetting the remote needs an interactive session.", res.status);
+  }
+  if (!res.ok) {
+    throw new SyncError("http", `The server could not reset the repository (HTTP ${res.status}).`, res.status);
+  }
+}
+
+/** Deletes the local remote-tracking ref — used exactly once, by
+ * `replaceRemoteWithLocal` (useGitStore.ts), right after a server-side repo
+ * reset: the ref points into erased history, and leaving it would make the
+ * follow-up plain push look diverged. Missing ref is a no-op. */
+export async function clearRemoteTrackingRef(branch: string): Promise<void> {
+  await git.deleteRef({ fs, dir: GIT_DIR, ref: `refs/remotes/origin/${branch}` }).catch(() => {});
+}
+
 /** Exported so `sync.ts` can resolve "what does the remote currently think
  * this branch is at" without a second, parallel implementation. */
 export async function remoteTrackingOid(branch: string): Promise<string | null> {

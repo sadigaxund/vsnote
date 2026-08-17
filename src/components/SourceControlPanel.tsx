@@ -26,7 +26,7 @@
  * auto-commit and merge commits — one source of truth, three call sites.
  */
 import { useState } from "react";
-import { Button, ScrollArea, Textarea, Tooltip, useToast } from "my-you-eye";
+import { Alert, Button, ConfirmDialog, ScrollArea, Textarea, Tooltip, useToast } from "my-you-eye";
 import { ArrowDownToLine, ArrowUpFromLine, GitCommitHorizontal } from "lucide-react";
 import { FileIcon } from "./local/FileIcon";
 import { SidebarContainer } from "./local/SidebarContainer";
@@ -52,8 +52,17 @@ export function SourceControlPanel({ onOpenDiff, width, onWidthChange, collapsed
   const behind = useGitStore((s) => s.behind);
   const syncing = useGitStore((s) => s.syncing);
   const branch = useGitStore((s) => s.branch);
+  const syncError = useGitStore((s) => s.syncError);
+  const syncErrorCode = useGitStore((s) => s.syncErrorCode);
   const gitCommitTemplate = useSettingsStore((s) => s.gitCommitTemplate);
   const gitDeviceName = useSettingsStore((s) => s.gitDeviceName);
+  const remoteOverrideEnabled = useSettingsStore((s) => s.gitRemoteOverrideEnabled);
+  // Round 6 item 19 — the unrelated-history escape hatch: offered only when
+  // a sync actually failed with a "remote refused/differs" class of error,
+  // and only for the built-in backend remote (an external GitHub/Gitea
+  // remote can't be reset by us, and force-push stays forbidden).
+  const [replaceRemoteOpen, setReplaceRemoteOpen] = useState(false);
+  const offerReplaceRemote = !remoteOverrideEnabled && (syncErrorCode === "diverged" || syncErrorCode === "http");
   // `userMessage === null` means "the user hasn't typed anything this
   // cycle" — the box then DERIVES its displayed value straight from the
   // template on every render (no effect, no setState-during-effect: this
@@ -165,7 +174,45 @@ export function SourceControlPanel({ onOpenDiff, width, onWidthChange, collapsed
           <GitCommitHorizontal size={14} />
           {committing ? "Committing…" : "Commit"}
         </Button>
+        {offerReplaceRemote && (
+          <Alert variant="danger" size="sm" title="Remote refuses this history" data-testid="scm-replace-remote-alert">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <span>{syncError}</span>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                style={{ alignSelf: "flex-start" }}
+                disabled={!!syncing}
+                data-testid="scm-replace-remote"
+                onClick={() => setReplaceRemoteOpen(true)}
+              >
+                Replace remote with local…
+              </Button>
+            </div>
+          </Alert>
+        )}
       </div>
+
+      <ConfirmDialog
+        title="Replace remote with local?"
+        description="Deletes the server's copy of this repository and pushes your local history into a fresh one. Anything on the remote that is not in your local vault is permanently lost. Your local files are untouched."
+        confirmLabel="Replace remote"
+        destructive
+        open={replaceRemoteOpen}
+        onOpenChange={setReplaceRemoteOpen}
+        onConfirm={() => {
+          setReplaceRemoteOpen(false);
+          void useGitStore
+            .getState()
+            .replaceRemoteWithLocal()
+            .then(() => {
+              const { syncError: errAfter } = useGitStore.getState();
+              if (errAfter) toast({ title: "Replace remote failed", description: errAfter, variant: "danger" });
+              else toast({ title: "Remote replaced", description: "The remote now mirrors your local history.", variant: "success" });
+            });
+        }}
+      />
 
       <ScrollArea className="flex-1" style={{ minHeight: 0 }}>
         {files.length === 0 ? (

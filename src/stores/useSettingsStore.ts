@@ -15,6 +15,7 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { ensureReadableOn, readableForeground } from "../lib/accentContrast";
 import { defaultDeviceName } from "../git/commitTemplate";
 import { DEFAULT_GIT_REPO_NAME } from "../git/remote";
 import type { EditorMode, FileKind } from "../types";
@@ -379,8 +380,18 @@ export function applyDomSettings(state: Pick<SettingsState, "theme" | "accent" |
   const root = document.documentElement;
   if (state.theme === "dark") delete root.dataset.theme;
   else root.dataset.theme = state.theme;
-  root.style.setProperty("--color-primary", state.accent);
-  root.style.setProperty("--color-ring", state.accent);
+  // Round 6 item 17 — contrast-safe accent: the PICKED value is stored
+  // untouched (never a limited picker range); what gets painted is
+  // lightness-adjusted just far enough to stay legible on the CURRENT
+  // theme's background, plus a black/white `--color-primary-fg` derived
+  // from the result. Reading the computed `--color-bg` AFTER data-theme is
+  // set above means a theme switch re-derives against the right surface;
+  // unparseable library-theme notations fall back to the VSNote default bg.
+  const themeBg = getComputedStyle(root).getPropertyValue("--color-bg") || "#0e1015";
+  const displayAccent = ensureReadableOn(state.accent, themeBg);
+  root.style.setProperty("--color-primary", displayAccent);
+  root.style.setProperty("--color-ring", displayAccent);
+  root.style.setProperty("--color-primary-fg", readableForeground(displayAccent));
   // DESIGN-SPEC Amendments round 3 item 23: three real tiers now —
   // `"default"` clears the attribute (matching the bare `:root` block in
   // theme.css, the pixel-sampled baseline every phase before this one

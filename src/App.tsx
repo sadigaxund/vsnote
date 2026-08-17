@@ -441,6 +441,7 @@ export default function App() {
     });
   }
 
+  const lastSyncErrorToastRef = useRef<string | null>(null);
   async function handleSyncNow(): Promise<void> {
     await useGitStore.getState().syncNow();
     // Phase 11 (real sync) — `syncNow()` never throws (see useGitStore's
@@ -461,9 +462,17 @@ export default function App() {
       return;
     }
     if (syncError) {
-      toast({ title: "Sync failed", description: syncError, variant: "danger" });
+      // Round 6 item 19 — the SAME failure repeating (e.g. clicking Sync
+      // again into a still-rejecting remote) stays quiet: the status bar's
+      // red "sync failed" segment already carries it. Only a NEW failure
+      // message toasts.
+      if (lastSyncErrorToastRef.current !== syncError) {
+        lastSyncErrorToastRef.current = syncError;
+        toast({ title: "Sync failed", description: syncError, variant: "danger" });
+      }
       return;
     }
+    lastSyncErrorToastRef.current = null;
     toast({
       title: "Synced with remote",
       description: ahead === 0 && behind === 0 ? "Up to date." : `↑${ahead} ↓${behind}`,
@@ -576,6 +585,16 @@ export default function App() {
       } else if (key === "z" && e.shiftKey) {
         e.preventDefault();
         toggleZenMode();
+      } else if (key === "a") {
+        // Round 6 item 18 — ⌘A is scoped to the focused editor/input:
+        // inside a CM6 view, a form field, or a selectable content region
+        // the default (or CM6's own binding) is exactly right; anywhere
+        // else browser select-all would sweep the whole chrome DOM into an
+        // invisible (user-select: none) selection that still ends up on
+        // the clipboard on copy. Swallow it there instead.
+        const target = e.target instanceof Element ? e.target : null;
+        const inEditableRegion = !!target?.closest(".cm-editor, input, textarea, [data-selectable-content]");
+        if (!inEditableRegion) e.preventDefault();
       }
     }
     window.addEventListener("keydown", onKeyDown);

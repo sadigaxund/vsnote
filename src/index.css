@@ -43,6 +43,15 @@ textarea,
   user-select: text;
 }
 
+/* Round 6 item 18 ("selection policy done right") — error/status text is
+   content, not chrome: a user copying an error into a bug report must be
+   able to select it. Toasts mount as Radix role="status" items; every
+   library Alert (dialog errors, warnings) is role="alert". */
+[role="alert"],
+[role="status"] {
+  user-select: text;
+}
+
 /* DESIGN-SPEC Amendments item 14 ("Image viewer polish") — `-webkit-user-
    drag` has no `CSSProperties` TypeScript type (csstype doesn't cover this
    WebKit-only, non-standard property), so `renderers/ImageView.tsx` marks

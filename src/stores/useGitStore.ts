@@ -43,14 +43,18 @@ import { fs, GIT_DIR, DEFAULT_BRANCH } from "../git/client";
 import { computeStatus, type FileStatusMap } from "../git/status";
 import { diffFileVsHead, EMPTY_DIFF, type FileDiffResult } from "../git/diff";
 import {
+  clearRemoteTrackingRef,
   computeGitRemoteUrl,
   computeSyncStatus,
+  DEFAULT_GIT_REPO_NAME,
   realFetch,
   realPull,
   realPush,
+  resetRemoteRepo,
   resolveGitCredential,
   SyncError,
   type RemoteConfig,
+  type SyncErrorCode,
 } from "../git/remote";
 import { runSync, resolveConflictAndPush, type PendingConflict } from "../git/sync";
 import { commitAll } from "../git/commit";
@@ -83,6 +87,10 @@ function errorMessage(err: unknown): string {
   return err instanceof SyncError ? err.message : "Sync failed for an unknown reason.";
 }
 
+function errorCode(err: unknown): SyncErrorCode {
+  return err instanceof SyncError ? err.code : "unknown";
+}
+
 interface GitStoreState {
   branch: string;
   statuses: FileStatusMap;
@@ -113,6 +121,10 @@ interface GitStoreState {
    * way (CLAUDE.md rule 3 — a down/misconfigured backend never hangs the
    * UI or throws an unhandled rejection). */
   syncError: string | null;
+  /** The machine-readable code behind `syncError` (round 6 item 19) —
+   * `"diverged"`/`"http"` are the states where the Source Control panel
+   * offers the destructive "Replace remote with local" escape hatch. */
+  syncErrorCode: SyncErrorCode | null;
   /** Epoch ms of the last successful sync/push/pull — see module doc. */
   lastSyncedAt: number | null;
   /** Phase 11 (real sync, roadmap §5.2) — set by `syncNow` when `runSync`
@@ -153,6 +165,16 @@ interface GitStoreState {
    * something this undoes) — the user can retry Sync, or fetch/inspect
    * manually, at any time afterward. */
   cancelConflict: () => void;
+  /** Round 6 item 19 — the unrelated-history escape hatch: asks the backend
+   * to delete + re-create the bare repo (`POST /api/git-repos/{name}/reset`,
+   * interactive session required), clears the now-dangling local
+   * remote-tracking ref, then performs a PLAIN, non-force push of local
+   * history into the fresh repo. Sync itself still never force-pushes;
+   * this is repo management the user explicitly confirmed. Implicit
+   * backend remote only — there is no equivalent for an external override
+   * remote (we can't delete someone's GitHub repo, and force-push stays
+   * forbidden). */
+  replaceRemoteWithLocal: () => Promise<void>;
 }
 
 export const useGitStore = create<GitStoreState>()(
@@ -170,6 +192,7 @@ export const useGitStore = create<GitStoreState>()(
       behind: 0,
       hasRemoteRef: false,
       syncError: null,
+      syncErrorCode: null,
       lastSyncedAt: null,
       conflict: null,
 
@@ -216,38 +239,38 @@ export const useGitStore = create<GitStoreState>()(
       getCachedDiff: (displayPath) => get().diffCache[displayPath] ?? EMPTY_DIFF,
 
       push: async () => {
-        set({ syncing: "push", syncError: null });
+        set({ syncing: "push", syncError: null, syncErrorCode: null });
         try {
           const status = await realPush(remoteConfig(), get().branch);
           set({ ...status, syncing: false, lastSyncedAt: Date.now() });
         } catch (err) {
-          set({ syncing: false, syncError: errorMessage(err) });
+          set({ syncing: false, syncError: errorMessage(err), syncErrorCode: errorCode(err) });
         }
       },
 
       pull: async () => {
-        set({ syncing: "pull", syncError: null });
+        set({ syncing: "pull", syncError: null, syncErrorCode: null });
         try {
           const status = await realPull(remoteConfig(), get().branch);
           set({ ...status, syncing: false, lastSyncedAt: Date.now() });
           await get().refresh(); // pull may have moved HEAD/working tree
         } catch (err) {
-          set({ syncing: false, syncError: errorMessage(err) });
+          set({ syncing: false, syncError: errorMessage(err), syncErrorCode: errorCode(err) });
         }
       },
 
       fetch: async () => {
-        set({ syncing: "fetch", syncError: null });
+        set({ syncing: "fetch", syncError: null, syncErrorCode: null });
         try {
           const status = await realFetch(remoteConfig(), get().branch);
           set({ ...status, syncing: false, lastSyncedAt: Date.now() });
         } catch (err) {
-          set({ syncing: false, syncError: errorMessage(err) });
+          set({ syncing: false, syncError: errorMessage(err), syncErrorCode: errorCode(err) });
         }
       },
 
       syncNow: async () => {
-        set({ syncing: "sync", syncError: null, conflict: null });
+        set({ syncing: "sync", syncError: null, syncErrorCode: null, conflict: null });
         try {
           // Roadmap §5.3: one-click Sync auto-commits any uncommitted
           // local changes FIRST, using the rendered default template —
@@ -275,7 +298,7 @@ export const useGitStore = create<GitStoreState>()(
             set({ ...outcome.status, syncing: false, lastSyncedAt: Date.now(), conflict: null });
           }
         } catch (err) {
-          set({ syncing: false, syncError: errorMessage(err) });
+          set({ syncing: false, syncError: errorMessage(err), syncErrorCode: errorCode(err) });
           return;
         }
         await get().refresh(); // a fast-forward/merge may have moved HEAD/working tree
@@ -284,7 +307,7 @@ export const useGitStore = create<GitStoreState>()(
       resolveConflict: async (resolutions) => {
         const pending = get().conflict;
         if (!pending) return;
-        set({ syncing: "sync", syncError: null });
+        set({ syncing: "sync", syncError: null, syncErrorCode: null });
         try {
           const status = await resolveConflictAndPush(remoteConfig(), pending, resolutions);
           set({ ...status, syncing: false, lastSyncedAt: Date.now(), conflict: null });
@@ -293,13 +316,36 @@ export const useGitStore = create<GitStoreState>()(
           // push itself rejected) — the user's resolution choices aren't
           // lost, they can just retry "Resolve & push" once whatever
           // failed (offline, auth) is fixed.
-          set({ syncing: false, syncError: errorMessage(err) });
+          set({ syncing: false, syncError: errorMessage(err), syncErrorCode: errorCode(err) });
           return;
         }
         await get().refresh();
       },
 
       cancelConflict: () => set({ conflict: null }),
+
+      replaceRemoteWithLocal: async () => {
+        const settings = useSettingsStore.getState();
+        if (settings.gitRemoteOverrideEnabled && settings.gitRemoteOverrideUrl.trim()) {
+          set({ syncError: "Replace remote is only available for the built-in remote.", syncErrorCode: "not-configured" });
+          return;
+        }
+        set({ syncing: "push", syncError: null, syncErrorCode: null });
+        try {
+          const repoName = settings.gitRepoName.trim() || DEFAULT_GIT_REPO_NAME;
+          await resetRemoteRepo(repoName);
+          // The local remote-tracking ref still points into the just-erased
+          // history; drop it so the plain push below fast-forwards into the
+          // fresh, empty repo instead of being refused as diverged.
+          await clearRemoteTrackingRef(get().branch);
+          const status = await realPush(remoteConfig(), get().branch);
+          set({ ...status, syncing: false, lastSyncedAt: Date.now(), conflict: null });
+        } catch (err) {
+          set({ syncing: false, syncError: errorMessage(err), syncErrorCode: errorCode(err) });
+          return;
+        }
+        await get().refresh();
+      },
     }),
     {
       // Renamed with the rest of the rebrand (DESIGN-SPEC item 34, user

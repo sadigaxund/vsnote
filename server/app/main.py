@@ -84,6 +84,7 @@ from .config import Settings, resolve_secret_key
 from .db import Base, make_engine, make_sessionmaker
 from .routers import admin as admin_router
 from .routers import auth as auth_router
+from .routers import git_admin as git_admin_router
 from .routers import git_http as git_http_router
 from .routers import share_public as share_public_router
 from .routers import shares as shares_router
@@ -240,6 +241,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     api_app.include_router(shares_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(share_public_router.build_content_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(admin_router.build_router(get_db, auth_deps))
+    api_app.include_router(git_admin_router.build_router(get_db, settings, auth_deps))
 
     app.mount("/api", api_app)
 
