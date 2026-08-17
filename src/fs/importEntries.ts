@@ -3,11 +3,19 @@
  * vault: (a) dragging files/folders from the OS onto the file tree, (b)
  * Ctrl+V pasting clipboard files/images into the selected folder.
  *
- * Split deliberately into PURE helpers (name/path math, byte-free) and a
- * thin async orchestration layer at the bottom that actually touches
- * `fs/operations.ts` (`pathExists`/`writeFile`) — the pure half is what
- * `tests/unit/importEntries.test.ts` exercises directly, no lightning-fs/
- * IndexedDB involved, per Phase 15's "testable pure-ish helpers" ask.
+ * This module is deliberately PURE (name/path math, byte-free) and imports
+ * NOTHING that reaches `fs/client.ts`. The async orchestration that really
+ * writes to the vault lives in its sibling `importEntriesFs.ts`.
+ *
+ * That split is load-bearing, not tidiness. `fs/client.ts` instantiates
+ * lightning-fs at module scope, so importing it from a unit test opens a
+ * real (fake-indexeddb) database. `vitest.config.ts` documents the
+ * invariant that `drafts.test.ts` is the ONLY unit test that does so; when
+ * this file still imported `fs/operations.ts`, `importEntries.test.ts`
+ * became a second one and every `drafts.test.ts` test began hanging on CI
+ * at its first filesystem call until the 20s timeout. Keep the pure half
+ * free of fs imports so the unit suite keeps exactly one lightning-fs
+ * consumer.
  *
  * Browser-entry types below (`FileSystemEntryLike`, `DataTransferItemLike`,
  * `ImportableFile`) are deliberately NOT the real DOM lib types
@@ -19,8 +27,6 @@
  * `vitest.config.ts`) both compile and run against the exact same code
  * path, rather than one being a reimplementation of the other.
  */
-import { pathExists, writeFile } from "./operations";
-import { displayToFsPath, fsToDisplayPath } from "./paths";
 
 /** A file/blob-like object this module needs: a name, a MIME type, and a
  * way to read its bytes. Real DOM `File` objects satisfy this already. */
@@ -283,7 +289,7 @@ function splitFsPath(fsPath: string): { dir: string; name: string } {
   return { dir: idx <= 0 ? "" : fsPath.slice(0, idx), name: fsPath.slice(idx + 1) };
 }
 
-function joinFsPath(dir: string, relativePath: string): string {
+export function joinFsPath(dir: string, relativePath: string): string {
   return `${dir}/${relativePath}`.replace(/\/+/g, "/");
 }
 
@@ -339,51 +345,4 @@ export function planImportPaths(
     items.push({ entry, targetFsPath: finalFsPath, conflicted });
   }
   return items;
-}
-
-// ---------------------------------------------------------------------------
-// Async orchestration — the only part of this file that touches the real
-// vault filesystem (`fs/operations.ts`). Not unit-tested directly (would
-// need the same real-lightning-fs/`fake-indexeddb` setup `drafts.test.ts`
-// uses); every path-and-naming DECISION it depends on is covered above.
-// ---------------------------------------------------------------------------
-
-/** Which of `entries`' intended target paths (relative, matching
- * `FlattenedEntry.relativePath`) already exist under `targetDisplayPath` —
- * empty means "no prompt needed, just import". */
-export async function detectConflictingPaths(
-  targetDisplayPath: string,
-  entries: FlattenedEntry[],
-): Promise<string[]> {
-  const targetFsPath = displayToFsPath(targetDisplayPath);
-  const conflicts: string[] = [];
-  for (const entry of entries) {
-    const fsPath = joinFsPath(targetFsPath, entry.relativePath);
-    if (await pathExists(fsPath)) conflicts.push(entry.relativePath);
-  }
-  return conflicts;
-}
-
-/** Writes every entry into the vault under `targetDisplayPath`, resolving
- * conflicts per `mode`. Binary files land as-is (`ArrayBuffer` -> raw
- * `Uint8Array` write, no text decoding). Returns the created display paths. */
-export async function importEntriesIntoVault(
-  targetDisplayPath: string,
-  entries: FlattenedEntry[],
-  mode: "rename" | "replace",
-): Promise<string[]> {
-  const targetFsPath = displayToFsPath(targetDisplayPath);
-  const existing = new Set<string>();
-  for (const entry of entries) {
-    const fsPath = joinFsPath(targetFsPath, entry.relativePath);
-    if (await pathExists(fsPath)) existing.add(fsPath);
-  }
-  const plan = planImportPaths(targetFsPath, entries, existing, mode);
-  const createdDisplayPaths: string[] = [];
-  for (const item of plan) {
-    const bytes = new Uint8Array(await item.entry.file.arrayBuffer());
-    await writeFile(item.targetFsPath, bytes);
-    createdDisplayPaths.push(fsToDisplayPath(item.targetFsPath));
-  }
-  return createdDisplayPaths;
 }

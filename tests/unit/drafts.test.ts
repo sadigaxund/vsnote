@@ -13,34 +13,37 @@
  * a real ~300ms wait is a small, worthwhile cost for a debounce test that
  * can't silently deadlock or race the fake clock.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 /**
- * Timeout headroom, and why this file specifically needs it.
+ * Why this file no longer needs an inflated timeout.
  *
- * These cases deliberately use REAL timers (see the module docstring above)
- * and therefore spend ~300-400ms of genuine wall-clock time each waiting out
- * the draft debounce. Vitest's 5s default leaves that only ~12x headroom,
- * which is enough on a warm developer machine and NOT enough on a cold CI
- * runner: the first GitHub Actions run after a fresh `npm ci` failed all six
- * cases at exactly 5000-5009ms while every other unit file passed.
+ * These cases use REAL timers (see the module docstring above), so they spend
+ * genuine wall-clock time waiting out the draft debounce, which made them
+ * sensitive to scheduling delays on a busy machine. They first failed all six
+ * cases at vitest's 5s default on a cold CI runner, were given 20s of
+ * headroom, and then failed at 20s too once Phase 15 grew the suite from 16
+ * to 20 files: more parallel files, more contention, same starvation.
  *
- * Measured rather than assumed, in a throwaway clone with a clean `npm ci`:
- * the failure reproduces on the FIRST full-suite run on a cold machine and
- * then never again (five consecutive clean runs afterwards), it never
- * reproduces with the file run alone, in pairs, or with
- * `--no-file-parallelism`, and whenever the file does complete it takes
- * ~840ms. A deadlock would not resolve in 840ms on the next attempt, so this
- * is I/O and CPU contention on a cold box delaying real-timer callbacks,
- * not a hang and not a product defect.
- *
- * The timeout is raised HERE rather than globally so every other spec keeps
- * the tight 5s failure signal, and it is not a retry: a genuine regression in
- * fs/drafts.ts still fails this file, it just is not allowed to fail merely
- * because the machine was busy.
+ * Raising the ceiling a third time would only move the next failure further
+ * out, so the wait itself is now short instead. `setDraftDebounceMsForTests`
+ * shrinks the debounce to 20ms for this file, cutting its wall-clock cost
+ * from roughly 800ms to about 100ms. Everything under test is unchanged:
+ * real timers, real `fake-indexeddb` writes, real coalescing. A genuine
+ * regression in fs/drafts.ts still fails these cases, and the tight 5s
+ * default failure signal is back.
  */
-vi.setConfig({ testTimeout: 20_000 });
-import { clearDraft, flushDraftSave, loadDraft, scheduleDraftSave } from "../../src/fs/drafts";
+const DEBOUNCE_MS = 20;
+/** Comfortably past the debounce window above, still tiny in wall-clock. */
+const PAST_DEBOUNCE_MS = 80;
+import {
+  clearDraft,
+  flushDraftSave,
+  loadDraft,
+  resetDraftDebounceForTests,
+  scheduleDraftSave,
+  setDraftDebounceMsForTests,
+} from "../../src/fs/drafts";
 import { resetFilesystem } from "../../src/fs/client";
 
 const PATH = "vault/notes/scratch.md";
@@ -50,7 +53,12 @@ function wait(ms: number): Promise<void> {
 }
 
 beforeEach(() => {
+  setDraftDebounceMsForTests(DEBOUNCE_MS);
   resetFilesystem();
+});
+
+afterAll(() => {
+  resetDraftDebounceForTests();
 });
 
 describe("fs/drafts.ts checkpoint/restore", () => {
@@ -70,7 +78,7 @@ describe("fs/drafts.ts checkpoint/restore", () => {
     // Still inside the 300ms debounce window — nothing written yet.
     expect(await loadDraft(PATH)).toBeUndefined();
 
-    await wait(400);
+    await wait(PAST_DEBOUNCE_MS);
     expect(await loadDraft(PATH)).toBe("abc");
   });
 
@@ -85,7 +93,7 @@ describe("fs/drafts.ts checkpoint/restore", () => {
   it("clearDraft also cancels a still-pending debounced write", async () => {
     scheduleDraftSave(PATH, "will be cancelled");
     await clearDraft(PATH);
-    await wait(400); // past the debounce window — nothing should land now
+    await wait(PAST_DEBOUNCE_MS); // past the debounce window — nothing should land now
     expect(await loadDraft(PATH)).toBeUndefined();
   });
 

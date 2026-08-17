@@ -33,6 +33,35 @@ import { pathExists, removeFile, writeFile } from "./operations";
 
 const DRAFTS_DIR = "/.drafts";
 const DEBOUNCE_MS = 300;
+
+/**
+ * Test seam for the debounce window. Production never calls the setter, so
+ * the app always uses the 300ms above.
+ *
+ * It exists because `tests/unit/drafts.test.ts` must use REAL timers (see
+ * that file's docstring: `fake-indexeddb`'s request machinery does not
+ * advance reliably under a faked clock), which made the suite's pass/fail
+ * depend on wall-clock scheduling under load. On a cold CI runner those
+ * real-timer callbacks get starved: the file first failed all six cases at
+ * the 5s default, was given 20s of headroom, and then failed at 20s too once
+ * Phase 15 grew the suite from 16 to 20 files. Raising the ceiling again
+ * just moves the next failure further out.
+ *
+ * Shrinking the window instead removes the sensitivity at its source: the
+ * same real timers and the same real IndexedDB writes still run, and the
+ * debounce/coalescing semantics under test are unchanged, but the file's
+ * wall-clock cost drops from roughly 800ms to about 100ms, so starving it
+ * past the timeout would now take an order of magnitude more contention.
+ */
+let debounceMs = DEBOUNCE_MS;
+
+export function setDraftDebounceMsForTests(ms: number): void {
+  debounceMs = ms;
+}
+
+export function resetDraftDebounceForTests(): void {
+  debounceMs = DEBOUNCE_MS;
+}
 /** Upper bound on how long the idle-scheduled write may be deferred past
  * the debounce firing, so a continuously-busy tab still checkpoints. */
 const IDLE_TIMEOUT_MS = 500;
@@ -80,7 +109,7 @@ export function scheduleDraftSave(displayPath: string, content: string): void {
     } else {
       idleHandles.set(displayPath, setTimeout(run, 0));
     }
-  }, DEBOUNCE_MS);
+  }, debounceMs);
   timers.set(displayPath, timer);
 }
 
