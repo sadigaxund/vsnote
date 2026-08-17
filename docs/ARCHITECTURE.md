@@ -862,6 +862,86 @@ built from the same sanitized message the credential redaction above
 already cleaned. No CORS (same as every other `/api/*` route — no
 `CORSMiddleware` anywhere on `api_app`).
 
+## App-wide login gate and auto-sync (Phase 17 Milestone C)
+
+**Why a gate at all.** Once the server hosts the authoritative vault, every
+authenticated client can pull the whole thing. The shell therefore sits
+behind a login screen rather than being reachable by anyone who loads the
+origin. The gate is UX and defence in depth, never the boundary: `/api`,
+`/git` and `/share/*` each keep enforcing their own auth exactly as before,
+and nothing about the gate changes what a request is allowed to do.
+
+**Who decides.** The server, via one public unauthenticated route —
+`GET /api/app-config` (`server/app/routers/app_config.py`), three booleans
+and nothing else. `login_required` is `VSNOTE_REQUIRE_LOGIN` **and** (a
+local password account exists **or** Cf-Access is configured). That second
+clause is the never-lock-the-owner-out rule: a deployment with no credential
+path cannot satisfy a prompt and has nothing server-side to protect yet, so
+it is not gated; add an account or put Access in front and the gate turns
+itself on with no second switch. The client cannot infer any of this, which
+is exactly why the server states it.
+
+**The offline tension, resolved deliberately.** CLAUDE.md rule 3 says an
+already-loaded or PWA-cached app keeps editing fully offline; a login gate
+says nothing renders until the server vouches for you. Those collide on a
+cold offline start, so the resolved contract (`src/boot.tsx`, binding) is:
+
+- reachable backend, `login_required: true`, no session → gate;
+- `login_required: false` → never gate;
+- **backend unreachable → never gate.**
+
+The last line is the one that matters. A gate cannot protect the local
+IndexedDB clone anyway (it is already on the device, readable by anything
+with access to that browser profile), so refusing to render offline would
+cost the local-first guarantee and buy no security. What the gate protects
+is SERVER access, and that stays enforced server-side whatever the client
+renders. Cloudflare Access in front needs no client code: such a request
+already resolves to a session, so `whoami()` reports authenticated and the
+gate never appears.
+
+One structural consequence worth knowing: this is the only backend probe in
+the app that runs unconditionally at boot, and a page-level `fetch` that
+fails at the network layer logs a console error in Chromium no matter how
+the rejection is handled (the finding recorded in `src/App.tsx`'s boot-effect
+doc). Rather than guard it, the service worker answers this one request
+itself (`vite.config.ts`'s single `runtimeCaching` route) and synthesises
+`login_required: false` when the network fails, which is the contract's own
+answer for unreachable. Nothing is written to Cache Storage by that route.
+
+The vault does NOT seed behind the gate: `App.tsx` mounts only after the
+gate clears, so a visitor who never signs in performs zero vault writes.
+
+**Auto-sync policies.** Settings → Git & Sync offers manual (default),
+every N minutes, on open and close, and debounced on save. Every policy
+calls the SAME `useGitStore.syncNow()` → `src/git/sync.ts::runSync` pipeline
+a manual sync uses (fetch → fast-forward → push → clean auto-merge with
+backup refs → resolver only for true conflicts). There is no second sync
+path, nothing force-pushes, and a run that pauses on a true conflict stays
+paused instead of retrying in a loop. Scheduling lives in a pure module
+(`src/git/autoSyncPolicy.ts`) with injected timer functions, so specs drive
+it with a fake clock instead of sleeping; runs are suppressed while a sync
+is in flight, while signed out, and while a conflict is unresolved.
+
+## Explorer virtualization (Phase 17 Milestone D)
+
+A server-mounted vault can be a real vault, so the tree stops rendering
+every row. `src/lib/treeFlatten.ts` flattens the visible rows (honouring
+expanded state) and `src/lib/virtualization.ts` computes the window; both
+are pure and unit-tested. `src/components/local/VirtualList.tsx` is the
+local component the library has no equivalent for (recorded in
+`docs/COMPONENT-BACKLOG.md`).
+
+The threshold is the design decision: below `VIRTUALIZE_ROW_THRESHOLD`
+(200 visible rows) the tree renders exactly as it always did, nested
+`role="group"` DOM included, so every pre-existing spec and every ordinary
+vault stays on the proven code path; at or above it, rows render flat with
+the WAI-ARIA flat-tree pattern (`aria-level`/`setsize`/`posinset`) inside a
+windowed viewport. Selection, rename, context menu, internal and OS
+drag-drop, paste import, git decorations, share indicators, keyboard
+navigation and the `/share` reader's `readOnly` mode all work in both modes;
+a 300-file folder keeps the DOM under 100 rows while first, middle and last
+files stay reachable.
+
 ## Single-origin deployment (Phase 10.5a)
 
 Supersedes this doc's earlier "Two link shapes" / "The `/share/*` same-origin

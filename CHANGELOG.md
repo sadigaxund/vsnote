@@ -12,7 +12,54 @@ client and the v2 backend, August 2026) lives in the git log.
 
 ## [Unreleased]
 
-Nothing yet.
+### Breaking
+- **The mounted vault is now the default deployment shape.**
+  `docker compose up` mounts a real, non-bare, plaintext vault working tree
+  at `/data/vault` (the new `vsnote-vault` volume) and treats it as the
+  authoritative copy. A fresh mount is empty and is never auto-initialized:
+  sign in and let Settings → Git & Sync's setup wizard create the repository
+  once. **An existing deployment that already synced into the legacy bare
+  repo under `VSNOTE_GIT_ROOT` must act before upgrading**: either set
+  `VSNOTE_VAULT_PATH=` (explicitly empty) in `.env` to keep the old shape
+  exactly as it was, or bind the new mount to a directory that already holds
+  a clone of that history. Pointing it at an empty volume does not migrate
+  anything, and clients pushing to an uninitialized mount are refused with a
+  409 until the wizard runs.
+- **The app shell is gated behind a login screen** as soon as a credential
+  path exists (a local account, or `CF_ACCESS_*` configured). A deployment
+  with neither is not gated, since nothing could satisfy the prompt. Set
+  `VSNOTE_REQUIRE_LOGIN=False` to keep the shell open deliberately. An
+  unreachable backend never gates: an installed or already-loaded app keeps
+  editing its local clone offline.
+
+### Added
+- **Server-mounted authoritative vault.** `VSNOTE_VAULT_PATH` /
+  `VSNOTE_VAULT_REPO_NAME`, a single vault identity every server module
+  resolves through, and working-tree semantics that make the mount
+  trustworthy: edits made directly on disk are committed before any git
+  request is served, and the working tree is updated from the new tip after
+  a push is accepted. An existing `.git` is always respected; nothing
+  auto-creates or overwrites it. `GET /api/vault`, `POST /api/vault/init`.
+- **Mirroring to external remotes**, with credentials that never leave the
+  server. Add a GitHub/GitLab/Gitea/any remote with an SSH key or an HTTPS
+  token, test it, mirror on demand or automatically after each client push.
+  Keys and tokens live under `VSNOTE_SECRETS_PATH` (0700 dir, 0600 files),
+  are never returned by any API response and never logged. Mirroring never
+  force-pushes.
+- **Setup wizard in Settings → Git & Sync**: initialize the vault
+  repository and connect a remote entirely in the UI, with no CLI step.
+- **Auto-sync policies**: manual, every N minutes, on open and close, or
+  debounced on save. Each run uses the existing sync pipeline unchanged,
+  including its backup refs and conflict resolver, and never force-pushes.
+- **Explorer tree virtualization** for real-vault scale, with the small-tree
+  rendering path left exactly as it was.
+
+### Fixed
+- A truly offline reload could fail to load the app: the service-worker
+  precache exclusion matched chunks by name only, so an unrelated vendor
+  chunk sharing an icon's name was silently dropped from the precache.
+- A push into a mounted vault could report success before the server's
+  working tree had been updated from it.
 
 ## [2026.08.17.1] — the VSNote rebrand
 

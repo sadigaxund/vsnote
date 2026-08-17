@@ -58,16 +58,28 @@ services:
       # CWD/ownership reason as VSNOTE_DB_URL above — /data/git-repos is the
       # named volume mounted below.
       VSNOTE_GIT_ROOT: ${VSNOTE_GIT_ROOT:-/data/git-repos}
-      # Phase 17 — server-mounted, AUTHORITATIVE vault. Empty by default,
-      # same as VSNOTE_SECRET_KEY above: an unset value here means "legacy
-      # shape, no change from Phase 11/14" (the vault is just the ordinary
-      # bare repo under VSNOTE_GIT_ROOT). Set in .env to
-      # VSNOTE_VAULT_PATH=/data/vault to opt in — matches the commented
-      # `vsnote-vault` volume mount below, which you must also uncomment.
-      # See server/README.md's "Server-mounted vault" section: a fresh
-      # mount needs one explicit POST /api/vault/init call before use, and
-      # an existing repo already at the mount is always respected.
-      VSNOTE_VAULT_PATH: ${VSNOTE_VAULT_PATH:-}
+      # Phase 17 — server-mounted, AUTHORITATIVE vault, and the DEFAULT
+      # deployment shape: the vault is a real, non-bare, plaintext working
+      # tree under the `vsnote-vault` volume mounted below, readable and
+      # editable from outside the container (docker cp, a bind mount to a
+      # host path, another editor over SSH) instead of only through git.
+      # A fresh mount is empty and is NEVER auto-initialized: the first
+      # sign-in walks the owner through Settings -> Git & Sync's setup
+      # wizard, which calls POST /api/vault/init once. An existing repo
+      # already at the mount is always respected, never overwritten.
+      #
+      # UPGRADING an existing deployment that already synced into the
+      # legacy bare repo: that history still sits untouched in the
+      # `vsnote-git-repos` volume. Either set VSNOTE_VAULT_PATH= (empty) in
+      # .env to keep the legacy shape exactly as before, or bind this mount
+      # to a directory holding a real clone of that history before first
+      # boot. Do not point it at an empty volume and expect the old history
+      # to follow: it will not.
+      #
+      # To use a HOST path instead of the named volume, replace the
+      # `vsnote-vault:/data/vault` line below with e.g.
+      # "/srv/my-notes:/data/vault" and leave this value as is.
+      VSNOTE_VAULT_PATH: ${VSNOTE_VAULT_PATH-/data/vault}
       # The repo name clients use in <origin>/git/<name>.git to reach the
       # vault (whichever shape it is above). Only change together with the
       # client's own "Repository name" setting.
@@ -113,12 +125,12 @@ services:
       # — mounting it unconditionally means adding a mirror remote later
       # never requires a compose-file edit, only using the UI/API.
       - vsnote-secrets:/data/secrets
-      # Phase 17 — server-mounted vault (opt-in). Uncomment both this mount
-      # AND the matching named volume below (or point at a host path
-      # instead, e.g. "/srv/my-notes:/data/vault") once VSNOTE_VAULT_PATH
-      # above is also set to /data/vault. Left commented by default so the
-      # legacy (bare-repo) shape stays the out-of-the-box behavior.
-      # - vsnote-vault:/data/vault
+      # Phase 17 — the authoritative vault working tree (VSNOTE_VAULT_PATH
+      # above). Swap the left-hand side for a host path (e.g.
+      # "/srv/my-notes:/data/vault") to keep the vault somewhere you
+      # already back up; the container only ever needs it writable by the
+      # non-root `vsnote` user.
+      - vsnote-vault:/data/vault
 
     # No dedicated /healthz route exists in this backend (confirmed against
     # server/app/main.py and every router under server/app/routers/) — `GET
@@ -151,8 +163,9 @@ volumes:
   # reset of the DB/git-repos volumes should back this one up separately
   # first (server/README.md's "Mirroring to external remotes" section).
   vsnote-secrets:
-  # Phase 17 — server-mounted vault (opt-in, see the commented mount +
-  # VSNOTE_VAULT_PATH above). Declared even while unused so uncommenting
-  # the mount above is a one-line change; an unused named volume costs
-  # nothing.
+  # Phase 17 — the authoritative vault's working tree. `docker compose down
+  # -v` DESTROYS IT along with everything else, so a real deployment should
+  # either bind this to a backed-up host path (see the mount above) or keep
+  # a mirror remote configured (server/README.md's "Mirroring to external
+  # remotes" section) so the vault exists in more than one place.
   vsnote-vault:

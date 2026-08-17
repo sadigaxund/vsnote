@@ -305,8 +305,16 @@ policy and how it's surfaced in the UI.
 
 ## Server-mounted vault (Phase 17 Milestone A)
 
-By default (`VSNOTE_VAULT_PATH` unset), the vault is just the ordinary bare
-repo at `{VSNOTE_GIT_ROOT}/{VSNOTE_VAULT_REPO_NAME}.git` — nothing here
+`docker-compose.yml` mounts a vault at `/data/vault` by DEFAULT, so a plain
+`docker compose up` gets the authoritative-vault shape described here. A
+local `npm run server` does not (`VSNOTE_VAULT_PATH` is unset unless you set
+it), and setting `VSNOTE_VAULT_PATH=` explicitly empty in a compose `.env`
+opts back out — see "Upgrading an existing deployment" at the end of this
+section, which matters if you already have synced history in
+`VSNOTE_GIT_ROOT`.
+
+With `VSNOTE_VAULT_PATH` unset, the vault is just the ordinary bare
+repo at `{VSNOTE_GIT_ROOT}/{VSNOTE_VAULT_REPO_NAME}.git` — nothing there
 changes from "Real git sync" above. Setting `VSNOTE_VAULT_PATH` to a
 filesystem path makes that path the AUTHORITATIVE vault instead: a real,
 non-bare git working tree the server keeps in sync with pushes, readable
@@ -326,8 +334,8 @@ always, in both shapes; never encrypted at rest.
       - vsnote-vault:/data/vault
 ```
 
-(the checked-in `docker-compose.yml` already wires this in, commented, next
-to the existing `vsnote-git-repos` volume — uncomment it to opt in). For a
+(the checked-in `docker-compose.yml` already wires exactly this in, active by
+default, next to the existing `vsnote-git-repos` volume). For a
 host path instead of a named volume, bind-mount it:
 
 ```yaml
@@ -335,8 +343,9 @@ host path instead of a named volume, bind-mount it:
       - /srv/my-notes:/data/vault
 ```
 
-**First boot with an empty mount**: nothing is auto-created. Log in and
-call `POST /api/vault/init` (session-authenticated, no request body
+**First boot with an empty mount**: nothing is auto-created. Sign in and let
+Settings → Git & Sync's setup wizard do it (one click, no CLI), or call
+`POST /api/vault/init` yourself (session-authenticated, no request body
 required — an optional `{"branch": "..."}` picks the branch name, default
 matches the client's own default branch) exactly once. Every git request
 against an uninitialized mounted vault is refused until then — reads get a
@@ -369,6 +378,23 @@ working tree has uncommitted changes, and the last commit.
 exactly as documented for a legacy (unmounted) repo, but refuses with
 `409` for the vault name while it's mounted — it may be the only copy of
 the owner's data.
+
+**Upgrading an existing deployment.** Compose now defaults
+`VSNOTE_VAULT_PATH` to `/data/vault`, so a deployment that has been syncing
+into the legacy bare repo under `VSNOTE_GIT_ROOT` has a decision to make
+before it upgrades. The old history is not touched or moved by anything
+here, and it does not follow the vault to an empty mount by itself:
+
+- **Keep the old shape**: put `VSNOTE_VAULT_PATH=` (explicitly empty) in
+  `.env`. Everything behaves exactly as it did before Phase 17.
+- **Move to the mounted shape**: bind the mount to a directory that already
+  holds a working clone of that history (`git clone
+  /path/to/git-repos/vault.git /srv/my-notes`, then mount `/srv/my-notes`).
+  The existing `.git` there is respected, so the wizard's init step is
+  skipped and clients keep syncing against the same history.
+- **Start fresh on purpose**: point it at the empty volume and run the
+  wizard's init once. Clients pushing before that get a `409`, and the old
+  bare repo stays intact in its own volume until you delete it.
 
 ## Mirroring to external remotes (Phase 17 Milestone B)
 
