@@ -342,6 +342,28 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   }, []);
   const persistence = storagePersistence ?? ownPersistence;
 
+  // Round 7 item 52 note — this toggle governs LOCAL-git display in the
+  // explorer (decorations over the always-present in-browser repo), not
+  // sync, so it stays available on both sides of the sync-setup gate.
+  const gitStatusRow: SettingRow = {
+    id: "git-status-in-explorer",
+    label: "Show git status in explorer",
+    keywords: "git status letters tree explorer decorations colors clean",
+    content: (
+      <FormField label="Show git status in explorer" hint="Colors file names and shows status letters in the tree.">
+        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+          <Switch
+            checked={showGitStatusInExplorer}
+            onCheckedChange={setShowGitStatusInExplorer}
+            aria-label="Show git status in explorer"
+            data-testid="git-status-in-explorer"
+          />
+          <span style={{ fontSize: 13, color: "var(--color-muted)" }}>Off keeps the tree clean; changes stay in Source Control.</span>
+        </label>
+      </FormField>
+    ),
+  };
+
   const categories: Category[] = [
     {
       id: "appearance",
@@ -631,6 +653,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
               keywords: "git sync setup enable remote server token begin start",
               content: <SyncSetupPanel />,
             },
+            gitStatusRow,
           ]
         : [
         // Phase 17 Milestone C2 — the server-mounted vault setup wizard /
@@ -698,26 +721,9 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             </FormField>
           ),
         },
-        // Round 6 item 15 ("clean tree") — decorations default OFF; the
-        // Source Control panel is the home of change state.
-        {
-          id: "git-status-in-explorer",
-          label: "Show git status in explorer",
-          keywords: "git status letters tree explorer decorations colors clean",
-          content: (
-            <FormField label="Show git status in explorer" hint="Colors file names and shows status letters in the tree.">
-              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                <Switch
-                  checked={showGitStatusInExplorer}
-                  onCheckedChange={setShowGitStatusInExplorer}
-                  aria-label="Show git status in explorer"
-                  data-testid="git-status-in-explorer"
-                />
-                <span style={{ fontSize: 13, color: "var(--color-muted)" }}>Off keeps the tree clean; changes stay in Source Control.</span>
-              </label>
-            </FormField>
-          ),
-        },
+        // Round 6 item 15 ("clean tree") — decorations default OFF; shared
+        // with the pre-setup branch above (local-git display, not sync).
+        gitStatusRow,
         {
           id: "remote-sync",
           label: "Remote sync",

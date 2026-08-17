@@ -541,6 +541,9 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
 52. **Git & Sync: single opt-in setup view when git is absent.** When the vault has no
     repo/sync configured, the Git & Sync category shows NOTHING but a setup invitation
     (what sync does, one button to begin). Nothing sync-related is enabled by default.
+    One exception: the "Show git status in explorer" toggle stays visible on both
+    sides of the gate; it governs LOCAL-git display over the always-present
+    in-browser repo, not sync.
     The guided flow assumes zero git knowledge: plain-language steps, remote repo
     optional; when no explicit remote is configured, NO implicit server URL (for
     example `http://localhost:8787/git/vault.git`) is ever displayed as if the user
