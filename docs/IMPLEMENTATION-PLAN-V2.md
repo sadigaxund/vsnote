@@ -219,6 +219,77 @@ Full spec in DESIGN-SPEC round 5. Mixed client+server+ops phase:
   demo content; PDF export produces a real multi-page PDF from a long note;
   drop and paste verified in Chromium, image-paste in Firefox.
 
+## Phase 16 — Round 6 refinement pass (2026-08-17, confirmed by user)
+Executed DIRECTLY by the coordinating session (user lifted the "docs only" rule
+for this pass — judgment-density polish work); suites + CI as safety net; same
+commit/push discipline. Items (user-confirmed list):
+
+Sharing/publish: (1) Settings→Sharing sign-in button double-row fix; (2)
+publish-modal bootstrap hint to one row; (3) publish-modal dropdown icon+text
+one row + general layout cleanup; (4) expose per-share TOKEN auth in the
+publish modal (server already implements it); (5) expiry explicit — "Never
+expires" default state, date opt-in; (6) remove Commenter remnants from UI;
+(7) revoke/copy/manage from tree context menu + chain-icon click; (8) share
+indicator follows file on move/rename (update the share's recorded path); (9)
+muted share marker on ancestor folders of shared items; (10) share reader page
+rebuilt REUSING the main shell components (read-only tree/tabs/header, admin +
+vault access stripped) replacing the divergent slim page; (11) viewer role:
+selectable text + read-only source-view toggle; (12) editor role: real live
+editing via the same markdown editor (write-back lands as vault commits); (13)
+investigate/fix the reported "Viewer mode selection" breakage.
+
+Tree/editor: (14) git status letters vertical centering; (15) clean tree —
+git decorations move to the Source Control panel, new setting "Show git status
+in explorer" default OFF (share chain indicator stays in the tree); (16)
+Format/Insert/Export move into the EDITOR AREA's existing overflow menu; the
+title-bar three-dot added in Phase 15 is removed.
+
+Chrome/settings: (17) contrast-safe accent — auto-derive foreground/lightness
+so dark accents stay legible; never limit the picker range; (18) selection
+policy done right — chrome unselectable, ALL content selectable (editor,
+rendered views, share pages, toast/error text); Ctrl+A scoped to the focused
+editor; (19) sync-failure UX — quiet status-bar state instead of repeating
+toasts + an explicit destructive "Replace remote with local" action for the
+unrelated-history case; (20) Settings view full width (remove the 760px cap;
+Sharing table fits); (21) "Reset demo vault" exists ONLY in demo builds;
+Export stays; buttons natural width; (22) rename to "Share Size Limit"; (23)
+full copy/polish sweep over UI text + fine layout (one-row hints, no em
+dashes, consistent tone).
+
+User decisions recorded: NO ⌘K badge (magnifier already present — final);
+textured-theme opacity work stays DEFERRED (known library bug). Batch-level
+import-conflict dialog stays. E2E-encrypted shares + collab remain unbuilt.
+
+## Phase 17 — Server-mounted vault + git redesign (2026-08-17, confirmed)
+Orchestrated (fresh Opus orchestrator per the cost rule), after Phase 16.
+Architecture: the server-side repo becomes the AUTHORITATIVE vault, mounted at
+deployment (docker volume/host path). Existing `.git` is respected — never
+auto-created or overwritten. Browser keeps a full local clone in IndexedDB
+(offline editing intact); git sync reconciles. No in-app vault switching.
+- Git & Sync renders as a SETUP WIZARD when no repo exists: init repo →
+  remote config (URL, SSH key paste/path, tokens) — all in UI, no CLI ever.
+- SSH keys and external-remote credentials live SERVER-SIDE only (browsers
+  cannot speak SSH): the server MIRRORS to external remotes (GitHub/GitLab/
+  any, SSH or HTTPS); clients only ever talk smart-HTTP to our server.
+- Auto-sync policies: manual / every N minutes / on open+close / on-save
+  (debounced); each run = the existing Phase 11 pipeline (fetch → ff → push →
+  clean auto-merge with backup refs → resolver only for true conflicts).
+  Draft checkpointing already guarantees no typing loss on failure.
+- App-wide LOGIN GATE: no session → login screen (CF Access still works in
+  front). Required because every authenticated client syncs the whole vault.
+- Tree virtualization (backlog `VirtualList`) — required at real-vault scale.
+- Known flag: full clone per client includes history; fine at text scale,
+  shallow-clone mitigation only if it ever hurts.
+
+## After Phases 16–17
+- Redo all 18 my-you-eye backlog issues against the FINAL polished components
+  (refined source, distilled prop APIs, "what the library needs to absorb
+  this" checklists) + NEW per-component gap issues for existing library
+  components that required workarounds (Dialog/Select/etc.). Same gh
+  throttling + idempotency discipline as the first export.
+- When extension/plugin or new-format work begins, FIRST read
+  `docs/temp-plan-add-extension.md` (user's spec for a markdown-like format).
+
 ## Sequencing & ownership
 8 → 9 → 10 → 10.5 → 11 → 12 → 13 → 14, strictly sequential, same
 orchestrator/worker pattern as v1. Housekeeping (README/LICENSE) and the
