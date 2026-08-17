@@ -361,13 +361,49 @@ copy" recovery action (the mounted vault refuses the old destructive reset;
 the counterpart re-clone is not built).
 
 ## After Phases 16–17
-- Redo all 18 my-you-eye backlog issues against the FINAL polished components
-  (refined source, distilled prop APIs, "what the library needs to absorb
-  this" checklists) + NEW per-component gap issues for existing library
-  components that required workarounds (Dialog/Select/etc.). Same gh
-  throttling + idempotency discipline as the first export.
+- ~~Redo all 18 my-you-eye backlog issues~~ **DONE 2026-08-17**: #3–#20
+  rewritten against the final components, #21–#22 filed for uncovered local
+  components (DropdownSubmenu, OverflowMenu), gap issues #23–#25 filed
+  (DropdownMenu onCloseAutoFocus, SelectItem icon+label layout, DataTable
+  row actions).
 - When extension/plugin or new-format work begins, FIRST read
   `docs/temp-plan-add-extension.md` (user's spec for a markdown-like format).
+
+## Phase 18 — Round 7 refinement (2026-08-17, DESIGN-SPEC Amendments items 45–60)
+**Status: COMPLETED 2026-08-17** — all 16 items from hands-on Phase 17
+feedback (spec: DESIGN-SPEC "Amendments round 7"). Fable-direct with one
+Sonnet worker on the mechanical items, nine commits:
+- d90e7f1 (items 45–47, 49): status-bar overflow policy (size container +
+  priorities), settings row caps on the full-bleed page, the 7:1
+  `--color-accent-text` tier for md headings/links (the round 6 guard was
+  verified working — the reported raw-black accent was a stale PWA-cached
+  pre-round-6 bundle), login-gate optical centering.
+- 1d835ae (item 48): `scrollbar-gutter: stable` so the active-line
+  highlight keeps one right edge with or without a scrollbar. [worker]
+- 3197971 (item 50): docker-entrypoint chowns the vault dir and drops to
+  the vsnote user (also fixes `$HOME`), vault init returns a structured
+  4xx/503 naming the path, never a raw 500. [worker]
+- d382539 (item 51): list refreshes dim in place (aria-busy + first-load
+  skeleton), never unmount-flash. [worker]
+- cdeac1e (items 55–57, 60): sharing reframed as delivery ("Viewer page" /
+  "Raw file", every file kind) × role (`link_role` column + startup
+  ensure-column migration; grants round-trip and PATCH-replace; People
+  list UI); access defaults to "Anyone with the link"; inline read-scoped
+  token minting for "Requires: API token".
+- a2ae601 (item 58): folder shares follow the folder — debounced client
+  auto-republish with exclusion memory (localStorage) and a never-widen
+  fallback; e2e-proven round trip.
+- f18f28d + 28de681 (item 59): hit counting anchored to content-bearing
+  responses (the HTML shell is unreliable under the dev proxy and a PWA
+  SW), one count per open, in-page folder browsing deduped by referer.
+  [worker]
+- 53d1729 (items 52–54): Git & Sync gated behind the guided opt-in setup
+  flow (SyncSetupPanel), the derived read-only vault identity chip,
+  `DEFAULT_BRANCH`/`DEFAULT_CLIENT_BRANCH` = `main`, and auto-sync as
+  three combinable toggles feeding a coalescing queue (12s quiet window),
+  settings persist v4 migration.
+Deferred from this round (user decision): Google/OAuth sign-in for
+restricted shares — its own later phase.
 
 ## Sequencing & ownership
 8 → 9 → 10 → 10.5 → 11 → 12 → 13 → 14, strictly sequential, same
