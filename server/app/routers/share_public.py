@@ -86,6 +86,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -98,6 +99,7 @@ from ..audit import write_audit_event
 from ..auth import AuthDeps
 from ..config import Settings
 from ..runtime_settings import get_max_blob_bytes
+from ..vaultcommit import commit_share_edit
 
 # Module-level constant, used UNCONDITIONALLY for the raw response — it is
 # structurally impossible for this endpoint to emit text/html because this
@@ -230,10 +232,11 @@ def _decode_content(blob: "models.Blob") -> Tuple[str, str]:
         return base64.b64encode(blob.content).decode("ascii"), "base64"
 
 
-def _content_payload(share: "models.Share", blob: "models.Blob") -> dict:
+def _content_payload(share: "models.Share", blob: "models.Blob", role: Optional[str] = None) -> dict:
     content, encoding = _decode_content(blob)
     out = schemas.ShareContentOut(
         slug=share.slug,
+        role=role,
         alias=share.alias,
         source_path=share.source_path,
         render_mode=share.render_mode.value,
@@ -290,9 +293,10 @@ def _listing_for_prefix(db: Session, share_id: int, prefix: str) -> Optional[Lis
     return sorted(children.values(), key=lambda e: (e["kind"] != "dir", e["name"].lower()))
 
 
-def _listing_payload(share: "models.Share", prefix: str, entries: List[Dict[str, Any]]) -> dict:
+def _listing_payload(share: "models.Share", prefix: str, entries: List[Dict[str, Any]], role: Optional[str] = None) -> dict:
     out = schemas.ShareListingOut(
         slug=share.slug,
+        role=role,
         alias=share.alias,
         prefix=prefix,
         entries=[schemas.ShareListingEntryOut(**e) for e in entries],
@@ -303,10 +307,13 @@ def _listing_payload(share: "models.Share", prefix: str, entries: List[Dict[str,
     return out.model_dump()
 
 
-def _folder_file_content_payload(share: "models.Share", entry: "models.ShareManifestEntry", blob: "models.Blob") -> dict:
+def _folder_file_content_payload(
+    share: "models.Share", entry: "models.ShareManifestEntry", blob: "models.Blob", role: Optional[str] = None
+) -> dict:
     content, encoding = _decode_content(blob)
     out = schemas.ShareContentOut(
         slug=share.slug,
+        role=role,
         alias=share.alias,
         source_path=entry.relpath,
         render_mode=share.render_mode.value,
@@ -345,6 +352,7 @@ def _render_folder_resolution(
     db: Session,
     request: Request,
     prefix: str,
+    role: Optional[str] = None,
 ) -> Optional[Response]:
     """Turns a non-None `_resolve_folder_path` result into the actual HTTP
     Response (raw bytes / JSON content / JSON listing, content-negotiated
@@ -373,7 +381,7 @@ def _render_folder_resolution(
         if _wants_json(request):
             return JSONResponse(
                 status_code=200,
-                content=_folder_file_content_payload(share, entry, blob),
+                content=_folder_file_content_payload(share, entry, blob, role),
                 headers=dict(JSON_SECURITY_HEADERS),
             )
         return Response(content=blob.content, media_type=RAW_CONTENT_TYPE, headers=dict(RAW_SECURITY_HEADERS))
@@ -381,7 +389,7 @@ def _render_folder_resolution(
     # (roadmap §5.1: never inline content into HTML server-side).
     return JSONResponse(
         status_code=200,
-        content=_listing_payload(share, prefix, payload),
+        content=_listing_payload(share, prefix, payload, role),
         headers=dict(JSON_SECURITY_HEADERS),
     )
 
@@ -442,7 +450,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             if resolution is None:
                 return _deny_response(request, None)
             _record_access(db, share, access, request)
-            resp = _render_folder_resolution(resolution, share, db, request, "")
+            resp = _render_folder_resolution(resolution, share, db, request, "", access.role)
             return resp if resp is not None else _deny_response(request, None)
 
         blob = db.get(models.Blob, share.blob_id)
@@ -451,7 +459,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         if _wants_json(request):
             return JSONResponse(
                 status_code=200,
-                content=_content_payload(share, blob),
+                content=_content_payload(share, blob, access.role),
                 headers=dict(JSON_SECURITY_HEADERS),
             )
 
@@ -496,7 +504,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         if resolution is None:
             return _deny_response(request, None)
         _record_access(db, share, access, request)
-        resp = _render_folder_resolution(resolution, share, db, request, relpath)
+        resp = _render_folder_resolution(resolution, share, db, request, relpath, access.role)
         return resp if resp is not None else _deny_response(request, None)
 
     @router.post("/share/{identifier}/auth")
@@ -601,10 +609,63 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             db.add(models.Blob(id=digest, content=body, size=len(body), media_type_hint=None))
         access.share.blob_id = digest
         db.commit()
+        # Round 6 item 12 — the edit also lands as a real commit in the
+        # bare sync repo (best-effort, see vaultcommit.py's doc), so the
+        # owner receives it through the ordinary sync pipeline.
+        committed = commit_share_edit(Path(settings.git_root), access.share.source_path, body, access.principal)
         write_audit_event(
             db, "share.access", slug=access.share.slug, principal=access.principal, reason="editor_put", request=request
         )
-        return {"ok": True, "blob_id": digest}
+        return {"ok": True, "blob_id": digest, "vault_committed": committed}
+
+    @router.put("/share/{identifier}/{relpath:path}")
+    @limiter.limit(settings.rate_limit_share)
+    async def put_share_path(identifier: str, relpath: str, request: Request, db: Session = Depends(get_db)):
+        """Round 6 item 12 — editor write-back for a FILE inside a folder
+        share. Same policy gate (`PUT` requires the editor role), same
+        exact-match manifest resolution as the GET twin: a relpath the
+        manifest doesn't contain is the uniform 404, never a create."""
+        ctx = auth_deps.get_optional_auth_context(request=request, db=db)
+        session_cookie = request.cookies.get(_share_session_cookie_name(identifier))
+        bearer = _extract_bearer(request)
+        try:
+            access = policy.resolve_share(
+                db,
+                identifier,
+                "PUT",
+                secret_key=secret_key,
+                session_cookie=session_cookie,
+                bearer_token=bearer,
+                principal=ctx.principal if ctx else None,
+                request=request,
+            )
+        except policy.PolicyDenied as exc:
+            return policy.denial_response(exc)
+
+        share = access.share
+        if share.kind != models.ShareKind.folder:
+            return policy.not_found_response()
+        entry = _manifest_entry(db, share.id, relpath)
+        if entry is None:
+            return policy.not_found_response()
+
+        body = await request.body()
+        if len(body) > get_max_blob_bytes(db):
+            raise HTTPException(status_code=413, detail="Blob exceeds maximum size")
+
+        digest = hashlib.sha256(body).hexdigest()
+        if db.get(models.Blob, digest) is None:
+            db.add(models.Blob(id=digest, content=body, size=len(body), media_type_hint=entry.media_type_hint))
+        entry.blob_id = digest
+        entry.size = len(body)
+        db.commit()
+        committed = commit_share_edit(
+            Path(settings.git_root), f"{share.source_path}/{relpath}", body, access.principal
+        )
+        write_audit_event(
+            db, "share.access", slug=share.slug, principal=access.principal, reason="editor_put", request=request
+        )
+        return {"ok": True, "blob_id": digest, "vault_committed": committed}
 
     return router
 
@@ -641,12 +702,12 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
                 blob = db.get(models.Blob, payload.blob_id)
                 return JSONResponse(
                     status_code=200,
-                    content=_folder_file_content_payload(share, payload, blob),
+                    content=_folder_file_content_payload(share, payload, blob, access.role),
                     headers=dict(JSON_SECURITY_HEADERS),
                 )
             return JSONResponse(
                 status_code=200,
-                content=_listing_payload(share, "", payload),
+                content=_listing_payload(share, "", payload, access.role),
                 headers=dict(JSON_SECURITY_HEADERS),
             )
 
@@ -654,7 +715,7 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
         _record_access(db, share, access, request)
         return JSONResponse(
             status_code=200,
-            content=_content_payload(share, blob),
+            content=_content_payload(share, blob, access.role),
             headers=dict(JSON_SECURITY_HEADERS),
         )
 
@@ -686,12 +747,12 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
             blob = db.get(models.Blob, payload.blob_id)
             return JSONResponse(
                 status_code=200,
-                content=_folder_file_content_payload(share, payload, blob),
+                content=_folder_file_content_payload(share, payload, blob, access.role),
                 headers=dict(JSON_SECURITY_HEADERS),
             )
         return JSONResponse(
             status_code=200,
-            content=_listing_payload(share, relpath, payload),
+            content=_listing_payload(share, relpath, payload, access.role),
             headers=dict(JSON_SECURITY_HEADERS),
         )
 

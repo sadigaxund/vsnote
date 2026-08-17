@@ -84,7 +84,10 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "./ContextMenu";
-import { collectDescendantIds } from "../../stores/useFsStore";
+// Pure module, NOT the fs store — this component is also mounted by the
+// /share/ reader route (round 6 item 10), whose chunk must never pull
+// lightning-fs/IndexedDB in. See lib/fileTree.ts.
+import { collectDescendantIds } from "../../lib/fileTree";
 import { STATUS_COLOR } from "../../lib/gitStatusColor";
 import { computeShareIndicator, type ShareIndicatorInput } from "../../share/shareIndicators";
 import { captureDataTransferItems, extractClipboardFiles, flattenCapturedItems, type FlattenedEntry } from "../../fs/importEntries";
@@ -181,6 +184,11 @@ export interface ExplorerTreeProps {
    * disable both — the tree simply won't attach drop/paste handling for
    * external content when there's nothing to hand it to. */
   onImportEntries?: (targetFolderPath: string, entries: FlattenedEntry[]) => void;
+  /** Round 6 item 10 — the share reader's mode: rows render and select
+   * exactly like the app's Explorer, but nothing mutates: no drag & drop,
+   * no OS import/paste, and no context menu at all (every menu action is a
+   * vault mutation or a share-owner action; a share visitor has neither). */
+  readOnly?: boolean;
   className?: string;
 }
 
@@ -205,6 +213,7 @@ export function ExplorerTree({
   onManageShare,
   onRevokeShare,
   onImportEntries,
+  readOnly,
   className,
 }: ExplorerTreeProps) {
   const [dragPath, setDragPath] = useState<string | null>(null);
@@ -243,6 +252,7 @@ export function ExplorerTree({
   }
 
   function handleDragStart(node: FileNode) {
+    if (readOnly) return;
     cancelledRef.current = false;
     setDragPath(node.id);
   }
@@ -256,6 +266,7 @@ export function ExplorerTree({
   }
 
   function handleDragOver(e: DragEvent<HTMLDivElement>, node: FileNode, isFolder: boolean) {
+    if (readOnly) return;
     const external = isExternalFileDrag(e);
     if (!dragPath && !external) return;
     if (dragPath === node.id) return;
@@ -276,6 +287,7 @@ export function ExplorerTree({
   }
 
   function handleDrop(e: DragEvent<HTMLDivElement>) {
+    if (readOnly) return;
     e.preventDefault();
     e.stopPropagation();
     const target = dropTarget;
@@ -335,7 +347,7 @@ export function ExplorerTree({
       role="tree"
       className={className}
       style={{ listStyle: "none", margin: 0, padding: 0 }}
-      onPaste={handlePaste}
+      onPaste={readOnly ? undefined : handlePaste}
     >
       {data.map((node) => (
         <TreeRow
@@ -366,6 +378,7 @@ export function ExplorerTree({
           onDragOverNode={handleDragOver}
           onDropNode={handleDrop}
           onDragEndNode={resetDrag}
+          readOnly={readOnly}
         />
       ))}
     </ul>
@@ -399,6 +412,7 @@ interface TreeRowProps {
   onDragOverNode: (e: DragEvent<HTMLDivElement>, node: FileNode, isFolder: boolean) => void;
   onDropNode: (e: DragEvent<HTMLDivElement>) => void;
   onDragEndNode: () => void;
+  readOnly?: boolean;
 }
 
 function TreeRow({
@@ -428,6 +442,7 @@ function TreeRow({
   onDragOverNode,
   onDropNode,
   onDragEndNode,
+  readOnly,
 }: TreeRowProps) {
   const isFolder = node.type === "folder";
   const [userExpanded, setUserExpanded] = useState(
@@ -550,7 +565,7 @@ function TreeRow({
       data-tree-path={node.id}
       data-tree-kind={node.type}
       tabIndex={0}
-      draggable={depth > 0 && !isRenaming}
+      draggable={!readOnly && depth > 0 && !isRenaming}
       onDragStart={(e) => {
         e.stopPropagation();
         onDragStartNode(node);
@@ -721,6 +736,42 @@ function TreeRow({
     </div>
   );
 
+  // Round 6 item 10 — readOnly rows carry no context menu at all: every
+  // menu action is a vault mutation or a share-owner action, neither of
+  // which exists for a share visitor.
+  if (readOnly) {
+    return (
+      <li role={isFolder ? undefined : "none"} style={{ position: "relative" }}>
+        {row}
+        {isFolder && expanded && node.children && (
+          <ul role="group" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {node.children.map((child) => (
+              <TreeRow
+                key={child.id}
+                node={child}
+                depth={depth + 1}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                expandAll={expandAll}
+                renamingId={renamingId}
+                forceExpandId={forceExpandId}
+                shares={shares}
+                dragPath={dragPath}
+                dropTarget={dropTarget}
+                autoExpandPath={autoExpandPath}
+                onDragStartNode={onDragStartNode}
+                onDragOverNode={onDragOverNode}
+                onDropNode={onDropNode}
+                onDragEndNode={onDragEndNode}
+                readOnly
+              />
+            ))}
+          </ul>
+        )}
+      </li>
+    );
+  }
+
   return (
     <li role={isFolder ? undefined : "none"} style={{ position: "relative" }}>
       <ContextMenu>
@@ -804,6 +855,7 @@ function TreeRow({
               onDragOverNode={onDragOverNode}
               onDropNode={onDropNode}
               onDragEndNode={onDragEndNode}
+              readOnly={readOnly}
             />
           ))}
         </ul>

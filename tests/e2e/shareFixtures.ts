@@ -72,6 +72,12 @@ export const SHARE_BACKEND_BASE_URL = `http://127.0.0.1:${SHARE_BACKEND_PORT}`;
 
 export const DEMO_OWNER_USERNAME = "e2e-owner";
 export const DEMO_OWNER_PASSWORD = "e2e-owner-password-1";
+/** The bootstrap SQL below sets this on the owner row, and
+ * `auth.py`'s `AuthContext.principal` resolves to `user.email or
+ * user.username` — email wins whenever it's set — so any per-principal
+ * share grant meant to match the logged-in owner (round 6 items 11/12)
+ * must target THIS value, not `DEMO_OWNER_USERNAME`. */
+export const DEMO_OWNER_EMAIL = "e2e-owner@example.com";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const SERVER_DIR = path.join(REPO_ROOT, "server");

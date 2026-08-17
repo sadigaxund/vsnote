@@ -216,19 +216,26 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                 </div>
               </ContextMenuTrigger>
               <ContextMenuContent>
-                <ContextMenuItem onSelect={() => onSplitTab?.(tab.path, "left")}>
-                  <ArrowLeft size={13} /> Split left
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={() => onSplitTab?.(tab.path, "right")}>
-                  <ArrowRight size={13} /> Split right
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={() => onSplitTab?.(tab.path, "top")}>
-                  <ArrowUp size={13} /> Split up
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={() => onSplitTab?.(tab.path, "bottom")}>
-                  <ArrowDown size={13} /> Split down
-                </ContextMenuItem>
-                <ContextMenuSeparator />
+                {/* Split actions only exist where a caller can actually
+                    split (the share reader passes no onSplitTab — a menu
+                    of dead items would be worse than no items). */}
+                {onSplitTab && (
+                  <>
+                    <ContextMenuItem onSelect={() => onSplitTab(tab.path, "left")}>
+                      <ArrowLeft size={13} /> Split left
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => onSplitTab(tab.path, "right")}>
+                      <ArrowRight size={13} /> Split right
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => onSplitTab(tab.path, "top")}>
+                      <ArrowUp size={13} /> Split up
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => onSplitTab(tab.path, "bottom")}>
+                      <ArrowDown size={13} /> Split down
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                  </>
+                )}
                 <ContextMenuItem onSelect={() => onClose?.(tab.id)}>Close</ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>

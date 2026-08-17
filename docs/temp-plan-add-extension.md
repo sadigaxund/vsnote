@@ -1,26 +1,3 @@
-Obsidian: Electron (and web tech everywhere)
-
-Obsidian is an Electron app on desktop (Chromium + Node), and on mobile it's Capacitor — a webview wrapper, not native widgets. So Obsidian is web tech top to bottom; there is no native-UI version. That actually validates your plan: a note app built entirely in React/Vite can ship as a PWA, wrap to Electron for desktop, and Capacitor for mobile, with no native rewrite. "Lazy" is the industry standard here.
-
-Two things to know about your pure-browser/PWA target specifically, because they differ from Electron/Node and touch markii's seams:
-
-- Filesystem: a browser can't freely read the user's disk. Your bundle backend would use the File System Access API (Chromium) or OPFS, or just the zip form of .mkbundle via fflate (which @markii/bundle already ships browser-safe). The Node fs adapter (@markii/bundle/fs) is Node-only — that one's for the Electron path.
-- Network + CORS: browser fetch is CORS-gated, so net.fetch_json can hit walls on APIs that don't send CORS headers (GitHub's API happens to be open; many aren't). Electron/Node has no CORS. This is the single biggest reason people eventually wrap in Electron.
-- Terminatable worker: browsers have real Web Workers with terminate(), so you can satisfy the §10 kill-switch in a pure PWA — good news, you're not blocked on Electron for safe auto-runs.
-
-Frontmatter uses: — you're right, there's no step in between
-
-Your two-step model is exactly correct and complete: (1) install the pack → it extends the app's registry, (2) type :::ana-timeline in the note → it renders. uses: is not a step in that chain. I muddied it; let me place it precisely.
-
-- Where it lives: inside each individual .mk.md file, at the very top, between --- fences. It's per-note, part of that one document — not app config, not a global.
-- It is optional and loads nothing. With the pack installed, the component works whether or not uses: is present.
-- What it's actually for: portability across setups. When a note travels to a different app or person who might not have ana installed, uses: [ana] lets the receiving app say "this note declares it needs pack ana, which you don't have" — and maybe offer to install it. Without it, an unknown component just silently renders the fallback box (still fine, never breaks); with it, the app can give a smarter message.
-- Analogy: it's requirements.txt / package.json "dependencies," not an import statement. The code runs without it if the deps happen to be present; declaring them just lets tooling detect what's missing.
-
-So in your own single app, you'd basically never write uses: — you control what's installed. It only earns its keep when notes are shared between different markii setups. Skip it until you care about that.
-
-Prompt for your coding agent
-
 Here's a self-contained brief. It builds the framework-agnostic host layer plus the browser adapter, structured so a future Electron or VS Code port only reimplements the I/O ports.
 
 Build the "host layer" that integrates the markii libraries into our React/Vite
@@ -103,5 +80,3 @@ Deliver: the Port interfaces, the host orchestration, the browser adapter, and a
 minimal wired-up Preview + Run + settings so opening a .mk.md renders and Run
 executes a script end-to-end. Follow our project's DESIGN.md §8 (scripting) and
 §10 (security) if present.
-
-A couple of notes for you (not the agent): the terminatable-worker isolate and the permission-grant UI are exactly the parts markii itself hasn't shipped yet — the playground runs scripts on the main thread, manual-only, precisely because it lacks these. So your agent is building genuinely new host infrastructure here, not re-treading the reference. If any of it turns out clean and reusable, it's a candidate to contribute back as an official adapter later.

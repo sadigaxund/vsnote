@@ -124,6 +124,10 @@ export interface ShareOut {
 
 export interface ShareContentOut {
   slug: string;
+  /** Round 6 items 11/12 — the caller's resolved role ("viewer"|"editor")
+   * for THIS request; the reader page gates its editing UI on it. Every
+   * write is still re-gated server-side. */
+  role?: string | null;
   alias?: string | null;
   source_path: string;
   render_mode: string;
@@ -168,6 +172,8 @@ export interface ShareListingEntryOut {
  * `entries`; file content never does). */
 export interface ShareListingOut {
   slug: string;
+  /** Same as ShareContentOut.role. */
+  role?: string | null;
   alias?: string | null;
   kind: "folder";
   prefix: string;
@@ -419,6 +425,30 @@ export async function getShareFolderPathSameOrigin(
  * non-404 non-200) rethrows so the caller can show a real error distinct
  * from "wrong password".
  */
+/** Round 6 item 12 — editor write-back. `relpath === ""` targets a
+ * single-file share (`PUT /share/{id}`); non-empty targets a file inside a
+ * folder share (`PUT /share/{id}/{relpath}`). Both are policy-gated
+ * server-side (editor role required; every deny is the uniform 404). */
+export async function putShareContent(identifier: string, relpath: string, content: string): Promise<void> {
+  const suffix = relpath
+    ? `/${relpath
+        .split("/")
+        .map((seg) => encodeURIComponent(seg))
+        .join("/")}`
+    : "";
+  const res = await fetch(`/share/${encodeURIComponent(identifier)}${suffix}`, {
+    method: "PUT",
+    credentials: "include",
+    // Accept declared because the response IS JSON ({ok, blob_id, ...}) —
+    // and the dev proxy's navigation heuristic keys on it (vite.config.ts).
+    headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" },
+    body: content,
+  });
+  if (!res.ok) {
+    throw new ShareApiError(res.status, `Save failed (HTTP ${res.status}).`);
+  }
+}
+
 export async function postShareAuth(identifier: string, password: string): Promise<boolean> {
   const res = await fetch(`/share/${encodeURIComponent(identifier)}/auth`, {
     method: "POST",

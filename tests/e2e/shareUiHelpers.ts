@@ -30,6 +30,11 @@ export interface PublishOptions {
   renderMode?: "raw" | "rendered";
   password?: string;
   alias?: string;
+  /** Round 6 items 11/12 — a single per-principal role grant, driven
+   * through the dialog's "Roles" row (the switch + principal input + role
+   * select, none of which carry their own testid — see `PublishDialog.tsx`,
+   * targeted here by accessible name/role instead). */
+  grant?: { principal: string; role: "viewer" | "editor" };
 }
 
 /** Right-click → "Publish…" on a file row, fill the dialog, submit, and
@@ -58,6 +63,22 @@ export async function publishFileViaContextMenu(page: Page, opts: PublishOptions
   }
   if (opts.alias) {
     await dialog.getByTestId("publish-alias").fill(opts.alias);
+  }
+  if (opts.grant) {
+    await dialog.getByLabel("Add a per-principal role").click();
+    const principalInput = dialog.getByLabel("Principal", { exact: true });
+    await principalInput.fill(opts.grant.principal);
+    if (opts.grant.role === "editor") {
+      // The role <Select>'s trigger carries neither a testid nor an
+      // aria-label/aria-labelledby, and ARIA's "name from content" rule
+      // doesn't apply to role="combobox" — so `getByRole(..., { name })`
+      // can never match it by its visible "Viewer" text. Scope to the
+      // Roles row (the principal input's own parent) instead, where it's
+      // the only combobox.
+      const rolesRow = principalInput.locator("xpath=..");
+      await rolesRow.locator('[role="combobox"]').click();
+      await page.getByRole("option", { name: "Editor" }).click();
+    }
   }
 
   await dialog.getByTestId("publish-submit").click();

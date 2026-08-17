@@ -167,6 +167,10 @@ class ShareContentOut(BaseModel):
     client. See server/README.md's "Rendered share contract" section."""
 
     slug: str
+    # Round 6 items 11/12 — the CALLER's resolved role for this request
+    # ("viewer" | "editor"), so the reader page knows whether to offer
+    # editing. Purely informational: every write is re-gated server-side.
+    role: Optional[str] = None
     alias: Optional[str] = None
     source_path: str
     render_mode: str
@@ -206,6 +210,8 @@ class ShareListingOut(BaseModel):
     casing", "must not inline user content into HTML server-side")."""
 
     slug: str
+    # Same as ShareContentOut.role — the caller's resolved role.
+    role: Optional[str] = None
     alias: Optional[str] = None
     kind: Literal["folder"] = "folder"
     prefix: str

@@ -32,7 +32,7 @@ import {
 // no change to that file.
 import { useSettingsStore } from "./useSettingsStore";
 import { resolveVaultDisplayLabel } from "../lib/vaultLabel";
-import type { FileKind, FileNode } from "../types";
+import type { FileNode } from "../types";
 
 /**
  * Deliberate, non-alphabetical sibling order matching DESIGN-SPEC §3 /
@@ -63,43 +63,14 @@ const CANONICAL_ORDER = [
   "vault/src/legacy-parser.ts",
   "vault/assets/cover.png",
 ];
-const ORDER_INDEX = new Map(CANONICAL_ORDER.map((p, i) => [p, i]));
+// `inferFileKind`/`collectDescendantIds` moved to `lib/fileTree.ts`
+// (round 6 item 10 — the share reader reuses ExplorerTree, which must
+// not pull this store/lightning-fs into the /share/ chunk); re-exported
+// here so existing import sites keep working.
+export { collectDescendantIds, inferFileKind } from "../lib/fileTree";
+import { collectDescendantIds, inferFileKind } from "../lib/fileTree";
 
-export function inferFileKind(name: string): FileKind {
-  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
-  switch (ext) {
-    case "md":
-      return "md";
-    case "ts":
-      return "ts";
-    case "tsx":
-      return "tsx";
-    case "js":
-    case "mjs":
-    case "cjs":
-      return "js";
-    case "jsx":
-      return "jsx";
-    case "json":
-      return "json";
-    case "css":
-      return "css";
-    case "html":
-    case "htm":
-      return "html";
-    case "csv":
-      return "csv";
-    case "png":
-    case "jpg":
-    case "jpeg":
-    case "gif":
-    case "svg":
-    case "webp":
-      return "image";
-    default:
-      return "unknown";
-  }
-}
+const ORDER_INDEX = new Map(CANONICAL_ORDER.map((p, i) => [p, i]));
 
 /** Folders that start collapsed, matching app-preview.png (DESIGN-SPEC §3:
  * "vault/assets/ (collapsed; contains cover.png)") — every other folder
@@ -135,17 +106,6 @@ export function sortChildren(nodes: FileNode[]): void {
   });
 }
 
-/** Finds every id in the tree under (and including) `rootId`. */
-export function collectDescendantIds(nodes: FileNode[], rootId: string): Set<string> {
-  const ids = new Set<string>();
-  function visit(node: FileNode, inside: boolean) {
-    const nowInside = inside || node.id === rootId;
-    if (nowInside) ids.add(node.id);
-    node.children?.forEach((c) => visit(c, nowInside));
-  }
-  nodes.forEach((n) => visit(n, false));
-  return ids;
-}
 
 interface FsStoreState {
   tree: FileNode[];

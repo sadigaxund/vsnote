@@ -1,109 +1,74 @@
 /**
- * ShareApp — the standalone `/share/<slug>[/<relpath>]` route (rendered-mode
- * file shares, extended Phase 10.5 to folder shares — roadmap §5.1).
- * Mounted directly by `main.tsx` INSTEAD of `App.tsx` when
- * `window.location.pathname` starts with `/share/` — see that file's
- * routing doc for why this is a second, separate render root rather than a
- * branch inside the normal shell.
+ * ShareApp — the `/share/<slug>[/<relpath>]` reader, rebuilt for round 6
+ * item 10 to REUSE the main shell's own components instead of the old
+ * divergent slim page: the local `TitleBar` shell, `ExplorerTree` (in its
+ * `readOnly` mode), `EditorTabBar`, and `EditorHeader`'s breadcrumb + mode
+ * cluster, all on the app's normal theme tokens (the old page forced a
+ * white canvas under dark-theme selection colors — the root cause of the
+ * reported "viewer mode selection" breakage, item 13: selecting text
+ * painted dark-on-dark selection rectangles onto a white background,
+ * i.e. invisibly). What is deliberately ABSENT: the activity bar, status
+ * bar, command palette, settings, git, sharing controls — a visitor gets
+ * reading (and, with the editor role, editing) chrome only.
  *
- * Hard requirements this file exists to satisfy (`docs/IMPLEMENTATION-PLAN-V2.md`
- * Phase 10/10.5 + `docs/ROADMAP-SHARING-AUTH.md` §1/§5.1's security posture):
+ * Hard requirements carried over from the previous implementation
+ * (`docs/ROADMAP-SHARING-AUTH.md` §1/§5.1 — still binding):
  *
- * 1. **No shell chrome** — no activity bar, sidebar, tab bar, status bar.
- *    Just the rendered content, fullscreen (a folder share additionally
- *    gets its own slim tree pane — see `FolderShareView` below — but that
- *    is NOT the app's real Explorer, it's local to this route).
- * 2. **No vault access whatsoever.** This file imports NOTHING from `fs/`,
- *    `git/`, `stores/useFsStore`, `stores/useBufferStore`,
- *    `stores/useTabsStore`, `stores/useGitStore`, OR EVEN
- *    `stores/useSettingsStore` — grep confirms it, and that's the actual
- *    guarantee (not a comment promising one). It only ever calls
- *    `share/api.ts`'s `getShareFolderPathSameOrigin`/`postShareAuth`, both
- *    RELATIVE-url `fetch()` calls with no `baseUrl` parameter at all (see
- *    `api.ts`'s doc for why — a real cookie-scoping bug, not a style
- *    choice) — nothing here touches `localStorage` or IndexedDB.
- *    `main.tsx`'s routing split means the modules that DO touch IndexedDB
- *    (`fs/seed.ts`'s `ensureSeeded`, every zustand store under
- *    `stores/use{Fs,Buffer,Tabs,Git}Store.ts`) are never even imported on
- *    this code path — not just unused, structurally absent from this
- *    route's JS chunk (confirmed in this phase's manual verification: see
- *    the final report's network-tab check).
- * 3. **The no-existence-oracle contract** (`server/README.md`'s "Every deny
- *    reason is the SAME 404" section — read that before touching this
- *    file): every 404 from `GET /share/{id}` (JSON), for ANY reason
- *    (malformed slug, revoked, expired, restricted, password-required-but-
- *    no-session, wrong role), renders the exact same generic state. This
- *    component NEVER inspects `err.message`/any response body detail to
- *    decide what to show — only `err.status === 404` vs. anything else
- *    (a genuine network/reachability failure, a different class of problem
- *    with no oracle risk, gets its own distinct "can't reach the server"
- *    state — see `load()` below).
- * 4. **Rendered-mode sandbox** (roadmap §1's security bullet, Phase 10's to
- *    build): HTML content renders ONLY inside `renderers/HtmlPreview.tsx`'s
- *    existing `sandbox=""` `srcDoc` iframe (already built in Phase 4 for
- *    the local `.html` Rendered mode — reused verbatim here, not
- *    reimplemented). Markdown content renders through
- *    `editor/LivePreviewEditor.tsx`, the app's REAL markdown pipeline,
- *    read-only — see that component's module doc + `editor/livepreview/
- *    widgets.ts` for why raw HTML embedded in markdown source can never
- *    become live DOM there (no `HTMLBlock`/`HTMLTag` widget exists; CM6
- *    only ever creates plain-text-content `<input>`/`<span>` widgets for
- *    checkboxes and links). A `render_mode: "raw"` share reached here
- *    (shouldn't normally happen — raw links point at the backend's own
- *    origin, never through this app, see `share/shareLinks.ts`) falls back
- *    to an inert `<pre>` text block rather than guessing at markdown/HTML
- *    intent.
+ * 1. **No VAULT access.** This route's chunk never imports `fs/`, `git/`,
+ *    `stores/useFsStore`, `stores/useBufferStore`, `stores/useTabsStore`,
+ *    or `stores/useGitStore` — nothing that opens the vault's IndexedDB.
+ *    `ExplorerTree`'s pure helpers were extracted to `lib/fileTree.ts` for
+ *    exactly this reason. (Round 6 relaxation, deliberate: reusing shell
+ *    components means `useSettingsStore` — plain localStorage settings —
+ *    may now load here; `main.tsx`'s `applyDomSettings` already themed
+ *    this route from that same store before this change. Settings are the
+ *    visitor's own browser state, not the vault.)
+ * 2. **The no-existence-oracle contract** (`server/README.md`): every deny
+ *    is the same generic state, keyed ONLY off `err.status === 404` —
+ *    never off a response detail. Unreachable (non-404) gets its own
+ *    distinct state.
+ * 3. **Rendered-mode sandbox**: HTML renders only inside
+ *    `renderers/HtmlPreview.tsx`'s `sandbox=""` iframe; markdown through
+ *    the real live-preview pipeline (no raw-HTML widget exists there).
  *
- * CLAUDE.md rule 1 compliance: the password field/submit control and the
- * two error-state treatments are `my-you-eye`'s `Input`/`Button`/`Alert`/
- * `EmptyState`, styled purely by variant props + the app's root theme
- * tokens (rule 12 of `skills/SKILL.md` — "trust the theme," no hardcoded
- * colors on these), same composition pattern as `PublishDialog.tsx`/
- * `SharedPanel.tsx`. `ShareShell` (the full-viewport centered layout
- * wrapper below) stays a local, hand-rolled `<div>` — it's page-level
- * layout scaffolding (height/width/flex-centering/padding), not a
- * button/input/select/table/tree/menu/dialog the catalog has an
- * equivalent for (no "PageShell"/bare-heading primitive fits a chrome-free
- * centered auth screen; `PageShell` is for a titled page with actions,
- * over-elaborate here). Its `background: "#0e1015"` is a literal hex
- * rather than a `--color-*` token, matching the app's default ("dark")
- * theme value at the time of writing — a deliberate, narrow exception
- * (not itself a catalog-component violation) so this page's base canvas
- * doesn't shift if a *different* browser tab's Settings dialog changes the
- * persisted theme (`main.tsx`'s `applyDomSettings` runs unconditionally
- * before the route split, so it does reach `<html>` here too); the
- * foreground `my-you-eye` components layered on top still follow theme
- * tokens normally.
+ * Roles (items 11/12): the JSON payloads carry the caller's resolved
+ * `role`. A viewer gets selectable text and a Rendered/Source toggle,
+ * everything read-only. An editor edits through the SAME live-preview /
+ * source editors the app uses; ⌘S or the Save button PUTs the content
+ * back (`share/api.ts::putShareContent`), which the server re-gates and
+ * lands both on the share's blob and, best-effort, as a commit in the
+ * owner's bare sync repo (`server/app/vaultcommit.py`).
  */
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ChevronRight, File, Folder, Lock } from "lucide-react";
-// `my-you-eye` UI primitives (CLAUDE.md rule 1) — pure React/Tailwind, no
-// app-state imports, so pulling these in doesn't touch this route's
-// isolation guarantee (see this file's module doc, point 2): confirmed by
-// grepping the built `/share/` chunk for `useFsStore`/`useBufferStore`/
-// `useTabsStore`/`useGitStore`/`seed.ts` after this change (still absent).
+import { AlertTriangle, Layout, Loader2, Lock } from "lucide-react";
 import { Alert, Button, EmptyState, Input } from "my-you-eye";
+import { TitleBar as TitleBarShell } from "../components/local/TitleBar";
+import { ExplorerTree } from "../components/local/ExplorerTree";
+import { EditorTabBar } from "../components/local/EditorTabBar";
+import { SegmentedControl } from "../components/local/SegmentedControl";
+import { Eye, FileCode } from "lucide-react";
 import { HtmlPreview } from "../renderers/HtmlPreview";
 import { LivePreviewEditor } from "../editor/LivePreviewEditor";
+import { CodeMirrorEditor } from "../editor/CodeMirrorEditor";
+import { fileTypeForOrPlain } from "../filetypes/registry";
+import { inferFileKind } from "../lib/fileTree";
 import {
   getShareFolderPathSameOrigin,
   postShareAuth,
+  putShareContent,
   ShareApiError,
   type ShareContentOut,
-  type ShareListingEntryOut,
   type ShareListingOut,
 } from "./api";
+import type { EditorMode, FileNode, TabItem } from "../types";
 
 export interface ShareAppProps {
   /** The `<slug>` (or custom alias) segment of `/share/<slug>` — parsed by
-   * `main.tsx` from `window.location.pathname`, never trusted beyond being
-   * passed straight through to `getShareFolderPathSameOrigin`/`postShareAuth`
-   * (both `encodeURIComponent` it before building a URL — see `api.ts`). */
+   * `main.tsx`, never trusted beyond being passed to the (encoding) api
+   * helpers. */
   identifier: string;
-  /** Phase 10.5 (folder shares, roadmap §5.1) — the `<relpath...>` segment
-   * of `/share/<slug>/<relpath>`, already percent-decoded by `main.tsx`.
-   * `""` for a plain `/share/<slug>` link (the overwhelmingly common case:
-   * every single-file share, and a folder share's bare root link). */
+  /** The `<relpath...>` segment for folder-share deep links; `""` for a
+   * plain `/share/<slug>` link. */
   initialRelpath?: string;
 }
 
@@ -113,76 +78,105 @@ function isListing(data: ShareListingOut | ShareContentOut): data is ShareListin
   return "entries" in data;
 }
 
-function parentRelpath(relpath: string): string {
-  const idx = relpath.lastIndexOf("/");
-  return idx === -1 ? "" : relpath.slice(0, idx);
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1) || path;
 }
 
-function fileExtension(path: string): string {
-  const dot = path.lastIndexOf(".");
-  return dot === -1 ? "" : path.slice(dot + 1).toLowerCase();
+/** Recursively expands `dir` entries into a full `FileNode[]` for
+ * `ExplorerTree` — one listing fetch per directory, depth-first. Folder
+ * shares are manifest-bounded, so this stays small; a fetch failure for a
+ * subdirectory degrades to an empty folder rather than failing the page. */
+async function buildShareTree(identifier: string, prefix: string): Promise<FileNode[]> {
+  const data = await getShareFolderPathSameOrigin(identifier, prefix);
+  if (!isListing(data)) return [];
+  const nodes: FileNode[] = [];
+  for (const entry of data.entries) {
+    if (entry.kind === "dir") {
+      const children = await buildShareTree(identifier, entry.relpath).catch(() => []);
+      nodes.push({
+        id: entry.relpath,
+        name: entry.name,
+        kind: "folder",
+        path: entry.relpath,
+        type: "folder",
+        children,
+        defaultExpanded: true,
+      });
+    } else {
+      nodes.push({
+        id: entry.relpath,
+        name: entry.name,
+        kind: inferFileKind(entry.name),
+        path: entry.relpath,
+        type: "file",
+      });
+    }
+  }
+  return nodes;
+}
+
+interface OpenShareTab extends TabItem {
+  relpath: string;
 }
 
 export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
   const [state, setState] = useState<LoadState>("loading");
-  // `content` is the currently-displayed FILE (single-file share's only
-  // content, or a folder share's currently-selected file) — unchanged
-  // shape/role from before this phase. `dir` is Phase 10.5-only: the
-  // folder share's CURRENT directory listing (the "tree" pane), null for a
-  // plain single-file share (see `load()`'s doc below for how that's
-  // determined without a dedicated "is this a folder share" field).
-  const [content, setContent] = useState<ShareContentOut | null>(null);
-  const [dir, setDir] = useState<ShareListingOut | null>(null);
-  const [currentRelpath, setCurrentRelpath] = useState(initialRelpath);
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // null = single-file share (no tree pane at all); [] = folder share whose
+  // tree is still loading or empty.
+  const [tree, setTree] = useState<FileNode[] | null>(null);
+  const [isFolderShare, setIsFolderShare] = useState(false);
+  const [role, setRole] = useState<string>("viewer");
+  const [shareLabel, setShareLabel] = useState("");
+
+  const [tabs, setTabs] = useState<OpenShareTab[]>([]);
+  const [activeRelpath, setActiveRelpath] = useState<string | null>(null);
+  // relpath -> server content (immutably updated Map so render reads are
+  // plain state); separate draft map for editor-role edits.
+  const [contents, setContents] = useState<ReadonlyMap<string, ShareContentOut>>(() => new Map());
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [modes, setModes] = useState<Record<string, EditorMode>>({});
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+
+  const openFileTab = useCallback((relpath: string, content: ShareContentOut) => {
+    setContents((prev) => new Map(prev).set(relpath, content));
+    const name = baseName(content.source_path);
+    setTabs((prev) =>
+      prev.some((t) => t.relpath === relpath)
+        ? prev
+        : [...prev, { id: relpath, path: relpath, name, kind: inferFileKind(name), relpath }],
+    );
+    setActiveRelpath(relpath);
+  }, []);
 
   const load = useCallback(
     async (relpath: string) => {
       setState("loading");
-      setCurrentRelpath(relpath);
       try {
         const data = await getShareFolderPathSameOrigin(identifier, relpath);
+        if (data.role) setRole(data.role);
         if (isListing(data)) {
-          // A directory (root or a subdirectory) — show the tree, clear
-          // any previously-selected file (roadmap §5.1: "folder URLs show
-          // a plain file listing", no README auto-selection).
-          setDir(data);
-          setContent(null);
-          setState("content");
+          setIsFolderShare(true);
+          setShareLabel(data.alias ?? data.slug);
+          setTree(await buildShareTree(identifier, "").catch(() => []));
         } else {
-          setContent(data);
-          // A non-empty relpath ONLY ever occurs for a folder-share deep
-          // link (`share/shareLinks.ts`'s `buildShareLink` never appends
-          // one for a file share) — so reaching this branch with
-          // `relpath !== ""` means we're inside a folder share's subtree,
-          // and fetching the parent directory populates the tree pane.
-          // `relpath === ""` returning a FILE (not a listing) means this
-          // is unambiguously a plain single-file share — the server's
-          // folder-root route ALWAYS returns a listing for a real folder
-          // share (see `server/app/routers/share_public.py`'s `get_share`),
-          // never a specific file's content. Kept tree-less in that case,
-          // preserving the exact pre-Phase-10.5 single-file UI/DOM shape
-          // every existing `tests/e2e/share-*.spec.ts` asserts against.
-          if (relpath !== "") {
-            try {
-              const parentListing = await getShareFolderPathSameOrigin(identifier, parentRelpath(relpath));
-              if (isListing(parentListing)) setDir(parentListing);
-            } catch {
-              // Parent listing unavailable — still show the file; tree
-              // pane just stays whatever it was (or absent).
-            }
-          } else {
-            setDir(null);
+          setShareLabel((prev) => prev || baseName(data.source_path));
+          if (relpath !== "") setIsFolderShare(true);
+          if (relpath !== "" && tree === null) {
+            // Deep link into a folder share — the tree pane still needs
+            // the full listing.
+            setTree(await buildShareTree(identifier, "").catch(() => []));
           }
-          setState("content");
+          openFileTab(relpath, data);
         }
+        setState("content");
         const suffix = relpath ? `/${relpath}` : "";
         window.history.replaceState(null, "", `/share/${encodeURIComponent(identifier)}${suffix}`);
       } catch (err) {
-        // The ONLY branch this component is allowed to take on the error —
-        // "was it a 404" vs. "did the request not even complete" — never
-        // anything more specific than that. See this file's module doc.
+        // The ONLY branch allowed on error: 404 vs. didn't-complete. See
+        // the module doc (no-existence-oracle contract).
         if (err instanceof ShareApiError && err.status === 404) {
           setState("unavailable");
         } else {
@@ -190,32 +184,14 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
         }
       }
     },
-    [identifier],
+    [identifier, openFileTab, tree],
   );
 
-  // This IS the textbook case `useEffect` exists for — fetch on mount /
-  // prop change, exactly per the React docs' own "Fetching data" example.
-  // `react-hooks/set-state-in-effect` flags it anyway because `load`'s
-  // FIRST statement is a synchronous `setState("loading")` (deliberate: the
-  // loading state must appear immediately, not only after the `fetch`
-  // microtask resolves) — the lint rule's static analysis sees through the
-  // `useCallback` wrapper and treats that as "setState synchronously within
-  // an effect." `SettingsView.tsx`'s persistence-status check dodges the
-  // same rule with a `useMemo` "run once" trick, but that only works
-  // because ITS setState call is inside a real `.then()` continuation
-  // (async, not synchronous at call time) — `load`'s immediate
-  // `setState("loading")` runs synchronously the instant it's called, so
-  // the same trick just moves the violation into `useMemo` instead (tried;
-  // still flagged, for the correct reason this time). Suppressed with a
-  // justification rather than restructured further: deferring the
-  // "loading" state behind a microtask purely to satisfy this lint rule
-  // would be a worse tradeoff (a needless extra render before "Loading..."
-  // even appears, for zero user-visible benefit).
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above: the synchronous `setState("loading")` is intentional, not a leaked side effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the synchronous setState("loading") inside load() is intentional (immediate loading state), same reasoning as the pre-rebuild implementation.
     void load(initialRelpath);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `initialRelpath` is a fixed boot-time prop (this component is mounted once by `main.tsx`, never remounted with a different value); re-running on every `load` identity change (which itself only changes if `identifier` changes) is the intended behavior, same as before this phase.
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-time fetch: `initialRelpath` is fixed and `load`'s only meaningful dependency is `identifier`.
+  }, [identifier]);
 
   async function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -224,11 +200,10 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
       const ok = await postShareAuth(identifier, password);
       if (ok) {
         setPassword("");
-        await load(currentRelpath);
+        await load(initialRelpath);
       } else {
-        // Wrong password, non-password share, dead share, or nonexistent
-        // slug — all indistinguishable, all the SAME generic state. Never
-        // a "wrong password" message (see server/README.md).
+        // Wrong password, dead share, nonexistent slug — indistinguishable
+        // by design; the SAME generic state, never a "wrong password".
         setState("unavailable");
       }
     } catch {
@@ -238,10 +213,78 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
     }
   }
 
+  const activeContent = activeRelpath !== null ? (contents.get(activeRelpath) ?? null) : null;
+  const activeName = activeContent ? baseName(activeContent.source_path) : "";
+  const activeKind = activeContent ? inferFileKind(activeName) : undefined;
+  const canRender = activeKind === "md" || activeKind === "html";
+  const activeMode: EditorMode =
+    (activeRelpath !== null ? modes[activeRelpath] : undefined) ?? (canRender ? "rendered" : "source");
+  const isEditor = role === "editor";
+  const activeDraft = activeRelpath !== null ? drafts[activeRelpath] : undefined;
+  const activeDirty = activeDraft !== undefined && activeDraft !== activeContent?.content;
+
+  const handleSelectTreeNode = useCallback(
+    (node: FileNode) => {
+      if (node.type !== "file") return;
+      const cached = contents.get(node.path);
+      if (cached) {
+        setActiveRelpath(node.path);
+        window.history.replaceState(null, "", `/share/${encodeURIComponent(identifier)}/${node.path}`);
+        return;
+      }
+      void getShareFolderPathSameOrigin(identifier, node.path)
+        .then((data) => {
+          if (!isListing(data)) {
+            if (data.role) setRole(data.role);
+            openFileTab(node.path, data);
+            window.history.replaceState(null, "", `/share/${encodeURIComponent(identifier)}/${node.path}`);
+          }
+        })
+        .catch(() => {
+          // Row vanished server-side (revoked/republished mid-visit) —
+          // leave the current view; a reload lands on the uniform state.
+        });
+    },
+    [identifier, openFileTab, contents],
+  );
+
+  const handleSave = useCallback(async () => {
+    if (!isEditor || activeRelpath === null || !activeDirty || activeDraft === undefined) return;
+    setSaveState("saving");
+    try {
+      await putShareContent(identifier, isFolderShare ? activeRelpath : "", activeDraft);
+      setContents((prev) => {
+        const existing = prev.get(activeRelpath);
+        return existing ? new Map(prev).set(activeRelpath, { ...existing, content: activeDraft }) : prev;
+      });
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[activeRelpath];
+        return next;
+      });
+      setSaveState("saved");
+    } catch {
+      setSaveState("failed");
+    }
+  }, [isEditor, activeRelpath, activeDirty, activeDraft, identifier, isFolderShare]);
+
+  // ⌘S saves for the editor role (and never triggers the browser's own
+  // save dialog for viewers either).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void handleSave();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleSave]);
+
   if (state === "loading") {
     return (
       <ShareShell>
-        <p style={{ color: "var(--color-muted, #8a8f98)" }}>Loading…</p>
+        <p style={{ color: "var(--color-muted)" }}>Loading…</p>
       </ShareShell>
     );
   }
@@ -256,18 +299,14 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
     );
   }
 
-  if (state === "unavailable" || (!content && !dir)) {
+  if (state === "unavailable" || (tabs.length === 0 && !isFolderShare)) {
     return (
       <ShareShell>
-        {/* No `description`/`action` prop here — `data-testid` lands on
-            EmptyState's root, and the password form is rendered as a
-            SIBLING below rather than passed through `action`, so this
-            testid's `textContent()` is exactly the title string (icon is
-            an aria-hidden SVG, contributes none) and stays stable whether
-            or not the form below is mid-submit — the e2e assertion in
-            `tests/e2e/share-password.spec.ts` diffs this exact text across
-            a wrong-password resubmit and requires it to be byte-identical
-            (server/README.md's "same 404" contract). */}
+        {/* The password form is a SIBLING of the EmptyState (not its
+            `action`) so this testid's textContent is exactly the title
+            string — `share-password.spec.ts` requires it byte-identical
+            across a wrong-password resubmit (server/README.md's "same
+            404" contract). */}
         <EmptyState icon={<Lock size={28} aria-hidden />} title="This link is unavailable, or it requires a password." data-testid="share-unavailable-title" />
         <form onSubmit={(e) => void handlePasswordSubmit(e)} style={{ display: "flex", gap: 8 }} data-testid="share-password-form">
           <Input
@@ -287,113 +326,130 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
     );
   }
 
-  // Phase 10.5 — `dir` set means this is a folder share: render the slim
-  // tree-left/content-right reader (roadmap §5.1). `dir` unset means the
-  // exact pre-Phase-10.5 single-file layout, byte-for-byte (no tree pane
-  // at all) — see `load()`'s doc for why that distinction is reliable.
-  if (dir) {
-    return (
-      <FolderShareView
-        dir={dir}
-        content={content}
-        onNavigate={(relpath) => void load(relpath)}
+  return (
+    <div style={{ height: "100vh", width: "100vw", display: "flex", flexDirection: "column", background: "var(--app-chrome-bg)", color: "var(--color-fg)" }}>
+      <TitleBarShell
+        glyph={
+          <span
+            aria-hidden
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 5,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "linear-gradient(135deg, var(--color-primary), color-mix(in oklab, var(--color-primary) 55%, #7c6cf0))",
+              color: "var(--color-primary-fg)",
+            }}
+          >
+            <Layout size={12} strokeWidth={2.5} />
+          </span>
+        }
+        title="VSNote"
+        subtitle={shareLabel ? `/ ${shareLabel}` : undefined}
+        actions={
+          <span style={{ fontSize: 11.5, color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }} data-testid="share-role-badge">
+            {isEditor ? "Shared with you, can edit" : "Shared with you"}
+          </span>
+        }
       />
-    );
-  }
-
-  return <FileContentPane content={content!} />;
-}
-
-/** The exact pre-Phase-10.5 single-file content pane, extracted verbatim
- * so `FolderShareView` below can reuse it for the right-hand content panel
- * without duplicating the render-mode/HTML/markdown branching. */
-function FileContentPane({ content }: { content: ShareContentOut }) {
-  const ext = fileExtension(content.source_path);
-  const isHtml = ext === "html" || ext === "htm";
-
-  return (
-    <div style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column", background: "#ffffff" }}>
-      {content.render_mode !== "rendered" ? (
-        // Defensive fallback only — raw-mode links point at the backend's
-        // own origin and should never actually reach this component. Inert
-        // plain text (React-escaped, no dangerouslySetInnerHTML) either way.
-        <pre style={{ flex: 1, margin: 0, padding: 24, overflow: "auto", fontFamily: "monospace", fontSize: 13, color: "#111", whiteSpace: "pre-wrap" }}>
-          {content.content_encoding === "base64" ? "(binary content)" : content.content}
-        </pre>
-      ) : isHtml ? (
-        <HtmlPreview content={content.content_encoding === "base64" ? "" : content.content} />
-      ) : (
-        <LivePreviewEditor paneId="share" path={content.source_path} content={content.content_encoding === "base64" ? "" : content.content} readOnly />
-      )}
-    </div>
-  );
-}
-
-/**
- * Phase 10.5 — the folder share reader (roadmap §5.1: "slim, tree +
- * content, no README logic"). Left: the CURRENT directory's listing
- * (files + subdirectories, computed server-side purely from the share's
- * manifest — see `server/app/routers/share_public.py`); clicking a
- * subdirectory or a file re-fetches via `onNavigate` (which calls
- * `load()`), replacing the tree/content as appropriate. No multi-level
- * expand-in-place tree, no README auto-selection, no shell chrome — one
- * level of listing at a time, exactly what the manifest resolution
- * endpoint hands back.
- */
-function FolderShareView({
-  dir,
-  content,
-  onNavigate,
-}: {
-  dir: ShareListingOut;
-  content: ShareContentOut | null;
-  onNavigate: (relpath: string) => void;
-}) {
-  return (
-    <div style={{ height: "100vh", width: "100vw", display: "flex", flexDirection: "column", background: "#ffffff" }}>
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <aside
-          data-testid="share-folder-tree"
-          style={{
-            width: 240,
-            flexShrink: 0,
-            borderRight: "1px solid #e2e2e2",
-            overflow: "auto",
-            background: "#fafafa",
-          }}
-        >
-          <div style={{ padding: "10px 12px", fontSize: 11, fontFamily: "monospace", color: "#888", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            /{dir.prefix}
-          </div>
-          {dir.prefix !== "" && (
-            <FolderTreeRow
-              icon={<ChevronRight size={13} style={{ transform: "rotate(180deg)" }} aria-hidden />}
-              label=".."
-              onClick={() => onNavigate(parentRelpath(dir.prefix))}
-              testId="share-folder-up"
-            />
-          )}
-          {dir.entries.length === 0 ? (
-            <p style={{ padding: "8px 12px", fontSize: 12.5, color: "#888" }}>This folder is empty.</p>
+        {isFolderShare && (
+          <aside
+            data-testid="share-folder-tree"
+            style={{
+              width: 240,
+              flexShrink: 0,
+              borderRight: "1px solid var(--app-chrome-border)",
+              overflow: "auto",
+              background: "var(--app-chrome-bg)",
+              paddingTop: 6,
+            }}
+          >
+            <ExplorerTree readOnly data={tree ?? []} selectedId={activeRelpath ?? undefined} onSelect={handleSelectTreeNode} />
+          </aside>
+        )}
+        <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--app-editor-bg)" }} data-testid="share-folder-content">
+          <EditorTabBar
+            paneId="share"
+            tabs={tabs}
+            activeId={activeRelpath ?? undefined}
+            onSelect={(id) => setActiveRelpath(id)}
+            onClose={(id) => {
+              setTabs((prev) => {
+                const next = prev.filter((t) => t.id !== id);
+                if (activeRelpath === id) setActiveRelpath(next.length > 0 ? next[next.length - 1].relpath : null);
+                return next;
+              });
+            }}
+          />
+          {activeContent ? (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  height: "var(--app-chrome-paneheader-h)",
+                  padding: "0 12px",
+                  borderBottom: "1px solid var(--app-chrome-border)",
+                  flexShrink: 0,
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--color-muted)" }}>
+                  {activeContent.source_path}
+                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {isEditor && (
+                    <>
+                      {saveState === "failed" && (
+                        <span style={{ fontSize: 12, color: "var(--git-deleted)" }} data-testid="share-save-error">
+                          Save failed. Try again.
+                        </span>
+                      )}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={activeDirty ? "primary" : "secondary"}
+                        disabled={!activeDirty || saveState === "saving"}
+                        onClick={() => void handleSave()}
+                        data-testid="share-save"
+                      >
+                        {saveState === "saving" ? <Loader2 size={13} className="animate-spin" /> : activeDirty ? "Save" : saveState === "saved" ? "Saved" : "Save"}
+                      </Button>
+                    </>
+                  )}
+                  <SegmentedControl
+                    size="xs"
+                    value={activeMode}
+                    onChange={(m: EditorMode) => activeRelpath !== null && setModes((prev) => ({ ...prev, [activeRelpath]: m }))}
+                    options={[
+                      { value: "rendered", label: "Rendered", icon: <Eye size={11} />, disabled: !canRender },
+                      { value: "source", label: "Source", icon: <FileCode size={11} /> },
+                    ]}
+                  />
+                </div>
+              </div>
+              <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
+                <ShareFileView
+                  key={activeRelpath}
+                  content={activeContent}
+                  draft={activeDraft}
+                  mode={activeMode}
+                  kind={activeKind}
+                  editable={isEditor}
+                  onChange={(value) => {
+                    if (activeRelpath === null) return;
+                    setSaveState("idle");
+                    setDrafts((prev) => ({ ...prev, [activeRelpath]: value }));
+                  }}
+                />
+              </div>
+            </>
           ) : (
-            dir.entries.map((entry: ShareListingEntryOut) => (
-              <FolderTreeRow
-                key={entry.relpath}
-                icon={entry.kind === "dir" ? <Folder size={13} aria-hidden /> : <File size={13} aria-hidden />}
-                label={entry.name}
-                active={content?.source_path === entry.relpath}
-                onClick={() => onNavigate(entry.relpath)}
-                testId={`share-folder-entry-${entry.relpath}`}
-              />
-            ))
-          )}
-        </aside>
-        <main style={{ flex: 1, minWidth: 0, overflow: "auto" }} data-testid="share-folder-content">
-          {content ? (
-            <FileContentPane content={content} />
-          ) : (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <EmptyState icon={<Folder size={28} aria-hidden />} title="Select a file" description="Choose a file from the list on the left." />
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <EmptyState title="Select a file" description="Choose a file from the tree." />
             </div>
           )}
         </main>
@@ -402,42 +458,49 @@ function FolderShareView({
   );
 }
 
-function FolderTreeRow({
-  icon,
-  label,
-  active,
-  onClick,
-  testId,
+/** The content pane: the app's REAL editors/renderers, keyed by mode/kind.
+ * Sandbox note (module doc point 3): HTML only ever renders inside
+ * HtmlPreview's sandboxed iframe; markdown through live-preview (no
+ * raw-HTML widget). Editing (item 12) reuses the same editors non-readOnly
+ * with the draft's content. */
+function ShareFileView({
+  content,
+  draft,
+  mode,
+  kind,
+  editable,
+  onChange,
 }: {
-  icon: React.ReactNode;
-  label: string;
-  active?: boolean;
-  onClick: () => void;
-  testId: string;
+  content: ShareContentOut;
+  draft: string | undefined;
+  mode: EditorMode;
+  kind: ReturnType<typeof inferFileKind> | undefined;
+  editable: boolean;
+  onChange: (value: string) => void;
 }) {
+  if (content.content_encoding === "base64") {
+    return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <EmptyState title="Binary file" description="This file has no text view." />
+      </div>
+    );
+  }
+  const text = draft ?? content.content;
+  if (mode === "rendered" && kind === "html") {
+    return <HtmlPreview content={text} />;
+  }
+  if (mode === "rendered" && kind === "md") {
+    return <LivePreviewEditor paneId="share" path={content.source_path} content={text} readOnly={!editable} onChange={editable ? onChange : undefined} />;
+  }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      data-testid={testId}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        width: "100%",
-        padding: "5px 12px",
-        border: "none",
-        background: active ? "#e6f4f3" : "transparent",
-        color: "#222",
-        fontSize: 12.5,
-        fontFamily: "system-ui, sans-serif",
-        cursor: "pointer",
-        textAlign: "left",
-      }}
-    >
-      {icon}
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-    </button>
+    <CodeMirrorEditor
+      paneId="share"
+      path={content.source_path}
+      content={text}
+      loadLanguage={fileTypeForOrPlain(kind).loadLanguage}
+      readOnly={!editable}
+      onChange={editable ? onChange : undefined}
+    />
   );
 }
 
@@ -452,8 +515,8 @@ function ShareShell({ children }: { children: React.ReactNode }) {
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
-        background: "#0e1015",
-        fontFamily: "system-ui, sans-serif",
+        background: "var(--app-chrome-bg, #0e1015)",
+        fontFamily: "var(--font-sans, system-ui, sans-serif)",
         padding: 24,
         textAlign: "center",
       }}

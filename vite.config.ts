@@ -179,7 +179,13 @@ const shareAuthProxy = {
   "^/share/[^/]+(/.*)?$": {
     target: SHARE_AUTH_PROXY_TARGET,
     changeOrigin: true,
-    bypass(req: { headers: Record<string, string | string[] | undefined>; url?: string }) {
+    bypass(req: { method?: string; headers: Record<string, string | string[] | undefined>; url?: string }) {
+      // Only a GET can be a real browser navigation — a PUT (the editor
+      // role's Save write-back, round 6 item 12) must always reach the
+      // backend regardless of its Accept header. Before this method check,
+      // the Accept-only heuristic misrouted Save PUTs into vite's SPA
+      // fallback under dev/preview (found by the rebuilt reader's e2e).
+      if (req.method && req.method !== "GET" && req.method !== "HEAD") return undefined;
       const accept = req.headers.accept;
       const acceptsJson = typeof accept === "string" && accept.includes("application/json");
       if (!acceptsJson) return req.url; // real navigation — let the SPA fallback handle it

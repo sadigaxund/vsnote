@@ -55,8 +55,10 @@ test.describe("publish → view → revoke (exit criterion)", () => {
 
     await secondPage.goto(link);
     await expect(secondPage.getByText("Reading list", { exact: false })).toBeVisible();
-    // No shell chrome on the share route.
-    await expect(secondPage.getByTestId("app-titlebar")).toHaveCount(0);
+    // Rebuilt reader (round 6 item 10) shows the shell's own TitleBar, but
+    // never the vault-only Explorer sidebar — this route never touches the
+    // vault.
+    await expect(secondPage.getByTestId("app-titlebar")).toBeVisible();
     await expect(secondPage.getByTestId("explorer-sidebar")).toHaveCount(0);
 
     // Revoke from the owner's Shared panel.

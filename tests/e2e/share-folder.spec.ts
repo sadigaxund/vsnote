@@ -41,17 +41,20 @@ test.describe("folder shares (roadmap §5.1)", () => {
     const secondPage = await secondContext.newPage();
 
     await secondPage.goto(link);
-    // Slim reader: tree left, content right, no shell chrome.
-    await expect(secondPage.getByTestId("share-folder-tree")).toBeVisible();
-    await expect(secondPage.getByTestId("app-titlebar")).toHaveCount(0);
+    // Rebuilt reader (round 6 item 10): the shell's own TitleBar is present
+    // (unlike the old slim page), but the vault-only Explorer sidebar never
+    // is — this route never touches the vault.
+    const tree = secondPage.getByTestId("share-folder-tree");
+    await expect(tree).toBeVisible();
+    await expect(secondPage.getByTestId("app-titlebar")).toBeVisible();
     await expect(secondPage.getByTestId("explorer-sidebar")).toHaveCount(0);
-    await expect(secondPage.getByTestId("share-folder-entry-architecture.md")).toBeVisible();
+    await expect(tree.locator('[data-tree-path="architecture.md"]')).toBeVisible();
     // The excluded file is simply ABSENT from the listing — not shown,
     // not grayed out.
-    await expect(secondPage.getByTestId("share-folder-entry-reading-list.md")).toHaveCount(0);
+    await expect(tree.locator('[data-tree-path="reading-list.md"]')).toHaveCount(0);
 
     // Click into the included file — content renders on the right.
-    await secondPage.getByTestId("share-folder-entry-architecture.md").click();
+    await tree.locator('[data-tree-path="architecture.md"]').click();
     await expect(secondPage.getByText("Indexing architecture", { exact: false })).toBeVisible();
 
     // A direct deep link to the EXCLUDED file — the same generic

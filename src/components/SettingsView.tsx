@@ -690,7 +690,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
               </div>
               <FormField
                 label="Personal access token"
-                hint="A Phase 9 API token, scoped 'write' (push) or 'read' (fetch/pull only). Generate one below once signed in under Sharing, or mint one with POST /api/auth/tokens."
+                hint="A write scoped API token. Sign in under Sharing, then click Generate token."
               >
                 <div style={{ display: "flex", gap: 8 }}>
                   <Input
