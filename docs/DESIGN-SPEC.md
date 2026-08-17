@@ -499,3 +499,89 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
       explanation (same treatment the Sharing category already gives), never blocking
       the rest of Settings, never a console error. One-row hints throughout, no em
       dashes.
+
+## Amendments round 7 — user feedback 2026-08-17 (hands-on with Phase 17; OVERRIDE above)
+
+Confirmed decisions for this round: Google/OAuth sign-in is DEFERRED to its own later
+phase (restricted sharing stays account-based for now); folder shares stay in sync via
+client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
+
+45. **Status bar compact overflow.** In compact density the status bar narrows but its
+    text does not adapt, so items overflow. Fix with priority + truncation: low-value
+    items drop first, remaining text ellipsizes, nothing ever paints outside the bar.
+46. **Settings layout: full-bleed page, capped controls.** The category page stays full
+    width, but controls stop stretching with it: each row is label-left / control-right
+    (or label-above on narrow), and inputs, selects, sliders, and search cap at a fixed
+    comfortable width (~28rem); buttons keep natural size. A full-window slider or
+    search field must never occur again.
+47. **Accent contrast guard enforced everywhere.** Picking pure black (or any
+    unreadable accent) on the dark theme currently reaches the UI raw: button parts
+    blend away and accent-tinted markdown (h2 to h6 headings, links) turns invisible.
+    The round 6 guard (walk lightness to 4.5:1 before applying) must actually govern
+    `--color-primary` on every surface, main app and share app alike, from first paint
+    (not only after a settings change). The h1 = foreground / h2+ = accent split is
+    deliberate design and stays; it simply must inherit the guarded color.
+48. **Active-line highlight respects the gutter boundary.** With a scrollbar present
+    the highlight ends correctly; without one it paints over the boundary line. Same
+    right-edge inset in both cases.
+49. **Login view optical centering.** The wordmark must not push the form down; the
+    logo + form group is centered as ONE unit at the eye line (slightly above true
+    vertical center), logo sized so the form stays the visual anchor.
+50. **Vault init must not 500 on volume permissions.** Root cause: the named volume at
+    `/data/vault` is created root-owned while the container runs as uid 1000. The
+    container start path must make the vault directory writable (entrypoint chown of
+    the vault dir only, never a blanket chown), and if the server still cannot write
+    it, `POST /api/vault/init` returns a clear 4xx/503-style JSON error naming the
+    path and the fix, never a raw 500 traceback. The wizard surfaces that message
+    verbatim in its one-row error state.
+51. **Sharing panel refresh must not flash.** Refresh keeps the existing table rows
+    mounted, dims them (or overlays a skeleton) until the fetch resolves, then swaps
+    data in place. The view never visibly unmounts or reflows during a refetch. Apply
+    the same rule to every list refresh in Settings (mirror remotes table included).
+52. **Git & Sync: single opt-in setup view when git is absent.** When the vault has no
+    repo/sync configured, the Git & Sync category shows NOTHING but a setup invitation
+    (what sync does, one button to begin). Nothing sync-related is enabled by default.
+    The guided flow assumes zero git knowledge: plain-language steps, remote repo
+    optional; when no explicit remote is configured, NO implicit server URL (for
+    example `http://localhost:8787/git/vault.git`) is ever displayed as if the user
+    had set it. Sync-to-this-server and mirror-to-external stay distinct, each named
+    in plain words at the point of choice.
+53. **Vault identity simplified.** Retire the freeform "Repository name" +
+    invented-branch prefill (`feat/incremental-index`, a scaffold-era default in
+    `src/git/client.ts`). New setups default the branch to `main`. The vault's
+    identity (repo name + branch) is server/derived and shown as a crafted read-only
+    identity chip/card, not two raw text inputs. Existing vaults keep whatever branch
+    they already use (a settings migration must not rewrite history or rename
+    branches).
+54. **Auto-sync modes combinable with a coalescing queue.** Interval, open/close, and
+    after-save are toggles that can all be on at once (Manual = all off). Every
+    trigger ENQUEUES a sync request into one queue that coalesces bursts: at most one
+    sync runs at a time, and completed runs open a quiet window (~10-15s) during which
+    further triggers merge into a single pending run. All existing guards stay (never
+    while signed out, mid-sync, or paused on a conflict).
+55. **Publish dialog layout.** Segmented controls fill their container width. The
+    "Requires" select shares a row with the role selector. "General access" defaults
+    to "Anyone with the link".
+56. **API-token access must be self-serve.** Choosing "Requires: API token" offers
+    inline token generation/management (create, name, revoke) right in the dialog, or
+    a one-click path to it; never a dead end.
+57. **Share model: delivery format x role, independent axes.** Replace "Raw vs
+    Rendered" with two orthogonal choices: DELIVERY — "File only" (pure bytes, no
+    HTML, right content type; for scripts, configs, anything) vs "Viewer" (the thin
+    share app: code files open in the code editor view, markdown in rendered view);
+    and ROLE — Viewer/Editor, selectable wherever the server supports write-back, not
+    locked behind a particular delivery mode. Raw byte sharing is a first-class mode
+    and must not regress. Better names than Raw/UI are welcome but the split is fixed.
+58. **Folder shares follow the folder.** Creating, editing, or deleting a file inside
+    a shared folder auto-republishes that share's manifest (debounced, best-effort,
+    silent on offline/signed-out; the next successful update self-corrects). The
+    chain indicator on a child means "this IS shared", so the share must actually
+    reflect it without a manual "Update share".
+59. **Share stats must be real.** `Hits` and `Last accessed` increment on every
+    counted access path (share page loads included) and the Shared panel shows fresh
+    values on refresh. If some access paths are deliberately uncounted, the panel
+    copy says what counts as a hit.
+60. **Restricted sharing must be discoverable.** With "Restricted to listed people"
+    selected, the people-and-roles list (add by account email, pick role, remove) is
+    visible in the same dialog with a one-row explanation of how recipients sign in.
+    Account-based only for now (OAuth deferred, see round 7 header).
