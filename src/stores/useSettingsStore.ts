@@ -207,6 +207,14 @@ interface SettingsState {
    * from then on, exactly like every other persisted setting here. */
   gitDeviceName: string;
 
+  /** Round 6 item 15 ("clean tree") — git decorations in the Explorer
+   * (status-tinted names, strikethrough, M/A/D/U letters, and the
+   * synthesized deleted-file ghost rows) are OFF by default; the Source
+   * Control panel is where change state lives. Flipping this on restores
+   * the pre-round-6 decorated tree. The share chain indicator is not a git
+   * decoration and ignores this flag. */
+  showGitStatusInExplorer: boolean;
+
   setTheme: (theme: AppTheme) => void;
   /** Cycles to the next theme in `THEME_OPTIONS` — the command palette's
    * "Toggle theme" command (DESIGN-SPEC "Misc / settings": "toggle mode,
@@ -233,6 +241,7 @@ interface SettingsState {
   setGitRemoteOverrideToken: (token: string) => void;
   setGitCommitTemplate: (template: string) => void;
   setGitDeviceName: (name: string) => void;
+  setShowGitStatusInExplorer: (show: boolean) => void;
 }
 
 /** Roadmap §5.3's exact default template string. Exported so
@@ -265,6 +274,7 @@ export const useSettingsStore = create<SettingsState>()(
       gitRemoteOverrideToken: "",
       gitCommitTemplate: DEFAULT_GIT_COMMIT_TEMPLATE,
       gitDeviceName: defaultDeviceName(),
+      showGitStatusInExplorer: false,
       setTheme: (theme) => set({ theme }),
       cycleTheme: () => {
         const idx = THEME_OPTIONS.indexOf(get().theme);
@@ -297,6 +307,7 @@ export const useSettingsStore = create<SettingsState>()(
       setGitRemoteOverrideToken: (gitRemoteOverrideToken) => set({ gitRemoteOverrideToken }),
       setGitCommitTemplate: (gitCommitTemplate) => set({ gitCommitTemplate }),
       setGitDeviceName: (gitDeviceName) => set({ gitDeviceName }),
+      setShowGitStatusInExplorer: (showGitStatusInExplorer) => set({ showGitStatusInExplorer }),
     }),
     {
       // Renamed with the rest of the rebrand (DESIGN-SPEC item 34, user

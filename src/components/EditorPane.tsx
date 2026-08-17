@@ -49,6 +49,7 @@ import { AppTabBar } from "./TabBar";
 import { EditorHeader } from "./EditorHeader";
 import { EditorContent } from "./EditorContent";
 import { DockOverlay } from "./local/PaneGroup";
+import { OverflowMenuItems } from "./local/OverflowMenu";
 import type { TabDragPayload } from "./local/EditorTabBar";
 import { findLeaf, useTabsStore } from "../stores/useTabsStore";
 import { useBufferStore } from "../stores/useBufferStore";
@@ -280,6 +281,19 @@ export function EditorPane({
             onClose={(path) => closeTab(path, paneId)}
             onDropExternalTab={handleDropExternalTab}
             onSplitTab={handleSplitTab}
+            // Round 6 item 16 — Format/Insert/Export live in THIS bar's `…`
+            // menu now (the editor area's pre-existing overflow), targeting
+            // this pane's own active tab; the Phase 15 title-bar `⋯` and the
+            // per-pane EditorHeader copy are gone.
+            documentActions={
+              <OverflowMenuItems
+                paneId={paneId}
+                kind={activeTab?.kind}
+                mode={activeTab?.mode}
+                path={activeTab?.path}
+                missing={activeBuffer?.missing ?? false}
+              />
+            }
           />
           {/* DESIGN-SPEC Amendments item 11: the Settings tab is a real VIEW,
               not a document with Rendered/Source/Diff representations — the
@@ -315,9 +329,6 @@ export function EditorPane({
               availableModes={availableModes}
               diffLayout={diffLayout}
               onDiffLayoutChange={(layout) => setDiffLayoutForPane(layout, paneId)}
-              kind={activeTab?.kind}
-              path={activeTab?.path}
-              missing={activeBuffer?.missing ?? false}
             />
           )}
         </>

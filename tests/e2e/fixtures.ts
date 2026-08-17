@@ -114,6 +114,22 @@ export async function openSettingsTab(page: Page): Promise<void> {
   await expect(page.getByTestId("settings-view")).toBeVisible();
 }
 
+/** Round 6 item 15 ("clean tree") — git decorations in the Explorer are OFF
+ * by default now. Seeds the persisted setting ON before the app boots, for
+ * specs whose assertions are about the decorations themselves (letters,
+ * strikethrough, deleted-file ghost rows). Call BEFORE `gotoApp`. One spec
+ * (`fs-git.spec.ts`'s first test) flips the real Settings switch through
+ * the UI instead, covering the toggle end to end; the rest use this seed so
+ * they don't all repeat that navigation. */
+export async function seedShowGitStatusInExplorer(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "vsnote-settings",
+      JSON.stringify({ state: { showGitStatusInExplorer: true }, version: 3 }),
+    );
+  });
+}
+
 /** Resets in-page state that must not leak across a single spec file's
  * tests when they intentionally share a context (most specs don't — each
  * `test()` gets Playwright's default fresh context/page — but a couple of

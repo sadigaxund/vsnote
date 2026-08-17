@@ -83,6 +83,7 @@ import {
 import { isHttpRemoteUrl } from "../git/syncStatus";
 import { buildTemplateVars, renderCommitTemplate } from "../git/commitTemplate";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
+import { isDemoVaultBuild } from "../fs/seed";
 import { useShareStore } from "../share/useShareStore";
 import { SharedPanel } from "./local/SharedPanel";
 import { createApiToken, type ShareOut } from "../share/api";
@@ -191,6 +192,8 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const setGitCommitTemplate = useSettingsStore((s) => s.setGitCommitTemplate);
   const gitDeviceName = useSettingsStore((s) => s.gitDeviceName);
   const setGitDeviceName = useSettingsStore((s) => s.setGitDeviceName);
+  const showGitStatusInExplorer = useSettingsStore((s) => s.showGitStatusInExplorer);
+  const setShowGitStatusInExplorer = useSettingsStore((s) => s.setShowGitStatusInExplorer);
 
   const setTheme = useSettingsStore((s) => s.setTheme);
   const setAccent = useSettingsStore((s) => s.setAccent);
@@ -610,6 +613,26 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             </FormField>
           ),
         },
+        // Round 6 item 15 ("clean tree") — decorations default OFF; the
+        // Source Control panel is the home of change state.
+        {
+          id: "git-status-in-explorer",
+          label: "Show git status in explorer",
+          keywords: "git status letters tree explorer decorations colors clean",
+          content: (
+            <FormField label="Show git status in explorer" hint="Colors file names and shows status letters in the tree.">
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <Switch
+                  checked={showGitStatusInExplorer}
+                  onCheckedChange={setShowGitStatusInExplorer}
+                  aria-label="Show git status in explorer"
+                  data-testid="git-status-in-explorer"
+                />
+                <span style={{ fontSize: 13, color: "var(--color-muted)" }}>Off keeps the tree clean; changes stay in Source Control.</span>
+              </label>
+            </FormField>
+          ),
+        },
         {
           id: "repo-name",
           label: "Repository name",
@@ -843,7 +866,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                 />
               </FormField>
               {gitCommitTemplate.trim() === "" && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setGitCommitTemplate(DEFAULT_GIT_COMMIT_TEMPLATE)}>
+                <Button type="button" variant="ghost" size="sm" style={{ alignSelf: "flex-start" }} onClick={() => setGitCommitTemplate(DEFAULT_GIT_COMMIT_TEMPLATE)}>
                   Reset to default
                 </Button>
               )}
@@ -931,6 +954,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                       onChange={(e) => setLoginUser(e.target.value)}
                       aria-label="Backend username"
                       data-testid="share-login-username"
+                      style={{ flex: 1, minWidth: 0 }}
                     />
                     <Input
                       size="sm"
@@ -940,12 +964,14 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                       onChange={(e) => setLoginPass(e.target.value)}
                       aria-label="Backend password"
                       data-testid="share-login-password"
+                      style={{ flex: 1, minWidth: 0 }}
                     />
                     <Button
                       type="button"
                       size="sm"
                       disabled={loggingIn}
                       data-testid="share-login-submit"
+                      style={{ whiteSpace: "nowrap", flexShrink: 0 }}
                       onClick={() => void loginShareBackend(loginUser, loginPass)}
                     >
                       {loggingIn ? <Loader2 size={13} className="animate-spin" /> : "Sign in"}
@@ -975,10 +1001,10 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           ? [
               {
                 id: "admin-blob-limit",
-                label: "Share blob size limit",
+                label: "Share size limit",
                 keywords: "admin blob size limit max upload mb bytes share",
                 content: (
-                  <FormField label="Share blob size limit" hint="Maximum share upload size in MB, from 1 to 100.">
+                  <FormField label="Share size limit" hint="Maximum share upload size in MB, from 1 to 100.">
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <Input
                         size="sm"
@@ -987,7 +1013,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                         max={100}
                         value={maxBlobMbDisplay}
                         onChange={(e) => setMaxBlobMbOverride(e.target.value)}
-                        aria-label="Share blob size limit in megabytes"
+                        aria-label="Share size limit in megabytes"
                         data-testid="admin-max-blob-mb"
                         style={{ width: 90 }}
                       />
@@ -1054,24 +1080,34 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           keywords: "export download zip backup archive",
           content: (
             <FormField label="Export vault" hint="Downloads every file in the vault, zipped, client-side.">
-              <Button type="button" variant="secondary" size="sm" onClick={() => onExportVault?.()}>
+              {/* FormField is a stretch column — without alignSelf the button
+                  goes full width (round 6 item 21: buttons natural width). */}
+              <Button type="button" variant="secondary" size="sm" style={{ alignSelf: "flex-start" }} onClick={() => onExportVault?.()}>
                 Export vault as .zip
               </Button>
             </FormField>
           ),
         },
-        {
-          id: "reset",
-          label: "Reset demo vault",
-          keywords: "reset demo vault wipe restore reseed",
-          content: (
-            <FormField label="Reset demo vault" hint="Wipes the in-browser filesystem and git history, then re-seeds the original demo vault. Cannot be undone.">
-              <Button type="button" variant="danger" size="sm" onClick={() => onRequestResetVault?.()}>
-                Reset demo vault…
-              </Button>
-            </FormField>
-          ),
-        },
+        // Round 6 item 21 — the reset row exists ONLY in demo builds. In a
+        // real vault this button was a one-click self-destruct sitting next
+        // to Export; non-demo users who truly want a wipe still have the
+        // command palette's "Reset vault…" behind its confirm dialog.
+        ...(isDemoVaultBuild()
+          ? [
+              {
+                id: "reset",
+                label: "Reset demo vault",
+                keywords: "reset demo vault wipe restore reseed",
+                content: (
+                  <FormField label="Reset demo vault" hint="Wipes the in-browser filesystem and git history, then re-seeds the demo vault. Cannot be undone.">
+                    <Button type="button" variant="danger" size="sm" style={{ alignSelf: "flex-start" }} onClick={() => onRequestResetVault?.()}>
+                      Reset demo vault…
+                    </Button>
+                  </FormField>
+                ),
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -1109,7 +1145,10 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           12); Settings is a form surface, not document content, so it stays
           the default — the native inputs above remain selectable/typeable
           via `index.css`'s `input, textarea` exception regardless. */}
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "40px 32px 120px" }}>
+      {/* Round 6 item 20 — full-width view (the old 760px cap squeezed the
+          Sharing table and Git rows); the reading measure is handled per-row,
+          not by capping the whole view. */}
+      <div style={{ padding: "40px 40px 120px" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--color-fg)", margin: "0 0 4px" }}>Settings</h1>
         <p style={{ fontSize: 13, color: "var(--color-muted)", margin: "0 0 20px" }}>
           Editor, theme, and per-file-type defaults, saved automatically.

@@ -23,10 +23,12 @@
  * the tab") — plus Close, so the whole split feature is reachable without
  * knowing the drag gesture exists.
  */
+import type { ReactNode } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "my-you-eye";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, MoreHorizontal, Settings as SettingsIcon, X } from "lucide-react";
@@ -57,9 +59,14 @@ export interface EditorTabBarProps {
    * non-drag affordance. `edge` excludes "center" (that's just "select the
    * tab", not a split). */
   onSplitTab?: (path: string, edge: Exclude<DockEdge, "center">) => void;
+  /** Round 6 item 16 — document-level actions (Format/Insert/Export, see
+   * `OverflowMenuItems`) rendered at the TOP of this bar's existing `…`
+   * menu, above the tab-management items. A `ReactNode` slot so this bar
+   * stays a generic strip with no knowledge of markdown or buffers. */
+  documentActions?: ReactNode;
 }
 
-export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDropExternalTab, onSplitTab }: EditorTabBarProps) {
+export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDropExternalTab, onSplitTab, documentActions }: EditorTabBarProps) {
   return (
     <div
       role="tablist"
@@ -232,7 +239,8 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label="More tabs"
+            aria-label="More actions"
+            data-testid={`overflow-menu-trigger-${paneId}`}
             style={{
               flexShrink: 0,
               width: 32,
@@ -249,7 +257,19 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
             <MoreHorizontal size={16} />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent
+          align="end"
+          // Format/Insert actions in `documentActions` re-focus the editor
+          // on select; Radix's default close behavior would steal focus back
+          // to this trigger — see `OverflowMenuItems`' note.
+          onCloseAutoFocus={(e: Event) => e.preventDefault()}
+        >
+          {documentActions && (
+            <>
+              {documentActions}
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem onSelect={() => tabs.forEach((t) => onClose?.(t.id))}>
             Close all tabs
           </DropdownMenuItem>

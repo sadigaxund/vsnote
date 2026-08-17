@@ -346,12 +346,6 @@ export default function App() {
   const activeTab = useMemo(() => focusedLeaf?.tabs.find((t) => t.path === focusedLeaf.activeTabId), [focusedLeaf]);
 
   const activeDiff = useGitStore((s) => (activeTab ? (s.diffCache[activeTab.path] ?? EMPTY_DIFF) : EMPTY_DIFF));
-  // DESIGN-SPEC item 38's overflow menu gates Format/Insert/Export on this —
-  // a narrow selector (just the one boolean, not the whole buffer entry) so
-  // the title bar doesn't re-render on every keystroke the same way
-  // `activeBuffer` selectors elsewhere in this codebase already avoid (see
-  // `EditorPane.tsx`'s `dirtyByPath` doc for the same discipline).
-  const activeMissing = useBufferStore((s) => (activeTab ? (s.buffers[activeTab.path]?.missing ?? false) : false));
 
   // DESIGN-SPEC Amendments round 3 item 18 ("Header consolidation") — the
   // title bar always mirrors the FOCUSED pane's mode/diff/breadcrumb state,
@@ -1105,10 +1099,6 @@ export default function App() {
           onOpenPalette={() => setPaletteMode("commands")}
           onOpenSettings={handleOpenSettings}
           onShare={handleShareActiveFile}
-          overflowMenuPaneId={tabs.activePaneId}
-          overflowMenuKind={activeTab?.kind}
-          overflowMenuPath={activeTab?.path}
-          overflowMenuMissing={activeMissing}
         />
       )}
 

@@ -14,6 +14,7 @@
 import { useMemo } from "react";
 import { useFsStore, inferFileKind, sortChildren } from "./useFsStore";
 import { useGitStore } from "./useGitStore";
+import { useSettingsStore } from "./useSettingsStore";
 import { parentOfDisplayPath } from "../fs/paths";
 import type { FileNode, GitStatus } from "../types";
 
@@ -67,5 +68,13 @@ function injectDeleted(nodes: FileNode[], statuses: Record<string, GitStatus>): 
 export function useDecoratedTree(): FileNode[] {
   const tree = useFsStore((s) => s.tree);
   const statuses = useGitStore((s) => s.statuses);
-  return useMemo(() => injectDeleted(decorate(tree, statuses), statuses), [tree, statuses]);
+  // Round 6 item 15 ("clean tree") — with the setting off (the default) the
+  // Explorer is a pure fs listing: no status tint/letters and no synthesized
+  // deleted-file ghost rows. The Source Control panel still lists every
+  // change either way (it reads `useGitStore` directly, not this hook).
+  const showGitStatus = useSettingsStore((s) => s.showGitStatusInExplorer);
+  return useMemo(
+    () => (showGitStatus ? injectDeleted(decorate(tree, statuses), statuses) : tree),
+    [tree, statuses, showGitStatus],
+  );
 }

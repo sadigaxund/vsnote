@@ -6,11 +6,21 @@
  * git status), and the filter input.
  */
 import { test, expect } from "@playwright/test";
-import { gotoApp, treeRow } from "./fixtures";
+import { gotoApp, openSettingsTab, seedShowGitStatusInExplorer, treeRow } from "./fixtures";
 
 test.describe("fs + git", () => {
-  test("tree shows the exact seeded M/A/D/U letters, deleted file struck through", async ({ page }) => {
+  test("explorer is clean by default; the Settings switch restores the seeded M/A/D/U letters", async ({ page }) => {
     await gotoApp(page);
+
+    // Round 6 item 15 — decorations default OFF: no letters, and the
+    // deleted file has no ghost row (it lives in Source Control instead).
+    await expect(treeRow(page, "vault/notes/architecture.md")).not.toContainText("M");
+    await expect(treeRow(page, "vault/src/legacy-parser.ts")).toHaveCount(0);
+
+    // Flip the real switch through the UI (Settings -> Git & Sync).
+    await openSettingsTab(page);
+    await page.getByTestId("settings-nav-git-sync").click();
+    await page.getByTestId("git-status-in-explorer").click();
 
     await expect(treeRow(page, "vault/notes/architecture.md")).toContainText("M");
     await expect(treeRow(page, "vault/src/indexer.ts")).toContainText("M");
@@ -161,6 +171,10 @@ test.describe("fs + git", () => {
   });
 
   test("dragging a file into a folder moves it and changes git status", async ({ page }) => {
+    // This test's assertions are about the STATUS CHANGE a move causes, so
+    // it needs the (default-off) explorer decorations on — seeded, not
+    // clicked; the first test in this file covers the real switch.
+    await seedShowGitStatusInExplorer(page);
     await gotoApp(page);
     // reading-list.md is committed + unmodified (no status letter) at boot.
     const source = treeRow(page, "vault/notes/reading-list.md");

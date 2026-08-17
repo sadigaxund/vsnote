@@ -11,7 +11,7 @@
  * this same phase's change).
  */
 import { test, expect } from "@playwright/test";
-import { gotoApp, openFromTree, tab, treeRow } from "./fixtures";
+import { gotoApp, openFromTree, seedShowGitStatusInExplorer, tab, treeRow } from "./fixtures";
 
 test.describe("representative demo data", () => {
   test("metrics.csv renders a wide, many-row DataTable with a sticky header and horizontal scroll", async ({ page }) => {
@@ -199,6 +199,7 @@ test.describe("representative demo data", () => {
   });
 
   test("git invariants still hold with the regenerated demo data: metrics.csv M, architecture.md +12/-5, 6 changes, 1 untracked", async ({ page }) => {
+    await seedShowGitStatusInExplorer(page); // tree letters are opt-in now (round 6 item 15)
     await gotoApp(page);
     await expect(treeRow(page, "vault/metrics.csv")).toContainText("M");
     const scmButton = page.getByRole("button", { name: "Source Control" });

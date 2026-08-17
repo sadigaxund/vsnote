@@ -1,16 +1,15 @@
 /**
- * OverflowMenu — DESIGN-SPEC item 38's `⋯` overflow menu: Format submenu
- * (bold, italic, strikethrough, inline code, link), Insert submenu (table,
- * code block, horizontal rule), and Export as PDF. Mounted twice per
- * DESIGN-SPEC: once in the title bar's actions cluster (mirroring the
- * FOCUSED pane, `components/TitleBar.tsx`) and once per pane's own
- * `EditorHeader` when more than one pane is open — same "title bar owns it
- * alone with 1 pane, each pane's own header carries it with >1" split every
- * other per-pane control in this app already follows (see
- * `EditorPane.tsx`'s module doc on `multiPane`). Item 37 (WITHDRAWN, same
- * day): there is NO editor right-click context menu — these Format/Insert
- * actions live ONLY here, not on a `ContextMenu.tsx` this component does
- * NOT build.
+ * OverflowMenuItems — DESIGN-SPEC item 38's Format submenu (bold, italic,
+ * strikethrough, inline code, link), Insert submenu (table, code block,
+ * horizontal rule), and Export as PDF, as menu CONTENT for an existing
+ * dropdown rather than a standalone `⋯` trigger. Round 6 item 16 relocated
+ * these: the Phase 15 title-bar `⋯` (and the per-pane `EditorHeader` copy)
+ * are gone; the one home is now each pane's tab bar `…` menu
+ * (`EditorTabBar`'s `documentActions` slot, filled by `EditorPane.tsx`) —
+ * the editor area's pre-existing overflow menu, exactly where the user
+ * asked for it. Item 37 (WITHDRAWN, same day): there is NO editor
+ * right-click context menu — these Format/Insert actions live ONLY here,
+ * not on a `ContextMenu.tsx` this component does NOT build.
  *
  * Format/Insert operate on the REAL focused CM6 view via
  * `editor/activeView.ts`'s `getActiveEditorView(paneId)` — the same
@@ -40,14 +39,14 @@
  * kind, just disabled, so the affordance is discoverable rather than
  * silently absent.
  *
- * `DropdownMenu`/`DropdownMenuContent`/`DropdownMenuItem`/
- * `DropdownMenuSeparator` are the library's own (CLAUDE.md rule 1); the
- * `Format`/`Insert` submenus use the new local `DropdownSubmenu` (this
- * phase's missing-primitive addition, see that file's doc +
- * docs/COMPONENT-BACKLOG.md).
+ * `DropdownMenuItem`/`DropdownMenuSeparator` are the library's own
+ * (CLAUDE.md rule 1); the `Format`/`Insert` submenus use the local
+ * `DropdownSubmenu` (Phase 15's missing-primitive addition, see that
+ * file's doc + docs/COMPONENT-BACKLOG.md). The hosting `DropdownMenu`
+ * root/trigger/content belong to the tab bar.
  */
-import { Bold, Code, FileDown, Italic, Link2, Minus, MoreHorizontal, SquareCode, Strikethrough, Table2 } from "lucide-react";
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Tooltip } from "my-you-eye";
+import { Bold, Code, FileDown, Italic, Link2, Minus, SquareCode, Strikethrough, Table2 } from "lucide-react";
+import { DropdownMenuItem, DropdownMenuSeparator } from "my-you-eye";
 import { DropdownSubmenu, DropdownSubmenuContent, DropdownSubmenuTrigger } from "./DropdownSubmenu";
 import { applyFormatAction, applyInsertAction, type FormatActionId, type InsertActionId } from "../../editor/formatActions";
 import { getActiveEditorView } from "../../editor/activeView";
@@ -55,13 +54,11 @@ import { exportMarkdownAsPdf } from "../../lib/printExport";
 import { useBufferStore } from "../../stores/useBufferStore";
 import type { EditorMode, FileKind } from "../../types";
 
-export interface OverflowMenuProps {
-  /** Which pane's editor this menu's Format/Insert actions target —
-   * `editor/activeView.ts`'s per-pane view registry key. The title bar's
-   * copy always passes the FOCUSED pane's id; a per-pane `EditorHeader`
-   * copy passes that pane's OWN id (not necessarily the focused one), so
-   * acting from a background pane's own header row never edits a different
-   * pane's buffer. */
+export interface OverflowMenuItemsProps {
+  /** Which pane's editor these Format/Insert actions target —
+   * `editor/activeView.ts`'s per-pane view registry key. Each tab bar
+   * passes its OWN pane's id, so acting from a background pane's `…` menu
+   * never edits a different pane's buffer. */
   paneId: string;
   kind: FileKind | undefined;
   mode: EditorMode | undefined;
@@ -86,7 +83,7 @@ const INSERT_ITEMS: { id: InsertActionId; label: string; icon: typeof Table2 }[]
   { id: "hr", label: "Horizontal rule", icon: Minus },
 ];
 
-export function OverflowMenu({ paneId, kind, mode, path, missing }: OverflowMenuProps) {
+export function OverflowMenuItems({ paneId, kind, mode, path, missing }: OverflowMenuItemsProps) {
   const canFormatInsert = kind === "md" && (mode === "rendered" || mode === "source") && !missing;
   const canExportPdf = kind === "md" && !missing;
 
@@ -107,29 +104,17 @@ export function OverflowMenu({ paneId, kind, mode, path, missing }: OverflowMenu
     exportMarkdownAsPdf(fileName, content);
   }
 
+  // NOTE for the mounting menu (see EditorTabBar.tsx): a Format/Insert
+  // action calls `view.focus()` (in formatActions.ts) so the user can keep
+  // typing right where they picked the menu item from — Radix's default
+  // post-close behavior would otherwise steal focus BACK to the trigger
+  // button once the whole menu tree closes, undoing that. The hosting
+  // `DropdownMenuContent` must therefore set
+  // `onCloseAutoFocus={(e) => e.preventDefault()}`; a submenu closing on
+  // its own (hover away, Escape) never steals focus the way the top-level
+  // Content's close does, so that one guard is enough.
   return (
-    <DropdownMenu>
-      <Tooltip content="More actions" side="bottom">
-        <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon-sm" aria-label="More actions" data-testid={`overflow-menu-trigger-${paneId}`}>
-            <MoreHorizontal size={15} />
-          </Button>
-        </DropdownMenuTrigger>
-      </Tooltip>
-      <DropdownMenuContent
-        align="end"
-        // A Format/Insert action calls `view.focus()` (in formatActions.ts)
-        // so the user can keep typing right where they picked the menu item
-        // from — Radix's default post-close behavior would otherwise steal
-        // focus BACK to this trigger button (its usual, correct default for
-        // a menu with no such side effect) once the WHOLE menu tree closes,
-        // undoing that. `DropdownMenuSubContentProps` has no equivalent prop
-        // (confirmed in `@radix-ui/react-dropdown-menu/dist/index.d.mts`) —
-        // a submenu closing on its own (hover away, Escape) never steals
-        // focus the way the top-level Content's close does, so this one
-        // `onCloseAutoFocus` is the only guard needed.
-        onCloseAutoFocus={(e: Event) => e.preventDefault()}
-      >
+    <>
         <DropdownSubmenu>
           <DropdownSubmenuTrigger disabled={!canFormatInsert} data-testid="overflow-menu-format">
             Format
@@ -161,7 +146,6 @@ export function OverflowMenu({ paneId, kind, mode, path, missing }: OverflowMenu
           <FileDown size={14} aria-hidden />
           <span style={{ marginLeft: 8 }}>Export as PDF</span>
         </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </>
   );
 }

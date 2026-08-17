@@ -679,7 +679,15 @@ function TreeRow({
             fontWeight: 600,
             color: STATUS_COLOR[node.status],
             width: 12,
-            textAlign: "right",
+            // Round 6 item 14 — the letter sat visually low: an inline span
+            // inherits the row's 13px-text line box, so the 11px glyph hung
+            // from that taller baseline. A self-centered flex box with its
+            // own line-height centers the glyph on the row instead.
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            lineHeight: 1,
+            alignSelf: "center",
           }}
         >
           {node.status}

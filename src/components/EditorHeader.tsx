@@ -20,25 +20,18 @@ import { Breadcrumbs } from "my-you-eye";
 import { AlignJustify, Columns2, Eye, FileCode, GitCompareArrows } from "lucide-react";
 import { DiffStatChip } from "./local/DiffStatChip";
 import { SegmentedControl } from "./local/SegmentedControl";
-import { OverflowMenu } from "./local/OverflowMenu";
-import type { DiffLayout, DiffStat, EditorMode, FileKind } from "../types";
+import type { DiffLayout, DiffStat, EditorMode } from "../types";
 
 export interface EditorHeaderProps {
-  /** This pane's own id — `editor/activeView.ts`'s registry key, threaded
-   * straight into the `⋯` overflow menu (DESIGN-SPEC item 38) below so its
-   * Format/Insert actions target THIS pane's CM6 view, not necessarily the
-   * globally focused one. */
+  /** This pane's own id. (Round 6 item 16 moved the `⋯` overflow menu this
+   * once addressed into the pane's tab bar — see `EditorTabBar`'s
+   * `documentActions` — so this header is back to breadcrumb + chip +
+   * mode toggle only.) */
   paneId: string;
   breadcrumb: string[];
   diff: DiffStat;
   mode: EditorMode;
   onModeChange?: (mode: EditorMode) => void;
-  /** This pane's active tab kind/path/missing — gates the overflow menu's
-   * Format/Insert/Export the same way `components/TitleBar.tsx`'s own copy
-   * gates for the focused pane. */
-  kind?: FileKind;
-  path?: string;
-  missing?: boolean;
   /** Which segments are selectable for the active file — DESIGN-SPEC
    * "Modes" table. Phase 2 only has a real renderer for Rendered/`.md`
    * (Phase 1's static placeholder) and the crude Source textarea; Diff is
@@ -55,7 +48,6 @@ export interface EditorHeaderProps {
 }
 
 export function EditorHeader({
-  paneId,
   breadcrumb,
   diff,
   mode,
@@ -63,9 +55,6 @@ export function EditorHeader({
   availableModes = ["rendered", "source", "diff"],
   diffLayout = "split",
   onDiffLayoutChange,
-  kind,
-  path,
-  missing,
 }: EditorHeaderProps) {
   const has = (m: EditorMode) => availableModes.includes(m);
   return (
@@ -113,7 +102,6 @@ export function EditorHeader({
             ]}
           />
         )}
-        <OverflowMenu paneId={paneId} kind={kind} mode={mode} path={path} missing={missing ?? false} />
       </div>
     </div>
   );
