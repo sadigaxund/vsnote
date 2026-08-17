@@ -62,6 +62,7 @@ import { validateAlias } from "../../share/alias";
 import { buildFolderShareLink, buildShareLink } from "../../share/shareLinks";
 import { defaultIncludedSet, flattenFolderTree, includedSetFromManifest, relpathsUnderFolder } from "../../share/folderManifest";
 import { createApiToken, getShareManifest } from "../../share/api";
+import { rememberShareExclusions } from "../../share/autoRepublish";
 import type { AuthMode, GeneralAccess, GrantIn, GrantRole, RenderMode, ShareOut } from "../../share/api";
 import type { FileKind } from "../../types";
 
@@ -319,6 +320,12 @@ export function PublishDialog({
           // the CURRENT subtree to the same slug (roadmap §5.1).
           await updateShare(existingShare.id, policyPatch);
           const updated = await updateFolderManifest(existingShare.id, includedEntries);
+          // Round 7 item 58 — remember what was deliberately UNCHECKED so
+          // auto-republish can add new files without resurrecting these.
+          rememberShareExclusions(
+            updated.id,
+            (folderEntries ?? []).map((e) => e.relpath).filter((r) => !included.has(r)),
+          );
           setResult(updated);
           toast({ title: "Share updated", description: `Republished ${includedEntries.length} file(s).`, variant: "success" });
         } else {
@@ -339,6 +346,10 @@ export function PublishDialog({
             },
             includedEntries,
           );
+          rememberShareExclusions(
+            share.id,
+            (folderEntries ?? []).map((e) => e.relpath).filter((r) => !included.has(r)),
+          ); // item 58, as above
           setResult(share);
           toast({ title: "Published", description: `${folderName} (${includedEntries.length} files) is now shared.`, variant: "success" });
         }

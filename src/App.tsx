@@ -32,6 +32,7 @@ import { resolveVaultDisplayLabel } from "./lib/vaultLabel";
 import { probeRender } from "./lib/renderProbe";
 import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
 import { useShareStore, type FolderPublishEntry } from "./share/useShareStore";
+import { scheduleShareAutoRepublish } from "./share/autoRepublish";
 import { createAutoSyncScheduler } from "./git/autoSyncPolicy";
 import { buildFolderShareLink, buildShareLink } from "./share/shareLinks";
 import type { ExplorerShareRow } from "./components/local/ExplorerTree";
@@ -496,7 +497,10 @@ export default function App() {
       .getState()
       .save(activeTab.path)
       .then(() => useGitStore.getState().refresh())
-      .then(() => autoSyncSchedulerRef.current?.notifySaveSettled());
+      .then(() => autoSyncSchedulerRef.current?.notifySaveSettled())
+      // Round 7 item 58 — a saved file inside a shared folder republishes
+      // that share (debounced, best-effort; see share/autoRepublish.ts).
+      .then(() => scheduleShareAutoRepublish(activeTab.path));
   }
 
   // Best-effort ⌘W (DESIGN-SPEC Amendments item 5: "⌘W is best-effort —
@@ -954,6 +958,7 @@ export default function App() {
     // Round 6 item 8 — keep any share's recorded path following the file.
     // Fire-and-forget: never blocks or fails the rename (see the store doc).
     void useShareStore.getState().notifyPathMoved(node.path, newPath);
+    scheduleShareAutoRepublish(node.path, newPath); // item 58
     await git.refresh();
   };
 
@@ -963,6 +968,7 @@ export default function App() {
     useBufferStore.getState().rekeyPrefix(sourcePath, newPath);
     setSelectedId((prev) => (prev && (prev === sourcePath || prev.startsWith(`${sourcePath}/`)) ? newPath + prev.slice(sourcePath.length) : prev));
     void useShareStore.getState().notifyPathMoved(sourcePath, newPath); // item 8, as above
+    scheduleShareAutoRepublish(sourcePath, newPath); // item 58
     await git.refresh();
   };
 
@@ -976,6 +982,7 @@ export default function App() {
     if (conflictNames.length === 0) {
       await importEntriesIntoVault(targetFolderPath, entries, "replace");
       await useFsStore.getState().refresh();
+      scheduleShareAutoRepublish(targetFolderPath); // item 58
       await git.refresh();
       return;
     }
@@ -988,6 +995,7 @@ export default function App() {
     if (!pending) return;
     await importEntriesIntoVault(pending.targetFolderPath, pending.entries, mode);
     await useFsStore.getState().refresh();
+    scheduleShareAutoRepublish(pending.targetFolderPath); // item 58
     await git.refresh();
   };
 
@@ -996,6 +1004,7 @@ export default function App() {
     tabs.closeByPrefix(node.path);
     useBufferStore.getState().forgetPrefix(node.path);
     setSelectedId((prev) => (prev && (prev === node.path || prev.startsWith(`${node.path}/`)) ? undefined : prev));
+    scheduleShareAutoRepublish(node.path); // item 58
     await git.refresh();
   };
 
