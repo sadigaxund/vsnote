@@ -14,12 +14,20 @@
  * `TableHead`/`TableCell` ("reach for `Table` directly when you need
  * bespoke markup a data-driven API can't express" — `DataTable` has no row
  * click/actions slot, checked in `skills/components.json`), `Badge`,
- * `Button`, `Tooltip`, `ConfirmDialog`, `EmptyState`. No new local
- * primitive — not logged in `docs/COMPONENT-BACKLOG.md` for the same
+ * `Button`, `Tooltip`, `ConfirmDialog`, `EmptyState`, `Skeleton`. No new
+ * local primitive — not logged in `docs/COMPONENT-BACKLOG.md` for the same
  * "solved by composition" reason as `ExtensionsPanel.tsx`.
+ *
+ * Round 7 item 51 — a refresh (the "Refresh" button, or the mount-time
+ * fetch re-running) keeps the table mounted and dims it (`aria-busy` +
+ * reduced opacity) rather than swapping to a skeleton or `EmptyState`;
+ * data swaps in place once the fetch resolves. The full-replace `Skeleton`
+ * is reserved for the FIRST load only (`sharesLoading` true with nothing
+ * fetched yet) — same split `VaultSetupPanel.tsx`'s `RemotesTable` already
+ * uses for its mirror-remotes table.
  */
 import { useEffect, useState } from "react";
-import { Badge, Button, ConfirmDialog, EmptyState, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Tooltip, useToast } from "my-you-eye";
+import { Badge, Button, ConfirmDialog, EmptyState, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Tooltip, useToast } from "my-you-eye";
 import { Copy, FileText, Folder, Pencil, RefreshCcw, RotateCw, Share2, Trash2 } from "lucide-react";
 import { useShareStore } from "../../share/useShareStore";
 import { buildFolderShareLink, buildShareLink } from "../../share/shareLinks";
@@ -84,10 +92,15 @@ export function SharedPanel({ authenticated, onEditShare }: SharedPanelProps) {
         <p style={{ fontSize: 12.5, color: "var(--color-danger)" }}>{error}</p>
       )}
 
-      {!loading && active.length === 0 ? (
+      {loading && active.length === 0 ? (
+        <Skeleton height="160px" data-testid="shared-panel-loading" />
+      ) : !loading && active.length === 0 ? (
         <EmptyState icon={<Share2 size={20} />} title="No shares yet" description="Publish a file to see it listed here." />
       ) : (
-        <div style={{ overflowX: "auto" }}>
+        <div
+          style={{ overflowX: "auto", opacity: loading ? 0.55 : 1, transition: "opacity 120ms ease" }}
+          aria-busy={loading}
+        >
           <Table data-testid="shared-table">
             <TableHeader>
               <TableRow>

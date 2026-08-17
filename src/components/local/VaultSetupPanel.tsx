@@ -370,7 +370,14 @@ function RemotesTable({ compact }: RemotesTableProps) {
           No external remotes yet. The vault only lives on this server until you add one.
         </p>
       ) : (
-        <div style={{ overflowX: "auto" }}>
+        // Round 7 item 51 — a refresh (the button above, or a create/edit/
+        // delete's own refetch) keeps this table mounted and dims it
+        // rather than swapping to the skeleton above, which is reserved
+        // for the genuinely-empty first load.
+        <div
+          style={{ overflowX: "auto", opacity: remotesLoading ? 0.55 : 1, transition: "opacity 120ms ease" }}
+          aria-busy={remotesLoading}
+        >
           <Table data-testid="vault-remotes-table">
             <TableHeader>
               <TableRow>
