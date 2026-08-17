@@ -101,7 +101,18 @@ export function SharedPanel({ authenticated, onEditShare }: SharedPanelProps) {
                 <TableHead>Mode</TableHead>
                 <TableHead>Access</TableHead>
                 <TableHead>Expires</TableHead>
-                <TableHead align="right">Hits</TableHead>
+                <TableHead align="right">
+                  {/* Round 7 item 59 — "if some access paths are
+                      deliberately uncounted, the panel copy says what
+                      counts as a hit" (DESIGN-SPEC). Browsing further
+                      inside an already-open share (another file, a
+                      subfolder) doesn't add a second hit for that same
+                      visit — see server/app/routers/share_public.py's
+                      `_is_share_followup_request` for the mechanism. */}
+                  <Tooltip content="Counts each time the share page is opened, not each file viewed inside it." side="top">
+                    <span>Hits</span>
+                  </Tooltip>
+                </TableHead>
                 <TableHead>Last accessed</TableHead>
                 <TableHead align="right">Actions</TableHead>
               </TableRow>

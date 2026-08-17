@@ -558,6 +558,21 @@ valid path to the same JSON — `share/ShareApp.tsx` uses the root route's own
 `Accept: application/json` branch instead (a same-origin, relative fetch
 either way).
 
+**`hit_count`/`last_access_at` counting (DESIGN-SPEC Amendments round 7 item
+59).** A share page open is one visit, but several HTTP requests: the shell-
+HTML navigation above, the SPA's own immediate JSON re-fetch of that same
+URL, and (for a folder share) one more request per subdirectory/file a
+visitor's already-open page goes on to browse. Only ONE of those counts as
+a hit — `app/routers/share_public.py::_is_share_followup_request` skips the
+increment for any request whose `Referer` already points back at this same
+share's own `/share/{identifier}...` page (default browser `fetch()`/
+navigation behavior needs no client cooperation for this), so the single
+request in a visit WITHOUT that self-referer — the real navigation, or a
+direct script/curl hit that never touched the shell at all — is the one
+canonical counted point. Browsing further inside an already-open share
+(another file, a subfolder) does not add a second hit for that same visit;
+the Shared panel's "Hits" column header says as much in a tooltip.
+
 `POST /share/{identifier}/auth` — `{"password": "..."}` → `200 {"ok": true}`
 + sets a signed, `HttpOnly`/`Secure`/`SameSite=Lax` session cookie scoped to
 `Path=/share/{slug}` on success. Wrong password AND a nonexistent slug both

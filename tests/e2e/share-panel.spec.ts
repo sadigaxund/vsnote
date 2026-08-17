@@ -37,7 +37,11 @@ test.describe("Shared panel", () => {
     await viewer.close();
 
     await page.getByTestId("shared-refresh").click();
-    await expect(hitsCell).not.toHaveText("0");
+    // Round 7 item 59 — exactly 1, not just "not 0": the real browser
+    // navigation above triggers the SPA shell AND its own immediate
+    // content re-fetch for the same visit; a double-count regression would
+    // silently pass a looser "not 0" assertion.
+    await expect(hitsCell).toHaveText("1");
 
     await revokeShareByLink(page, link);
     await expect(row).toHaveCount(0);

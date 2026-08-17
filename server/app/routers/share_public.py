@@ -87,6 +87,7 @@ import base64
 import hashlib
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -416,7 +417,54 @@ def _resolve_get(
     )
 
 
-def _record_access(db: Session, share: "models.Share", access: policy.ShareAccess, request: Request) -> None:
+def _is_share_followup_request(request: Request, identifier: str) -> bool:
+    """DESIGN-SPEC Amendments round 7 item 59's dedup mechanism. A real
+    "share page open" is ONE visit, but it produces several HTTP requests:
+    a real browser navigation to `/share/{identifier}[/{relpath}]` first
+    gets the SPA shell, which then (`share/ShareApp.tsx`'s `load()`)
+    immediately re-fetches its own content via `Accept: application/json`
+    on that exact same URL — and, for a folder share, goes on to fetch the
+    manifest listing/tree and every subdirectory a visitor's browser
+    expands, all from JS running on that already-loaded page. Counting
+    every one of those as a separate hit is what produced the over-count a
+    round-7 hands-on session found (`docs/DESIGN-SPEC.md`'s item 59); NOT
+    counting any of the JSON re-fetches at all would undercount a legit
+    direct API/script hit that never touches the shell.
+
+    The dedup signal: every one of those same-visit follow-up fetches is
+    same-origin JS running on a page this server ALREADY served at
+    `/share/{identifier}...`, so the browser attaches a `Referer` pointing
+    right back at that same prefix (default `fetch()`/navigation referrer
+    behavior — no extra client code needed). The ONE request in a visit
+    that does NOT carry that self-referer — the initial navigation
+    (typed URL, bookmark, a link clicked from somewhere else entirely) or
+    a direct script/curl hit with no shell involved at all — is therefore
+    the single canonical counted point. Same host AND matching path
+    prefix are both required so a same-path coincidence on a different
+    origin (only reachable at all via the CORS-enabled `/api/share/...`
+    content routes, which real third-party origins call) can't suppress a
+    legitimate cross-origin hit."""
+    referer = request.headers.get("referer")
+    if not referer:
+        return False
+    try:
+        parsed = urlsplit(referer)
+    except ValueError:
+        return False
+    if parsed.hostname != request.url.hostname:
+        return False
+    prefix = f"/share/{identifier}"
+    return parsed.path == prefix or parsed.path.startswith(prefix + "/")
+
+
+def _record_access(db: Session, share: "models.Share", access: policy.ShareAccess, request: Request, identifier: str) -> None:
+    """The one place `hit_count`/`last_access_at` are ever touched. Skips
+    the increment for a same-visit follow-up request — see
+    `_is_share_followup_request`'s doc for the full "why exactly one count
+    per open" reasoning — but still writes nothing else differently: a
+    skipped follow-up is not an error or a deny, just not a NEW hit."""
+    if _is_share_followup_request(request, identifier):
+        return
     share.hit_count += 1
     share.last_access_at = time.time()
     db.commit()
@@ -448,12 +496,12 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             resolution = _resolve_folder_path(db, share, "")
             if resolution is None:
                 return _deny_response(request, None)
-            _record_access(db, share, access, request)
+            _record_access(db, share, access, request, identifier)
             resp = _render_folder_resolution(resolution, share, db, request, "", access.role)
             return resp if resp is not None else _deny_response(request, None)
 
         blob = db.get(models.Blob, share.blob_id)
-        _record_access(db, share, access, request)
+        _record_access(db, share, access, request, identifier)
 
         if _wants_json(request):
             return JSONResponse(
@@ -502,7 +550,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         resolution = _resolve_folder_path(db, share, relpath)
         if resolution is None:
             return _deny_response(request, None)
-        _record_access(db, share, access, request)
+        _record_access(db, share, access, request, identifier)
         resp = _render_folder_resolution(resolution, share, db, request, relpath, access.role)
         return resp if resp is not None else _deny_response(request, None)
 
@@ -692,7 +740,7 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
             resolution = _resolve_folder_path(db, share, "")
             if resolution is None:
                 return policy.not_found_response()
-            _record_access(db, share, access, request)
+            _record_access(db, share, access, request, identifier)
             # Always JSON on this route (it's the CORS-enabled JSON twin) —
             # reuse the same listing/file payload shaping as the root app's
             # `{relpath:path}` route.
@@ -711,7 +759,7 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
             )
 
         blob = db.get(models.Blob, share.blob_id)
-        _record_access(db, share, access, request)
+        _record_access(db, share, access, request, identifier)
         return JSONResponse(
             status_code=200,
             content=_content_payload(share, blob, access.role),
@@ -739,7 +787,7 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
         resolution = _resolve_folder_path(db, share, relpath)
         if resolution is None:
             return policy.not_found_response()
-        _record_access(db, share, access, request)
+        _record_access(db, share, access, request, identifier)
 
         kind, payload = resolution
         if kind == "file":
