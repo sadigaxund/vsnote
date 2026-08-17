@@ -559,19 +559,34 @@ valid path to the same JSON — `share/ShareApp.tsx` uses the root route's own
 either way).
 
 **`hit_count`/`last_access_at` counting (DESIGN-SPEC Amendments round 7 item
-59).** A share page open is one visit, but several HTTP requests: the shell-
-HTML navigation above, the SPA's own immediate JSON re-fetch of that same
-URL, and (for a folder share) one more request per subdirectory/file a
-visitor's already-open page goes on to browse. Only ONE of those counts as
-a hit — `app/routers/share_public.py::_is_share_followup_request` skips the
-increment for any request whose `Referer` already points back at this same
-share's own `/share/{identifier}...` page (default browser `fetch()`/
-navigation behavior needs no client cooperation for this), so the single
-request in a visit WITHOUT that self-referer — the real navigation, or a
-direct script/curl hit that never touched the shell at all — is the one
-canonical counted point. Browsing further inside an already-open share
-(another file, a subfolder) does not add a second hit for that same visit;
-the Shared panel's "Hits" column header says as much in a tooltip.
+59).** The HTML shell response above is NEVER the counted point, for either
+a file or a folder share — it's an unreliable signal to count on, since a
+dev/preview proxy's navigation bypass, or a PWA service worker caching the
+shell, both mean this backend can legitimately never see that particular
+request at all (an earlier version of this fix tried counting the shell
+via a referer check and broke exactly this way: with nothing but the SPA's
+own always-self-referring content re-fetch ever reaching the server, hits
+stayed at 0 forever). Instead:
+
+- The bare `/share/{identifier}` ROOT route (file or folder) counts
+  UNCONDITIONALLY on every content-bearing response it returns — raw
+  bytes, the file's JSON, or the folder's root listing — self-referer or
+  not. A reload is legitimately another open, so there's no dedup here at
+  all; this is also what makes the proxy/SW case above work, since the
+  content re-fetch alone is enough to count.
+- RELPATH-addressed folder GETs (`/share/{identifier}/{relpath}`, i.e. a
+  subdirectory listing or a file inside the folder) DO dedup:
+  `app/routers/share_public.py::_is_share_followup_request` skips the
+  increment when the request's `Referer` already points back at this same
+  share's own `/share/{identifier}...` page (default browser `fetch()`
+  behavior, no client cooperation needed) — that's `share/ShareApp.tsx`
+  browsing further inside an already-open share, not a new hit. A direct
+  deep-link fetch with no such referer (a script, curl, a link from
+  elsewhere) still counts.
+- The CORS-enabled `/api/share/{identifier}/content[...]` twins follow the
+  same root-vs-relpath split.
+
+The Shared panel's "Hits" column header says what counts, in a tooltip.
 
 `POST /share/{identifier}/auth` — `{"password": "..."}` → `200 {"ok": true}`
 + sets a signed, `HttpOnly`/`Secure`/`SameSite=Lax` session cookie scoped to

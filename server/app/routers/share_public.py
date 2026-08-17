@@ -86,7 +86,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -353,11 +353,22 @@ def _render_folder_resolution(
     request: Request,
     prefix: str,
     role: Optional[str] = None,
+    *,
+    on_content: Optional[Callable[[], None]] = None,
 ) -> Optional[Response]:
     """Turns a non-None `_resolve_folder_path` result into the actual HTTP
     Response (raw bytes / JSON content / JSON listing, content-negotiated
     the same way the file-share route is). Returns None for the `None`
-    (not-found) case so callers fall through to the uniform 404."""
+    (not-found) case so callers fall through to the uniform 404.
+
+    `on_content` (item 59) is called exactly once, right before returning
+    any response that ISN'T the HTML shell below — the caller's hook for
+    recording a hit. Never called for the shell branch: the shell is
+    unreliable as a counting point (a dev/preview proxy's navigation
+    bypass, or a PWA service worker caching it, both mean this server can
+    legitimately never see that particular request at all — see
+    `_is_share_followup_request`'s doc), so counting is anchored entirely
+    to the responses this function knows it actually served."""
     if resolution is None:
         return None
     # Single-origin refactor (Phase 10.5a) — a real browser navigation into
@@ -379,14 +390,20 @@ def _render_folder_resolution(
         entry = payload
         blob = db.get(models.Blob, entry.blob_id)
         if _wants_json(request):
+            if on_content is not None:
+                on_content()
             return JSONResponse(
                 status_code=200,
                 content=_folder_file_content_payload(share, entry, blob, role),
                 headers=dict(JSON_SECURITY_HEADERS),
             )
+        if on_content is not None:
+            on_content()
         return Response(content=blob.content, media_type=RAW_CONTENT_TYPE, headers=dict(RAW_SECURITY_HEADERS))
     # "dir" — always JSON; there is no raw-bytes representation of a listing
     # (roadmap §5.1: never inline content into HTML server-side).
+    if on_content is not None:
+        on_content()
     return JSONResponse(
         status_code=200,
         content=_listing_payload(share, prefix, payload, role),
@@ -418,32 +435,37 @@ def _resolve_get(
 
 
 def _is_share_followup_request(request: Request, identifier: str) -> bool:
-    """DESIGN-SPEC Amendments round 7 item 59's dedup mechanism. A real
-    "share page open" is ONE visit, but it produces several HTTP requests:
-    a real browser navigation to `/share/{identifier}[/{relpath}]` first
-    gets the SPA shell, which then (`share/ShareApp.tsx`'s `load()`)
-    immediately re-fetches its own content via `Accept: application/json`
-    on that exact same URL — and, for a folder share, goes on to fetch the
-    manifest listing/tree and every subdirectory a visitor's browser
-    expands, all from JS running on that already-loaded page. Counting
-    every one of those as a separate hit is what produced the over-count a
-    round-7 hands-on session found (`docs/DESIGN-SPEC.md`'s item 59); NOT
-    counting any of the JSON re-fetches at all would undercount a legit
-    direct API/script hit that never touches the shell.
+    """DESIGN-SPEC Amendments round 7 item 59's dedup mechanism — used
+    ONLY for RELPATH-addressed folder requests (`get_share_path`,
+    `get_share_content_path`), never for the bare `/share/{identifier}`
+    root route. (An earlier version of this fix tried to reuse the same
+    referer check to also skip the root route's HTML-shell request, on the
+    theory that the shell is what a real navigation hits first — but a
+    dev/preview proxy's navigation bypass, or a PWA service worker caching
+    the shell, means the backend can legitimately never see that shell
+    request at all. When that happens the SPA's own content re-fetch is
+    the ONLY request reaching this server, and it always self-refers —
+    dedupe on referer at the root route and hits go 0 -> 0 forever. Fixed
+    by never trying to identify "the shell request" this way at all; see
+    `_render_folder_resolution`'s `on_content` and `get_share`'s inline
+    file-share branch for how the root route now counts unconditionally on
+    every content-bearing response instead.)
 
-    The dedup signal: every one of those same-visit follow-up fetches is
-    same-origin JS running on a page this server ALREADY served at
-    `/share/{identifier}...`, so the browser attaches a `Referer` pointing
-    right back at that same prefix (default `fetch()`/navigation referrer
-    behavior — no extra client code needed). The ONE request in a visit
-    that does NOT carry that self-referer — the initial navigation
-    (typed URL, bookmark, a link clicked from somewhere else entirely) or
-    a direct script/curl hit with no shell involved at all — is therefore
-    the single canonical counted point. Same host AND matching path
-    prefix are both required so a same-path coincidence on a different
-    origin (only reachable at all via the CORS-enabled `/api/share/...`
-    content routes, which real third-party origins call) can't suppress a
-    legitimate cross-origin hit."""
+    What's left for THIS helper: once a folder share's root page is
+    already open, a visitor browsing further inside it (another file, a
+    subfolder) fires more requests — `share/ShareApp.tsx`'s
+    `buildShareTree` listing every subdirectory, or opening another file
+    in the tree — all to `/share/{identifier}/{relpath}`, all same-origin
+    JS running on the page this server already served, so the browser
+    attaches a `Referer` pointing back at that same `/share/{identifier}`
+    prefix (default `fetch()` referrer behavior, no client cooperation
+    needed). Those in-page follow-ups are skipped; a relpath request
+    WITHOUT that self-referer — a direct deep-link script/curl hit that
+    never touched this share's own page at all — still counts. Same host
+    AND matching path prefix are both required so a same-path coincidence
+    on a different origin (only reachable via the CORS-enabled
+    `/api/share/.../content` routes, which real third-party origins call)
+    can't suppress a legitimate cross-origin hit."""
     referer = request.headers.get("referer")
     if not referer:
         return False
@@ -457,18 +479,31 @@ def _is_share_followup_request(request: Request, identifier: str) -> bool:
     return parsed.path == prefix or parsed.path.startswith(prefix + "/")
 
 
-def _record_access(db: Session, share: "models.Share", access: policy.ShareAccess, request: Request, identifier: str) -> None:
-    """The one place `hit_count`/`last_access_at` are ever touched. Skips
-    the increment for a same-visit follow-up request — see
-    `_is_share_followup_request`'s doc for the full "why exactly one count
-    per open" reasoning — but still writes nothing else differently: a
-    skipped follow-up is not an error or a deny, just not a NEW hit."""
-    if _is_share_followup_request(request, identifier):
-        return
+def _record_access(db: Session, share: "models.Share", access: policy.ShareAccess, request: Request) -> None:
+    """The one place `hit_count`/`last_access_at` are ever incremented.
+    Unconditional — every call site is already responsible for only
+    calling this on a content-bearing response (never the HTML shell) and,
+    for relpath-addressed folder requests, only via `_record_relpath_access`
+    below. A reload/re-fetch of the SAME content-bearing URL is legitimately
+    another hit (item 59: "a reload is legitimately another open"), so
+    there is no dedup at this level — see `_is_share_followup_request`'s
+    doc for exactly which requests DO get deduped and why."""
     share.hit_count += 1
     share.last_access_at = time.time()
     db.commit()
     write_audit_event(db, "share.access", slug=share.slug, principal=access.principal, request=request)
+
+
+def _record_relpath_access(
+    db: Session, share: "models.Share", access: policy.ShareAccess, request: Request, identifier: str
+) -> None:
+    """The relpath-addressed twin of `_record_access` — folder subtree GETs
+    only (`get_share_path`/`get_share_content_path`), never the root route.
+    Skips the increment for an in-page follow-up fetch; see
+    `_is_share_followup_request`'s doc."""
+    if _is_share_followup_request(request, identifier):
+        return
+    _record_access(db, share, access, request)
 
 
 def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, auth_deps: AuthDeps) -> APIRouter:
@@ -496,14 +531,28 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             resolution = _resolve_folder_path(db, share, "")
             if resolution is None:
                 return _deny_response(request, None)
-            _record_access(db, share, access, request, identifier)
-            resp = _render_folder_resolution(resolution, share, db, request, "", access.role)
+            # Item 59 — the folder ROOT counts unconditionally on every
+            # content-bearing (non-shell) response, no referer dedup: see
+            # `_render_folder_resolution`'s `on_content` doc for why the
+            # shell can't be the counting point, and
+            # `_is_share_followup_request`'s doc for why relpath-addressed
+            # sub-fetches (below, in `get_share_path`) are the only place
+            # that dedup still applies.
+            resp = _render_folder_resolution(
+                resolution, share, db, request, "", access.role,
+                on_content=lambda: _record_access(db, share, access, request),
+            )
             return resp if resp is not None else _deny_response(request, None)
 
         blob = db.get(models.Blob, share.blob_id)
-        _record_access(db, share, access, request, identifier)
 
+        # Item 59 — same "count the content-bearing response, never the
+        # shell" rule as the folder branch above, inlined here since a
+        # file share's raw/JSON/shell decision isn't behind
+        # `_render_folder_resolution`. `_record_access` fires exactly once,
+        # right before whichever content response actually gets returned.
         if _wants_json(request):
+            _record_access(db, share, access, request)
             return JSONResponse(
                 status_code=200,
                 content=_content_payload(share, blob, access.role),
@@ -518,11 +567,13 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         # exactly as before (roadmap §1: "never text/html — a raw share
         # must never execute"; see `tests/test_raw_mode.py::
         # test_raw_never_html_even_for_html_payload_with_script_tag`).
+        # NOT counted: this branch's own return is the shell, not content.
         if share.render_mode == models.RenderMode.rendered and _wants_html(request):
             shell = _spa_shell_response(request)
             if shell is not None:
                 return shell
 
+        _record_access(db, share, access, request)
         return Response(content=blob.content, media_type=RAW_CONTENT_TYPE, headers=dict(RAW_SECURITY_HEADERS))
 
     @router.get("/share/{identifier}/{relpath:path}")
@@ -550,8 +601,14 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         resolution = _resolve_folder_path(db, share, relpath)
         if resolution is None:
             return _deny_response(request, None)
-        _record_access(db, share, access, request, identifier)
-        resp = _render_folder_resolution(resolution, share, db, request, relpath, access.role)
+        # Item 59 — relpath-addressed (subdir listing / a file within the
+        # folder): dedup via `_record_relpath_access` so in-page browsing
+        # of an already-open share doesn't multi-count, but a direct
+        # deep-link fetch (no self-referer) still does.
+        resp = _render_folder_resolution(
+            resolution, share, db, request, relpath, access.role,
+            on_content=lambda: _record_relpath_access(db, share, access, request, identifier),
+        )
         return resp if resp is not None else _deny_response(request, None)
 
     @router.post("/share/{identifier}/auth")
@@ -736,11 +793,15 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
 
         share = access.share
 
+        # Item 59 — this whole route is the CORS twin of the ROOT app
+        # route: always JSON, no shell branch ever exists here, so every
+        # response is content-bearing and counts unconditionally (no
+        # referer dedup) exactly like `get_share`'s root route.
         if share.kind == models.ShareKind.folder:
             resolution = _resolve_folder_path(db, share, "")
             if resolution is None:
                 return policy.not_found_response()
-            _record_access(db, share, access, request, identifier)
+            _record_access(db, share, access, request)
             # Always JSON on this route (it's the CORS-enabled JSON twin) —
             # reuse the same listing/file payload shaping as the root app's
             # `{relpath:path}` route.
@@ -759,7 +820,7 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
             )
 
         blob = db.get(models.Blob, share.blob_id)
-        _record_access(db, share, access, request, identifier)
+        _record_access(db, share, access, request)
         return JSONResponse(
             status_code=200,
             content=_content_payload(share, blob, access.role),
@@ -787,7 +848,9 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
         resolution = _resolve_folder_path(db, share, relpath)
         if resolution is None:
             return policy.not_found_response()
-        _record_access(db, share, access, request, identifier)
+        # Item 59 — relpath-addressed, same dedup as the root app's
+        # `get_share_path` twin.
+        _record_relpath_access(db, share, access, request, identifier)
 
         kind, payload = resolution
         if kind == "file":
