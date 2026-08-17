@@ -88,6 +88,12 @@ function hslToRgb([h, s, l]: [number, number, number]): Rgb {
 
 export const ACCENT_MIN_CONTRAST = 4.5;
 
+/** Round 7 item 47 — accent-tinted TEXT (markdown headings, links) gets a
+ * stricter floor than accent-filled chrome: 4.5:1 keeps a control visible,
+ * but body-adjacent text at that ratio on the near-black theme reads muddy.
+ * 7:1 (WCAG AAA) is the text tier. */
+export const ACCENT_TEXT_MIN_CONTRAST = 7;
+
 /** Returns `accent` unchanged when it already reaches `min` contrast on
  * `bg`; otherwise walks its HSL lightness AWAY from the background's side
  * (dark bg -> lighter accent, light bg -> darker) in small steps until it

@@ -60,3 +60,19 @@ textarea,
 [data-no-drag] {
   -webkit-user-drag: none;
 }
+
+/* Round 7 item 45 — status bar overflow policy. The bar itself is the size
+   container (see local/StatusBar.tsx); as it narrows, low-priority segments
+   drop first, then mid, and surviving labels ellipsize. Nothing may ever
+   paint outside the bar. */
+@container (max-width: 760px) {
+  [data-testid="app-statusbar"] .sb-prio-low {
+    /* !important: the item's own inline display: flex must lose here. */
+    display: none !important;
+  }
+}
+@container (max-width: 620px) {
+  [data-testid="app-statusbar"] .sb-prio-mid {
+    display: none !important;
+  }
+}

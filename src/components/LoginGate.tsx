@@ -92,7 +92,13 @@ export function LoginGate({ onAuthenticated }: LoginGateProps) {
         fontFamily: "var(--font-sans)",
       }}
     >
-      <div style={{ width: 340 }}>
+      {/* Round 7 item 49 — optical centering: the wordmark adds ~100px above
+          the card, so plain flex centering parks the FORM 50px below true
+          center and it reads as pushed down. The bottom margin lifts the
+          whole group until the card (the visual anchor) sits at the eye
+          line, slightly above true center; `min()` keeps short viewports
+          from pushing the wordmark off the top. */}
+      <div style={{ width: 340, marginBottom: "min(calc(6vh + 100px), 18vh)" }}>
         <Wordmark />
         <Card>
           <CardHeader>

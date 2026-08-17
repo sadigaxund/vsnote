@@ -87,11 +87,13 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
             label={git.branch}
             tooltip={`On branch ${git.branch}`}
             tone="primary"
+            maxLabelWidth={160}
           />
           <StatusBarItem
             label={`↑${git.ahead} ↓${git.behind}`}
             tooltip="Ahead/behind remote. Click to sync."
             onClick={onSync}
+            priority="mid"
           />
           <StatusBarItem
             icon={
@@ -106,11 +108,12 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
             tone={git.syncError ? "danger" : undefined}
             onClick={onSync}
           />
-          <StatusBarItem label={<DiffStatChip added={git.diff.added} removed={git.diff.removed} />} />
+          <StatusBarItem label={<DiffStatChip added={git.diff.added} removed={git.diff.removed} />} priority="low" />
           <StatusBarItem
             label={`${git.untracked} untracked`}
             tooltip="Untracked files"
             tone="warning"
+            priority="low"
           />
           {storagePersistence === "denied" && (
             <StatusBarItem
@@ -124,9 +127,9 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
       right={
         <>
           <StatusBarItem label={`Ln ${cursor.line}, Col ${cursor.column}`} tooltip="Go to line" />
-          <StatusBarItem label={encoding} tooltip="Select encoding" />
-          <StatusBarItem label={eol} tooltip="Select end of line sequence" />
-          <StatusBarItem label={language} tooltip="Select language mode" />
+          <StatusBarItem label={encoding} tooltip="Select encoding" priority="low" />
+          <StatusBarItem label={eol} tooltip="Select end of line sequence" priority="low" />
+          <StatusBarItem label={language} tooltip="Select language mode" priority="mid" />
           <StatusBarItem icon={<Bell size={12} />} label="" tooltip="Notifications" />
         </>
       }

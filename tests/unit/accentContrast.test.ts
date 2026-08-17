@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ACCENT_MIN_CONTRAST,
+  ACCENT_TEXT_MIN_CONTRAST,
   contrastRatio,
   ensureReadableOn,
   parseCssColor,
@@ -73,5 +74,16 @@ describe("readableForeground()", () => {
   it("dark text on the light default teal, white text on a dark accent", () => {
     expect(readableForeground("#27d2c5")).toBe("#0a0c10");
     expect(readableForeground("#123055")).toBe("#ffffff");
+  });
+});
+
+describe("ACCENT_TEXT_MIN_CONTRAST tier (round 7 item 47)", () => {
+  it("walks a black accent to at least 7:1 for text use", () => {
+    const adjusted = ensureReadableOn("#000000", VSNOTE_BG, ACCENT_TEXT_MIN_CONTRAST);
+    expect(contrastRatio(parseCssColor(adjusted)!, parseCssColor(VSNOTE_BG)!)).toBeGreaterThanOrEqual(7);
+  });
+
+  it("passes the default teal through byte-identical even at the text tier", () => {
+    expect(ensureReadableOn("#27d2c5", VSNOTE_BG, ACCENT_TEXT_MIN_CONTRAST)).toBe("#27d2c5");
   });
 });

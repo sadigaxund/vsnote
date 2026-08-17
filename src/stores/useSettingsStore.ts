@@ -15,7 +15,7 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { ensureReadableOn, readableForeground } from "../lib/accentContrast";
+import { ACCENT_TEXT_MIN_CONTRAST, ensureReadableOn, readableForeground } from "../lib/accentContrast";
 import { defaultDeviceName } from "../git/commitTemplate";
 import { DEFAULT_GIT_REPO_NAME } from "../git/remote";
 import { DEFAULT_SYNC_INTERVAL_MINUTES, type SyncPolicy } from "../git/autoSyncPolicy";
@@ -419,6 +419,10 @@ export function applyDomSettings(state: Pick<SettingsState, "theme" | "accent" |
   root.style.setProperty("--color-primary", displayAccent);
   root.style.setProperty("--color-ring", displayAccent);
   root.style.setProperty("--color-primary-fg", readableForeground(displayAccent));
+  // Round 7 item 47 — accent-tinted TEXT (md headings/links) gets the
+  // stricter 7:1 tier; consumers use var(--color-accent-text,
+  // var(--color-primary)) so a surface this code never runs on still paints.
+  root.style.setProperty("--color-accent-text", ensureReadableOn(state.accent, themeBg, ACCENT_TEXT_MIN_CONTRAST));
   // DESIGN-SPEC Amendments round 3 item 23: three real tiers now —
   // `"default"` clears the attribute (matching the bare `:root` block in
   // theme.css, the pixel-sampled baseline every phase before this one

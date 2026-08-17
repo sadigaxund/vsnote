@@ -14,6 +14,13 @@
  * `TexturedSurface` composed behind the real content, same pattern as
  * `local/ActivityBar.tsx` (see that file's doc for the full reasoning) —
  * inert under VSNote, visible under `metallic`/`glass`/`comic`/`frosted`.
+ *
+ * Round 7 item 45 — overflow policy: the bar is a size container
+ * (`container-type: inline-size`) and each item carries a `priority`;
+ * `src/index.css`'s `@container` rules drop `low` then `mid` items as the
+ * bar narrows, remaining labels ellipsize (`minWidth: 0` down the flex
+ * chain), and both slot groups clip (`overflow: hidden`) so nothing ever
+ * paints outside the bar at any width or density.
  */
 import { Tooltip, TexturedSurface } from "my-you-eye";
 import type { ReactNode } from "react";
@@ -46,6 +53,7 @@ export function StatusBar({ left, right }: StatusBarProps) {
         fontSize: 11,
         fontFamily: "var(--font-mono)",
         color: "var(--color-muted)",
+        containerType: "inline-size",
       }}
     >
       {/* DESIGN-SPEC Amendments round 3 item 22(a): the bar's fill is
@@ -63,8 +71,10 @@ export function StatusBar({ left, right }: StatusBarProps) {
         layer="page"
         style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none" }}
       />
-      <div style={{ display: "flex", alignItems: "stretch", gap: 2 }}>{left}</div>
-      <div style={{ display: "flex", alignItems: "stretch", gap: 2 }}>{right}</div>
+      <div style={{ display: "flex", alignItems: "stretch", gap: 2, minWidth: 0, overflow: "hidden" }}>{left}</div>
+      <div style={{ display: "flex", alignItems: "stretch", gap: 2, minWidth: 0, overflow: "hidden", flexShrink: 0 }}>
+        {right}
+      </div>
     </div>
   );
 }
@@ -75,6 +85,13 @@ export interface StatusBarItemProps {
   tooltip?: string;
   tone?: "default" | "success" | "danger" | "warning" | "primary";
   onClick?: () => void;
+  /** Round 7 item 45 — what survives a narrow bar. `high` (default) never
+   * hides; `mid` hides below ~620px of bar width; `low` hides first, below
+   * ~760px. The thresholds live in `src/index.css`'s `@container` rules. */
+  priority?: "high" | "mid" | "low";
+  /** Optional ellipsis cap for long labels (branch names). The label keeps
+   * its natural size under this cap and truncates with an ellipsis over it. */
+  maxLabelWidth?: number;
 }
 
 const TONE_COLOR: Record<NonNullable<StatusBarItemProps["tone"]>, string> = {
@@ -85,10 +102,11 @@ const TONE_COLOR: Record<NonNullable<StatusBarItemProps["tone"]>, string> = {
   primary: "var(--color-primary)",
 };
 
-export function StatusBarItem({ icon, label, tooltip, tone = "default", onClick }: StatusBarItemProps) {
+export function StatusBarItem({ icon, label, tooltip, tone = "default", onClick, priority = "high", maxLabelWidth }: StatusBarItemProps) {
   const content = (
     <button
       type="button"
+      className={priority === "high" ? undefined : `sb-prio-${priority}`}
       onClick={onClick}
       style={{
         display: "flex",
@@ -103,6 +121,8 @@ export function StatusBarItem({ icon, label, tooltip, tone = "default", onClick 
         borderRadius: "var(--radius-ui-sm)",
         fontFamily: "inherit",
         fontSize: "inherit",
+        minWidth: 0,
+        whiteSpace: "nowrap",
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = "var(--color-surface-hover)";
@@ -111,8 +131,18 @@ export function StatusBarItem({ icon, label, tooltip, tone = "default", onClick 
         e.currentTarget.style.background = "transparent";
       }}
     >
-      {icon}
-      {label}
+      {icon && <span style={{ display: "inline-flex", flexShrink: 0 }}>{icon}</span>}
+      <span
+        style={{
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          ...(maxLabelWidth !== undefined ? { maxWidth: maxLabelWidth } : {}),
+        }}
+      >
+        {label}
+      </span>
     </button>
   );
   return tooltip ? (

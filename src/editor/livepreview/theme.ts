@@ -68,9 +68,9 @@ export const livePreviewTheme = EditorView.theme(
       letterSpacing: "-0.01em",
       marginTop: "4px",
     },
-    ".cm-md-h2": { fontSize: "19px", fontWeight: "700", color: "var(--color-primary)", lineHeight: "1.4", marginTop: "10px" },
-    ".cm-md-h3": { fontSize: "17px", fontWeight: "700", color: "var(--color-primary)", lineHeight: "1.4", marginTop: "8px" },
-    ".cm-md-h4, .cm-md-h5, .cm-md-h6": { fontSize: "17px", fontWeight: "700", color: "var(--color-primary)" },
+    ".cm-md-h2": { fontSize: "19px", fontWeight: "700", color: "var(--color-accent-text, var(--color-primary))", lineHeight: "1.4", marginTop: "10px" },
+    ".cm-md-h3": { fontSize: "17px", fontWeight: "700", color: "var(--color-accent-text, var(--color-primary))", lineHeight: "1.4", marginTop: "8px" },
+    ".cm-md-h4, .cm-md-h5, .cm-md-h6": { fontSize: "17px", fontWeight: "700", color: "var(--color-accent-text, var(--color-primary))" },
 
     // ---- Inline marks (kept small/muted while raw so the "smallest
     // enclosing region" reveal reads as syntax, not more prose). ----
@@ -95,7 +95,7 @@ export const livePreviewTheme = EditorView.theme(
 
     // ---- Links ----
     ".cm-md-link": {
-      color: "var(--color-primary)",
+      color: "var(--color-accent-text, var(--color-primary))",
       textDecoration: "underline",
       textUnderlineOffset: "2px",
       cursor: "pointer",

@@ -149,7 +149,14 @@ interface SettingRow {
   label: string;
   keywords?: string;
   content: ReactNode;
+  /** Round 7 item 46 — the page is full-bleed but a row's CONTROLS are not:
+   * rows cap at a comfortable measure so sliders/inputs never span the
+   * window. Tables and multi-column panels (shares, server vault) opt out. */
+  wide?: boolean;
 }
+
+/** Round 7 item 46 — max measure for a normal settings row. */
+const ROW_MAX_WIDTH = "36rem";
 
 interface Category {
   id: string;
@@ -611,6 +618,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         // authoritative to talk to until this wizard's step 1 completes).
         {
           id: "server-vault",
+          wide: true,
           label: "Server vault",
           keywords: "vault wizard init mirror remote ssh key token setup server github gitlab gitea mounted legacy branch",
           content: <VaultSetupPanel clientRepoName={gitRepoName} />,
@@ -1062,6 +1070,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         },
         {
           id: "shared-panel",
+          wide: true,
           label: "Shared",
           keywords: "shares links published revoke regenerate hits audit expiry password access",
           content: <SharedPanel authenticated={authenticated} onEditShare={setEditingShare} />,
@@ -1227,7 +1236,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           Editor, theme, and per-file-type defaults, saved automatically.
         </p>
 
-        <div style={{ position: "relative", marginBottom: 24 }}>
+        <div style={{ position: "relative", marginBottom: 24, maxWidth: "28rem" }}>
           <SearchIcon
             size={14}
             style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-muted)", pointerEvents: "none" }}
@@ -1290,7 +1299,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                       {rows.map((row) => (
-                        <div key={row.id} data-testid={`settings-row-${row.id}`}>
+                        <div key={row.id} data-testid={`settings-row-${row.id}`} style={row.wide ? undefined : { maxWidth: ROW_MAX_WIDTH }}>
                           {row.content}
                         </div>
                       ))}
@@ -1300,7 +1309,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }} data-testid={`settings-group-${visibleCategory.id}`}>
                 {visibleCategory.rows.map((row) => (
-                  <div key={row.id} data-testid={`settings-row-${row.id}`}>
+                  <div key={row.id} data-testid={`settings-row-${row.id}`} style={row.wide ? undefined : { maxWidth: ROW_MAX_WIDTH }}>
                     {row.content}
                   </div>
                 ))}

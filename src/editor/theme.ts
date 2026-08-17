@@ -131,8 +131,8 @@ const highlightStyle = HighlightStyle.define([
   { tag: t.strong, fontWeight: "bold" },
   { tag: t.emphasis, fontStyle: "italic" },
   { tag: t.strikethrough, textDecoration: "line-through" },
-  { tag: t.link, color: "var(--color-primary)", textDecoration: "underline" },
-  { tag: t.heading, fontWeight: "bold", color: "var(--color-primary)" },
+  { tag: t.link, color: "var(--color-accent-text, var(--color-primary))", textDecoration: "underline" },
+  { tag: t.heading, fontWeight: "bold", color: "var(--color-accent-text, var(--color-primary))" },
   { tag: t.invalid, color: "var(--git-deleted)" },
 ]);
 
