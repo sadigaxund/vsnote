@@ -167,6 +167,14 @@ export async function startShareBackend(): Promise<void> {
     // See module docstring.
     VSNOTE_RATE_LIMIT_SHARE_AUTH: "1000/minute",
     VSNOTE_RATE_LIMIT_SHARE: "5000/minute",
+    // Phase 17's app-wide login gate (`server/app/routers/app_config.py`)
+    // turns itself on as soon as a credential path exists, and this
+    // fixture bootstraps an owner account below — so without this switch
+    // every spec in the suite would meet a login screen instead of the
+    // shell. The gate itself is covered by its own spec, which drives the
+    // real login flow with the real owner credentials rather than
+    // wallpapering over it here.
+    VSNOTE_REQUIRE_LOGIN: "false",
   };
 
   // Bootstrap the owner account directly against the DB file, same

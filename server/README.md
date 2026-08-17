@@ -134,6 +134,38 @@ Env-driven, see `.env.example` for the full annotated list (loaded from
 | `VSNOTE_BOOTSTRAP_USER` / `VSNOTE_BOOTSTRAP_PASSWORD` | *(unset)* | Phase 12 — creates that fallback-login user at startup, iff no `User` row exists yet. See "Fallback-login onboarding" below |
 | `VSNOTE_VAULT_PATH` | *(unset)* | Phase 17 — mounts a real, non-bare, plaintext working tree at this path as the AUTHORITATIVE vault. Unset (default): no change from Phase 11 — the vault is just the ordinary bare repo below. See "Server-mounted vault" below |
 | `VSNOTE_VAULT_REPO_NAME` | `vault` | Phase 17 — the repo name clients use in `<origin>/git/<name>.git` to reach the vault (whichever shape it is). Must match `gitrepo.REPO_NAME_RE`; validated at startup |
+| `VSNOTE_REQUIRE_LOGIN` | `True` | Phase 17 — the app-wide login gate. See "App-wide login gate" below |
+
+## App-wide login gate (Phase 17)
+
+Every authenticated client can sync the whole vault, so the app shell sits
+behind a login screen. The decision is the server's, published by ONE
+public, unauthenticated route, `GET /api/app-config`, which answers with
+three booleans and nothing else (no vault path, no repo name, no counts):
+
+```json
+{ "login_required": true, "password_login": true, "cf_access": false }
+```
+
+`login_required` is `VSNOTE_REQUIRE_LOGIN` **and** (a local account with a
+password exists **or** both `CF_ACCESS_*` vars are set). That second clause
+is the "never lock the owner out" rule: a fresh deployment with no account
+and no Access in front cannot satisfy a login prompt, and has nothing
+server-side to protect yet, so it is not gated. Add an account (see
+"Fallback-login onboarding" above) or put Cloudflare Access in front, and
+the gate turns itself on with no second switch to remember. Set
+`VSNOTE_REQUIRE_LOGIN=False` for the one case that conjunction cannot
+infer: a deployment that has accounts and wants the shell open anyway.
+
+Cloudflare Access in front keeps working unchanged: an Access-authenticated
+request already resolves to a session, so the client never sees the gate.
+
+The gate is a client-side screen over server-declared state, not the
+security boundary. Every server surface (`/api`, `/git`, `/share`) enforces
+its own auth exactly as before, and an unreachable backend never gates the
+client at all: an installed or already-loaded app keeps editing its own
+local clone offline (CLAUDE.md rule 3), with sync and sharing degrading
+gracefully until the server answers again.
 
 ## Fallback-login onboarding (Phase 12, DESIGN-SPEC Amendments round 4 item 32)
 

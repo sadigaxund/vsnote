@@ -25,6 +25,17 @@ class WhoAmIOut(BaseModel):
     source: Optional[str] = None  # "cf_access" | "session" | "bearer"
 
 
+class AppConfigOut(BaseModel):
+    """`GET /api/app-config` — public and unauthenticated, so it carries
+    exactly three booleans and nothing else (no vault path, no repo name,
+    no counts). See `routers/app_config.py` for why each one exists and
+    how `login_required` is derived."""
+
+    login_required: bool
+    password_login: bool
+    cf_access: bool
+
+
 class TokenCreateIn(BaseModel):
     name: str
     # Grants (viewer/editor) use a Literal to reject "commenter" with a

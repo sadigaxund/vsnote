@@ -73,6 +73,14 @@ class Settings(BaseSettings):
     bootstrap_user: Optional[str] = Field(default=None, validation_alias="VSNOTE_BOOTSTRAP_USER")
     bootstrap_password: Optional[str] = Field(default=None, validation_alias="VSNOTE_BOOTSTRAP_PASSWORD")
 
+    # Phase 17 — the app-wide login gate (`routers/app_config.py`). True
+    # (the default) means "gate the shell as soon as a credential path
+    # exists"; the endpoint's own conjunction is what keeps a
+    # credential-less deployment from locking its owner out. Set False to
+    # keep the shell open on a deployment that HAS accounts and knows what
+    # it is doing (the e2e suite does exactly this).
+    require_login: bool = Field(default=True, validation_alias="VSNOTE_REQUIRE_LOGIN")
+
     # Phase 17 Milestone A — the server-mounted, AUTHORITATIVE vault. Unset
     # (the default): no change from every earlier phase — the vault is just
     # the ordinary bare repo `{git_root}/{vault_repo_name}.git`, created on

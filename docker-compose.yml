@@ -76,6 +76,11 @@ services:
       VSNOTE_RATE_LIMIT_SHARE: ${VSNOTE_RATE_LIMIT_SHARE:-60/minute}
       VSNOTE_RATE_LIMIT_SHARE_AUTH: ${VSNOTE_RATE_LIMIT_SHARE_AUTH:-5/minute}
       VSNOTE_SESSION_TTL_MIN: ${VSNOTE_SESSION_TTL_MIN:-30}
+      # Phase 17 app-wide login gate. Default True: the shell is gated as
+      # soon as a credential path exists (a local account or CF_ACCESS_*),
+      # and never gated when neither does, so a first boot is not a
+      # lockout. See server/README.md's "App-wide login gate" section.
+      VSNOTE_REQUIRE_LOGIN: ${VSNOTE_REQUIRE_LOGIN:-True}
       # Secure-by-default (real HTTPS deployments, e.g. behind any reverse
       # proxy or tunnel — server/README.md). Set False in .env ONLY to test
       # over plain http://localhost.
