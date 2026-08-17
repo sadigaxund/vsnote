@@ -111,7 +111,18 @@ ENV VSNOTE_DB_URL=sqlite:////data/db/vsnote.db \
     VSNOTE_PORT=8787 \
     PYTHONUNBUFFERED=1
 
-USER vsnote
+# `docker-entrypoint.sh` (repo root — see its own header comment, DESIGN-
+# SPEC Amendments round 7 item 50) fixes ownership of any volume-mounted
+# path this process writes to that the build-time chown above couldn't
+# reach (a fresh named volume with nothing at its mount path in the image,
+# e.g. VSNOTE_VAULT_PATH, is created root-owned regardless of what's
+# chowned at build time), THEN drops to `vsnote` and execs the real
+# command — this is why `USER vsnote` moved from a Dockerfile directive to
+# something the entrypoint does at runtime instead: the entrypoint itself
+# has to start as root to be able to chown anything.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 EXPOSE 8787
 
@@ -119,5 +130,7 @@ EXPOSE 8787
 # override the published host port independently — see docker-compose.yml).
 # --proxy-headers/--forwarded-allow-ips: same single-origin-behind-a-tunnel
 # rationale as `npm run server` (server/README.md's "Running it" section) —
-# this is the one process a Cloudflare tunnel/reverse proxy points at.
+# this is the one process a Cloudflare tunnel/reverse proxy points at. Runs
+# as root only until the entrypoint's `setpriv` hands off to `vsnote` —
+# the SERVED process is still always non-root, unchanged from before.
 CMD ["sh", "-c", "exec python -m uvicorn app.main:app --host 0.0.0.0 --port \"${VSNOTE_PORT:-8787}\" --app-dir /app/server --proxy-headers --forwarded-allow-ips='*'"]

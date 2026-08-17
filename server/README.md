@@ -75,11 +75,37 @@ docker compose up -d --build
 `npm ci && npm run build`; the final `python:3.12-slim` stage installs
 `requirements.txt` (filtered to drop the `pytest`/`httpx` test-only
 entries — no test runner ships in the image), copies `server/app` +
-`server/scripts` and the built `dist/`, and runs as a non-root user
-(`vsnote`, uid/gid 1000) — never node, never a dev dependency, never root.
-See `../docs/ARCHITECTURE.md`'s "Containerization (Phase 14)" section for
-the full design (DIST_DIR path resolution, the healthcheck's reasoning,
+`server/scripts` and the built `dist/`, and serves traffic as a non-root
+user (`vsnote`, uid/gid 1000) — never node, never a dev dependency, never
+root. See `../docs/ARCHITECTURE.md`'s "Containerization (Phase 14)" section
+for the full design (DIST_DIR path resolution, the healthcheck's reasoning,
 the persistence contract) — not duplicated here to avoid the two drifting.
+
+**`docker-entrypoint.sh` (repo root) runs first, as root, then drops
+privileges** (DESIGN-SPEC Amendments round 7 item 50). A fresh Docker named
+volume (or a bind mount to an unprepared host directory) is created
+root-owned the first time it's mounted, regardless of what the image itself
+chowns at build time — this bit `VSNOTE_VAULT_PATH`'s `vsnote-vault` volume
+specifically, since (unlike `/data/db`/`/data/git-repos`/`/data/secrets`,
+which the image pre-creates and chowns so a fresh volume inherits that
+ownership) nothing in the image ever creates `/data/vault` ahead of time.
+Before handing off to `setpriv` (drops to `vsnote`, uid/gid 1000, then
+`exec`s straight into `uvicorn` — the served process is still always
+non-root, unchanged from before) the entrypoint:
+- shallow-`chown`s `VSNOTE_VAULT_PATH` (if set) and `VSNOTE_SECRETS_PATH` to
+  `vsnote:vsnote` — the directory itself only, never `-R`, since these are
+  either freshly empty or already correctly owned from a prior run and a
+  large existing vault's history never needs re-walking on every start;
+- sets `HOME=/app` (the `vsnote` user's real home dir) — `setpriv` changes
+  uid/gid but not `$HOME`, and without this fix git-config-reading code
+  during vault init stats `$HOME/.gitconfig` as uid 1000 against a `/root`
+  it can't enter, a same-shaped `PermissionError` easily mistaken for the
+  volume-ownership bug this entrypoint exists to fix.
+
+If the server still cannot write to the vault path after all that (an
+operator-managed bind mount nobody `chown`ed, a read-only mount, ...),
+`POST /api/vault/init` returns a structured `503` naming the exact path
+instead of a raw 500/traceback — see "Server-mounted vault" below.
 
 **Persistent state lives in named volumes** (`docker-compose.yml`): the
 SQLite DB (`VSNOTE_DB_URL` defaults to `sqlite:////data/db/vsnote.db` in
@@ -352,6 +378,14 @@ against an uninitialized mounted vault is refused until then — reads get a
 plain `404`, writes get `409` with a one-line body explaining why — nothing
 is ever silently auto-created for this one repo name the way legacy repo
 names still are.
+
+**If the server cannot write to the mount** (item 50) — a bind mount to a
+host directory nobody `chown`ed to uid/gid 1000, a genuinely read-only
+mount, or any other environment where the container's own entrypoint chown
+above (see "Docker" above) couldn't fix things — `POST /api/vault/init`
+returns `503` with a JSON `detail` naming the exact path and the fix,
+never a raw 500/traceback; the setup wizard shows that message verbatim in
+its error state.
 
 **An existing `.git` is always respected.** If the mount already contains a
 real git repository — the owner set one up by hand, or a previous

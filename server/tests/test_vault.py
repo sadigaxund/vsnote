@@ -185,6 +185,24 @@ def test_init_vault_refuses_a_second_time(make_settings, tmp_path):
         vault_module.init_vault(settings, branch="main")
 
 
+def test_init_vault_raises_structured_error_when_path_not_writable(make_settings, tmp_path):
+    """DESIGN-SPEC Amendments round 7 item 50: a root-owned Docker volume
+    (simulated here with a read-only directory) must never surface as a raw
+    500/traceback — `init_vault` maps it to `VaultPathNotWritable`, which
+    the router below turns into a structured 503."""
+    mount = tmp_path / "mnt"
+    mount.mkdir()
+    mount.chmod(0o500)  # r-x: exists, but nothing can be created inside it
+    settings = make_settings(vault_path=str(mount))
+    try:
+        with pytest.raises(vault_module.VaultPathNotWritable) as excinfo:
+            vault_module.init_vault(settings, branch="main")
+        assert excinfo.value.path == mount
+        assert isinstance(excinfo.value.original, OSError)
+    finally:
+        mount.chmod(0o700)  # restore so pytest's tmp_path cleanup can remove it
+
+
 def test_init_vault_legacy_creates_bare_repo(make_settings):
     settings = make_settings()  # no vault_path — legacy shape
     description = vault_module.init_vault(settings, branch="main")
@@ -349,6 +367,28 @@ def test_api_vault_init_works_once_then_refuses(make_app, make_settings, tmp_pat
 
     r2 = client.post("/api/vault/init", json={})
     assert r2.status_code == 409
+
+
+def test_api_vault_init_returns_structured_503_when_path_not_writable(make_app, make_settings, tmp_path):
+    """The route-level half of item 50: no raw 500/traceback reaches the
+    client, and the JSON `detail` names the actual path so
+    `VaultSetupPanel.tsx`'s one-row error state has something actionable to
+    show verbatim."""
+    mount = tmp_path / "mnt"
+    mount.mkdir()
+    mount.chmod(0o500)
+    settings = make_settings(vault_path=str(mount))
+    app = make_app(settings)
+    client = TestClient(app)
+    _make_owner_with_write_token(app)
+    _login(client)
+    try:
+        r = client.post("/api/vault/init", json={})
+        assert r.status_code == 503, r.text
+        body = r.json()
+        assert str(mount) in body["detail"]
+    finally:
+        mount.chmod(0o700)
 
 
 def test_api_vault_init_requires_session(make_app, make_settings, tmp_path):

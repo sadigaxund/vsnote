@@ -103,6 +103,24 @@ class VaultAlreadyInitialized(VaultError):
     path. Respecting an existing `.git` is binding — see module docstring."""
 
 
+class VaultPathNotWritable(VaultError):
+    """`init_vault()` refused: the server process cannot write to the vault
+    path (DESIGN-SPEC Amendments round 7 item 50). The field-observed cause
+    is a Docker named volume created root-owned while the container runs as
+    the non-root `vsnote` uid — `Dockerfile`'s entrypoint chowns the vault
+    directory at container start specifically to avoid this, but a bind
+    mount to a host directory the operator forgot to `chown`, or a
+    genuinely read-only mount, hit the same `OSError` here. Carries the
+    path and the underlying `OSError` so `routers/vault.py` can build a
+    message that names both without ever letting the raw traceback reach
+    the client."""
+
+    def __init__(self, path: Path, original: OSError) -> None:
+        self.path = path
+        self.original = original
+        super().__init__(f"cannot write to vault path {path}: {original}")
+
+
 def validate_vault_repo_name(name: str) -> None:
     """Raises `ValueError` if `name` doesn't match the exact same
     `gitrepo.REPO_NAME_RE` shape every other repo name is validated
@@ -280,12 +298,20 @@ def init_vault(settings: Settings, branch: Optional[str] = None) -> VaultDescrip
     if vault_repo_exists(path):
         raise VaultAlreadyInitialized(f"a git repository already exists at {path}")
 
-    path.mkdir(parents=True, exist_ok=True)
     mounted = is_mounted(settings)
-    if mounted:
-        repo = porcelain.init(str(path), bare=False)
-    else:
-        repo = Repo.init_bare(str(path))
+    try:
+        # Both the directory creation and dulwich's repo init can hit
+        # PermissionError (root-owned volume, unwritable parent) or another
+        # OSError (e.g. a read-only mount, ENOSPC) — one try/except covers
+        # both since either leaves the vault path in the same "server can't
+        # write here" state the caller needs to report.
+        path.mkdir(parents=True, exist_ok=True)
+        if mounted:
+            repo = porcelain.init(str(path), bare=False)
+        else:
+            repo = Repo.init_bare(str(path))
+    except OSError as exc:
+        raise VaultPathNotWritable(path, exc) from exc
     try:
         repo.refs.set_symbolic_ref(b"HEAD", b"refs/heads/" + branch.encode("utf-8"))
     finally:
