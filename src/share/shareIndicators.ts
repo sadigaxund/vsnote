@@ -33,6 +33,10 @@ export interface ShareIndicatorResult<T extends ShareIndicatorInput = ShareIndic
   /** This path sits inside a shared FOLDER's subtree, but isn't itself the
    * share root — the muted variant. */
   inherited: T[];
+  /** Round 6 item 9 — this folder is an ANCESTOR of a shared item: some
+   * share's source_path lives below this path. The muted variant on the
+   * folder row, so a collapsed tree still reveals where shares live. */
+  containing: T[];
 }
 
 /** Computes the indicator state for a single Explorer tree row. Revoked
@@ -41,20 +45,24 @@ export interface ShareIndicatorResult<T extends ShareIndicatorInput = ShareIndic
 export function computeShareIndicator<T extends ShareIndicatorInput>(shares: readonly T[], path: string): ShareIndicatorResult<T> {
   const own: T[] = [];
   const inherited: T[] = [];
+  const containing: T[] = [];
   for (const share of shares) {
     if (share.revoked_at) continue;
     if (share.source_path === path) {
       own.push(share);
     } else if (share.kind === "folder" && path.startsWith(`${share.source_path}/`)) {
       inherited.push(share);
+    } else if (share.source_path.startsWith(`${path}/`)) {
+      containing.push(share);
     }
   }
-  return { own, inherited };
+  return { own, inherited, containing };
 }
 
-/** True if `path` has ANY (own or inherited) active share — the cheap
- * check `ExplorerTree` uses to decide whether to render a glyph at all. */
+/** True if `path` has ANY (own, inherited, or containing) active share —
+ * the cheap check `ExplorerTree` uses to decide whether to render a glyph
+ * at all. */
 export function hasAnyShareIndicator<T extends ShareIndicatorInput>(shares: readonly T[], path: string): boolean {
-  const { own, inherited } = computeShareIndicator(shares, path);
-  return own.length > 0 || inherited.length > 0;
+  const { own, inherited, containing } = computeShareIndicator(shares, path);
+  return own.length > 0 || inherited.length > 0 || containing.length > 0;
 }

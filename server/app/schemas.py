@@ -115,6 +115,14 @@ class ManifestUpdateIn(BaseModel):
 class SharePatchIn(BaseModel):
     alias: Optional[str] = None
     expires_at: Optional[float] = None
+    # Same sentinel problem as the password below: `expires_at: null` in the
+    # JSON is indistinguishable from "field omitted" once parsed, so an
+    # explicit flag is the only way to say "make this share never expire"
+    # (round 6 item 5 made never-expires an explicit UI state).
+    clear_expiry: bool = False
+    # Round 6 item 8 — a moved/renamed vault file updates its share's
+    # recorded path so tree indicators and Manage keep following it.
+    source_path: Optional[str] = None
     # Explicit sentinel handling: omit the field to leave the password
     # unchanged; pass "" to clear it; pass a non-empty string to set it.
     password: Optional[str] = None

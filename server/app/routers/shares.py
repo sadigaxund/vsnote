@@ -280,8 +280,12 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             if payload.alias and not security.validate_slug_format(payload.alias):
                 raise HTTPException(status_code=422, detail="alias must match the slug format")
             share.alias = payload.alias or None
-        if payload.expires_at is not None:
+        if payload.clear_expiry:
+            share.expires_at = None
+        elif payload.expires_at is not None:
             share.expires_at = payload.expires_at
+        if payload.source_path is not None and payload.source_path.strip():
+            share.source_path = payload.source_path.strip()
         if payload.clear_password:
             share.password_hash = None
         elif payload.password is not None:

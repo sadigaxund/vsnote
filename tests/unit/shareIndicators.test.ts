@@ -1,6 +1,6 @@
 /**
- * `share/shareIndicators.ts` — the Explorer tree's "own" vs "inherited"
- * share indicator state (roadmap §5.1).
+ * `share/shareIndicators.ts` — the Explorer tree's "own" / "inherited" /
+ * "containing" share indicator state (roadmap §5.1 + round 6 item 9).
  */
 import { describe, expect, it } from "vitest";
 import { computeShareIndicator, hasAnyShareIndicator, type ShareIndicatorInput } from "../../src/share/shareIndicators";
@@ -58,6 +58,30 @@ describe("computeShareIndicator()", () => {
     expect(result.own).toEqual([nestedFileShare]);
     expect(result.inherited).toEqual([FOLDER_SHARE]);
   });
+
+  // Round 6 item 9 — ancestor folders of shared items get the muted marker.
+  it("marks an ancestor folder of a shared FILE as 'containing'", () => {
+    const result = computeShareIndicator([FILE_SHARE], "vault/notes");
+    expect(result.own).toEqual([]);
+    expect(result.inherited).toEqual([]);
+    expect(result.containing).toEqual([FILE_SHARE]);
+  });
+
+  it("marks an ancestor folder of a shared FOLDER as 'containing'", () => {
+    const result = computeShareIndicator([FOLDER_SHARE], "vault");
+    expect(result.containing).toEqual([FOLDER_SHARE]);
+  });
+
+  it("'containing' does not false-positive on a sibling string prefix", () => {
+    // "vault/no" is a text prefix of "vault/notes/x.md" but not an ancestor.
+    const result = computeShareIndicator([FILE_SHARE], "vault/no");
+    expect(result.containing).toEqual([]);
+  });
+
+  it("excludes revoked shares from 'containing' too", () => {
+    const result = computeShareIndicator([REVOKED_SHARE], "vault");
+    expect(result.containing).toEqual([]);
+  });
 });
 
 describe("hasAnyShareIndicator()", () => {
@@ -71,5 +95,9 @@ describe("hasAnyShareIndicator()", () => {
 
   it("false for an unrelated path", () => {
     expect(hasAnyShareIndicator([FILE_SHARE, FOLDER_SHARE], "vault/src/app.ts")).toBe(false);
+  });
+
+  it("true for an ancestor of a shared item (containing)", () => {
+    expect(hasAnyShareIndicator([FILE_SHARE], "vault/notes")).toBe(true);
   });
 });

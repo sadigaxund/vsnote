@@ -168,3 +168,33 @@ def test_cannot_patch_someone_elses_share(owner_client, anon_client, db_session)
     anon_client.post("/api/auth/login", json={"username": "other", "password": "otherpw123"})
     r = anon_client.patch(f"/api/shares/{share['id']}", json={"alias": "hijacked"})
     assert r.status_code == 404
+
+
+def test_patch_clear_expiry_and_source_path(owner_client):
+    """Round 6 items 5 + 8: `expires_at: null` is indistinguishable from an
+    omitted field once parsed, so never-expires travels as the explicit
+    `clear_expiry` sentinel; a vault move/rename PATCHes `source_path`."""
+    share = publish_share(owner_client)
+
+    with_expiry = owner_client.patch(f"/api/shares/{share['id']}", json={"expires_at": 4102444800})
+    assert with_expiry.status_code == 200
+    assert with_expiry.json()["expires_at"] == 4102444800
+
+    # A bare null does NOT clear (that is exactly the ambiguity)...
+    nulled = owner_client.patch(f"/api/shares/{share['id']}", json={"expires_at": None})
+    assert nulled.status_code == 200
+    assert nulled.json()["expires_at"] == 4102444800
+
+    # ...the sentinel does.
+    cleared = owner_client.patch(f"/api/shares/{share['id']}", json={"clear_expiry": True})
+    assert cleared.status_code == 200
+    assert cleared.json()["expires_at"] is None
+
+    moved = owner_client.patch(f"/api/shares/{share['id']}", json={"source_path": "vault/renamed/new-home.md"})
+    assert moved.status_code == 200
+    assert moved.json()["source_path"] == "vault/renamed/new-home.md"
+
+    # Blank/whitespace source_path is ignored, never stored.
+    blank = owner_client.patch(f"/api/shares/{share['id']}", json={"source_path": "   "})
+    assert blank.status_code == 200
+    assert blank.json()["source_path"] == "vault/renamed/new-home.md"

@@ -45,6 +45,7 @@ export interface SidebarProps {
   shares?: ExplorerShareRow[];
   onCopyShareLink?: (node: FileNode, share: ExplorerShareRow) => void;
   onManageShare?: (node: FileNode, share: ExplorerShareRow) => void;
+  onRevokeShare?: (node: FileNode, share: ExplorerShareRow) => void;
   /** DESIGN-SPEC Amendments round 5 item 39 — OS drag-drop + Ctrl+V paste
    * import, straight passthrough to `ExplorerTree` (App.tsx owns the actual
    * fs writes + conflict rename-or-replace dialog, same split as every
@@ -78,6 +79,7 @@ export function Sidebar({
   shares,
   onCopyShareLink,
   onManageShare,
+  onRevokeShare,
   onImportEntries,
   width,
   onWidthChange,
@@ -153,6 +155,7 @@ export function Sidebar({
               shares={shares}
               onCopyShareLink={onCopyShareLink}
               onManageShare={onManageShare}
+              onRevokeShare={onRevokeShare}
               onImportEntries={onImportEntries}
             />
           </div>

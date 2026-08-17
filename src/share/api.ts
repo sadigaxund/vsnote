@@ -86,6 +86,12 @@ export interface ShareCreateIn {
 export interface SharePatchIn {
   alias?: string | null;
   expires_at?: number | null;
+  /** Round 6 item 5 — `expires_at: null` parses server-side as "omitted",
+   * so never-expires needs its own explicit sentinel (same shape as
+   * `clear_password`). */
+  clear_expiry?: boolean;
+  /** Round 6 item 8 — moved/renamed vault paths update the share record. */
+  source_path?: string;
   password?: string;
   clear_password?: boolean;
   general_access?: GeneralAccess;

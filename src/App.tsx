@@ -819,6 +819,9 @@ export default function App() {
       tabs.setKind(newPath, inferFileKind(newName));
     }
     setSelectedId((prev) => (prev && (prev === node.path || prev.startsWith(`${node.path}/`)) ? newPath + prev.slice(node.path.length) : prev));
+    // Round 6 item 8 — keep any share's recorded path following the file.
+    // Fire-and-forget: never blocks or fails the rename (see the store doc).
+    void useShareStore.getState().notifyPathMoved(node.path, newPath);
     await git.refresh();
   };
 
@@ -827,6 +830,7 @@ export default function App() {
     tabs.renamePrefix(sourcePath, newPath);
     useBufferStore.getState().rekeyPrefix(sourcePath, newPath);
     setSelectedId((prev) => (prev && (prev === sourcePath || prev.startsWith(`${sourcePath}/`)) ? newPath + prev.slice(sourcePath.length) : prev));
+    void useShareStore.getState().notifyPathMoved(sourcePath, newPath); // item 8, as above
     await git.refresh();
   };
 
@@ -929,6 +933,21 @@ export default function App() {
     const link = share.kind === "folder" ? buildFolderShareLink(share) : buildShareLink(share);
     navigator.clipboard?.writeText(link).catch(() => {});
     toast({ title: "Link copied", variant: "success" });
+  };
+
+  // Round 6 item 7 — "Revoke share…" from the tree context menu, behind the
+  // same ConfirmDialog treatment every other destructive action here gets.
+  const [revokeShareTarget, setRevokeShareTarget] = useState<ExplorerShareRow | null>(null);
+  const handleRevokeShareConfirmed = async () => {
+    const target = revokeShareTarget;
+    setRevokeShareTarget(null);
+    if (!target) return;
+    try {
+      await useShareStore.getState().revoke(target.id);
+      toast({ title: "Share revoked", variant: "success" });
+    } catch (err) {
+      toast({ title: "Revoke failed", description: err instanceof Error ? err.message : "Backend unreachable.", variant: "danger" });
+    }
   };
 
   const handleShareActiveFile = () => {
@@ -1142,6 +1161,7 @@ export default function App() {
             shares={shares}
             onCopyShareLink={handleCopyShareLink}
             onManageShare={(node, share) => void handleManageShare(node, share)}
+            onRevokeShare={(_node, share) => setRevokeShareTarget(share)}
             onRefresh={() => void useFsStore.getState().refresh()}
             width={sidebarWidth}
             onWidthChange={(w) => useSettingsStore.getState().setSidebarWidth(w)}
@@ -1299,6 +1319,22 @@ export default function App() {
         open={loadDemoConfirmOpen}
         onOpenChange={setLoadDemoConfirmOpen}
         onConfirm={() => void handleLoadDemoVaultConfirmed()}
+      />
+
+      <ConfirmDialog
+        title="Revoke share?"
+        description={
+          revokeShareTarget
+            ? `Everyone loses access to /share/${revokeShareTarget.alias ?? revokeShareTarget.slug} immediately. The vault file itself is untouched.`
+            : ""
+        }
+        confirmLabel="Revoke"
+        destructive
+        open={revokeShareTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevokeShareTarget(null);
+        }}
+        onConfirm={() => void handleRevokeShareConfirmed()}
       />
 
       <ImportConflictDialog

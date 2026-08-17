@@ -62,6 +62,14 @@ interface ShareStoreState {
   updateShare: (id: number, patch: api.SharePatchIn) => Promise<api.ShareOut>;
   regenerate: (id: number) => Promise<api.ShareOut>;
   revoke: (id: number) => Promise<void>;
+  /** Round 6 item 8 — a vault move/rename updates every affected share's
+   * recorded `source_path` (exact match, or a path inside a moved folder)
+   * so tree indicators and "Manage share" keep following the file.
+   * Best-effort: signed-out, offline, or a failed PATCH just leaves the old
+   * path (the indicator self-corrects on the next `refreshShares`). Never
+   * throws — callers are fs handlers that must not fail a move over
+   * share bookkeeping. */
+  notifyPathMoved: (oldPath: string, newPath: string) => Promise<void>;
 }
 
 export interface FolderPublishEntry {
@@ -221,5 +229,22 @@ export const useShareStore = create<ShareStoreState>()((set, get) => ({
   revoke: async (id) => {
     await api.deleteShare(id);
     set({ shares: get().shares.map((s) => (s.id === id ? { ...s, revoked_at: Date.now() / 1000 } : s)) });
+  },
+
+  notifyPathMoved: async (oldPath, newPath) => {
+    const { authenticated, shares } = get();
+    if (!authenticated) return;
+    const affected = shares.filter(
+      (s) => s.revoked_at == null && (s.source_path === oldPath || s.source_path.startsWith(`${oldPath}/`)),
+    );
+    for (const share of affected) {
+      const nextPath = newPath + share.source_path.slice(oldPath.length);
+      try {
+        const updated = await api.patchShare(share.id, { source_path: nextPath });
+        set((state) => ({ shares: state.shares.map((s) => (s.id === share.id ? updated : s)) }));
+      } catch {
+        // Offline or a concurrent edit — leave the stale path; see doc.
+      }
+    }
   },
 }));

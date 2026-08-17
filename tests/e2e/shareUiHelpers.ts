@@ -50,7 +50,10 @@ export async function publishFileViaContextMenu(page: Page, opts: PublishOptions
     await dialog.getByRole("radio", { name: opts.renderMode === "rendered" ? "Rendered" : "Raw" }).click();
   }
   if (opts.password) {
-    await dialog.getByTestId("publish-password-toggle").click();
+    // Round 6 item 4 — the old Password switch is now a three-way
+    // credential select (No credential / Password / API token).
+    await dialog.getByTestId("publish-auth-mode").click();
+    await page.getByRole("option", { name: "Password" }).click();
     await dialog.getByTestId("publish-password").fill(opts.password);
   }
   if (opts.alias) {

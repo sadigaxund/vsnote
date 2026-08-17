@@ -132,6 +132,11 @@ export function SharedPanel({ authenticated, onEditShare }: SharedPanelProps) {
                         Password
                       </Badge>
                     )}
+                    {share.auth_mode === "token" && (
+                      <Badge variant="warning" tone="soft" style={{ marginLeft: 6 }}>
+                        API token
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>{formatEpoch(share.expires_at)}</TableCell>
                   <TableCell align="right" data-testid={`shared-hits-${share.id}`}>

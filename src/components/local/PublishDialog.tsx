@@ -207,6 +207,9 @@ export function PublishDialog({
   const [authMode, setAuthMode] = useState<AuthMode>(() => (existingShare?.auth_mode as AuthMode) ?? "none");
   const [password, setPassword] = useState("");
   const [alias, setAlias] = useState(() => existingShare?.alias ?? "");
+  // Round 6 item 5 — expiry is explicit: OFF means "Never expires" (the
+  // default), and the date input only exists once the switch opts in.
+  const [expiryEnabled, setExpiryEnabled] = useState(() => existingShare?.expires_at != null);
   const [expiresLocal, setExpiresLocal] = useState(() => epochSecondsToDateInput(existingShare?.expires_at));
   const [renderMode, setRenderMode] = useState<RenderMode>(
     () => (existingShare?.render_mode as RenderMode) ?? (canRenderShare(fileKind) ? "rendered" : "raw"),
@@ -234,6 +237,9 @@ export function PublishDialog({
     authenticated &&
     aliasCheck.valid &&
     (authMode !== "password" || password.length > 0 || (editMode && existingShare?.has_password)) &&
+    // Item 5 — an opted-in expiry must actually have a date; "on but blank"
+    // would silently save as never-expires while the UI said otherwise.
+    (!expiryEnabled || expiresLocal.length > 0) &&
     (!isFolder || (!manifestLoading && includedCount > 0)) &&
     !submitting;
 
@@ -248,7 +254,9 @@ export function PublishDialog({
       const grants = addGrant && principal.trim() ? [{ principal: principal.trim(), role }] : undefined;
       const policyPatch = {
         alias: alias.trim().length > 0 ? alias.trim() : "",
-        expires_at: dateInputToEpochSeconds(expiresLocal) ?? null,
+        // `expires_at: null` reads as "omitted" server-side, so switching
+        // expiry OFF must travel as the explicit clear_expiry sentinel.
+        ...(expiryEnabled ? { expires_at: dateInputToEpochSeconds(expiresLocal) ?? null } : { clear_expiry: true }),
         general_access: generalAccess,
         auth_mode: authMode,
         render_mode: renderMode,
@@ -278,7 +286,7 @@ export function PublishDialog({
               authMode,
               password: authMode === "password" ? password : undefined,
               alias: alias.trim(),
-              expiresAt: dateInputToEpochSeconds(expiresLocal),
+              expiresAt: expiryEnabled ? dateInputToEpochSeconds(expiresLocal) : undefined,
               grants,
             },
             includedEntries,
@@ -300,7 +308,7 @@ export function PublishDialog({
           authMode,
           password: authMode === "password" ? password : undefined,
           alias: alias.trim(),
-          expiresAt: dateInputToEpochSeconds(expiresLocal),
+          expiresAt: expiryEnabled ? dateInputToEpochSeconds(expiresLocal) : undefined,
           grants,
         });
         setResult(share);
@@ -357,11 +365,11 @@ export function PublishDialog({
             <Alert variant="info" size="sm" title="Sign in to publish">
               Publishing requires an owner session on the backend.
             </Alert>
-            {/* DESIGN-SPEC Amendments round 4 item 32: the fallback-login
-                onboarding hint the signed-out state was missing, one row
-                per item 28. */}
+            {/* DESIGN-SPEC Amendments round 4 item 32 hint, reworded round 6
+                item 2: the old copy overflowed the dialog under nowrap
+                ("modal spill"); shorter copy that genuinely fits one row. */}
             <p style={{ fontSize: 12, color: "var(--color-muted)", margin: 0, whiteSpace: "nowrap" }}>
-              No account yet? Set VSNOTE_BOOTSTRAP_USER/PASSWORD or run create_user.py.
+              No account? Set the VSNOTE_BOOTSTRAP env vars on the server.
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <Input
@@ -414,11 +422,18 @@ export function PublishDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  {/* Round 6 item 3 — icon + label on ONE row: a bare icon
+                      next to text inside SelectItem could wrap/stack; an
+                      inline-flex wrapper keeps them a single unit. */}
                   <SelectItem value="restricted">
-                    <Lock size={13} style={{ marginRight: 6 }} /> Restricted to listed people
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                      <Lock size={13} aria-hidden /> Restricted to listed people
+                    </span>
                   </SelectItem>
                   <SelectItem value="link">
-                    <Globe2 size={13} style={{ marginRight: 6 }} /> Anyone with the link
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                      <Globe2 size={13} aria-hidden /> Anyone with the link
+                    </span>
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -475,15 +490,34 @@ export function PublishDialog({
 
             <div style={{ display: "flex", gap: 12 }}>
               <div style={{ flex: 1 }}>
-                <FormField label="Expires">
-                  <Input
-                    size="sm"
-                    type="date"
-                    value={expiresLocal}
-                    onChange={(e) => setExpiresLocal(e.target.value)}
-                    aria-label="Expiry date"
-                    data-testid="publish-expires"
-                  />
+                {/* Round 6 item 5 — expiry is explicit: the default state
+                    SAYS "Never expires"; a date only exists after opting
+                    in via the switch. */}
+                <FormField label="Expiry">
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 32 }}>
+                    <Switch
+                      checked={expiryEnabled}
+                      onCheckedChange={(on) => {
+                        setExpiryEnabled(on);
+                        if (!on) setExpiresLocal("");
+                      }}
+                      aria-label="Set an expiry date"
+                      data-testid="publish-expiry-toggle"
+                    />
+                    {expiryEnabled ? (
+                      <Input
+                        size="sm"
+                        type="date"
+                        value={expiresLocal}
+                        onChange={(e) => setExpiresLocal(e.target.value)}
+                        aria-label="Expiry date"
+                        data-testid="publish-expires"
+                        style={{ flex: 1 }}
+                      />
+                    ) : (
+                      <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>Never expires</span>
+                    )}
+                  </div>
                 </FormField>
               </div>
               <div style={{ flex: 1 }}>
@@ -501,29 +535,43 @@ export function PublishDialog({
               </div>
             </div>
 
-            <FormField label="Password">
+            {/* Round 6 item 4 — per-share TOKEN auth was server-implemented
+                (policy.py's AuthMode.token: Authorization: Bearer with an
+                API token) but never exposed here; the old Password switch
+                becomes a three-way credential select. */}
+            <FormField
+              label="Requires"
+              hint={authMode === "token" ? "Callers send an API token as an Authorization: Bearer header." : undefined}
+            >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Switch
-                  checked={authMode === "password"}
-                  onCheckedChange={(checked) => setAuthMode(checked ? "password" : "none")}
-                  aria-label="Require a password"
-                  data-testid="publish-password-toggle"
-                />
-                <Input
-                  size="sm"
-                  type="password"
-                  disabled={authMode !== "password"}
-                  placeholder={editMode && existingShare?.has_password ? "Leave blank to keep current password" : "Share password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  aria-label="Share password"
-                  data-testid="publish-password"
-                  style={{ flex: 1 }}
-                />
+                <Select value={authMode} onValueChange={(v) => setAuthMode(v as AuthMode)}>
+                  <SelectTrigger size="sm" style={{ width: 150 }} data-testid="publish-auth-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No credential</SelectItem>
+                    <SelectItem value="password">Password</SelectItem>
+                    <SelectItem value="token">API token</SelectItem>
+                  </SelectContent>
+                </Select>
+                {authMode === "password" && (
+                  <Input
+                    size="sm"
+                    type="password"
+                    placeholder={editMode && existingShare?.has_password ? "Leave blank to keep current password" : "Share password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    aria-label="Share password"
+                    data-testid="publish-password"
+                    style={{ flex: 1 }}
+                  />
+                )}
               </div>
             </FormField>
 
-            <FormField label="Roles" hint="Commenter isn't available yet.">
+            {/* Round 6 item 6 — Commenter remnants removed (the hint and the
+                "(soon)" badge); viewer/editor are the roles that exist. */}
+            <FormField label="Roles">
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <Switch checked={addGrant} onCheckedChange={setAddGrant} aria-label="Add a per-principal role" />
                 <Input
@@ -544,9 +592,6 @@ export function PublishDialog({
                     <SelectItem value="editor">Editor</SelectItem>
                   </SelectContent>
                 </Select>
-                <Badge variant="neutral" tone="soft">
-                  Commenter (soon)
-                </Badge>
               </div>
             </FormField>
 
@@ -584,6 +629,11 @@ export function PublishDialog({
               {result.auth_mode === "password" && (
                 <Badge variant="warning" tone="soft">
                   Password
+                </Badge>
+              )}
+              {result.auth_mode === "token" && (
+                <Badge variant="warning" tone="soft">
+                  API token
                 </Badge>
               )}
             </div>

@@ -91,14 +91,17 @@ import { captureDataTransferItems, extractClipboardFiles, flattenCapturedItems, 
 import type { FileNode } from "../../types";
 
 /** Tooltip text for the share indicator glyph — "link + policy + hits" per
- * roadmap §5.1. `own` distinguishes "Shared: ..." from "Inside a shared
- * folder: ..." (the muted variant still names the share it's inherited
- * from, it just isn't itself the share root). */
-function shareIndicatorTooltip(share: ExplorerShareRow, own: boolean): string {
+ * roadmap §5.1. Three tiers (round 6 item 9): "own" (this row IS the share
+ * root), "inherited" (inside a shared folder), "containing" (an ancestor
+ * folder of a shared item — so collapsed trees still reveal where shares
+ * live). The muted variants still name the share they point at. */
+type ShareIndicatorTier = "own" | "inherited" | "containing";
+function shareIndicatorTooltip(share: ExplorerShareRow, tier: ShareIndicatorTier): string {
   const id = share.alias && share.alias.length > 0 ? share.alias : share.slug;
   const access = share.general_access === "link" ? "Anyone with the link" : "Restricted";
   const kindLabel = share.kind === "folder" ? "folder" : "file";
-  const prefix = own ? `Shared ${kindLabel}` : `Inside a shared folder`;
+  const prefix =
+    tier === "own" ? `Shared ${kindLabel}` : tier === "inherited" ? `Inside a shared folder` : `Contains a shared ${kindLabel}`;
   return `${prefix}: /share/${id} (${access}, ${share.hit_count} hit${share.hit_count === 1 ? "" : "s"})`;
 }
 
@@ -166,6 +169,9 @@ export interface ExplorerTreeProps {
   shares?: ExplorerShareRow[];
   onCopyShareLink?: (node: FileNode, share: ExplorerShareRow) => void;
   onManageShare?: (node: FileNode, share: ExplorerShareRow) => void;
+  /** Round 6 item 7 — revoke straight from the tree's context menu. The
+   * caller (App.tsx) owns the confirm dialog; this just requests it. */
+  onRevokeShare?: (node: FileNode, share: ExplorerShareRow) => void;
   /** DESIGN-SPEC Amendments round 5 item 39 — OS file/folder drag-drop onto
    * a row, or Ctrl+V paste into the selected folder. `targetFolderPath` is
    * the display path of the folder the entries land in (the hovered folder
@@ -197,6 +203,7 @@ export function ExplorerTree({
   shares,
   onCopyShareLink,
   onManageShare,
+  onRevokeShare,
   onImportEntries,
   className,
 }: ExplorerTreeProps) {
@@ -351,6 +358,7 @@ export function ExplorerTree({
           shares={shares}
           onCopyShareLink={onCopyShareLink}
           onManageShare={onManageShare}
+          onRevokeShare={onRevokeShare}
           dragPath={dragPath}
           dropTarget={dropTarget}
           autoExpandPath={autoExpandPath}
@@ -383,6 +391,7 @@ interface TreeRowProps {
   shares?: ExplorerShareRow[];
   onCopyShareLink?: (node: FileNode, share: ExplorerShareRow) => void;
   onManageShare?: (node: FileNode, share: ExplorerShareRow) => void;
+  onRevokeShare?: (node: FileNode, share: ExplorerShareRow) => void;
   dragPath: string | null;
   dropTarget: DropTarget | null;
   autoExpandPath: string | null;
@@ -411,6 +420,7 @@ function TreeRow({
   shares,
   onCopyShareLink,
   onManageShare,
+  onRevokeShare,
   dragPath,
   dropTarget,
   autoExpandPath,
@@ -432,6 +442,11 @@ function TreeRow({
   const shareIndicator = useMemo(() => computeShareIndicator(shares ?? [], node.id), [shares, node.id]);
   const ownShare = shareIndicator.own[0];
   const inheritedShare = shareIndicator.inherited[0];
+  const containingShare = shareIndicator.containing[0];
+  // Priority: a row that IS a share root shows "own"; inside a shared
+  // folder beats merely containing one deeper down (item 9).
+  const indicatorTier: ShareIndicatorTier | null = ownShare ? "own" : inheritedShare ? "inherited" : containingShare ? "containing" : null;
+  const indicatorShare = ownShare ?? inheritedShare ?? containingShare;
   const [draftName, setDraftName] = useState(node.name);
   // Reset the draft to the current name each time a rename session starts —
   // adjusted during render (React's documented pattern for "state that
@@ -647,21 +662,31 @@ function TreeRow({
           {node.name}
         </span>
       )}
-      {!isRenaming && (ownShare || inheritedShare) && (
-        <Tooltip content={shareIndicatorTooltip(ownShare ?? inheritedShare!, !!ownShare)} side="right">
+      {!isRenaming && indicatorTier && indicatorShare && (
+        <Tooltip content={shareIndicatorTooltip(indicatorShare, indicatorTier)} side="right">
           <span
-            data-testid={ownShare ? `share-indicator-own-${node.id}` : `share-indicator-inherited-${node.id}`}
+            data-testid={`share-indicator-${indicatorTier}-${node.id}`}
+            role="button"
+            tabIndex={-1}
+            aria-label={`Manage share for ${node.name}`}
+            // Round 6 item 7 — the chain glyph is itself a click target:
+            // straight to "Manage share…" for whichever share it points at.
+            onClick={(e) => {
+              e.stopPropagation();
+              onManageShare?.(node, indicatorShare);
+            }}
             style={{
               flexShrink: 0,
               display: "inline-flex",
               alignItems: "center",
+              cursor: "pointer",
               // Right-aligned like the git status letter (DESIGN-SPEC
               // convention this row already follows) — own shares get the
-              // full accent color, inherited ("this file lives inside a
-              // shared FOLDER, not itself shared") gets the muted variant
-              // per roadmap §5.1.
-              color: ownShare ? "var(--color-primary)" : "var(--color-muted)",
-              opacity: ownShare ? 1 : 0.7,
+              // full accent color; inherited (inside a shared folder) and
+              // containing (an ancestor of a shared item, item 9) get the
+              // muted variant per roadmap §5.1.
+              color: indicatorTier === "own" ? "var(--color-primary)" : "var(--color-muted)",
+              opacity: indicatorTier === "own" ? 1 : 0.7,
               width: 12,
             }}
           >
@@ -736,6 +761,10 @@ function TreeRow({
               <ContextMenuItem onSelect={() => onManageShare?.(node, ownShare)}>
                 <Settings2 size={13} /> Manage share…
               </ContextMenuItem>
+              {/* Round 6 item 7 — revoke without a trip to Settings. */}
+              <ContextMenuItem destructive onSelect={() => onRevokeShare?.(node, ownShare)}>
+                <Trash2 size={13} /> Revoke share…
+              </ContextMenuItem>
             </>
           ) : (
             <ContextMenuItem onSelect={() => onPublish?.(node)}>
@@ -767,6 +796,7 @@ function TreeRow({
               shares={shares}
               onCopyShareLink={onCopyShareLink}
               onManageShare={onManageShare}
+              onRevokeShare={onRevokeShare}
               dragPath={dragPath}
               dropTarget={dropTarget}
               autoExpandPath={autoExpandPath}
