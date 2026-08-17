@@ -78,7 +78,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from . import models, runtime_settings, security, vault
+from . import mirror, models, runtime_settings, security, vault
 from .auth import JWKSFetcher, build_auth_deps
 from .config import Settings, resolve_secret_key
 from .db import Base, make_engine, make_sessionmaker
@@ -90,6 +90,7 @@ from .routers import git_http as git_http_router
 from .routers import share_public as share_public_router
 from .routers import shares as shares_router
 from .routers import vault as vault_router
+from .routers import vault_remotes as vault_remotes_router
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,15 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit_default])
     jwks_fetcher = JWKSFetcher(settings.cf_access_team_domain)
     auth_deps = build_auth_deps(get_db, settings, secret_key, jwks_fetcher)
+    # Phase 17 Milestone B — one MirrorRunner per app instance (same
+    # zero-shared-global-state posture as everything else `create_app`
+    # builds). Shared between the `/git` mount (triggers a push-on-receive
+    # mirror after a successful vault push) and the `/api/vault/remotes`
+    # router (explicit "run now" + status). `.sync` stays False here —
+    # tests flip it via `app.state.mirror_runner.sync = True` — so
+    # production behavior is always "background thread, never blocks the
+    # push response" unless a test deliberately asks for inline execution.
+    mirror_runner = mirror.MirrorRunner(SessionLocal, settings)
 
     # --- root app: /share/*, /git/*, the SPA — no CORS anywhere --------
     app = FastAPI(title="VSNote backend")
@@ -226,14 +236,17 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.state.cf_jwks_fetcher = jwks_fetcher
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
+    app.state.mirror_runner = mirror_runner
     app.include_router(share_public_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
 
     # Phase 11 (real sync) — bare git repos over smart-HTTP, `/git/{repo}.git/...`.
     # Mounted on the ROOT app (alongside `/share/*`). No CORS (Phase 10.5a,
     # roadmap §5.4) — the browser now talks to this same-origin, and
     # external git clients never needed CORS headers in the first place
-    # (see `git_http.py`'s module docstring).
-    app.mount("/git", git_http_router.build_git_app(settings, SessionLocal))
+    # (see `git_http.py`'s module docstring). `mirror_runner` (Phase 17
+    # Milestone B) is what a successful push against the VAULT repo
+    # specifically triggers afterward — see that module's docstring.
+    app.mount("/git", git_http_router.build_git_app(settings, SessionLocal, mirror_runner=mirror_runner))
 
     # --- /api sub-app: no CORS (Phase 10.5a, roadmap §5.4) --------------
     api_app = FastAPI(title="VSNote API")
@@ -250,6 +263,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     api_app.include_router(admin_router.build_router(get_db, auth_deps))
     api_app.include_router(git_admin_router.build_router(get_db, settings, auth_deps))
     api_app.include_router(vault_router.build_router(get_db, settings, auth_deps))
+    api_app.include_router(vault_remotes_router.build_router(get_db, settings, auth_deps, mirror_runner))
     api_app.include_router(app_config_router.build_router(get_db, settings))
 
     app.mount("/api", api_app)

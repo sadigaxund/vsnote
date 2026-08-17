@@ -72,6 +72,13 @@ services:
       # vault (whichever shape it is above). Only change together with the
       # client's own "Repository name" setting.
       VSNOTE_VAULT_REPO_NAME: ${VSNOTE_VAULT_REPO_NAME:-vault}
+      # Phase 17 Milestone B — SERVER-SIDE-ONLY credentials (SSH private
+      # keys, HTTPS tokens, the shared known_hosts file) for mirroring the
+      # vault to external remotes. Points at the named volume mounted
+      # below; never override this to a path outside a volume, or every
+      # configured mirror credential is lost on container recreation. See
+      # server/README.md's "Mirroring to external remotes" section.
+      VSNOTE_SECRETS_PATH: ${VSNOTE_SECRETS_PATH:-/data/secrets}
       VSNOTE_RATE_LIMIT_DEFAULT: ${VSNOTE_RATE_LIMIT_DEFAULT:-120/minute}
       VSNOTE_RATE_LIMIT_SHARE: ${VSNOTE_RATE_LIMIT_SHARE:-60/minute}
       VSNOTE_RATE_LIMIT_SHARE_AUTH: ${VSNOTE_RATE_LIMIT_SHARE_AUTH:-5/minute}
@@ -99,6 +106,13 @@ services:
     volumes:
       - vsnote-db:/data/db
       - vsnote-git-repos:/data/git-repos
+      # Phase 17 Milestone B — mirror-credential storage. NOT opt-in like
+      # vsnote-vault below: even a deployment that never configures a
+      # single mirror remote gets an empty, harmless, 0700-owned directory
+      # here (app/secrets_store.py creates it on first real use regardless)
+      # — mounting it unconditionally means adding a mirror remote later
+      # never requires a compose-file edit, only using the UI/API.
+      - vsnote-secrets:/data/secrets
       # Phase 17 — server-mounted vault (opt-in). Uncomment both this mount
       # AND the matching named volume below (or point at a host path
       # instead, e.g. "/srv/my-notes:/data/vault") once VSNOTE_VAULT_PATH
@@ -131,6 +145,12 @@ services:
 volumes:
   vsnote-db:
   vsnote-git-repos:
+  # Phase 17 Milestone B — mirror-credential storage (SSH keys, HTTPS
+  # tokens, known_hosts). `docker compose down -v` destroys this too — an
+  # operator who wants to keep their mirror credentials across a factory
+  # reset of the DB/git-repos volumes should back this one up separately
+  # first (server/README.md's "Mirroring to external remotes" section).
+  vsnote-secrets:
   # Phase 17 — server-mounted vault (opt-in, see the commented mount +
   # VSNOTE_VAULT_PATH above). Declared even while unused so uncommenting
   # the mount above is a one-line change; an unused named volume costs

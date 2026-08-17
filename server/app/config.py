@@ -102,6 +102,17 @@ class Settings(BaseSettings):
     # 404ing every request for it later.
     vault_repo_name: str = Field(default="vault", validation_alias="VSNOTE_VAULT_REPO_NAME")
 
+    # Phase 17 Milestone B — where SERVER-SIDE-ONLY credentials for
+    # mirroring the vault to external remotes live (SSH private keys, HTTPS
+    # tokens, the shared known_hosts file). Defaults the same relative way
+    # `VSNOTE_GIT_ROOT` does: "./secrets", resolved against the CWD the
+    # process is started from (`server/secrets/` under `npm run server`).
+    # Created with 0700 permissions on first use; every credential file
+    # inside it is written 0600 — see `app/secrets_store.py`'s module
+    # docstring for the full contract. Never served, never logged, never
+    # baked into the image.
+    secrets_path: str = Field(default="./secrets", validation_alias="VSNOTE_SECRETS_PATH")
+
 
 def resolve_secret_key(settings: Settings) -> str:
     """Computed once per app instance (see create_app) — never re-derived

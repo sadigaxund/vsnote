@@ -55,14 +55,36 @@ RUN grep -vE '^(pytest|httpx)==' /tmp/requirements.txt > /tmp/requirements.prod.
     && pip install --no-cache-dir -r /tmp/requirements.prod.txt \
     && rm -f /tmp/requirements.txt /tmp/requirements.prod.txt
 
-# Non-root user. Only the two paths this process ever writes to at runtime
-# (the SQLite DB's directory and VSNOTE_GIT_ROOT's bare-repo directory) need
-# to be owned by it — everything else (the app code, dist/) is read-only
-# from this process's point of view and can stay root-owned.
+# Phase 17 Milestone B — `app/mirror.py` shells out to the REAL `git`/`ssh`
+# binaries (see that module's docstring for why: battle-tested interop with
+# GitHub/GitLab/Gitea beats reimplementing SSH/HTTPS transports on top of
+# dulwich). `git` was already an implicit dependency of nothing else in this
+# image (dulwich needs no system git); `openssh-client` (the `ssh`/
+# `ssh-keygen` binaries) is new here specifically for SSH-credentialed
+# mirror remotes. Installed in THIS final stage only — never the builder
+# stage, and never anything that would bake a credential into a layer (no
+# credential material is ever written anywhere under this Dockerfile's
+# build context; see `app/secrets_store.py`'s module docstring for where it
+# actually lives at runtime, a bind/named volume mounted in, never COPYd).
+# `--no-install-recommends` + apt list cleanup keeps this from re-growing
+# the slim base image by much.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user. The three paths this process ever writes to at runtime
+# (the SQLite DB's directory, VSNOTE_GIT_ROOT's bare-repo directory, and
+# VSNOTE_SECRETS_PATH's mirror-credential directory — Phase 17 Milestone B)
+# need to be owned by it — everything else (the app code, dist/) is
+# read-only from this process's point of view and can stay root-owned.
+# `/data/secrets` is created 0700 here as a defensive default; `app/
+# secrets_store.py::ensure_secrets_root` re-asserts 0700 on every boot
+# regardless (belt-and-suspenders, not a substitute for this).
 RUN groupadd --system --gid 1000 vsnote \
     && useradd --system --uid 1000 --gid vsnote --home-dir /app --shell /usr/sbin/nologin vsnote \
-    && mkdir -p /data/db /data/git-repos \
-    && chown -R vsnote:vsnote /data/db /data/git-repos
+    && mkdir -p /data/db /data/git-repos /data/secrets \
+    && chown -R vsnote:vsnote /data/db /data/git-repos /data/secrets \
+    && chmod 0700 /data/secrets
 
 # Backend source (app/ + scripts/, e.g. create_user.py for an operator to
 # `docker compose exec` into). server/tests/ and server/.venv/ are excluded
@@ -76,15 +98,16 @@ COPY server/scripts ./server/scripts
 # exactly /app/dist for the single-origin static/catch-all route to find it.
 COPY --from=builder /build/dist ./dist
 
-# Defaults for the two settings that must resolve to the writable, owned
+# Defaults for the three settings that must resolve to the writable, owned
 # volume-backed paths above rather than app/config.py's relative-to-CWD
-# defaults (./vsnote.db, ./git-repos — fine for `npm run server` from
-# server/, wrong once this process's CWD/user don't own the app tree).
+# defaults (./vsnote.db, ./git-repos, ./secrets — fine for `npm run server`
+# from server/, wrong once this process's CWD/user don't own the app tree).
 # Every other VSNOTE_* setting keeps app/config.py's own default and is
 # passed through by docker-compose.yml when the operator wants to override
 # it — nothing else is hardcoded here.
 ENV VSNOTE_DB_URL=sqlite:////data/db/vsnote.db \
     VSNOTE_GIT_ROOT=/data/git-repos \
+    VSNOTE_SECRETS_PATH=/data/secrets \
     VSNOTE_PORT=8787 \
     PYTHONUNBUFFERED=1
 

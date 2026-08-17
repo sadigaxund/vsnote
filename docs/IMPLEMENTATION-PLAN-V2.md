@@ -301,9 +301,27 @@ identity + working-tree semantics. `VSNOTE_VAULT_PATH`/
 routes through it (mounted-but-uninitialized is never auto-created — 404
 reads, 409 writes); `GET`/`POST /api/vault[/init]`; reset (item 19) refuses
 on a mounted vault. Full design in `docs/ARCHITECTURE.md`'s "Server-mounted
-vault (Phase 17 Milestone A)" section. Remaining Phase 17 scope (setup
-wizard, external-remote mirroring/credentials, auto-sync policies, the
-login gate, tree virtualization) is Milestone B+, unstarted.
+vault (Phase 17 Milestone A)" section.
+
+**Milestone B shipped (2026-08-17, server-only, `src/` untouched):**
+mirroring the vault to external remotes (GitHub/GitLab/Gitea/any), SSH or
+HTTPS, credentials server-side only. New `VaultRemote` table (metadata
+only — no secret column, ever); `app/secrets_store.py` (0700-dir/0600-file
+on-disk storage for both SSH keys and HTTPS tokens, under the new
+`VSNOTE_SECRETS_PATH` setting); `app/mirror.py` (system `git`/`ssh` via
+`subprocess`, list argv only, URL-scheme allowlist rejecting `-`-prefixed
+and `ext::`-style transports, never `--force`/`--mirror`/a `+`-refspec,
+`MirrorRunner` for locking + background-thread-by-default triggering with
+a `sync` seam for deterministic tests); `routers/vault_remotes.py`
+(`/api/vault/remotes` CRUD + `/mirror` + `/test`, session-only, write-only
+credential fields, audit events). Triggered automatically after a
+successful push into the vault (`push_on_receive`, default on) and
+explicitly via the API. Dockerfile/compose gained `git`+`openssh-client`
+in the final stage and a `vsnote-secrets` volume. Full design in
+`docs/ARCHITECTURE.md`'s "Mirroring to external remotes (Phase 17
+Milestone B)" section; operator docs in `server/README.md`'s "Mirroring to
+external remotes" section. Remaining Phase 17 scope (setup wizard, auto-sync
+policies, the login gate, tree virtualization) is Milestone C+, unstarted.
 
 ## After Phases 16–17
 - Redo all 18 my-you-eye backlog issues against the FINAL polished components

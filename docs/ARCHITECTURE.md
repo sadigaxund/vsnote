@@ -735,11 +735,132 @@ way. Every other repo name, and the vault name in its legacy (unmounted)
 shape, keeps today's exact delete-and-recreate behavior — the existing
 `tests/test_git_repo_reset.py` suite passes unmodified.
 
-**Deferred to Milestone B** (not built this phase, see
-`docs/IMPLEMENTATION-PLAN-V2.md`'s Phase 17 section): mirroring to
-external remotes, SSH/HTTPS credentials, the setup-wizard UI, auto-sync
-policies, the app-wide login gate, tree virtualization. This milestone is
-server-only — no `src/` changes at all.
+**Deferred to Milestone B at the time this section was written** — mirroring
+to external remotes shipped in Milestone B (below, server-only, no `src/`
+changes). Still deferred to a later milestone: the setup-wizard UI,
+auto-sync policies, the app-wide login gate, tree virtualization.
+
+## Mirroring to external remotes (Phase 17 Milestone B)
+
+The server MIRRORS the authoritative vault (either shape from Milestone A
+above) to external git remotes — GitHub, GitLab, Gitea, another VSNote
+instance, anything reachable over SSH or HTTPS — with credentials living
+SERVER-SIDE ONLY. Browsers never speak SSH and never hold one of these
+credentials; they only ever talk smart-HTTP to this server's own `/git/*`
+(Milestone A), same as always. This is what makes "the vault has a real
+GitHub remote" possible without ever asking a browser to do something it
+structurally cannot do.
+
+**Model** (`app/models.py::VaultRemote`, a NEW table — this app has no
+migration system, `Base.metadata.create_all` only, so a new table is the
+only schema-change shape available this phase): `name` (unique, the
+operator's own label), `url`, `enabled`, `push_on_receive` (default `True`
+— mirror automatically after a client push lands in the vault), status
+fields (`last_mirror_at`/`last_status`/`last_error`), and the credential
+metadata described below. No column here, or on any other table, ever
+holds the secret material itself.
+
+**Credential storage** (`app/secrets_store.py`, full contract in that
+module's docstring): SSH private keys and HTTPS tokens BOTH live as files
+under `VSNOTE_SECRETS_PATH` (new setting, defaulting the same relative way
+`VSNOTE_GIT_ROOT` does — `./secrets`), one file per remote id
+(`remote-{id}.key` / `remote-{id}.token`), in a directory created 0700 with
+every file inside it 0600. SSH is forced into this shape (a private key
+has to be a real file for `ssh -i` to read); HTTPS tokens use the SAME
+mechanism instead of a DB column, for symmetry — one permission model, one
+deletion path, one thing to audit, and a full DB dump can never itself leak
+either kind. `VaultRemote` stores only a `credential_kind`
+(`none`/`ssh_key`/`https_token`) plus a display-only identifier —
+`credential_fingerprint` (SSH, via `ssh-keygen -lf`) or `credential_last4`
+(HTTPS, literally the last 4 characters) — never the material. Every
+credential field on the `/api/vault/remotes` request side
+(`ssh_private_key`/`https_token`) is write-only: accepted on create/PATCH,
+handed straight to `secrets_store`, never echoed back by any response
+(`schemas.VaultRemoteOut` has no field for either), never logged (not even
+truncated), and redacted out of `git`'s own stderr before it's ever stored
+in `last_error` or an audit row (belt-and-suspenders — git/the credential
+protocols involved don't echo it in normal operation either).
+`tests/test_vault_mirror.py::test_secrets_never_appear_in_any_remotes_
+response_json` greps the raw JSON of every route for both secret values.
+Deleting a remote (or clearing/replacing its credential) deletes its file(s)
+— nothing outlives its DB row.
+
+**Engine** (`app/mirror.py`): the system `git`/`ssh` binaries via
+`subprocess`, chosen over dulwich (already used for the `/git/*` surface)
+because dulwich has no real SSH transport and hand-rolling interop against
+every real host's protocol-v2/auth quirks would trade battle-tested
+correctness for a DIY reimplementation — see that module's docstring for
+the full justification. Every invocation uses a LIST argv, never
+`shell=True`, never a manually-built command string; every remote URL is
+validated (`validate_remote_url`) against a scheme allowlist
+(`https`/`http`/`ssh`/`file`/scp-like `user@host:path`/a plain local path)
+before it is ever accepted or handed to a subprocess — rejecting anything
+starting with `-` (argv-injection shape) and any git remote-HELPER
+transport (`scheme::...`, most notoriously `ext::`, which executes an
+arbitrary shell command per `git-remote-ext(1)`) outright, plus a
+host-component check that blocks the historical `ssh://-oProxyCommand=...`
+class of URL injection. Every subprocess call has a hard timeout so a hung
+remote can never hang a request or the app.
+
+**Never force-push (roadmap §5.2, binding, no exception for this
+surface).** The one and only push invocation is
+`git push <url> <branch>:<branch>` — an explicit, non-`+` refspec, no
+`--force`, no `--force-with-lease`, no `--mirror` (which implies force on
+every ref). A remote that has diverged is rejected by the REMOTE's own git
+exactly like any other non-force contributor push; this is recorded as an
+ordinary `MirrorOutcome(status="error", ...)` and never retried with force.
+`tests/test_vault_mirror.py::test_diverged_remote_is_rejected_and_history_
+is_not_rewritten` proves the remote's history is byte-identical before and
+after a rejected attempt.
+
+**SSH**: `GIT_SSH_COMMAND` carries `-i <keyfile>` (a path, never the key
+material), `-o IdentitiesOnly=yes`, `-o BatchMode=yes` (fail fast instead of
+ever prompting), and `-o StrictHostKeyChecking=accept-new -o
+UserKnownHostsFile=<secrets>/known_hosts` (trust-on-first-use against a
+dedicated, shared `known_hosts` file — a changed host key is refused
+afterward, same as any normal `~/.ssh/known_hosts`). **HTTPS**: the token
+is handed to `git` via `GIT_ASKPASS`, pointed at a tiny reusable script
+that reads the actual value back out of a `VSNOTE_MIRROR_TOKEN`
+environment variable set ONLY for that one subprocess call — the remote URL
+itself is NEVER built as `https://<token>@host/...` (that would land the
+token in argv, in this process's own `ps` output, and in any error message
+that echoes the URL back).
+
+**Triggers**: (a) automatically — `routers/git_http.py`'s
+`GitAuthMiddleware`, right after a successful `git-receive-pack` against
+the VAULT repo name specifically (either shape, Milestone A's buffered-
+response mechanism is what makes "was this push actually accepted"
+observable — see that file's module docstring), calls
+`MirrorRunner.trigger_push_on_receive()` for every `enabled` +
+`push_on_receive=True` remote; (b) explicitly, `POST /api/vault/remotes/
+{id}/mirror`, which runs synchronously and returns the outcome.
+
+**Concurrency**: `MirrorRunner` holds one `threading.Lock` per remote id —
+a run that finds it already held returns `status="busy"` immediately rather
+than queuing or racing a second push against the same remote. A
+push-triggered mirror runs in a background daemon thread by default (so a
+slow/hung remote never delays the git push's own HTTP response — the
+buffered response has already been replayed to the client by the time the
+thread starts); `MirrorRunner.sync = True` (tests only, never `main.py`)
+instead runs it INLINE and BEFORE the response is replayed, so a real `git
+push` test client only observes "succeeded" once the mirror has actually
+finished — the "expose a way to run it synchronously in tests rather than
+sleeping" seam, exercised by `tests/test_vault_mirror.py::test_live_push_
+triggers_mirror_to_external_remote` against a real uvicorn server and a
+real `git` subprocess client, no polling.
+
+**API** (`routers/vault_remotes.py`, mounted under `/api`, session-only —
+same posture as `routers/vault.py`/`routers/git_admin.py`, a scoped API
+token is rejected with 403 even when write-scoped): `GET`/`POST
+/api/vault/remotes`, `PATCH`/`DELETE /api/vault/remotes/{id}`, `POST
+.../mirror` (run now), `POST .../test` (`git ls-remote`, classified into
+`reachable`/`auth-rejected`/`repo-missing`/`unreachable`/`error` — mirrors
+`src/git/remote.ts::describeConnectionTest`'s split, applied here to an
+external target instead of the in-app sync remote). Audit events for
+create/update/delete and every mirror success/failure; `reason` strings are
+built from the same sanitized message the credential redaction above
+already cleaned. No CORS (same as every other `/api/*` route — no
+`CORSMiddleware` anywhere on `api_app`).
 
 ## Single-origin deployment (Phase 10.5a)
 

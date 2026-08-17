@@ -81,12 +81,23 @@ See `../docs/ARCHITECTURE.md`'s "Containerization (Phase 14)" section for
 the full design (DIST_DIR path resolution, the healthcheck's reasoning,
 the persistence contract) — not duplicated here to avoid the two drifting.
 
-**Persistent state lives in two named volumes** (`docker-compose.yml`):
-the SQLite DB (`VSNOTE_DB_URL` defaults to `sqlite:////data/db/vsnote.db` in
-the container, not this file's local `./vsnote.db` default) and
-`VSNOTE_GIT_ROOT` (defaults to `/data/git-repos` in the container). `docker
-compose down` leaves both intact; `docker compose down -v` is the
-deliberate factory reset (destroys the DB and every synced git repo).
+**Persistent state lives in named volumes** (`docker-compose.yml`): the
+SQLite DB (`VSNOTE_DB_URL` defaults to `sqlite:////data/db/vsnote.db` in
+the container, not this file's local `./vsnote.db` default),
+`VSNOTE_GIT_ROOT` (defaults to `/data/git-repos`), and — Phase 17 Milestone
+B — `VSNOTE_SECRETS_PATH` (defaults to `/data/secrets`, mirror-remote SSH
+keys/tokens; see "Mirroring to external remotes" above). `docker compose
+down` leaves all three intact; `docker compose down -v` is the deliberate
+factory reset (destroys the DB, every synced git repo, AND every mirror
+credential — back up `vsnote-secrets` separately first if you want to keep
+mirror credentials across a reset of the other two).
+
+**The image includes `git` and `openssh-client`** (final stage only, never
+the node build stage) specifically for mirroring — `app/mirror.py` shells
+out to the real `git`/`ssh` binaries rather than reimplementing their
+transports. No credential is ever baked into the image; they only ever
+exist as files under the `vsnote-secrets` volume, written after the
+container is already running.
 
 **Bootstrap user from env** (see "Fallback-login onboarding" above) works
 identically in the container — set `VSNOTE_BOOTSTRAP_USER`/
@@ -358,6 +369,80 @@ working tree has uncommitted changes, and the last commit.
 exactly as documented for a legacy (unmounted) repo, but refuses with
 `409` for the vault name while it's mounted — it may be the only copy of
 the owner's data.
+
+## Mirroring to external remotes (Phase 17 Milestone B)
+
+The server can MIRROR the vault (either shape above) to an external git
+remote — GitHub, GitLab, Gitea, another VSNote instance, anything reachable
+over SSH or HTTPS. Credentials live SERVER-SIDE ONLY: your browser never
+holds an SSH key or a token for this, and never talks to the external
+remote directly — it only ever talks to this server's own `/git/*`, same as
+without mirroring at all.
+
+**Adding a remote** (`POST /api/vault/remotes`, session-authenticated —
+this is a Settings-panel operation, not something a git-client API token
+can do): give it a `name` (your own label) and a `url`. Accepted URL forms:
+`https://...`, `http://...`, `ssh://user@host/...`, the scp-like
+`user@host:path` form (e.g. `git@github.com:you/notes.git`), and (mostly
+for testing) a plain local filesystem path or `file://`. Anything else —
+including a URL starting with `-` or using a git "remote helper" transport
+like `ext::` — is rejected with `422` before it's ever stored or used.
+
+**SSH key vs token**: set `credential_kind` to `ssh_key` (with
+`ssh_private_key`, the PEM text) or `https_token` (with `https_token`, the
+plaintext value) when creating or updating a remote — or `none` for a
+remote that needs no auth (a local path, a remote configured to allow
+anonymous push, ...). Either credential is WRITE-ONLY: you can set,
+replace, or clear it (`PATCH` with `clear_credential: true`), but no
+response — not `GET`, not `POST`, not `PATCH` — ever shows it back to you.
+What you DO get back: an SSH key's fingerprint (`ssh-keygen -lf`, the same
+short string GitHub/GitLab show you when you add a deploy key) or an HTTPS
+token's last 4 characters, purely so you can recognize which credential is
+configured.
+
+**Where keys live**: under `VSNOTE_SECRETS_PATH` (default `./secrets`,
+`/data/secrets` in the container — see docker-compose.yml's
+`vsnote-secrets` volume), one file per remote (`remote-{id}.key` /
+`remote-{id}.token`), directory 0700, files 0600. This directory is NEVER
+copied into the Docker image, never committed, and — like `VSNOTE_GIT_ROOT`
+and the vault mount — must live on a volume that survives container
+recreation (`docker compose down`, no `-v`) or you'll need to re-enter
+every credential after a redeploy.
+
+**What is logged**: the remote's URL and name, mirror success/failure
+status and a short error summary (`GET /api/vault/remotes`'s
+`last_error`), and an audit row for every create/update/delete and every
+mirror success/failure. The credential VALUE is never in any of that — not
+in a response, not in a log line, not even truncated, not in an error
+message, not in the URL (this app never builds `https://<token>@host/...`;
+the token goes through `GIT_ASKPASS` instead, entirely out of argv and out
+of any URL that could land in an error string).
+
+**Push-on-receive** (default on, per remote — `push_on_receive`): every
+time a client push successfully lands in the vault, this server mirrors it
+onward automatically, in the background — it never slows down or blocks
+the client's own push. Turn it off per remote to mirror only on demand
+(`POST /api/vault/remotes/{id}/mirror`, which runs immediately and reports
+what happened).
+
+**Test connection** (`POST /api/vault/remotes/{id}/test`, a read-only
+`git ls-remote`) reports one of: `reachable` (host up, credential accepted,
+repository exists), `auth-rejected` (host reachable, credential wrong),
+`repo-missing` (credential accepted, but no such repository — you likely
+need to create it on the remote host first; unlike this server's own
+`/git/*`, external hosts don't auto-create repos on push), `unreachable`
+(couldn't reach the host at all), or `error` (anything else — the message
+has the detail, safely).
+
+**This server never force-pushes to a mirror, ever** — a plain, ordinary
+`git push <url> <branch>:<branch>`. If the external remote has diverged
+(someone pushed there directly, outside this server), the push is rejected
+by the remote's own git exactly like any other non-force contributor push,
+recorded as a mirror failure, and never retried with force. Resolving that
+is a manual, deliberate operation on your part (e.g. push manually with
+your own judgment, or point the remote at a fresh empty repository) — this
+server will not silently overwrite history on a remote you don't fully
+control from here.
 
 ## Data model, policy gate, auth model
 

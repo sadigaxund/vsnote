@@ -210,6 +210,53 @@ class RuntimeSettings(Base):
     updated_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
+class RemoteCredentialKind(str, enum.Enum):
+    none = "none"
+    ssh_key = "ssh_key"
+    https_token = "https_token"
+
+
+class VaultRemote(Base):
+    """Phase 17 Milestone B — an external git remote (GitHub/GitLab/Gitea/
+    any) the server MIRRORS the authoritative vault's current branch tip to,
+    over SSH or HTTPS. See `app/mirror.py`'s module docstring for the
+    engine (plain `git push <url> <branch>:<branch>`, never `--force`/
+    `--mirror`/a `+`-refspec) and `app/secrets_store.py`'s module docstring
+    for exactly where the credential MATERIAL lives — never in this table.
+
+    This row is metadata only: `credential_fingerprint` (SSH keys, via
+    `ssh-keygen -lf`) and `credential_last4` (HTTPS tokens, the last 4
+    characters only) exist purely so an owner can recognize WHICH credential
+    is configured without the server ever being able to show it back to
+    them. `routers/vault_remotes.py`'s `VaultRemoteOut` schema has no field
+    for the secret itself, on either credential kind — every write
+    (create/PATCH) is write-only (set/replace/clear), never round-tripped.
+    """
+
+    __tablename__ = "vault_remotes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    url: Mapped[str] = mapped_column(String(2048))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    push_on_receive: Mapped[bool] = mapped_column(Boolean, default=True)
+    credential_kind: Mapped[RemoteCredentialKind] = mapped_column(
+        _enum_col(RemoteCredentialKind), default=RemoteCredentialKind.none
+    )
+    credential_fingerprint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    credential_last4: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    last_mirror_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # Failure detail ONLY (never populated on success). Same "never a
+    # secret" contract as AuditEvent.reason below — app/mirror.py redacts
+    # any known credential value out of git's stderr before this is ever
+    # written, belt-and-suspenders on top of git itself never echoing a
+    # credential in normal operation.
+    last_error: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

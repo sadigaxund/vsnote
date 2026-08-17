@@ -292,3 +292,79 @@ class VaultInitIn(BaseModel):
     see `routers/vault.py`."""
 
     branch: Optional[str] = None
+
+
+# --- Vault remotes / mirroring (Phase 17 Milestone B) -----------------------
+
+
+class VaultRemoteCreateIn(BaseModel):
+    """`POST /api/vault/remotes` body. `ssh_private_key`/`https_token` are
+    WRITE-ONLY: accepted here, stored server-side via `app/secrets_store.py`,
+    and never returned by any response (see `VaultRemoteOut` below, which
+    has no field for either)."""
+
+    name: str = Field(min_length=1, max_length=255)
+    url: str = Field(min_length=1, max_length=2048)
+    enabled: bool = True
+    push_on_receive: bool = True
+    credential_kind: Literal["none", "ssh_key", "https_token"] = "none"
+    ssh_private_key: Optional[str] = None
+    https_token: Optional[str] = None
+
+
+class VaultRemotePatchIn(BaseModel):
+    """`PATCH /api/vault/remotes/{id}` body. Same write-only credential
+    contract as `VaultRemoteCreateIn`. `clear_credential` is the explicit
+    sentinel that reverts to `credential_kind="none"` and deletes the
+    on-disk secret file(s) — the same "omit means unchanged, explicit flag
+    means clear" pattern `SharePatchIn.clear_password` already uses."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    url: Optional[str] = Field(default=None, min_length=1, max_length=2048)
+    enabled: Optional[bool] = None
+    push_on_receive: Optional[bool] = None
+    credential_kind: Optional[Literal["none", "ssh_key", "https_token"]] = None
+    ssh_private_key: Optional[str] = None
+    https_token: Optional[str] = None
+    clear_credential: bool = False
+
+
+class VaultRemoteOut(BaseModel):
+    """No secret value is ever a field here — see
+    `server/tests/test_vault_mirror.py::test_secrets_never_appear_in_any_
+    remotes_response`, which greps the raw JSON of every route in
+    `routers/vault_remotes.py` for the plaintext key/token."""
+
+    id: int
+    name: str
+    url: str
+    enabled: bool
+    push_on_receive: bool
+    credential_kind: Literal["none", "ssh_key", "https_token"]
+    credential_fingerprint: Optional[str] = None
+    credential_last4: Optional[str] = None
+    last_mirror_at: Optional[float] = None
+    last_status: Optional[str] = None
+    last_error: Optional[str] = None
+    created_at: float
+    updated_at: float
+
+
+class MirrorRunOut(BaseModel):
+    """`POST /api/vault/remotes/{id}/mirror` response. `status` is one of
+    "success" | "error" | "busy" | "skipped" — see `app/mirror.py`'s
+    `MirrorOutcome`."""
+
+    status: str
+    message: str
+    ts: float
+
+
+class RemoteTestOut(BaseModel):
+    """`POST /api/vault/remotes/{id}/test` response — mirrors the three (plus
+    two) distinct outcomes `src/git/remote.ts::describeConnectionTest`
+    already splits client-side for the in-app sync remote, applied here to
+    an external mirror target instead."""
+
+    outcome: Literal["reachable", "auth-rejected", "repo-missing", "unreachable", "error"]
+    message: str

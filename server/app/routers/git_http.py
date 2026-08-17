@@ -64,6 +64,18 @@ status codes), and the pre-serve-commit / post-receive-checkout hooks
 (`vault.commit_worktree_changes`/`vault.checkout_head_into_worktree`) that
 keep a mounted vault's on-disk files and its git history from clobbering
 each other.
+
+**Phase 17 Milestone B — a successful push against the vault also triggers
+mirroring**: `GitAuthMiddleware` buffers the response for EVERY write
+request against the vault repo name now (both shapes, not just mounted —
+see that class's docstring for why widening this from "mounted only" costs
+nothing: the git-receive-pack response body itself is a few small status
+lines, never the pushed object data), and once dulwich's own response is
+fully assembled with a success status, calls
+`self.mirror_runner.trigger_push_on_receive()` (a no-op if `mirror_runner`
+is `None`) AFTER the buffered response has already been replayed to the
+real client — see `app/mirror.py`'s module docstring for why this never
+delays the push's own HTTP response.
 """
 
 from __future__ import annotations
@@ -87,6 +99,7 @@ from .. import vault
 from ..auth import resolve_bearer_token
 from ..config import Settings
 from ..gitrepo import BareRepoBackend, InvalidRepoName, ensure_bare_repo, resolve_repo_path
+from ..mirror import MirrorRunner
 
 # Matches the repo-name segment of any git-protocol URL under this mount,
 # e.g. `/myvault.git/info/refs` or `/myvault.git/git-receive-pack`. The name
@@ -281,13 +294,30 @@ class GitAuthMiddleware:
     MOUNTED vault that dulwich actually accepted (HTTP status < 400,
     captured via a thin `send` wrapper — the only reason this class now
     needs to inspect the inner app's response at all), so the working tree
-    reflects the pushed branch tip immediately."""
+    reflects the pushed branch tip immediately.
 
-    def __init__(self, app: ASGIApp, *, session_local, settings: Settings) -> None:
+    Phase 17 Milestone B adds one more: ANY successful write against the
+    vault repo name (mounted or legacy shape) also calls
+    `self.mirror_runner.trigger_push_on_receive()` — see `app/mirror.py`'s
+    module docstring for the engine this fires and this file's module
+    docstring for exactly where in the response lifecycle."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        session_local,
+        settings: Settings,
+        mirror_runner: "Optional[MirrorRunner]" = None,
+    ) -> None:
         self.app = app
         self.session_local = session_local
         self.settings = settings
         self.git_root = Path(settings.git_root)
+        # Phase 17 Milestone B — see this class's docstring's last
+        # paragraph and `app/mirror.py`'s module docstring. `None` in any
+        # test/context that doesn't care about mirroring at all.
+        self.mirror_runner = mirror_runner
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -379,7 +409,7 @@ class GitAuthMiddleware:
         finally:
             db.close()
 
-        if write_request and vault_mounted:
+        if write_request and repo_is_vault:
             # BUFFER the whole response instead of streaming it straight
             # through: an HTTP response is the client's actual completion
             # signal (a real `git push` returns control the instant it has
@@ -389,7 +419,15 @@ class GitAuthMiddleware:
             # ever got to run `checkout_head_into_worktree` below — a real,
             # observed race, not a hypothetical one. Buffering means the
             # working tree is guaranteed to already reflect the new HEAD by
-            # the time the client's HTTP call returns at all.
+            # the time the client's HTTP call returns at all. Applied to
+            # EVERY vault write now (Phase 17 Milestone B), not just the
+            # mounted shape: `git-receive-pack`'s response body is a few
+            # small status lines regardless of shape or push size (the
+            # actual pushed objects are the REQUEST body, already fully
+            # read before dulwich ever starts writing a response), so
+            # buffering it costs nothing extra for the legacy bare shape —
+            # and it's what lets a mirror trigger below observe the real
+            # success/failure status uniformly on both shapes.
             buffered_messages: list = []
 
             async def _buffering_send(message):
@@ -400,21 +438,45 @@ class GitAuthMiddleware:
                 (m["status"] for m in buffered_messages if m["type"] == "http.response.start"),
                 500,
             )
-            if status < 400:
+            if status < 400 and vault_mounted:
                 vault.checkout_head_into_worktree(vault.vault_repo_path(self.settings))
+            should_mirror = status < 400 and self.mirror_runner is not None
+            if should_mirror and self.mirror_runner.sync:
+                # TEST-ONLY ordering (`MirrorRunner.sync`, never True in
+                # production — see that class's docstring): run the mirror
+                # BEFORE the response is replayed, so a real `git push`
+                # subprocess client only sees "succeeded" once the mirror
+                # has actually finished. This is the "expose a way to run
+                # it synchronously in tests rather than sleeping" seam —
+                # deterministic without polling for a background thread.
+                self.mirror_runner.trigger_push_on_receive()
             for message in buffered_messages:
                 await send(message)
+            if should_mirror and not self.mirror_runner.sync:
+                # PRODUCTION ordering: AFTER the response has already been
+                # replayed to the real client, in a background thread (see
+                # `app/mirror.py`'s module docstring) — a slow/hung remote
+                # must never delay the push's own HTTP response.
+                self.mirror_runner.trigger_push_on_receive()
             return
 
         await self.app(scope, receive, send)
 
 
-def build_git_app(settings: Settings, session_local) -> ASGIApp:
+def build_git_app(
+    settings: Settings,
+    session_local,
+    *,
+    mirror_runner: "Optional[MirrorRunner]" = None,
+) -> ASGIApp:
     """Builds the full `/git` sub-app: auth -> dulwich WSGI bridge. Mounted
     verbatim by `main.py::create_app` as `app.mount("/git", ...)` on the
     ROOT app (not `/api`) — git repo names are validated on their own terms
     (`gitrepo.REPO_NAME_RE`). No CORS (see module docstring) — nothing here
-    wraps the auth middleware anymore."""
+    wraps the auth middleware anymore. `mirror_runner` (Phase 17 Milestone
+    B, optional — omit for any caller that doesn't care about mirroring,
+    e.g. most of `tests/test_git_sync.py`) is threaded straight into
+    `GitAuthMiddleware`; see that class's docstring."""
     git_root = Path(settings.git_root)
     git_root.mkdir(parents=True, exist_ok=True)
     if vault.is_mounted(settings):
@@ -429,4 +491,6 @@ def build_git_app(settings: Settings, session_local) -> ASGIApp:
         backend, dumb=False, handlers={b"git-upload-pack": BrowserCompatibleUploadPackHandler}
     )
     wsgi_bridge = WSGIMiddleware(dulwich_app)
-    return GitAuthMiddleware(wsgi_bridge, session_local=session_local, settings=settings)
+    return GitAuthMiddleware(
+        wsgi_bridge, session_local=session_local, settings=settings, mirror_runner=mirror_runner
+    )

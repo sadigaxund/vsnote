@@ -41,4 +41,7 @@ __pycache__/
 
 # server/ (Phase 11 — bare git repos, VSNOTE_GIT_ROOT default)
 server/git-repos/
+# Phase 17 Milestone B — mirror-remote SSH keys/tokens, VSNOTE_SECRETS_PATH
+# default. Never commit this — see app/secrets_store.py's module docstring.
+server/secrets/
 nice.png

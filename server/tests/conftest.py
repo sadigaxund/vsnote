@@ -36,6 +36,12 @@ def make_settings(tmp_path):
             # every single test run instead of staying inside pytest's
             # auto-cleaned tmp dir.
             git_root=str(tmp_path / f"gitroot_{counter['n']}"),
+            # Phase 17 Milestone B — same tmp_path-scoping reasoning as
+            # git_root above: without this override every test app defaults
+            # to `./secrets` relative to pytest's CWD (server/), which would
+            # litter `server/secrets/` with real 0600 key/token files on
+            # disk instead of staying inside pytest's auto-cleaned tmp dir.
+            secrets_path=str(tmp_path / f"secrets_{counter['n']}"),
             secret_key="pytest-fixed-secret-key-not-for-prod-use",
             cookie_secure=False,
             env="dev",
