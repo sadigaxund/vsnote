@@ -123,8 +123,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # `npx tsc --noEmit` was a NO-OP here and silently passed for the whole
+      # project's life: the root tsconfig.json is a solution file
+      # (`"files": []` + `references`), so a bare `tsc` typechecks nothing.
+      # Verified by planting a `const x: number = "str"` in src/ and watching
+      # this step exit 0. `tsc -b` builds the referenced projects
+      # (tsconfig.app.json = src/, tsconfig.node.json = vite.config.ts), both
+      # of which set `noEmit`, so it is a real typecheck of both.
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Build (default base path, unchanged local behavior)
         run: npm run build
@@ -206,10 +213,17 @@ jobs:
       # from this one env var rather than assuming Pages serves from `/`.
       # Local dev/build (no env var set) is unaffected: vite.config.ts
       # defaults VSNOTE_BASE_PATH to "/".
+      # VSNOTE_DEMO_VAULT opts this build into the full demo vault
+      # (DESIGN-SPEC item 36 made it opt-in, so a default build seeds only a
+      # minimal welcome.md). The public Pages demo is the one place that
+      # genuinely wants the showcase content, so it is set HERE and nowhere
+      # else in the deployment path. Each visitor still gets their own
+      # private copy in their own browser's IndexedDB.
       - name: Build for GitHub Pages
         run: npm run build
         env:
           VSNOTE_BASE_PATH: /vsnote/
+          VSNOTE_DEMO_VAULT: "1"
 
       - name: Set up Pages
         uses: actions/configure-pages@v5

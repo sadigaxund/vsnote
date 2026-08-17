@@ -33,12 +33,34 @@
  * native drag gesture by then). Dropping a folder into itself or one of
  * its own descendants is refused: the row shows a no-drop cursor and the
  * drop is a no-op rather than silently failing.
+ *
+ * OS import (DESIGN-SPEC Amendments round 5 item 39): dragging files/folders
+ * IN from the operating system reuses this exact same `dropTarget` state and
+ * "into"/"before"/"after" affordances — a real internal drag always fires
+ * our own row `onDragStart` first (setting `dragPath`), so an external OS
+ * drag is simply whichever drop reaches `handleDragOver`/`handleDrop` with
+ * `dragPath` still `null` but `e.dataTransfer.types` containing `"Files"`;
+ * no second highlight style, no separate state machine. Per-item
+ * `DataTransferItem.getAsFile()`/`.webkitGetAsEntry()` are only valid to
+ * CALL synchronously within the native `drop` event's own task, so
+ * `handleDrop` captures them (`captureDataTransferItems`) before its own
+ * `resetDrag()`/any `await`, then flattens (`flattenCapturedItems`,
+ * directory-recursive where the browser supports `webkitGetAsEntry`,
+ * flat-file fallback otherwise) asynchronously afterward — same Esc/ref
+ * cancellation flag as internal DnD applies here too. Ctrl+V paste (item
+ * 39b) is unrelated to dragging but shares the same "target folder" concept
+ * (the selected node if it's a folder, else its parent) and the same
+ * `onImportEntries` prop — bound via `onPaste` on the tree root so it fires
+ * whenever any row inside has keyboard focus, per spec's "with the tree
+ * focused". Actual fs writes + conflict rename-or-replace happen in
+ * `App.tsx` (`fs/importEntries.ts`), same split as `onMove`/`onDelete`/etc.
  */
 import {
   useEffect,
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
 } from "react";
@@ -65,6 +87,7 @@ import {
 import { collectDescendantIds } from "../../stores/useFsStore";
 import { STATUS_COLOR } from "../../lib/gitStatusColor";
 import { computeShareIndicator, type ShareIndicatorInput } from "../../share/shareIndicators";
+import { captureDataTransferItems, extractClipboardFiles, flattenCapturedItems, type FlattenedEntry } from "../../fs/importEntries";
 import type { FileNode } from "../../types";
 
 /** Tooltip text for the share indicator glyph — "link + policy + hits" per
@@ -143,6 +166,15 @@ export interface ExplorerTreeProps {
   shares?: ExplorerShareRow[];
   onCopyShareLink?: (node: FileNode, share: ExplorerShareRow) => void;
   onManageShare?: (node: FileNode, share: ExplorerShareRow) => void;
+  /** DESIGN-SPEC Amendments round 5 item 39 — OS file/folder drag-drop onto
+   * a row, or Ctrl+V paste into the selected folder. `targetFolderPath` is
+   * the display path of the folder the entries land in (the hovered folder
+   * row / drop-target's parent for a drop; the selected node if it's a
+   * folder, else its parent, for a paste); `entries` are already flattened
+   * (nested OS folders preserved as `/`-joined relative paths). Omit to
+   * disable both — the tree simply won't attach drop/paste handling for
+   * external content when there's nothing to hand it to. */
+  onImportEntries?: (targetFolderPath: string, entries: FlattenedEntry[]) => void;
   className?: string;
 }
 
@@ -165,6 +197,7 @@ export function ExplorerTree({
   shares,
   onCopyShareLink,
   onManageShare,
+  onImportEntries,
   className,
 }: ExplorerTreeProps) {
   const [dragPath, setDragPath] = useState<string | null>(null);
@@ -207,8 +240,18 @@ export function ExplorerTree({
     setDragPath(node.id);
   }
 
+  // An external OS drag never fires our own row `onDragStart` (that only
+  // happens for elements dragged FROM inside this DOM), so `dragPath` stays
+  // null for it — the one reliable way to tell "internal reorder" and "OS
+  // files incoming" apart from inside these shared handlers.
+  function isExternalFileDrag(e: DragEvent<HTMLDivElement>): boolean {
+    return !dragPath && Array.from(e.dataTransfer.types).includes("Files");
+  }
+
   function handleDragOver(e: DragEvent<HTMLDivElement>, node: FileNode, isFolder: boolean) {
-    if (!dragPath || dragPath === node.id) return;
+    const external = isExternalFileDrag(e);
+    if (!dragPath && !external) return;
+    if (dragPath === node.id) return;
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -220,8 +263,8 @@ export function ExplorerTree({
       mode = ratio <= 0.5 ? "before" : "after";
     }
     const targetParentPath = mode === "into" ? node.id : parentOfPath(node.id);
-    const invalid = invalidTargets.has(targetParentPath);
-    e.dataTransfer.dropEffect = invalid ? "none" : "move";
+    const invalid = dragPath ? invalidTargets.has(targetParentPath) : false;
+    e.dataTransfer.dropEffect = invalid ? "none" : dragPath ? "move" : "copy";
     setDropTarget({ rowId: node.id, mode, targetParentPath, invalid });
   }
 
@@ -230,14 +273,63 @@ export function ExplorerTree({
     e.stopPropagation();
     const target = dropTarget;
     const source = dragPath;
+    const external = isExternalFileDrag(e);
+    // MUST capture synchronously, before `resetDrag()`/any `await` below —
+    // see the module doc's "OS import" paragraph: the browser invalidates
+    // `DataTransferItem.getAsFile()`/`.webkitGetAsEntry()` once this
+    // event's own task finishes.
+    const captured = external ? captureDataTransferItems(e.dataTransfer.items) : null;
     resetDrag();
-    if (cancelledRef.current || !source || !target || target.invalid) return;
-    if (target.targetParentPath === parentOfPath(source)) return; // already there
-    onMove?.(source, target.targetParentPath);
+    if (cancelledRef.current || !target) return;
+    if (source) {
+      if (target.invalid) return;
+      if (target.targetParentPath === parentOfPath(source)) return; // already there
+      onMove?.(source, target.targetParentPath);
+      return;
+    }
+    if (!external || !captured || captured.length === 0) return;
+    void flattenCapturedItems(captured).then((entries) => {
+      if (entries.length > 0) onImportEntries?.(target.targetParentPath, entries);
+    });
+  }
+
+  function findNodeById(nodes: FileNode[], id: string): FileNode | null {
+    for (const n of nodes) {
+      if (n.id === id) return n;
+      if (n.children) {
+        const found = findNodeById(n.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  // Ctrl+V paste target: the selected node if it's a folder, else its
+  // parent, else the vault root — same "resolve to a folder" rule
+  // `App.tsx`'s `resolveCreateParent` already uses for "New file"/"New
+  // folder", kept local here since the tree already has `data`/`selectedId`
+  // in scope and this never needs to leave the component.
+  function handlePaste(e: ClipboardEvent<HTMLUListElement>) {
+    if (!onImportEntries) return;
+    const entries = extractClipboardFiles(e.clipboardData);
+    if (entries.length === 0) return;
+    e.preventDefault();
+    const selectedNode = selectedId ? findNodeById(data, selectedId) : null;
+    const targetFolderPath = selectedNode
+      ? selectedNode.type === "folder"
+        ? selectedNode.id
+        : parentOfPath(selectedNode.id)
+      : (data[0]?.id ?? "vault");
+    onImportEntries(targetFolderPath, entries);
   }
 
   return (
-    <ul role="tree" className={className} style={{ listStyle: "none", margin: 0, padding: 0 }}>
+    <ul
+      role="tree"
+      className={className}
+      style={{ listStyle: "none", margin: 0, padding: 0 }}
+      onPaste={handlePaste}
+    >
       {data.map((node) => (
         <TreeRow
           key={node.id}

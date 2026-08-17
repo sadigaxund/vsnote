@@ -7,7 +7,7 @@ import { SourceControlPanel } from "./components/SourceControlPanel";
 import { ExtensionsPanel } from "./components/ExtensionsPanel";
 import { EditorArea } from "./components/EditorArea";
 import { AppStatusBar } from "./components/StatusBar";
-import { ensureSeeded, resetDemoVault } from "./fs/seed";
+import { ensureSeeded, resetVault, loadDemoVault, isDemoVaultBuild } from "./fs/seed";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "./fs/persistence";
 import { downloadBlob, exportVaultZip, vaultZipFilename } from "./fs/exportZip";
 import { useFsStore, inferFileKind } from "./stores/useFsStore";
@@ -23,8 +23,11 @@ import { getActiveEditorView, openSearchInActiveView } from "./editor/activeView
 import { resolveMarkdownLink } from "./editor/livepreview/links";
 import { modeAvailabilityFor } from "./filetypes/registry";
 import { pathExists } from "./fs/operations";
-import { displayToFsPath } from "./fs/paths";
+import { displayToFsPath, VAULT_LABEL } from "./fs/paths";
+import { detectConflictingPaths, importEntriesIntoVault, type FlattenedEntry } from "./fs/importEntries";
+import { ImportConflictDialog } from "./components/local/ImportConflictDialog";
 import { flattenFiles } from "./lib/flattenTree";
+import { resolveVaultDisplayLabel } from "./lib/vaultLabel";
 import { probeRender } from "./lib/renderProbe";
 import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
 import { useShareStore, type FolderPublishEntry } from "./share/useShareStore";
@@ -81,13 +84,29 @@ const ACTIVE_ON_BOOT = "vault/notes/architecture.md";
  * time the app ever boots in a browser (an empty persisted tab state is
  * the only signal we have for "first run", since a returning user's real
  * open tabs must never be clobbered by this). */
-const DEFAULT_TABS: Array<{ path: string; name: string; kind: FileKind; pin: boolean }> = [
+const DEMO_TABS: Array<{ path: string; name: string; kind: FileKind; pin: boolean }> = [
   { path: "vault/notes/architecture.md", name: "architecture.md", kind: "md", pin: true },
   { path: "vault/src/indexer.ts", name: "indexer.ts", kind: "ts", pin: true },
   { path: "vault/vault.config.json", name: "vault.config.json", kind: "json", pin: true },
   { path: "vault/metrics.csv", name: "metrics.csv", kind: "csv", pin: true },
   { path: "vault/assets/cover.png", name: "cover.png", kind: "image", pin: false },
 ];
+
+/** DESIGN-SPEC item 36: the welcome vault holds exactly one file, so the
+ * demo tab strip above would open five paths that do not exist on a
+ * non-demo build. Both the boot path and the reset path pick their opening
+ * tabs from the vault that was actually seeded. */
+const WELCOME_TABS: Array<{ path: string; name: string; kind: FileKind; pin: boolean }> = [
+  { path: "vault/welcome.md", name: "welcome.md", kind: "md", pin: true },
+];
+
+function bootTabsFor(demo: boolean) {
+  return demo ? DEMO_TABS : WELCOME_TABS;
+}
+
+function activeOnBootFor(demo: boolean): string {
+  return demo ? ACTIVE_ON_BOOT : "vault/welcome.md";
+}
 
 function parentOf(path: string): string {
   const idx = path.lastIndexOf("/");
@@ -119,6 +138,17 @@ export default function App() {
   const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
   const [zenMode, setZenMode] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [loadDemoConfirmOpen, setLoadDemoConfirmOpen] = useState(false);
+  // DESIGN-SPEC Amendments round 5 item 39 — OS drag-drop/Ctrl+V paste
+  // import (`ExplorerTree.tsx`'s `onImportEntries`): set only when
+  // `detectConflictingPaths` found at least one colliding path, so
+  // `ImportConflictDialog` opens; a conflict-free import writes straight
+  // through with no dialog at all (see `handleImportEntries` below).
+  const [pendingImport, setPendingImport] = useState<{
+    targetFolderPath: string;
+    entries: FlattenedEntry[];
+    conflictNames: string[];
+  } | null>(null);
   // Phase 5b durability: result of the boot-time `navigator.storage.persist()`
   // request (see `fs/persistence.ts`) — undefined until that resolves, so
   // the status-bar warning only ever appears once we actually know it was
@@ -178,6 +208,10 @@ export default function App() {
   // Targeted selector, same discipline as `sidebarWidth` above — DESIGN-SPEC
   // Amendments round 3 item 20 ("Sidebar collapse/expand").
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
+  // DESIGN-SPEC Amendments round 5 item 41(c) — targeted selector, same
+  // discipline as `sidebarWidth` above, so the title bar's breadcrumb (below)
+  // reacts live when the vault display name changes.
+  const vaultDisplayName = useSettingsStore((s) => s.vaultDisplayName);
   // Phase 10.5 — the Explorer tree's share indicator glyph (roadmap §5.1)
   // reads whatever `useShareStore.shares` currently holds. That list is
   // populated lazily (Settings → Sharing's mount effect, or the first
@@ -213,10 +247,12 @@ export default function App() {
       const tabsState = useTabsStore.getState();
       const leaf = findLeaf(tabsState.tree, tabsState.activePaneId);
       if (leaf && leaf.tabs.length === 0) {
-        for (const t of DEFAULT_TABS) {
+        const demo = isDemoVaultBuild();
+        for (const t of bootTabsFor(demo)) {
           useTabsStore.getState().openFile({ path: t.path, name: t.name, kind: t.kind }, { pin: t.pin });
         }
-        useTabsStore.getState().setActiveTab(ACTIVE_ON_BOOT);
+        useTabsStore.getState().setActiveTab(activeOnBootFor(demo));
+        setSelectedId(activeOnBootFor(demo));
       }
       setBooted(true);
     })();
@@ -309,6 +345,12 @@ export default function App() {
   const activeTab = useMemo(() => focusedLeaf?.tabs.find((t) => t.path === focusedLeaf.activeTabId), [focusedLeaf]);
 
   const activeDiff = useGitStore((s) => (activeTab ? (s.diffCache[activeTab.path] ?? EMPTY_DIFF) : EMPTY_DIFF));
+  // DESIGN-SPEC item 38's overflow menu gates Format/Insert/Export on this —
+  // a narrow selector (just the one boolean, not the whole buffer entry) so
+  // the title bar doesn't re-render on every keystroke the same way
+  // `activeBuffer` selectors elsewhere in this codebase already avoid (see
+  // `EditorPane.tsx`'s `dirtyByPath` doc for the same discipline).
+  const activeMissing = useBufferStore((s) => (activeTab ? (s.buffers[activeTab.path]?.missing ?? false) : false));
 
   // DESIGN-SPEC Amendments round 3 item 18 ("Header consolidation") — the
   // title bar always mirrors the FOCUSED pane's mode/diff/breadcrumb state,
@@ -321,7 +363,18 @@ export default function App() {
   // `filetypes/registry.ts`'s `modeAvailabilityFor` already returns `[]`
   // for.
   const titlebarAvailableModes = modeAvailabilityFor(activeTab?.kind, activeDiff.added > 0 || activeDiff.removed > 0);
-  const titlebarBreadcrumb = activeTab && activeTab.kind !== "settings" ? activeTab.path.split("/") : undefined;
+  // DESIGN-SPEC Amendments round 5 item 41(c) — swap only the FIRST
+  // breadcrumb segment for the vault display name when it equals the real
+  // `VAULT_LABEL` ("vault"), so the underlying `activeTab.path` (identity
+  // for tabs/git-status/diff-cache keys, unchanged) never itself changes —
+  // this is purely a rendered label swap, same as `useFsStore.ts`'s root
+  // tree node. `EditorPane.tsx`'s own per-pane header breadcrumb (the
+  // multi-pane case) still shows the literal "vault" segment: that file is
+  // out of this item's scope, see the item 41 report for that known gap.
+  const titlebarBreadcrumb =
+    activeTab && activeTab.kind !== "settings"
+      ? activeTab.path.split("/").map((segment, i) => (i === 0 && segment === VAULT_LABEL ? resolveVaultDisplayLabel(vaultDisplayName, VAULT_LABEL) : segment))
+      : undefined;
   const titlebarDiffLayout = focusedLeaf?.diffLayout ?? "split";
 
   // DESIGN-SPEC "⌘E toggle Rendered/Source (Obsidian muscle memory)" — a
@@ -447,24 +500,29 @@ export default function App() {
     }
   }
 
-  async function handleResetVaultConfirmed(): Promise<void> {
-    await resetDemoVault();
-    // The reseeded vault is byte-identical to boot's demo content at the
-    // same paths, but every in-memory buffer/tab/selection is now stale
-    // (a buffer's `loaded` flag would otherwise skip re-reading from fs —
-    // see `useBufferStore.ensureLoaded`) — clear and reopen exactly like a
-    // fresh boot rather than leaving a half-stale session behind.
+  /** Shared tail of "the vault on disk was just replaced": every in-memory
+   * buffer/tab/selection is now stale (a buffer's `loaded` flag would
+   * otherwise skip re-reading from fs — see `useBufferStore.ensureLoaded`),
+   * so clear and reopen exactly like a fresh boot rather than leaving a
+   * half-stale session behind. `demoAfterSeed` says which vault is now on
+   * disk, so the reopened tabs match it (DESIGN-SPEC item 36). */
+  async function reopenAfterReseed(demoAfterSeed: boolean): Promise<void> {
     useBufferStore.setState({ buffers: {} });
     await Promise.all([useFsStore.getState().refresh(), useGitStore.getState().refresh()]);
     useTabsStore.setState({
       tree: { type: "leaf", id: "root", tabs: [], activeTabId: undefined },
       activePaneId: "root",
     });
-    for (const t of DEFAULT_TABS) {
+    for (const t of bootTabsFor(demoAfterSeed)) {
       useTabsStore.getState().openFile({ path: t.path, name: t.name, kind: t.kind }, { pin: t.pin });
     }
-    useTabsStore.getState().setActiveTab(ACTIVE_ON_BOOT);
-    setSelectedId(ACTIVE_ON_BOOT);
+    useTabsStore.getState().setActiveTab(activeOnBootFor(demoAfterSeed));
+    setSelectedId(activeOnBootFor(demoAfterSeed));
+  }
+
+  async function handleResetVaultConfirmed(): Promise<void> {
+    await resetVault();
+    await reopenAfterReseed(isDemoVaultBuild());
     // Pre-existing gap found during Phase 6 verification (unrelated to the
     // pane-tree work, but a real bug): the library's `ConfirmDialog` only
     // auto-closes via its "Cancel" button (wrapped in Radix `Dialog.Close`
@@ -475,7 +533,17 @@ export default function App() {
     // did, so the dialog stayed open (with the toast now visible behind it)
     // after every "Reset" click.
     setResetConfirmOpen(false);
-    toast({ title: "Demo vault reset", description: "Filesystem and git history re-seeded from scratch.", variant: "success" });
+    toast({ title: "Vault reset", description: "Filesystem and git history re-seeded from scratch.", variant: "success" });
+  }
+
+  /** DESIGN-SPEC item 36's "Load demo vault" palette command. Always seeds
+   * the showcase vault, whatever this build's default is, and warns first
+   * because it destroys the current vault including its git history. */
+  async function handleLoadDemoVaultConfirmed(): Promise<void> {
+    await loadDemoVault();
+    await reopenAfterReseed(true);
+    setLoadDemoConfirmOpen(false);
+    toast({ title: "Demo vault loaded", description: "The previous vault was replaced.", variant: "success" });
   }
 
   // DESIGN-SPEC Amendments item 5 ("Own the browser shortcuts"): one global
@@ -767,6 +835,31 @@ export default function App() {
     await git.refresh();
   };
 
+  // DESIGN-SPEC Amendments round 5 item 39 — OS drag-drop/Ctrl+V paste
+  // import. `ExplorerTree.tsx` already flattened entries (nested OS folders
+  // preserved as relative paths) and resolved the target folder; this just
+  // checks for collisions and either writes straight through or opens
+  // `ImportConflictDialog` for a Rename-or-Replace-or-Cancel choice.
+  const handleImportEntries = async (targetFolderPath: string, entries: FlattenedEntry[]) => {
+    const conflictNames = await detectConflictingPaths(targetFolderPath, entries);
+    if (conflictNames.length === 0) {
+      await importEntriesIntoVault(targetFolderPath, entries, "replace");
+      await useFsStore.getState().refresh();
+      await git.refresh();
+      return;
+    }
+    setPendingImport({ targetFolderPath, entries, conflictNames });
+  };
+
+  const handleResolveImportConflict = async (mode: "rename" | "replace") => {
+    const pending = pendingImport;
+    setPendingImport(null);
+    if (!pending) return;
+    await importEntriesIntoVault(pending.targetFolderPath, pending.entries, mode);
+    await useFsStore.getState().refresh();
+    await git.refresh();
+  };
+
   const handleConfirmDelete = async (node: FileNode) => {
     await useFsStore.getState().removeNode(node.path);
     tabs.closeByPrefix(node.path);
@@ -920,7 +1013,11 @@ export default function App() {
     { id: "sync", label: "Sync now" },
     { id: "new-file", label: "New file" },
     { id: "export-zip", label: "Export vault as .zip" },
-    { id: "reset-vault", label: "Reset demo vault…" },
+    // DESIGN-SPEC item 36: the reset command's label follows whichever
+    // vault this build actually seeds, so it never offers to restore demo
+    // content a normal build has never had.
+    { id: "reset-vault", label: isDemoVaultBuild() ? "Reset demo vault…" : "Reset vault…" },
+    { id: "load-demo-vault", label: "Load demo vault…" },
     { id: "zen", label: "Toggle zen mode", shortcut: "⌘⇧Z" },
     { id: "search", label: "Search in files" },
     { id: "save", label: "Save file", shortcut: "⌘S" },
@@ -948,6 +1045,9 @@ export default function App() {
         break;
       case "reset-vault":
         setResetConfirmOpen(true);
+        break;
+      case "load-demo-vault":
+        setLoadDemoConfirmOpen(true);
         break;
       case "zen":
         toggleZenMode();
@@ -1004,6 +1104,10 @@ export default function App() {
           onOpenPalette={() => setPaletteMode("commands")}
           onOpenSettings={handleOpenSettings}
           onShare={handleShareActiveFile}
+          overflowMenuPaneId={tabs.activePaneId}
+          overflowMenuKind={activeTab?.kind}
+          overflowMenuPath={activeTab?.path}
+          overflowMenuMissing={activeMissing}
         />
       )}
 
@@ -1042,6 +1146,7 @@ export default function App() {
             onConfirmDelete={handleConfirmDelete}
             onCopyPath={handleCopyPath}
             onMove={handleMove}
+            onImportEntries={(targetFolderPath, entries) => void handleImportEntries(targetFolderPath, entries)}
             onPublish={(node) => void handleOpenPublish(node)}
             shares={shares}
             onCopyShareLink={handleCopyShareLink}
@@ -1182,13 +1287,37 @@ export default function App() {
       </Suspense>
 
       <ConfirmDialog
-        title="Reset demo vault?"
-        description="Wipes the in-browser filesystem and git history and re-seeds the original demo vault from scratch. Any files or edits you've made are lost."
+        title={isDemoVaultBuild() ? "Reset demo vault?" : "Reset vault?"}
+        description={
+          isDemoVaultBuild()
+            ? "Wipes the in-browser filesystem and git history and re-seeds the original demo vault from scratch. Any files or edits you've made are lost."
+            : "Wipes the in-browser filesystem and git history and re-seeds a fresh welcome vault. Any files or edits you've made are lost."
+        }
         confirmLabel="Reset"
         destructive
         open={resetConfirmOpen}
         onOpenChange={setResetConfirmOpen}
         onConfirm={() => void handleResetVaultConfirmed()}
+      />
+
+      <ConfirmDialog
+        title="Load demo vault?"
+        description="Replaces your current vault and its git history with the demo vault. Any files or edits you've made are lost."
+        confirmLabel="Load demo vault"
+        destructive
+        open={loadDemoConfirmOpen}
+        onOpenChange={setLoadDemoConfirmOpen}
+        onConfirm={() => void handleLoadDemoVaultConfirmed()}
+      />
+
+      <ImportConflictDialog
+        open={pendingImport !== null}
+        conflictNames={pendingImport?.conflictNames ?? []}
+        onOpenChange={(open) => {
+          if (!open) setPendingImport(null);
+        }}
+        onRename={() => void handleResolveImportConflict("rename")}
+        onReplace={() => void handleResolveImportConflict("replace")}
       />
     </div>
   );

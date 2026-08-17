@@ -16,6 +16,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defaultDeviceName } from "../git/commitTemplate";
+import { DEFAULT_GIT_REPO_NAME } from "../git/remote";
 import type { EditorMode, FileKind } from "../types";
 
 export const THEME_OPTIONS = [
@@ -146,6 +147,51 @@ interface SettingsState {
    * erroring or overwriting anything real. */
   gitAuthToken: string;
 
+  /** DESIGN-SPEC Amendments round 5 item 41(b) — "Repository name" in
+   * Settings → Git & Sync, default `DEFAULT_GIT_REPO_NAME` ("vault"). Feeds
+   * the IMPLICIT remote's URL (`git/remote.ts`'s `computeGitRemoteUrl`,
+   * `<origin>/git/<gitRepoName>.git`) whenever the Advanced override below
+   * is off. Validated against the server's exact path-safety contract
+   * (`git/remote.ts`'s `validateRepoName`, mirroring
+   * `server/app/gitrepo.py::REPO_NAME_RE`) before it's ever saved, so this
+   * field can never hold a value the server would reject. */
+  gitRepoName: string;
+  /** Item 41(c) — the tree's top-folder DISPLAY label only (never the real
+   * lightning-fs path, which stays `fs/paths.ts`'s `VAULT_DIR`/
+   * `VAULT_LABEL` exactly as before — see that module's doc for why a
+   * display-name mapping was chosen over a real FS-root rename). Empty
+   * string means "no override, show the default label" — kept as the plain
+   * empty-string sentinel (not `null`) so this stays a plain persisted
+   * `string` like every other text setting here. */
+  vaultDisplayName: string;
+  /** Item 41(d) — "Advanced: custom remote override", OFF by default and
+   * deliberately secondary in the UI (`SettingsView.tsx` renders it below,
+   * and visually subordinate to, the implicit-remote fields). When `true`
+   * AND `gitRemoteOverrideUrl` is non-blank, `git/remote.ts`'s
+   * `computeGitRemoteUrl`/`resolveGitCredential` route sync at THAT remote
+   * instead of the implicit one — same fast-forward/auto-merge/backup-ref/
+   * never-force-push semantics either way (nothing about push safety reads
+   * this flag). */
+  gitRemoteOverrideEnabled: boolean;
+  /** A full external remote URL (GitHub/Gitea/another VSNote instance) —
+   * unlike the implicit remote, this is a real user-typed absolute URL, so
+   * `SettingsView.tsx` validates it with `git/syncStatus.ts`'s
+   * `isHttpRemoteUrl` (browsers can't speak `git://`/`ssh://`) before
+   * treating it as usable. */
+  gitRemoteOverrideUrl: string;
+  /** The Advanced override's OWN credential (GitHub PAT, Gitea token, ...)
+   * — deliberately a SEPARATE field from `gitAuthToken`: it's a secret for
+   * a different host, never interchangeable with this app's own
+   * write-scoped API token. Persisted the same way `gitAuthToken` already
+   * is (plain localStorage via this store's `persist` middleware) — see
+   * this file's own precedent; there is no more-secure browser-only
+   * storage available for a value `isomorphic-git`'s `onAuth` callback
+   * needs to read synchronously on every fetch/push. Never logged, never
+   * interpolated into a URL (`onAuth` sends it as an `Authorization`
+   * header, `git/syncStatus.ts::buildGitAuth`) or an error message
+   * (`git/remote.ts::mapError`'s messages never include the token). */
+  gitRemoteOverrideToken: string;
+
   /** Phase 11 (real sync, roadmap §5.3) — "Default commit message"
    * template. Rendered by `git/commitTemplate.ts::renderCommitTemplate`
    * (`{device}`/`{timestamp}`/`{date}`/`{time}`/`{files}`/`{branch}`;
@@ -180,6 +226,11 @@ interface SettingsState {
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebarCollapsed: () => void;
   setGitAuthToken: (token: string) => void;
+  setGitRepoName: (name: string) => void;
+  setVaultDisplayName: (name: string) => void;
+  setGitRemoteOverrideEnabled: (enabled: boolean) => void;
+  setGitRemoteOverrideUrl: (url: string) => void;
+  setGitRemoteOverrideToken: (token: string) => void;
   setGitCommitTemplate: (template: string) => void;
   setGitDeviceName: (name: string) => void;
 }
@@ -207,6 +258,11 @@ export const useSettingsStore = create<SettingsState>()(
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       sidebarCollapsed: false,
       gitAuthToken: "",
+      gitRepoName: DEFAULT_GIT_REPO_NAME,
+      vaultDisplayName: "",
+      gitRemoteOverrideEnabled: false,
+      gitRemoteOverrideUrl: "",
+      gitRemoteOverrideToken: "",
       gitCommitTemplate: DEFAULT_GIT_COMMIT_TEMPLATE,
       gitDeviceName: defaultDeviceName(),
       setTheme: (theme) => set({ theme }),
@@ -234,6 +290,11 @@ export const useSettingsStore = create<SettingsState>()(
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setGitAuthToken: (gitAuthToken) => set({ gitAuthToken }),
+      setGitRepoName: (gitRepoName) => set({ gitRepoName }),
+      setVaultDisplayName: (vaultDisplayName) => set({ vaultDisplayName }),
+      setGitRemoteOverrideEnabled: (gitRemoteOverrideEnabled) => set({ gitRemoteOverrideEnabled }),
+      setGitRemoteOverrideUrl: (gitRemoteOverrideUrl) => set({ gitRemoteOverrideUrl }),
+      setGitRemoteOverrideToken: (gitRemoteOverrideToken) => set({ gitRemoteOverrideToken }),
       setGitCommitTemplate: (gitCommitTemplate) => set({ gitCommitTemplate }),
       setGitDeviceName: (gitDeviceName) => set({ gitDeviceName }),
     }),
@@ -266,6 +327,17 @@ export const useSettingsStore = create<SettingsState>()(
       // pure cleanup step (deleting fields the current shape never reads),
       // not a functional migration like v1/v2 below, so it applies
       // unconditionally for `version < 3`, not gated on the old value.
+      //
+      // DESIGN-SPEC Amendments round 5 item 41 adds `gitRepoName`/
+      // `vaultDisplayName`/`gitRemoteOverride*` above WITHOUT a version
+      // bump: these are brand-new keys with real defaults on the
+      // initializer above, and zustand's default `persist` merge is a
+      // shallow `{...currentState, ...persistedState}` — a returning
+      // user's older persisted blob simply lacks these keys, so the
+      // initializer's defaults (`DEFAULT_GIT_REPO_NAME`, `""`, `false`, ...)
+      // apply exactly as if this were a fresh store. A version bump is only
+      // needed when an old persisted VALUE needs reinterpreting (v1) or a
+      // field needs deleting (v3) — pure additions never need one.
       version: 3,
       migrate: (persisted, version) => {
         let state = persisted as (Partial<SettingsState> & { gitRemoteUrl?: string; shareBackendUrl?: string }) | undefined;

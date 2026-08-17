@@ -70,7 +70,17 @@ import {
 } from "../stores/useSettingsStore";
 import { defaultModeFor } from "../filetypes/registry";
 import { useGitStore } from "../stores/useGitStore";
-import { computeGitRemoteUrl, testGitConnection, type ConnectionTestResult } from "../git/remote";
+import { useFsStore } from "../stores/useFsStore";
+import {
+  computeGitRemoteUrl,
+  DEFAULT_GIT_REPO_NAME,
+  describeConnectionTest,
+  resolveGitCredential,
+  testGitConnection,
+  validateRepoName,
+  type ConnectionTestResult,
+} from "../git/remote";
+import { isHttpRemoteUrl } from "../git/syncStatus";
 import { buildTemplateVars, renderCommitTemplate } from "../git/commitTemplate";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
 import { useShareStore } from "../share/useShareStore";
@@ -165,6 +175,18 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const readingViewDefaultMode = useSettingsStore((s) => s.readingViewDefaultMode);
   const gitAuthToken = useSettingsStore((s) => s.gitAuthToken);
   const setGitAuthToken = useSettingsStore((s) => s.setGitAuthToken);
+  // DESIGN-SPEC Amendments round 5 item 41 — repository name, vault display
+  // name, and the Advanced custom-remote override.
+  const gitRepoName = useSettingsStore((s) => s.gitRepoName);
+  const setGitRepoName = useSettingsStore((s) => s.setGitRepoName);
+  const vaultDisplayName = useSettingsStore((s) => s.vaultDisplayName);
+  const setVaultDisplayName = useSettingsStore((s) => s.setVaultDisplayName);
+  const gitRemoteOverrideEnabled = useSettingsStore((s) => s.gitRemoteOverrideEnabled);
+  const setGitRemoteOverrideEnabled = useSettingsStore((s) => s.setGitRemoteOverrideEnabled);
+  const gitRemoteOverrideUrl = useSettingsStore((s) => s.gitRemoteOverrideUrl);
+  const setGitRemoteOverrideUrl = useSettingsStore((s) => s.setGitRemoteOverrideUrl);
+  const gitRemoteOverrideToken = useSettingsStore((s) => s.gitRemoteOverrideToken);
+  const setGitRemoteOverrideToken = useSettingsStore((s) => s.setGitRemoteOverrideToken);
   const gitCommitTemplate = useSettingsStore((s) => s.gitCommitTemplate);
   const setGitCommitTemplate = useSettingsStore((s) => s.setGitCommitTemplate);
   const gitDeviceName = useSettingsStore((s) => s.gitDeviceName);
@@ -242,6 +264,26 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const [gitTestResult, setGitTestResult] = useState<ConnectionTestResult | null>(null);
   const [gitTokenGenerating, setGitTokenGenerating] = useState(false);
   const [gitTokenGenerateError, setGitTokenGenerateError] = useState<string | null>(null);
+  // Item 41 — the Advanced override's own credential field, same
+  // draft-then-blur-commit pattern as `gitTokenDraft` above (never writes
+  // the store on every keystroke of a secret).
+  const [gitOverrideTokenDraft, setGitOverrideTokenDraft] = useState(gitRemoteOverrideToken);
+
+  // Item 41(a) — the ONE resolved-settings object both the "Remote URL"
+  // display below AND `useGitStore.ts`'s `remoteConfig()` derive from, via
+  // the exact same `git/remote.ts` pure resolvers — never a second,
+  // independently-computed guess that could drift from what sync actually
+  // talks to.
+  const gitRemoteSettings = useMemo(
+    () => ({ repoName: gitRepoName, overrideEnabled: gitRemoteOverrideEnabled, overrideUrl: gitRemoteOverrideUrl }),
+    [gitRepoName, gitRemoteOverrideEnabled, gitRemoteOverrideUrl],
+  );
+  const resolvedRemoteUrl = computeGitRemoteUrl(gitRemoteSettings);
+  const repoNameError = gitRepoName.trim() === "" ? null : validateRepoName(gitRepoName);
+  const overrideUrlError =
+    gitRemoteOverrideEnabled && gitRemoteOverrideUrl.trim() !== "" && !isHttpRemoteUrl(gitRemoteOverrideUrl)
+      ? "Enter a full http or https URL."
+      : null;
 
   useEffect(() => {
     // Single-origin refactor (Phase 10.5a) — there's no more configurable
@@ -549,20 +591,64 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         {
           id: "repo-info",
           label: "Repository",
-          keywords: "branch repo git info vault ahead behind",
+          keywords: "branch repo git info vault ahead behind resolved",
           content: (
-            <FormField label="Repository">
+            <FormField label="Repository" hint="Exactly what Sync talks to right now, not a guess.">
               <DataList
                 items={[
-                  { label: "Repository", value: "vault" },
+                  { label: "Repository", value: gitRepoName.trim() || DEFAULT_GIT_REPO_NAME },
                   { label: "Branch", value: branch },
                   { label: "Ahead / behind", value: `↑${ahead} ↓${behind}` },
-                  // Phase 10.5a (single-origin refactor, roadmap §5.4) — the
-                  // sync remote is implicit (`<origin>/git/vault.git`), so
-                  // this is informational/read-only, not an editable field.
-                  { label: "Remote URL", value: computeGitRemoteUrl() },
+                  // Item 41(a) — the SAME `computeGitRemoteUrl` call (and the
+                  // same `gitRemoteSettings`) that `useGitStore.ts`'s
+                  // `remoteConfig()` uses for every real push/pull/fetch, so
+                  // this can never drift from what Sync actually does.
+                  { label: "Remote URL", value: resolvedRemoteUrl },
                 ]}
                 density="compact"
+              />
+            </FormField>
+          ),
+        },
+        {
+          id: "repo-name",
+          label: "Repository name",
+          keywords: "repo name url path vault git",
+          content: (
+            <FormField
+              label="Repository name"
+              hint="Becomes the implicit remote path. Letters, digits, hyphens, underscores only."
+              error={repoNameError ?? undefined}
+            >
+              <Input
+                size="sm"
+                value={gitRepoName}
+                invalid={!!repoNameError}
+                onChange={(e) => setGitRepoName(e.target.value)}
+                aria-label="Repository name"
+                data-testid="git-repo-name"
+                style={{ width: 220, fontFamily: "var(--font-mono)" }}
+              />
+            </FormField>
+          ),
+        },
+        {
+          id: "vault-name",
+          label: "Vault name",
+          keywords: "vault display name rename tree folder label",
+          content: (
+            <FormField label="Vault name" hint="Renames the tree's top folder label only, not any file path.">
+              <Input
+                size="sm"
+                value={vaultDisplayName}
+                placeholder="vault"
+                onChange={(e) => {
+                  setVaultDisplayName(e.target.value);
+                  void useFsStore.getState().refresh();
+                }}
+                aria-label="Vault name"
+                data-testid="vault-display-name"
+                style={{ width: 220 }}
               />
             </FormField>
           ),
@@ -589,6 +675,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     type="password"
                     placeholder="vsn_••••••••••••••••"
                     value={gitTokenDraft}
+                    disabled={gitRemoteOverrideEnabled}
                     onChange={(e) => setGitTokenDraft(e.target.value)}
                     onBlur={() => setGitAuthToken(gitTokenDraft)}
                     aria-label="Personal access token"
@@ -598,7 +685,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     type="button"
                     variant="secondary"
                     size="sm"
-                    disabled={!authenticated || gitTokenGenerating}
+                    disabled={!authenticated || gitTokenGenerating || gitRemoteOverrideEnabled}
                     data-testid="git-generate-token"
                     onClick={() => {
                       setGitTokenGenerating(true);
@@ -618,7 +705,12 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                   </Button>
                 </div>
               </FormField>
-              {!authenticated && (
+              {gitRemoteOverrideEnabled && (
+                <span style={{ fontSize: 12, color: "var(--color-muted)" }}>
+                  Unused while the custom remote override below is on.
+                </span>
+              )}
+              {!authenticated && !gitRemoteOverrideEnabled && (
                 <span style={{ fontSize: 12, color: "var(--color-muted)" }}>
                   Sign in under Sharing to generate a token, or paste one you have.
                 </span>
@@ -645,12 +737,25 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                   // shrink it below that.
                   style={{ whiteSpace: "nowrap", flexShrink: 0 }}
                   onClick={() => {
-                    setGitAuthToken(gitTokenDraft);
+                    if (gitRemoteOverrideEnabled) setGitRemoteOverrideToken(gitOverrideTokenDraft);
+                    else setGitAuthToken(gitTokenDraft);
                     setGitTesting(true);
                     setGitTestResult(null);
-                    // Phase 10.5a — same-origin health check: no Remote URL
-                    // field to read anymore, the remote is implicit.
-                    void testGitConnection({ url: computeGitRemoteUrl(), token: gitTokenDraft })
+                    // Item 41(e) — tests whichever remote is ACTIVE right
+                    // now: the same `gitRemoteSettings`-derived URL and the
+                    // same `resolveGitCredential` token selection
+                    // `useGitStore.ts`'s `remoteConfig()` uses for a real
+                    // sync, so "Test connection" never validates a
+                    // different remote than the one Sync would actually use.
+                    void testGitConnection({
+                      url: resolvedRemoteUrl,
+                      token: resolveGitCredential({
+                        token: gitTokenDraft,
+                        overrideEnabled: gitRemoteOverrideEnabled,
+                        overrideUrl: gitRemoteOverrideUrl,
+                        overrideToken: gitOverrideTokenDraft,
+                      }),
+                    })
                       .then(setGitTestResult)
                       .finally(() => setGitTesting(false));
                   }}
@@ -662,14 +767,59 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     data-testid="git-test-result"
                     style={{ fontSize: 12.5, color: gitTestResult.ok ? "var(--color-muted)" : "var(--git-deleted)" }}
                   >
-                    {gitTestResult.ok
-                      ? gitTestResult.repoExists
-                        ? "Reachable, repo exists."
-                        : "Reachable, repo will be created on first push."
-                      : gitTestResult.message}
+                    {describeConnectionTest(gitTestResult, gitRemoteOverrideEnabled).message}
                   </span>
                 )}
               </div>
+            </div>
+          ),
+        },
+        {
+          id: "custom-remote",
+          label: "Advanced: custom remote",
+          keywords: "advanced custom remote external github gitea token credential override",
+          content: (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, opacity: gitRemoteOverrideEnabled ? 1 : 0.85 }}>
+              <FormField label="Advanced: custom remote override" hint="For an external GitHub, Gitea, or other VSNote remote. Off by default.">
+                <Switch
+                  checked={gitRemoteOverrideEnabled}
+                  onCheckedChange={setGitRemoteOverrideEnabled}
+                  aria-label="Advanced: custom remote override"
+                  data-testid="git-override-enabled"
+                />
+              </FormField>
+              {gitRemoteOverrideEnabled && (
+                <>
+                  <FormField label="Custom remote URL" hint="A full http or https git remote URL." error={overrideUrlError ?? undefined}>
+                    <Input
+                      size="sm"
+                      value={gitRemoteOverrideUrl}
+                      invalid={!!overrideUrlError}
+                      placeholder="https://github.com/you/notes.git"
+                      onChange={(e) => setGitRemoteOverrideUrl(e.target.value)}
+                      aria-label="Custom remote URL"
+                      data-testid="git-override-url"
+                      style={{ width: "100%", fontFamily: "var(--font-mono)" }}
+                    />
+                  </FormField>
+                  <FormField label="Custom remote credential" hint="A personal access token for that remote. Kept separate from the token above.">
+                    <Input
+                      size="sm"
+                      type="password"
+                      placeholder="ghp_••••••••••••••••"
+                      value={gitOverrideTokenDraft}
+                      onChange={(e) => setGitOverrideTokenDraft(e.target.value)}
+                      onBlur={() => setGitRemoteOverrideToken(gitOverrideTokenDraft)}
+                      aria-label="Custom remote credential"
+                      data-testid="git-override-token"
+                      style={{ width: "100%" }}
+                    />
+                  </FormField>
+                  <Alert variant="note" size="sm">
+                    Sync stays fast-forward or auto-merge here too. It never force-pushes.
+                  </Alert>
+                </>
+              )}
             </div>
           ),
         },

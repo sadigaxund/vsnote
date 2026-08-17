@@ -53,20 +53,105 @@ export interface RemoteConfig {
   token: string;
 }
 
-/** Phase 10.5a (single-origin refactor, roadmap §5.4) — the sync remote is
- * implicitly `<origin>/git/vault.git`: no Settings field, nothing
- * persisted, nothing configurable. `vault` is a fixed repo name — the
- * server creates it on demand on first push
- * (`server/app/gitrepo.py::ensure_bare_repo`), so it just needs to be *a*
- * valid, stable name, not a pre-existing one. `window.location.origin`
- * (rather than a relative path) because `isomorphic-git`'s `fetch`/`push`/
- * `getRemoteInfo` all need a real, absolute URL — it's still never a
- * hardcoded host/port: whatever origin actually served this page (the
- * built SPA served by `server/app/main.py` in production, `vite dev`/
- * `preview` in local dev — both proxy `/git/*` to the real backend, see
- * `vite.config.ts`) is exactly the right same-origin target either way. */
-export function computeGitRemoteUrl(): string {
-  return `${window.location.origin}/git/vault.git`;
+/** DESIGN-SPEC Amendments round 5 item 41's exact default repo name — the
+ * implicit remote stays `<origin>/git/vault.git` for anyone who never
+ * touches Settings → Git & Sync's new "Repository name" field. */
+export const DEFAULT_GIT_REPO_NAME = "vault";
+
+/** Server's exact contract (`server/app/gitrepo.py::REPO_NAME_RE`) — a repo
+ * name becomes a URL path segment AND, server-side, a bare-repo directory
+ * name, so the client validates against the identical shape BEFORE letting
+ * a user save one the server would reject with `InvalidRepoName`. Kept as
+ * one shared regex literal (not re-derived) so the two can't silently drift
+ * apart. */
+export const REPO_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** `null` = valid. One-row, em-dash-free message (DESIGN-SPEC round 5 copy
+ * rule) suitable straight in a `FormField`'s `error` prop. */
+export function validateRepoName(name: string): string | null {
+  if (REPO_NAME_PATTERN.test(name)) return null;
+  return "Use 1 to 64 letters, digits, hyphens, or underscores.";
+}
+
+export interface GitRemoteSettings {
+  /** Settings → Git & Sync's "Repository name" (default `vault`) — only
+   * used to build the IMPLICIT remote; ignored while `overrideEnabled`. */
+  repoName: string;
+  /** Item 41's "Advanced: custom remote override" toggle — off by default. */
+  overrideEnabled: boolean;
+  /** A full external remote URL (GitHub/Gitea/another VSNote). Only takes
+   * effect when `overrideEnabled` AND non-blank; a blank override URL with
+   * the toggle on falls back to the implicit remote rather than resolving
+   * to `""`, so a half-filled-in Advanced section never silently breaks
+   * sync. */
+  overrideUrl: string;
+}
+
+/** Pure resolver — no `window` dependency, so it's directly unit-testable
+ * under this repo's `environment: "node"` vitest config (`vitest.config.ts`)
+ * the same way `git/syncStatus.ts`'s pure helpers are, unlike the rest of
+ * this module. `computeGitRemoteUrl` below is the thin, real-`window`
+ * wrapper every actual code path (sync AND the Settings display) calls, so
+ * both stay provably in sync. */
+export function resolveGitRemoteUrl(origin: string, settings: GitRemoteSettings): string {
+  if (settings.overrideEnabled) {
+    const trimmed = settings.overrideUrl.trim();
+    if (trimmed) return trimmed;
+  }
+  const repoName = settings.repoName.trim() || DEFAULT_GIT_REPO_NAME;
+  return `${origin}/git/${repoName}.git`;
+}
+
+/** DESIGN-SPEC Amendments round 5 item 41 AMENDS the Phase 10.5a/roadmap
+ * §5.4 rule below — read this comment as the current truth, not the old
+ * one it replaces:
+ *
+ * Roadmap §5.4's "no settable server URL" still stands for the APP/API
+ * origin (every `/api`/`/share` call stays relative to
+ * `window.location.origin`, no exceptions) — but item 41 explicitly carves
+ * the GIT remote out of that rule ("it was always the roadmap's
+ * 'optionally GitHub/Gitea + PAT later'"). So: with no override, the remote
+ * is still same-origin, `<origin>/git/<repoName>.git` — `repoName` now
+ * comes from Settings → Git & Sync's "Repository name" field
+ * (`useSettingsStore`'s `gitRepoName`, default `DEFAULT_GIT_REPO_NAME`)
+ * instead of being hardcoded `"vault"`. With the "Advanced: custom remote
+ * override" toggle on and a URL filled in, THAT URL wins outright — a
+ * full external remote (GitHub/Gitea/another VSNote instance), which is why
+ * `git.fetch`/`git.push`/`getRemoteInfo` still need a real absolute URL
+ * (not a relative path) either way. Same sync semantics on every remote,
+ * implicit or overridden: fast-forward-only individual push/pull, "Sync"'s
+ * auto-merge-with-backup-refs for a genuine divergence, and this module
+ * NEVER force-pushes — none of that changes based on which URL this
+ * function returns. `useGitStore.ts`'s `remoteConfig()` is the one real
+ * caller that matters (feeds `push`/`pull`/`fetch`/`syncNow`); Settings'
+ * "Remote URL" display (`SettingsView.tsx`) calls this exact function with
+ * the exact same settings so it never re-derives a guess that could drift
+ * from what sync actually uses. */
+export function computeGitRemoteUrl(settings: GitRemoteSettings): string {
+  return resolveGitRemoteUrl(window.location.origin, settings);
+}
+
+export interface GitCredentialSettings {
+  /** The implicit-remote token (`gitAuthToken` — a Phase 9 API token). */
+  token: string;
+  overrideEnabled: boolean;
+  overrideUrl: string;
+  /** The Advanced override's OWN credential — deliberately a separate
+   * field from `token`: an external GitHub/Gitea PAT is a different secret
+   * for a different host, not interchangeable with this app's own
+   * write-scoped API token. */
+  overrideToken: string;
+}
+
+/** Pure, same reasoning as `resolveGitRemoteUrl` — mirrors its "override
+ * wins only when enabled AND the URL is actually filled in" logic exactly,
+ * so a half-configured Advanced section (toggle on, URL blank) uses the
+ * implicit remote's own token too, not a blank/wrong one. */
+export function resolveGitCredential(settings: GitCredentialSettings): string {
+  if (settings.overrideEnabled && settings.overrideUrl.trim()) {
+    return settings.overrideToken;
+  }
+  return settings.token;
 }
 
 export interface SyncStatus extends AheadBehind {
@@ -377,4 +462,50 @@ export async function testGitConnection(config: RemoteConfig): Promise<Connectio
     }
     return { ok: false, code: mapped.code, message: mapped.message };
   }
+}
+
+/** Item 41(e)'s "reachability, auth, and repo existence" split as a plain
+ * discriminated `outcome`, so `SettingsView.tsx` renders one specific,
+ * one-row line per case instead of dumping whatever `SyncError.message`
+ * happened to say. Pure (no I/O — just classifies an already-resolved
+ * `ConnectionTestResult`), so it's directly unit-testable. The three the
+ * item calls out by name are `"unreachable"` / `"auth-rejected"` /
+ * `"repo-missing"` — distinct user problems, distinct fixes ("is the
+ * server up", "is the token right", "has anyone pushed yet"); `"ok"` and
+ * `"error"` round out the type for the cases that aren't one of those
+ * three (a clean success, or some other/unknown `SyncError`). */
+export type ConnectionTestOutcome = "ok" | "unreachable" | "auth-rejected" | "repo-missing" | "misconfigured" | "error";
+
+export interface ConnectionTestDescription {
+  outcome: ConnectionTestOutcome;
+  /** One row, zero em dashes (DESIGN-SPEC round 5 copy rule) — ready to
+   * render as-is. */
+  message: string;
+}
+
+export function describeConnectionTest(result: ConnectionTestResult, isCustomRemote = false): ConnectionTestDescription {
+  if (result.ok) {
+    if (!result.repoExists) {
+      // "Repo missing" means two different things depending on the remote,
+      // and saying only "does not exist" alarms people for what is, on the
+      // built-in remote, the normal first-run state: this backend creates
+      // `{VSNOTE_GIT_ROOT}/{repo}.git` on the first authenticated push (see
+      // server/app/gitrepo.py). An external GitHub/Gitea remote does NOT
+      // auto-create, so there the user really does have work to do.
+      return isCustomRemote
+        ? { outcome: "repo-missing", message: "Authenticated, but that repository does not exist on the remote." }
+        : { outcome: "repo-missing", message: "Authenticated. The repository is created on first push." };
+    }
+    return { outcome: "ok", message: "Reachable, authenticated, and the repository exists." };
+  }
+  if (result.code === "offline") {
+    return { outcome: "unreachable", message: "Could not reach the remote host." };
+  }
+  if (result.code === "auth") {
+    return { outcome: "auth-rejected", message: "Reached the host, but the credential was rejected." };
+  }
+  if (result.code === "not-configured") {
+    return { outcome: "misconfigured", message: result.message };
+  }
+  return { outcome: "error", message: result.message };
 }

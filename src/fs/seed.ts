@@ -17,11 +17,19 @@
  *    committed and left untouched (no status letter)
  *
  * `ensureSeeded()` is safe to call on every boot: it checks for
- * `/vault/.git` and no-ops if the repo already exists. `resetDemoVault()`
+ * `/vault/.git` and no-ops if the repo already exists. `resetVault()`
  * wipes the IndexedDB-backed filesystem and reseeds from scratch — exported
  * for the command palette to wire up in Phase 5, per IMPLEMENTATION-PLAN.md
  * Phase 2's "a 'Reset demo vault' function re-seeds from scratch (wiring it
  * to the command palette is Phase 5 — just export it)".
+ *
+ * DESIGN-SPEC Amendments round 5 item 36 made all of the above OPT-IN. The
+ * demo vault described here now seeds only when the build sets
+ * `VSNOTE_DEMO_VAULT=1` (CI's Pages job and `npm run test:e2e` both do);
+ * every other build seeds the minimal `welcome.md` vault instead, and
+ * `resetVault()` resets to whichever of the two this build uses.
+ * `loadDemoVault()` forces the demo vault regardless, for the palette's
+ * "Load demo vault" command.
  */
 import * as git from "isomorphic-git";
 import { fs, GIT_DIR, DEFAULT_BRANCH, DEMO_AUTHOR } from "../git/client";
@@ -585,16 +593,84 @@ async function seedVault(): Promise<void> {
   await writeFile(`${VAULT_DIR}/notes/daily-2026-08-14.md`, DAILY_NOTE_MD); // U (never staged)
 }
 
-/** Safe to call on every boot — no-ops if the repo already exists. */
+const WELCOME_MD = `# Welcome to VSNote
+
+This is your vault. Everything lives in your browser, so it stays private to
+you and keeps working offline.
+
+## Getting started
+
+- Right-click in the file tree to add a file or folder.
+- Drag files in from your desktop, or paste them with Ctrl+V.
+- Press Cmd+K (Ctrl+K) for the command palette.
+- Markdown renders as you type. Toggle raw source from the editor header.
+
+Your vault is a real git repository, so the Source Control panel shows real
+diffs and history from the first edit you make.
+
+Want the full tour? Run "Load demo vault" from the command palette. It
+replaces this vault with a showcase one.
+`;
+
+/**
+ * DESIGN-SPEC Amendments round 5 item 36 — a default first boot seeds this
+ * minimal vault instead of the showcase one above: a single `welcome.md`,
+ * committed clean, on a real git repo so Source Control still works from
+ * the first edit. Deliberately ONE file: the point of the amendment is that
+ * a new user's vault is theirs, not a pile of demo content they have to
+ * delete.
+ */
+async function seedWelcomeVault(): Promise<void> {
+  await git.init({ fs, dir: GIT_DIR, defaultBranch: DEFAULT_BRANCH });
+  await writeFile(`${VAULT_DIR}/welcome.md`, WELCOME_MD);
+  await commitPaths(["welcome.md"], "chore: welcome to VSNote");
+}
+
+/**
+ * Whether this BUILD ships the full demo vault (DESIGN-SPEC item 36).
+ * `__VSNOTE_DEMO_VAULT__` is vite `define`d from the `VSNOTE_DEMO_VAULT` env
+ * var — see vite.config.ts and src/env.d.ts. Exported so the UI can label
+ * the reset command for whichever mode is active.
+ */
+export function isDemoVaultBuild(): boolean {
+  return __VSNOTE_DEMO_VAULT__;
+}
+
+/** Safe to call on every boot — no-ops if the repo already exists. Seeds
+ * the demo vault only on a demo build; otherwise the minimal welcome vault
+ * (item 36). */
 export async function ensureSeeded(): Promise<void> {
   const alreadySeeded = await pathExists(`${VAULT_DIR}/.git`);
   if (alreadySeeded) return;
-  await seedVault();
+  if (isDemoVaultBuild()) {
+    await seedVault();
+    return;
+  }
+  await seedWelcomeVault();
 }
 
-/** Wipes the filesystem and reseeds from scratch. Exported for the Phase 5
- * command palette's "Reset demo vault" command. */
-export async function resetDemoVault(): Promise<void> {
+/**
+ * Wipes the filesystem and reseeds from scratch, staying coherent with
+ * whichever mode this build is in (item 36): a demo build resets to the
+ * demo vault, a normal build resets to the welcome vault. Wired to the
+ * command palette's reset command.
+ */
+export async function resetVault(): Promise<void> {
+  resetFilesystem();
+  if (isDemoVaultBuild()) {
+    await seedVault();
+    return;
+  }
+  await seedWelcomeVault();
+}
+
+/**
+ * Explicitly replaces the current vault with the full demo vault, whatever
+ * the build flag says (item 36's "Load demo vault" palette command). The
+ * caller is responsible for warning the user first: this destroys the
+ * current vault, including its git history.
+ */
+export async function loadDemoVault(): Promise<void> {
   resetFilesystem();
   await seedVault();
 }

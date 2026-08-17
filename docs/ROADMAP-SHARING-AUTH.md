@@ -187,11 +187,30 @@ owner's concern (Cloudflare tunnel) — the app's job is to work flawlessly
 behind that proxy.
 - **No settable server/base URL.** All client calls are relative to
   `window.location.origin`. The Settings "Sharing base URL" field and the
-  `SLATE_CORS_ORIGINS` allowlist are REMOVED. Phase 11's sync remote is
-  implicitly `<origin>/git/vault.git` — no remote-URL field; "Test connection"
-  stays as a same-origin health check. (A single optional "share base URL"
-  override may return later ONLY if the owner splits `/share` onto its own
-  subdomain; do not build until asked. Same for external GitHub/Gitea remotes.)
+  `SLATE_CORS_ORIGINS` allowlist are REMOVED. This still stands, unchanged,
+  for the APP/API origin — `/api` and `/share/*` are never anything but
+  same-origin. **AMENDED 2026-08-17 by DESIGN-SPEC Amendments round 5 item
+  41, for the GIT remote specifically** (the rest of this bullet is now
+  historical, read the amendment as current): Phase 11's sync remote is no
+  longer unconditionally `<origin>/git/vault.git` with zero Settings
+  surface. Settings → Git & Sync now exposes a **repository name** (default
+  `vault`, still building the same implicit `<origin>/git/<name>.git`
+  same-origin remote when nothing else is configured — validated
+  client-side against the exact `server/app/gitrepo.py::REPO_NAME_RE`
+  contract) and an **off-by-default "Advanced: custom remote override"**
+  (a full external remote URL + its own credential, for GitHub/Gitea/another
+  VSNote instance — "the roadmap's 'optionally GitHub/Gitea + PAT later'"
+  arriving now instead of later). "Test connection" validates whichever of
+  the two is currently active and reports reachability, auth, and repo
+  existence as three distinct outcomes. Sync semantics are IDENTICAL on
+  every remote either way: fast-forward-only individual push/pull,
+  auto-merge-with-backup-refs for "Sync", and it never force-pushes — none
+  of that is gated on which URL is in play. See `src/git/remote.ts`'s
+  `computeGitRemoteUrl`/`resolveGitRemoteUrl` doc for the implementation.
+  (A single optional "share base URL" override may still return later ONLY
+  if the owner splits `/share` onto its own subdomain; do not build until
+  asked — that part of the original parenthetical is unaffected by this
+  amendment, which is git-remote-only.)
 - **CORS: none, anywhere.** Same-origin needs no CORS headers; the API emits
   none (drop CORSMiddleware), and `/share/*` stays exactly as CORS-less as §1
   requires. Tests assert the *absence* of CORS headers on every route.

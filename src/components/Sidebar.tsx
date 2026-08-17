@@ -15,6 +15,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { ExplorerTree, type ExplorerShareRow } from "./local/ExplorerTree";
 import { SidebarContainer } from "./local/SidebarContainer";
 import { filterTree } from "../lib/filterTree";
+import type { FlattenedEntry } from "../fs/importEntries";
 import type { FileNode } from "../types";
 
 export interface SidebarProps {
@@ -44,6 +45,11 @@ export interface SidebarProps {
   shares?: ExplorerShareRow[];
   onCopyShareLink?: (node: FileNode, share: ExplorerShareRow) => void;
   onManageShare?: (node: FileNode, share: ExplorerShareRow) => void;
+  /** DESIGN-SPEC Amendments round 5 item 39 — OS drag-drop + Ctrl+V paste
+   * import, straight passthrough to `ExplorerTree` (App.tsx owns the actual
+   * fs writes + conflict rename-or-replace dialog, same split as every
+   * other callback prop here). */
+  onImportEntries?: (targetFolderPath: string, entries: FlattenedEntry[]) => void;
   /** Persisted sidebar-REGION width (DESIGN-SPEC Amendments item 10, round
    * 3 item 20's course-correction) — `useSettingsStore`'s `sidebarWidth`,
    * shared with Search/Source Control/Extensions now, not Explorer-only. */
@@ -72,6 +78,7 @@ export function Sidebar({
   shares,
   onCopyShareLink,
   onManageShare,
+  onImportEntries,
   width,
   onWidthChange,
   collapsed,
@@ -146,6 +153,7 @@ export function Sidebar({
               shares={shares}
               onCopyShareLink={onCopyShareLink}
               onManageShare={onManageShare}
+              onImportEntries={onImportEntries}
             />
           </div>
         </ScrollArea>

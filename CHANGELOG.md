@@ -58,8 +58,47 @@ client and the v2 backend, August 2026) lives in the git log.
   issued before this release keep working: each token row stores its own
   prefix and lookups use that stored value, never the current constant.
 
+- **The demo vault is now opt-in.** A first boot seeds a minimal vault
+  holding one `welcome.md`, instead of the showcase content. The full demo
+  vault loads either from a build that sets `VSNOTE_DEMO_VAULT=1` (the
+  public GitHub Pages demo does, so it is unchanged) or from the new "Load
+  demo vault" command, which warns before replacing your vault. "Reset
+  vault" resets to whichever of the two the build uses.
+
 ### Added
+- **Three-dot overflow menu** in the title bar, and in each pane's header
+  when more than one pane is open. Format (bold, italic, strikethrough,
+  inline code, link) and Insert (table, code block, horizontal rule) act on
+  the focused editor's selection and are enabled for editable markdown only.
+- **Export as PDF** renders the file into a print-clean layout (no app
+  chrome, light background, syntax-highlighted code, real page breaks) and
+  opens the browser's print dialog. No server, no new dependencies.
+- **Import from the OS**: drag files, and folders where the browser exposes
+  them, from the desktop onto the file tree to copy them in at the drop
+  location; or paste files and images into the selected folder with Ctrl+V.
+  Name clashes prompt to rename or replace. A pasted screenshot gets a
+  timestamped filename. Firefox delivers images only on paste, which is a
+  browser limitation.
+- **Git configuration in Settings → Git & Sync**: the resolved remote URL
+  and branch are shown, the repository name is configurable, and the vault's
+  display name can be renamed. An advanced, off-by-default option points
+  sync at an external remote such as GitHub or Gitea with its own
+  credential. Sync semantics are identical on any remote: fast-forward,
+  auto-merge with backup refs, never a force push. "Test connection" now
+  reports reachability, authentication, and repository existence separately.
+- **Admin settings**: `GET`/`PUT /api/admin/settings` plus a Settings →
+  Sharing control let an admin change the maximum share blob size (1 to
+  100 MB) at runtime. `VSNOTE_MAX_BLOB_BYTES` seeds the value on first boot
+  and is ignored once an admin has set one. Changes are audit-logged. Admin
+  routes require an interactive session: API tokens are refused, because
+  token scopes have no admin tier.
 - CHANGELOG (this file).
+
+### Fixed
+- CI's "Typecheck" step ran `npx tsc --noEmit` against the root
+  `tsconfig.json`, which is a solution file (`"files": []`) and therefore
+  type-checked nothing and always passed. It now runs `npm run typecheck`
+  (`tsc -b`), which really checks `src/` and `vite.config.ts`.
 
 ## [2026.08.17] — first public release
 

@@ -31,11 +31,23 @@ export const ROOT_PANE_ID = "root";
  * seeding + restoring its default session." */
 export const DEFAULT_ACTIVE_PATH = "vault/notes/architecture.md";
 
-/** Navigates to the app and waits for the boot sequence (idempotent demo
+/**
+ * Navigates to the app and waits for the boot sequence (idempotent demo
  * vault seed -> fs/git store refresh -> default tabs restored) to finish —
  * auto-waiting on real DOM state (the default tab + its tree row), never a
  * bare timeout. Every spec should start here so it never races the boot
- * effect in `App.tsx`. */
+ * effect in `App.tsx`.
+ *
+ * THE DEMO VAULT IS NOT THE DEFAULT ANY MORE. DESIGN-SPEC Amendments round
+ * 5 item 36 made it opt-in: a plain build seeds a single `welcome.md`, and
+ * only `VSNOTE_DEMO_VAULT=1` seeds the showcase content this suite asserts
+ * against. `package.json`'s `test:e2e` script sets that variable on the
+ * `vite build` it runs, which is the ONLY reason `DEFAULT_ACTIVE_PATH` and
+ * every tree/git expectation below still hold. If you ever run these specs
+ * against a bundle built some other way, set it there too or roughly 18 of
+ * the 20 spec files will fail on missing files — and, worse, any spec that
+ * merely checks "something rendered" would pass while asserting nothing.
+ */
 export async function gotoApp(page: Page, path = "/"): Promise<void> {
   await page.goto(path);
   await expect(page.locator(`[role="tab"][data-tab-path="${DEFAULT_ACTIVE_PATH}"]`).first()).toBeVisible();

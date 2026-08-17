@@ -42,16 +42,41 @@ import * as git from "isomorphic-git";
 import { fs, GIT_DIR, DEFAULT_BRANCH } from "../git/client";
 import { computeStatus, type FileStatusMap } from "../git/status";
 import { diffFileVsHead, EMPTY_DIFF, type FileDiffResult } from "../git/diff";
-import { computeGitRemoteUrl, computeSyncStatus, realFetch, realPull, realPush, SyncError, type RemoteConfig } from "../git/remote";
+import {
+  computeGitRemoteUrl,
+  computeSyncStatus,
+  realFetch,
+  realPull,
+  realPush,
+  resolveGitCredential,
+  SyncError,
+  type RemoteConfig,
+} from "../git/remote";
 import { runSync, resolveConflictAndPush, type PendingConflict } from "../git/sync";
 import { commitAll } from "../git/commit";
 import { buildTemplateVars, renderCommitTemplate } from "../git/commitTemplate";
 import { useSettingsStore } from "./useSettingsStore";
 import type { GitStatus } from "../types";
 
+/** DESIGN-SPEC Amendments round 5 item 41 — reads whichever remote is
+ * currently ACTIVE (the implicit `<origin>/git/<gitRepoName>.git`, or the
+ * Advanced override when enabled and filled in) via `git/remote.ts`'s pure
+ * resolvers, so every real push/pull/fetch/sync call and Settings'
+ * "Remote URL" display are provably the same computation, never two
+ * independently-drifting guesses. */
 function remoteConfig(): RemoteConfig {
-  const { gitAuthToken } = useSettingsStore.getState();
-  return { url: computeGitRemoteUrl(), token: gitAuthToken };
+  const { gitAuthToken, gitRepoName, gitRemoteOverrideEnabled, gitRemoteOverrideUrl, gitRemoteOverrideToken } =
+    useSettingsStore.getState();
+  const remoteSettings = { repoName: gitRepoName, overrideEnabled: gitRemoteOverrideEnabled, overrideUrl: gitRemoteOverrideUrl };
+  return {
+    url: computeGitRemoteUrl(remoteSettings),
+    token: resolveGitCredential({
+      token: gitAuthToken,
+      overrideEnabled: gitRemoteOverrideEnabled,
+      overrideUrl: gitRemoteOverrideUrl,
+      overrideToken: gitRemoteOverrideToken,
+    }),
+  };
 }
 
 function errorMessage(err: unknown): string {

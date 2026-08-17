@@ -178,7 +178,11 @@ test.describe("Settings view", () => {
     // Playwright "pageerror" — there is none here because the test doesn't
     // fail).
     await page.getByTestId("git-test-connection").click();
-    await expect(page.getByTestId("git-test-result")).toHaveText(/credentials|auth/i);
+    // DESIGN-SPEC item 41(e) split "Test connection" into three distinct
+    // outcomes, so this message is now the auth-rejected one specifically
+    // ("credential", singular). Still asserts the message is about the
+    // credential rather than merely non-empty.
+    await expect(page.getByTestId("git-test-result")).toHaveText(/credential|auth/i);
     // No SSH-key management anywhere in this category (DESIGN-SPEC
     // Amendments item 11: browsers can't speak SSH).
     await expect(page.getByText(/SSH key/i)).toHaveCount(0);

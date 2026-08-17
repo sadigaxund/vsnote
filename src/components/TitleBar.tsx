@@ -53,7 +53,8 @@ import {
 import { TitleBar as TitleBarShell } from "./local/TitleBar";
 import { DiffStatChip } from "./local/DiffStatChip";
 import { SegmentedControl } from "./local/SegmentedControl";
-import type { DiffLayout, DiffStat, EditorMode } from "../types";
+import { OverflowMenu } from "./local/OverflowMenu";
+import type { DiffLayout, DiffStat, EditorMode, FileKind } from "../types";
 
 export interface AppTitleBarProps {
   /** The focused pane's active tab path, split on `/` — omitted (no
@@ -78,6 +79,17 @@ export interface AppTitleBarProps {
    * rendered when a real file (not the virtual Settings tab) is focused —
    * same `showPaneControls` gate the mode toggle already uses. */
   onShare?: () => void;
+  /** DESIGN-SPEC item 38 — the `⋯` overflow menu (Format/Insert/Export as
+   * PDF) for the FOCUSED pane. `paneId` addresses `editor/activeView.ts`'s
+   * per-pane view registry; `kind`/`path`/`missing` gate Format/Insert/
+   * Export exactly like `EditorHeader.tsx`'s own copy does for a non-focused
+   * pane. Omitted entirely (no menu at all) when there's no tab open or the
+   * focused tab is the virtual Settings view — same `showPaneControls` gate
+   * every other pane-mirroring control in this cluster already uses. */
+  overflowMenuPaneId: string;
+  overflowMenuKind?: FileKind;
+  overflowMenuPath?: string;
+  overflowMenuMissing?: boolean;
 }
 
 export function AppTitleBar({
@@ -95,6 +107,10 @@ export function AppTitleBar({
   onOpenPalette,
   onOpenSettings,
   onShare,
+  overflowMenuPaneId,
+  overflowMenuKind,
+  overflowMenuPath,
+  overflowMenuMissing,
 }: AppTitleBarProps) {
   const has = (m: EditorMode) => availableModes.includes(m);
   const showPaneControls = !!breadcrumb && availableModes.length > 0;
@@ -164,6 +180,15 @@ export function AppTitleBar({
                 <Share2 size={15} />
               </Button>
             </Tooltip>
+          )}
+          {showPaneControls && (
+            <OverflowMenu
+              paneId={overflowMenuPaneId}
+              kind={overflowMenuKind}
+              mode={mode}
+              path={overflowMenuPath}
+              missing={overflowMenuMissing ?? false}
+            />
           )}
           <Tooltip content="Zen mode (⌘⇧Z)" side="bottom">
             <Button type="button" variant="ghost" size="icon-sm" aria-label="Enter zen mode" onClick={onEnterZen}>

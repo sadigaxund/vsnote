@@ -194,6 +194,16 @@ const HASHED_CHUNK_NAME = /^(.*)-[\w-]{8}\.\w+$/;
 
 // https://vite.dev/config/
 export default defineConfig({
+  // DESIGN-SPEC Amendments round 5 item 36 — the full demo vault is opt-in.
+  // A default build (and therefore `docker compose up`) seeds a minimal
+  // welcome vault; `VSNOTE_DEMO_VAULT=1` opts into the showcase content.
+  // CI's Pages job sets it so the public demo is unchanged, and
+  // package.json's `test:e2e` sets it so the e2e suite seeds the demo vault
+  // explicitly instead of depending on it being the default. Declared for
+  // TypeScript in src/env.d.ts.
+  define: {
+    __VSNOTE_DEMO_VAULT__: JSON.stringify(process.env.VSNOTE_DEMO_VAULT === "1"),
+  },
   plugins: [
     react(),
     tailwindcss(),

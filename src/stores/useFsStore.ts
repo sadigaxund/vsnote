@@ -22,6 +22,16 @@ import {
   fsToDisplayPath,
   joinPath,
 } from "../fs/paths";
+// DESIGN-SPEC Amendments round 5 item 41(c) — DISPLAY-name mapping only
+// (chosen over a real FS-root rename: see `useSettingsStore.ts`'s
+// `vaultDisplayName` doc). `VAULT_LABEL` stays the real `id`/`path` for
+// every node below (all path resolution, drag/drop, git-status keys, etc.
+// are completely untouched); only this root node's rendered `name` reads
+// the setting, so `ExplorerTree.tsx` (which renders `node.name` as text but
+// keys every operation off `node.id`) shows the custom label for free with
+// no change to that file.
+import { useSettingsStore } from "./useSettingsStore";
+import { resolveVaultDisplayLabel } from "../lib/vaultLabel";
 import type { FileKind, FileNode } from "../types";
 
 /**
@@ -167,7 +177,9 @@ export const useFsStore = create<FsStoreState>((set, get) => ({
     const rawChildren = await readTree(VAULT_DIR);
     const root: FileNode = {
       id: VAULT_LABEL,
-      name: VAULT_LABEL,
+      // Item 41(c) — display label only; `id`/`path` below stay the real
+      // `VAULT_LABEL` unconditionally (see the import comment above).
+      name: resolveVaultDisplayLabel(useSettingsStore.getState().vaultDisplayName, VAULT_LABEL),
       kind: "folder",
       type: "folder",
       path: VAULT_LABEL,

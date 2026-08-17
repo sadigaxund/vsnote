@@ -57,6 +57,9 @@ import { useGitStore } from "../stores/useGitStore";
 import { EMPTY_DIFF } from "../git/diff";
 import { modeAvailabilityFor } from "../filetypes/registry";
 import { probeRender } from "../lib/renderProbe";
+import { resolveVaultDisplayLabel } from "../lib/vaultLabel";
+import { useSettingsStore } from "../stores/useSettingsStore";
+import { VAULT_LABEL } from "../fs/paths";
 import type { StoragePersistenceStatus } from "../fs/persistence";
 import type { DockEdge, EditorMode, TabItem } from "../types";
 
@@ -108,6 +111,7 @@ export function EditorPane({
   // see `lib/renderProbe.ts`'s doc.
   probeRender(`EditorPane:${paneId}`);
 
+  const vaultDisplayName = useSettingsStore((s) => s.vaultDisplayName);
   const leaf = useTabsStore((s) => findLeaf(s.tree, paneId));
   const isFocused = useTabsStore((s) => s.activePaneId === paneId);
   const focusPane = useTabsStore((s) => s.focusPane);
@@ -290,13 +294,30 @@ export function EditorPane({
               renders at all (see this file's module doc). */}
           {multiPane && activeTab?.kind !== "settings" && (
             <EditorHeader
-              breadcrumb={activeTab ? activeTab.path.split("/") : ["vault"]}
+              paneId={paneId}
+              // DESIGN-SPEC item 41: the vault's display name is a label
+              // mapping over the unchanged `vault/...` path, so the FIRST
+              // segment is swapped here exactly the way App.tsx does it for
+              // the single-pane title bar. Without this the per-pane header
+              // was the one place still showing the literal root name.
+              breadcrumb={
+                activeTab
+                  ? activeTab.path
+                      .split("/")
+                      .map((segment, i) =>
+                        i === 0 && segment === VAULT_LABEL ? resolveVaultDisplayLabel(vaultDisplayName, VAULT_LABEL) : segment,
+                      )
+                  : [resolveVaultDisplayLabel(vaultDisplayName, VAULT_LABEL)]
+              }
               diff={activeDiff}
               mode={activeTab?.mode ?? "source"}
               onModeChange={(mode: EditorMode) => activeTab && setMode(activeTab.path, mode, paneId)}
               availableModes={availableModes}
               diffLayout={diffLayout}
               onDiffLayoutChange={(layout) => setDiffLayoutForPane(layout, paneId)}
+              kind={activeTab?.kind}
+              path={activeTab?.path}
+              missing={activeBuffer?.missing ?? false}
             />
           )}
         </>

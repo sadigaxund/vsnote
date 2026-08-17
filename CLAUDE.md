@@ -41,8 +41,14 @@ the sole visual authority — read it before building UI.
 4. **Docs are law.** `docs/DESIGN-SPEC.md` (what it looks like),
    `docs/ARCHITECTURE.md` (how it's built), `docs/IMPLEMENTATION-PLAN.md` (phases).
    If you must deviate, update the doc in the same commit and say why.
-5. **Quality gates before claiming done:** `npm run build` and `npm run lint` pass;
-   `npx tsc --noEmit` clean. Verify UI changes visually when a browser tool is available.
+5. **Quality gates before claiming done:** `npm run build`, `npm run lint`, and
+   `npm run typecheck` all pass. Verify UI changes visually when a browser tool is
+   available. Do NOT use `npx tsc --noEmit`: the root `tsconfig.json` is a solution
+   file (`"files": []`), so that command typechecks nothing and always exits 0 (it
+   was a silent no-op in this repo and in CI until 2026-08-17). `npm run typecheck`
+   runs `tsc -b`, which really checks `src/` and `vite.config.ts`.
+   Note `tests/` is in neither project's `include`, so specs are only type-checked
+   by their runners.
 6. **Git hygiene.** Small, scoped commits with conventional messages
    (`feat(shell): …`, `fix(editor): …`, `docs: …`). Commit at the end of every phase or
    sizable unit of work. Never leave the tree dirty at handoff. Never force-push.

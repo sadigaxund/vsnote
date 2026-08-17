@@ -172,7 +172,12 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
     // that doesn't exist yet (created on first push): reachable + authed,
     // not an error.
     await page.getByTestId("git-test-connection").click();
-    await expect(page.getByTestId("git-test-result")).toHaveText(/repo will be created on first push/);
+    // DESIGN-SPEC item 41(e) reworded this into one of three distinct
+    // outcomes. The "created on first push" reassurance is preserved for the
+    // BUILT-IN remote (the server creates the bare repo on first
+    // authenticated push); a custom external remote gets a different message
+    // precisely because it will not auto-create. See describeConnectionTest.
+    await expect(page.getByTestId("git-test-result")).toHaveText(/created on first push/i);
 
     // --- 2. Edit a real file, commit, push — all real UI interaction -----
     // Switch back to the file tab — Settings is still the active/selected
