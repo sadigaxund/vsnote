@@ -126,7 +126,7 @@ export function SyncSetupPanel() {
                 <Input size="sm" placeholder="Username" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} aria-label="Sync username" data-testid="sync-setup-username" />
                 <Input size="sm" type="password" placeholder="Password" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} aria-label="Sync password" data-testid="sync-setup-password" />
                 <Button type="button" size="sm" disabled={loggingIn} onClick={() => void login(loginUser, loginPass)} data-testid="sync-setup-signin" style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
-                  {loggingIn ? <Loader2 size={13} className="animate-spin" /> : "Sign in"}
+                  {loggingIn ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Sign in"}
                 </Button>
               </div>
             </FormField>
@@ -139,7 +139,7 @@ export function SyncSetupPanel() {
           {authenticated && gitAuthToken.trim() === "" && (
             <FormField label="Sync token" hint="Lets this browser push and pull. Stored only on this device.">
               <Button type="button" size="sm" variant="secondary" disabled={tokenBusy} onClick={() => void handleCreateToken()} data-testid="sync-setup-create-token" style={{ alignSelf: "flex-start" }}>
-                {tokenBusy ? <Loader2 size={13} className="animate-spin" /> : "Create sync token"}
+                {tokenBusy ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Create sync token"}
               </Button>
             </FormField>
           )}

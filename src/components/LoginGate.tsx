@@ -138,7 +138,7 @@ export function LoginGate({ onAuthenticated }: LoginGateProps) {
                 </Alert>
               )}
               <Button type="submit" disabled={loggingIn || !username.trim() || !password} data-testid="login-submit">
-                {loggingIn ? <Loader2 size={13} className="animate-spin" /> : "Sign in"}
+                {loggingIn ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Sign in"}
               </Button>
             </form>
           </CardContent>

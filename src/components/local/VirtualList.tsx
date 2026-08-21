@@ -69,6 +69,16 @@ export function VirtualList<T>({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  // Scroll coalescing (§6.1.3): latest value lives in the ref (always
+  // current for the next frame), state flips at most once per rAF.
+  const scrollTopRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -92,7 +102,18 @@ export function VirtualList<T>({
       className={className}
       style={{ height: "100%", ...style }}
       role={role}
-      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+      onScroll={(e) => {
+        // TODO §6.1.3 (vercel-labs rerender-transitions): coalesce scroll
+        // updates to one render per frame instead of one per scroll event.
+        // The raw value lands in a ref immediately (always current), the
+        // state that drives windowing flips inside rAF.
+        scrollTopRef.current = e.currentTarget.scrollTop;
+        if (rafRef.current !== null) return;
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          setScrollTop(scrollTopRef.current);
+        });
+      }}
       {...rest}
     >
       <div style={{ position: "relative", height: totalHeight }}>

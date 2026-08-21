@@ -463,7 +463,7 @@ export function PublishDialog({
                 data-testid="publish-login-submit"
                 style={{ whiteSpace: "nowrap", flexShrink: 0 }}
               >
-                {loggingIn ? <Loader2 size={13} className="animate-spin" /> : "Sign in"}
+                {loggingIn ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Sign in"}
               </Button>
             </div>
             {loginError && (
@@ -646,7 +646,7 @@ export function PublishDialog({
                     data-testid="publish-generate-token"
                     style={{ whiteSpace: "nowrap", flexShrink: 0 }}
                   >
-                    {generatingToken ? <Loader2 size={13} className="animate-spin" /> : "Generate token"}
+                    {generatingToken ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Generate token"}
                   </Button>
                 )}
               </div>
@@ -827,7 +827,7 @@ export function PublishDialog({
               </Button>
               <Button type="button" disabled={!canSubmit} onClick={handleSubmit} data-testid="publish-submit">
                 {submitting ? (
-                  <Loader2 size={13} className="animate-spin" />
+                  <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span>
                 ) : editMode && isFolder ? (
                   "Update share"
                 ) : editMode ? (

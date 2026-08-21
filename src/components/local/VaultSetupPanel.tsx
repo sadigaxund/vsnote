@@ -303,7 +303,7 @@ function RemoteDialog({ open, onOpenChange, editingRemote, onSaved }: RemoteDial
             data-testid="vault-remote-submit"
             onClick={() => void handleSubmit()}
           >
-            {submitting ? <Loader2 size={13} className="animate-spin" /> : editingRemote ? "Save" : "Add remote"}
+            {submitting ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : editingRemote ? "Save" : "Add remote"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -434,7 +434,7 @@ function RemotesTable({ compact }: RemotesTableProps) {
                             data-testid={`vault-remote-test-${remote.id}`}
                             onClick={() => void testRemote(remote.id)}
                           >
-                            {pending ? <Loader2 size={13} className="animate-spin" /> : <PlugZap size={13} />}
+                            {pending ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : <PlugZap size={13} />}
                           </Button>
                         </Tooltip>
                         <Tooltip content="Mirror now" side="top">
@@ -451,7 +451,7 @@ function RemotesTable({ compact }: RemotesTableProps) {
                               })
                             }
                           >
-                            {pending ? <Loader2 size={13} className="animate-spin" /> : <Server size={13} />}
+                            {pending ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : <Server size={13} />}
                           </Button>
                         </Tooltip>
                         <Tooltip content="Edit" side="top">
@@ -643,7 +643,7 @@ export function VaultSetupPanel({ clientRepoName }: VaultSetupPanelProps) {
             })
           }
         >
-          {initializing ? <Loader2 size={13} className="animate-spin" /> : "Create vault"}
+          {initializing ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Create vault"}
         </Button>
         {vaultError && (
           <Alert variant="danger" size="sm">

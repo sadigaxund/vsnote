@@ -428,7 +428,7 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
                         onClick={() => void handleSave()}
                         data-testid="share-save"
                       >
-                        {saveState === "saving" ? <Loader2 size={13} className="animate-spin" /> : activeDirty ? "Save" : saveState === "saved" ? "Saved" : "Save"}
+                        {saveState === "saving" ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : activeDirty ? "Save" : saveState === "saved" ? "Saved" : "Save"}
                       </Button>
                     </>
                   )}

@@ -772,7 +772,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                         .finally(() => setGitTokenGenerating(false));
                     }}
                   >
-                    {gitTokenGenerating ? <Loader2 size={13} className="animate-spin" /> : "Generate token"}
+                    {gitTokenGenerating ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Generate token"}
                   </Button>
                 </div>
               </FormField>
@@ -831,7 +831,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                       .finally(() => setGitTesting(false));
                   }}
                 >
-                  {gitTesting ? <Loader2 size={13} className="animate-spin" /> : "Test connection"}
+                  {gitTesting ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Test connection"}
                 </Button>
                 {gitTestResult && !gitTesting && (
                   <span
@@ -1040,7 +1040,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                   {reachability === "online" ? "Online" : reachability === "offline" ? "Offline" : reachability === "checking" ? "Checking…" : "Unknown"}
                 </Badge>
                 <Button type="button" variant="secondary" size="sm" data-testid="share-backend-test" onClick={() => void probeShareBackend()}>
-                  {reachability === "checking" ? <Loader2 size={13} className="animate-spin" /> : "Test connection"}
+                  {reachability === "checking" ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Test connection"}
                 </Button>
                 {reachability === "online" && authenticated && (
                   <>
@@ -1087,7 +1087,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                       style={{ whiteSpace: "nowrap", flexShrink: 0 }}
                       onClick={() => void loginShareBackend(loginUser, loginPass)}
                     >
-                      {loggingIn ? <Loader2 size={13} className="animate-spin" /> : "Sign in"}
+                      {loggingIn ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Sign in"}
                     </Button>
                   </div>
                   {loginError && (
@@ -1149,7 +1149,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                             .finally(() => setSavingMaxBlob(false));
                         }}
                       >
-                        {savingMaxBlob ? <Loader2 size={13} className="animate-spin" /> : "Save"}
+                        {savingMaxBlob ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Save"}
                       </Button>
                     </div>
                     {adminSettingsError && (

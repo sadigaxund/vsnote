@@ -233,7 +233,7 @@ export function ConflictResolver() {
             disabled={!!syncing}
             onClick={() => void resolveConflict(resolutions)}
           >
-            {syncing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            {syncing ? <span style={{ display: "inline-flex" }}><Loader2 size={14} className="animate-spin" /></span> : <Check size={14} />}
             {syncing ? "Merging…" : "Resolve & push"}
           </Button>
         </DialogFooter>
