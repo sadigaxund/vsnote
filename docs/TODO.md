@@ -602,6 +602,51 @@ apply to lucide-in-my-you-eye sizing.
 
 ---
 
+### 6.5 E2E net bootstrap — ✅ RESOLVED 2026-08-22, suite fully green (109/109)
+
+Triage journey: full run showed 5 failures → instrumentation (per-run uvicorn
+output log, wire-level login capture, db-file watcher) → TWO real causes:
+
+1. **Port squatter**: a leftover uvicorn from a crashed prior run holds 8788;
+   the new spawn dies with EADDRINUSE but `waitForReady` green-lights the
+   SQUATTER (health check can't tell whose process answers) → every sign-in
+   401s against a foreign empty DB. Fixed with a squatter guard in
+   `waitForReady`: if the health URL answers while OUR spawned pid is dead,
+   fail loudly naming the cause.
+2. **Unbounded local parallelism**: default workers ≈ CPU count; ~16 browser
+   workers hammering ONE shared backend caused intermittent
+   lock/sign-in/manifest timeouts that never reproduce serially. Fixed by
+   bounding local workers to 4 (CI stays at 2) AND raising sqlite
+   `connect_args.timeout` to 30s in `server/app/db.py` so writer bursts queue
+   instead of 500ing.
+
+Also fixed en route: fs-git badge count stale after searchRank showcase;
+demo-optin rewritten for item-45 contract (+ its own palette-filter bug).
+Debug instrumentation removed; per-run uvicorn output log kept
+(`/tmp/vsnote-e2e-uvicorn-live.log`) for future post-mortems.
+
+---
+
+## 8.x — Legacy deferred candidates from the 2026-08-17 project plan
+
+Recovered from the pre-session plan doc so they don't live only in memory:
+
+1. **~~Client-side "replace local with server copy" recovery~~** — SHIPPED as
+   "Restore from remote…" (DESIGN-SPEC item 46).
+2. **Google/OAuth sign-in for restricted shares** — still open; user chose
+   defer on 2026-08-17. Needs backend OAuth flow + PublishDialog identity
+   picker integration.
+3. **Pull-from-mirror** — mirror REMOTES are manageable (VaultSetupPanel),
+   but sync only ever talks to the implicit/override primary. Pull fan-out or
+   fetch-from-mirror is unbuilt.
+4. **Shallow clones** — unbuilt; relevant only if vault repos grow large
+   enough that initial clone depth matters.
+
+Note: the plan references `docs/IMPLEMENTATION-PLAN-V2.md` phase stamps; that
+file was intentionally removed from the working tree (in git history).
+
+---
+
 ## 7.x — Phase E1 findings: UXUI sources (2026-08-21)
 
 Deep-read of the vendored UXUI cluster against the app. Verdicts: bergside =

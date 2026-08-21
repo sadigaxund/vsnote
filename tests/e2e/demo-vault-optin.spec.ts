@@ -27,7 +27,7 @@ test.describe("demo vault sandbox (item 45)", () => {
     await expect(palette.getByRole("button", { name: /Load demo vault/i })).toHaveCount(0);
 
     // The SAFE demo command still exists — clear the filter to reach it.
-    await page.keyboard.press("Backspace".repeat(9));
+    for (let i = 0; i < 9; i += 1) await page.keyboard.press("Backspace");
     await palette.getByRole("button", { name: "Reset demo vault…" }).click();
     // It keeps its confirm dialog — wiping even a sandbox deserves consent.
     const confirm = page.getByRole("dialog");

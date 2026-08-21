@@ -42,7 +42,11 @@ export default defineConfig({
   // resolved on load. Raising this above 0 requires naming the specific
   // spec and the reason, right here, not just bumping a number.
   retries: 0,
-  workers: process.env.CI ? 2 : undefined,
+  // Local runs get a BOUND worker count too (TODO §6.5): unbounded default =
+// ~CPU count, and ~16 concurrent browser workers hammering the ONE shared
+// backend turned into intermittent sign-in/manifest failures that never
+// reproduce serially. 4 keeps the suite fast without stampeding it.
+workers: process.env.CI ? 2 : 4,
   reporter: [["list"]],
   timeout: 30_000,
   expect: { timeout: 8_000 },

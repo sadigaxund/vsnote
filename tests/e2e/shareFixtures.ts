@@ -58,7 +58,7 @@
  * already relied on — no separate teardown path to maintain.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -116,8 +116,27 @@ async function waitForReady(baseUrl: string, proc: ChildProcessWithoutNullStream
       }
       try {
         const res = await fetch(`${baseUrl}/api/auth/whoami`);
-        if (res.ok) return;
-      } catch {
+        if (res.ok) {
+          // Squatter guard (§6.5 triage): if OUR spawned process died but
+          // something else answers on the port (a leftover uvicorn from a
+          // crashed prior run), readiness would green-light the WRONG
+          // backend — every login then 401s against a foreign DB. Fail
+          // loudly naming the actual cause instead.
+          let alive = true;
+          try {
+            process.kill(proc.pid, 0);
+          } catch {
+            alive = false;
+          }
+          if (!alive) {
+            throw new Error(
+              `Port ${baseUrl} is answered by ANOTHER process while our spawned backend is dead (address-in-use squatter).\n--- our uvicorn output ---\n${output.text}`,
+            );
+          }
+          return;
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes("squatter")) throw err;
         // not up yet
       }
       await new Promise((r) => setTimeout(r, 150));
@@ -207,8 +226,16 @@ db.close()
     { env, stdio: ["ignore", "pipe", "pipe"] },
   );
   const output = { text: "" };
-  proc.stdout.on("data", (d) => (output.text += d.toString()));
-  proc.stderr.on("data", (d) => (output.text += d.toString()));
+  const DEBUG_LOG = "/tmp/vsnote-e2e-uvicorn-live.log"; // always-on: full backend output per run, for post-mortems
+  writeFileSync(DEBUG_LOG, `[spawn ${new Date().toISOString()}] pid=${proc.pid}\n`);
+  proc.stdout.on("data", (d) => {
+    output.text += d.toString();
+    appendFileSync(DEBUG_LOG, d.toString());
+  });
+  proc.stderr.on("data", (d) => {
+    output.text += d.toString();
+    appendFileSync(DEBUG_LOG, d.toString());
+  });
 
   try {
     await waitForReady(SHARE_BACKEND_BASE_URL, proc, output);

@@ -27,6 +27,13 @@ def make_engine(db_url: str) -> Engine:
         # Needed because FastAPI's TestClient / uvicorn's threadpool touch
         # the session from a different thread than the one that created it.
         connect_args["check_same_thread"] = False
+        # Concurrency hardening (TODO §6.5): under the fullyParallel e2e run
+        # (many browser workers -> concurrent POST/PATCH bursts through
+        # uvicorn's threadpool), SQLite's default 5s busy handler timed out
+        # as "database is locked" 500s. 30s absorbs writer bursts; writes
+        # here are short (single-row inserts/upserts), so this never wedges
+        # a healthy server — it only stops spurious lock failures.
+        connect_args["timeout"] = 30
         if ":memory:" in db_url or db_url in ("sqlite://", "sqlite:///:memory:"):
             # An in-memory SQLite DB is scoped to a single connection. With
             # the default pool, each new thread checks out its OWN
