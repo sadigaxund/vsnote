@@ -95,12 +95,13 @@ Six-skill suite: `accessibility/` (WCAG 2.2 patterns — pairs with WIG),
 
 | Source | Path | Use when |
 |---|---|---|
-| julianoczkowski/designer-skills | `julianoczkowski/designer-skills/<skill>/` | Pre-build design process: `design-brief`, `design-review`, `design-tokens`, `frontend-design`, `information-architecture` (14 skills) |
-| bergside/awesome-design-skills | `bergside/awesome-design-skills/skills/<style>/` | Aesthetic direction library (brutalism, bento, …) — ONLY within DESIGN-SPEC bounds |
-| rampstackco/claude-skills | `rampstackco/claude-skills/skills/<name>/` | 103 product/UX/marketing skills; UI-relevant: `accessibility-audit`, `art-direction`, `calculator-design`, `comparison-tool-design`, `competitor-experience-audit` |
-| content-designer/ux-writing-skill | `content-designer/ux-writing-skill/` | UI copywriting rules |
-| anthropics/knowledge-work-plugins | `anthropics/knowledge-work-plugins/design/skills/ux-copy/SKILL.md` | Official Anthropic UX-copy skill |
-| jakubkrehel/skills | `jakubkrehel/skills/skills/better-writing/` | General prose quality |
+| julianoczkowski/designer-skills | `julianoczkowski/designer-skills/<skill>/` (8 skills) | Design process: `design-review` (standing visual-audit checklist — TODO §7.1), `grill-me` (pre-amendment interrogation), `design-tokens` (incl. motion tokens, §7.2), `information-architecture` (naming glossary, §7.3), `design-brief`, `brief-to-tasks`, `design-flow`, `frontend-design` |
+| bergside/awesome-design-skills | `bergside/awesome-design-skills/skills/<style>/` | UNROUTED for VSNote: pure style-preset library; every preset overrides the DESIGN-SPEC language. Kept vendored as vocabulary only |
+| rampstackco/claude-skills | `rampstackco/claude-skills/skills/<name>/` | UI-relevant subset (E1-verified): `accessibility-audit` (zoom/reflow/live-region passes → §7.4), `frontend-component-build` (per-component ARIA contract for any new local comp), `design-system` (token evolution), `information-architecture` (nav restructuring), `usability-testing` / `qa-testing` (flow validation gates), `performance-optimization` (large-vault rendering), `security-baseline` (v2 auth/share reviews), `onboarding-wizard-design` (first-run), `internationalization` (if strings get extracted). `competitor-experience-audit` = observable-only method vs VSCode/Obsidian. SKIP: art-direction, calculator/comparison-tool design, all SEO/ads/brand/funnel skills |
+| content-designer/ux-writing-skill | `content-designer/ux-writing-skill/` | Richest UI-copy source: error/success message patterns + length benchmarks |
+| anthropics/knowledge-work-plugins | `anthropics/knowledge-work-plugins/design/skills/ux-copy/SKILL.md` | Consequence-labeled confirm-button pairs (`Delete files`/`Keep files`) |
+| jakubkrehel/skills | `jakubkrehel/skills/skills/better-writing/` | Checkable copy standards: capitalization policy, wizard vocabulary, toggle phrasing |
+| mblode/agent-skills | `mblode/agent-skills/skills/typography-audit/` | Typography audit — note its scope gotcha: punctuation rules apply to RENDERED copy, not string literals (our em-dash ban is a deliberate superset) |
 | blader/humanizer | `blader/humanizer/SKILL.md` | De-AI-ing written text (also installed user-side) |
 | uxwritinghub.com microcopy article | EXTERNAL (not vendored) | Microcopy background reading |
 
@@ -118,7 +119,9 @@ Six-skill suite: `accessibility/` (WCAG 2.2 patterns — pairs with WIG),
 | Perf work (50k notes, bundles) | react-best-practices rerender/js/bundle slices → addyosmani `performance/` → kursku `optimize/` → react-doctor scan |
 | PWA / offline / storage | addyosmani `best-practices/` + `core-web-vitals/` → optimize SW section → CLAUDE.md rule 3 |
 | Motion / animation | mblode ui-animation → baseline-ui animation section → DESIGN-SPEC motion rules |
-| UX copy / labels / empty states | anthropic ux-copy → ux-writing-skill → clarify/harden (kursku) → em-dash ban test |
+| UX copy / labels / empty states | ux-writing-skill → anthropic ux-copy → better-writing rules → TODO §7.5 standing copy rules → em-dash ban test |
+| Visual review of a finished feature | julianoczkowski design-review checklist (§7.1) → WIG anti-pattern list → DESIGN-SPEC |
+| Zoom/reflow/screen-reader verification | rampstack accessibility-audit stages (§7.4) → addyosmani accessibility skill |
 | Git/sync/share flows | No skill covers these (ecosystem blind spot) — TODO.md + roadmap docs are authoritative |
 | Pre-PR review | TODO.md standing checklists + `storeSelectorHygiene` + `fsIsolation` guards |
 
