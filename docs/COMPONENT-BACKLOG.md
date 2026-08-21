@@ -1,97 +1,486 @@
-# my-you-eye — component backlog
+# Component Backlog
 
-Components this project needed that the library does not (yet) provide. Each was built
-locally in `src/components/local/` following library conventions (tokens, variants,
-a11y) and is a candidate to upstream into `my-you-eye`.
+Derived from the deep analysis of every entry in `skills/index.md` (full per-source
+reports: `skills/ANALYSIS.md`). This file is the **canonical** backlog per CLAUDE.md
+rule 2; `docs/COMPONENT-BACKLOG-Issued_20260821.md` remains the inventory of
+gap-fillers already built in `src/components/local/` — this file adds what that one
+deliberately does not track: (1) components/patterns we decided to import from
+elsewhere, (2) my-you-eye gaps with enough spec detail to drive an upstream PR or a
+local build, (3) improvements to existing components surfaced by the skill analysis,
+and (4) a backfill annex (Part 5) restoring detail the first synthesis pass
+compressed out of the source reports.
 
-**Protocol:** whenever you build something in `src/components/local/`, add/update a row
-here in the same commit. Status: `planned` → `built-locally` → `upstreamed`.
+Protocol: same lifecycle as the issued backlog — `planned` → `built-locally` /
+`imported` → `upstreamed`. Every entry names its source skill(s) so the reasoning is
+traceable.
 
-| Component | Group | Why the library gap matters | Suggested API sketch | Status |
-|---|---|---|---|---|
-| `ContextMenu` | overlay | Right-click menus (file tree, tabs, editor). `DropdownMenu` is click-trigger only; no positioning at pointer. | Radix ContextMenu-style parts: `ContextMenu, Trigger, Content, Item, Separator, Sub` | **built-locally** — `src/components/local/ContextMenu.tsx`, used by `src/components/local/ExplorerTree.tsx` (row menu: New File, New Folder, Rename, Delete, Reveal in tree, Copy path) and, since Phase 6, `src/components/local/EditorTabBar.tsx` (per-tab menu: Split Left/Right/Up/Down, Close — the grid split view's discoverable non-drag affordance). Wraps `@radix-ui/react-context-menu` (added as a dependency — it's the dedicated Radix primitive for pointer-position menus, same family as the library's own `DropdownMenu`/`Popover`) restyled with the *exact* Tailwind classes `DropdownMenuContent`/`Item`/`Separator` use internally (read from `node_modules/my-you-eye/dist/chunk-*.js`), so it's visually identical to the library's own menu, not a fork. |
-| `FindWidget` | overlay | VSCode-style floating find/replace card (DESIGN-SPEC Amendments item 9, matched against `search.png`): row 1 (expand chevron, find input, match-case/whole-word/regex toggles, live `N of M`/"No results" counter, prev/next, select-all, close) + row 2 (replace input, preserve-case toggle, replace/replace-all), overlaying the focused pane's top-right corner without pushing content down. Nothing in the catalog composes a floating card bound to a CodeMirror search state with a live match counter — `@codemirror/search`'s own `SearchConfig.createPanel` is the sanctioned override point for exactly this ("Can be used to override the way the search panel is implemented"), so this is new UI shape, not a restyle. | `<FindWidget view={EditorView} registerUpdateListener={(fn) => void} />` | **built-locally** — `src/components/local/FindWidget.tsx`, mounted per-pane by `src/editor/findPanel.ts`'s `createFindPanel` (the `createPanel` override wired into every `search()` extension: `editor/baseExtensions.ts`'s `baseExtensions`/`readOnlyBaseExtensions`, `editor/LivePreviewEditor.tsx`'s own inline `search()` call). Composes the library's `Input`/`Button`/`Tooltip`; icons from `lucide-react` (`CaseSensitive`/`WholeWord`/`Regex`/`Replace`/`ReplaceAll` — chosen specifically because they render as VSCode-recognizable glyphs, matching `search.png`). Drives real `@codemirror/search` state (`setSearchQuery`/`findNext`/`findPrevious`/`replaceNext`/`replaceAll`/`selectMatches`) so native match highlighting (`.cm-searchMatch`) is unaffected by the DOM replacement — see that module's doc for why highlighting is gated on the panel existing at all, not on its markup. "Preserve case" (row 2's `AB` toggle) is the one place this component computes a result `@codemirror/search`'s public API can't produce (no exported `getReplacement`): a small case-heuristic mutator scoped to non-regex searches only, documented inline. |
-| `EditorTabBar` / `Tab` | navigation | VSCode-style document tabs: per-tab icon, close × (always visible, circular hover/active affordance), dirty dot (git-modified amber, sits beside the ×, not instead of it), preview (italic) state, overflow scroll + menu. `Tabs` is content-switching nav (Radix `Tabs.Root`, single active panel), not a closeable/reorderable document strip. Filenames are NOT git-tinted (active = bright fg, inactive = muted, per app-preview.png) — that `tone` idea in the original API sketch was corrected away after pixel-sampling the reference image; git color there lives only in the dirty dot and in the file tree, not tab text. Phase 6: every tab is now `draggable` (HTML5 DnD, `application/x-vsnote-tab` payload) for drag-to-dock into any pane edge, and gets a right-click `ContextMenu` (Split Left/Right/Up/Down + Close) — the spec's required non-drag discoverability affordance for the grid split view. | `<EditorTabBar paneId tabs={[{id, icon, label, dirty, preview}]} activeId onSelect onClose onDropExternalTab onSplitTab documentActions />` | **built-locally** — `src/components/local/EditorTabBar.tsx`, used by `src/components/TabBar.tsx` → `src/components/EditorPane.tsx` and (round 6 item 10) by the rebuilt share reader `src/share/ShareApp.tsx`. Overflow menu composes the library's `DropdownMenu`; per-tab menu composes the local `ContextMenu` (split items render only when `onSplitTab` is provided — the share reader has no panes to split). Round 6 item 16: the optional `documentActions` slot renders Format/Insert/Export (`OverflowMenuItems`) at the top of the existing `…` menu, making this bar the single home of DESIGN-SPEC item 38's actions. |
-| `ActivityBar` / `IconRail` | navigation | Vertical icon rail with active indicator + count badges (VSCode activity bar). | `<IconRail items={[{icon, badge, active}]} footer={…} orientation="vertical" />` | **built-locally** — `src/components/local/ActivityBar.tsx`, used by `src/components/ActivityBar.tsx`. Built from the library's `Button`/`Tooltip`. |
-| `StatusBar` | patterns | Slotted app-wide status strip with compact interactive segments. | `<StatusBar left={…} right={…}>` + `<StatusBarItem icon label onClick tone priority maxLabelWidth />` | **built-locally** — `src/components/local/StatusBar.tsx`, used by `src/components/StatusBar.tsx`. `StatusBarItem` wraps the library's `Tooltip`. Round 7 item 45: the bar is a size container; `priority` (`high`/`mid`/`low`) drops segments via `@container` rules in `src/index.css` as the bar narrows, `maxLabelWidth` ellipsizes long labels (branch names). |
-| `SplitPane` / `ResizablePanels` | patterns | Drag-resizable, recursively-splittable editor grid (DESIGN-SPEC Amendments item 8, Phase 6 "grid split view" — a real N-way tree, not a fixed 2-up sidebar split). No component in the catalog owns "nested resizable panels" at all (checked `skills/components.json`: no `Panel`/`Split*`/`Resizable*` entry). | `<PaneGroup node={PaneNode} renderLeaf={(leaf)=>ReactNode} onResize={(branchId, sizes)=>void} onEqualize={(branchId)=>void} />` | **built-locally** — `src/components/local/PaneGroup.tsx`, used by `src/components/EditorArea.tsx`. Renders `stores/useTabsStore.ts`'s `PaneNode` tree (leaf = tab strip, branch = `direction` + children + parallel `sizes` fractions) as nested flex rows/columns; `PaneDivider` (same file, internal) owns the two-sibling-`sizes`-array resize math over a small, now-exported `ResizeHandle` primitive (pointer-drag mechanics: wide invisible hit-area over a thin visible line, hover-tints teal, double-click fires `onDoubleClick`) — a pointer-drag mechanics only wrapper with no pane-tree knowledge. Phase 6.5c (DESIGN-SPEC Amendments item 10, "resizable sidebar ... reuse the PaneDivider affordance") pulled `ResizeHandle` out from underneath `PaneDivider` specifically so a single sidebar width value (its own min/max clamp, no `sizes` array) could reuse the exact same drag primitive instead of a second, parallel pointer-event implementation — confirmed by `PaneDivider`'s post-extraction body being pure math over `ResizeHandle`'s `onDragStart`/`onDrag`/`onDoubleClick` callbacks, nothing pointer-event-specific left in it. Phase 8 (DESIGN-SPEC Amendments round 3 item 20's course-correction) moved that sidebar consumer from `Sidebar.tsx` directly to the new `local/SidebarContainer.tsx` (see its own row below), so `ResizeHandle` now has exactly two consumers: `PaneDivider` (N-way pane grid) and `SidebarContainer` (the one shared sidebar-region shell every activity-bar view mounts inside). Same file also exports `DockOverlay` — the small translucent tinted-rect "live drop-zone preview" `EditorPane.tsx` renders over whichever pane a dragged tab is currently over (not its own backlog row: small enough to be part of the same split-view feature, not a separate missing primitive). |
-| `SegmentedControl` | inputs | Compact single-choice segmented toggle (Rendered/Source/Diff). `Tabs pills` is nav bound to `TabsContent` panels via Radix, not a form control; no disabled-segment support (needed per DESIGN-SPEC's mode-availability table). | `<SegmentedControl options={[{value, icon, label, disabled}]} value onChange size="xs"\|"sm"\|"md" iconOnly? fullWidth? />` | **built-locally** — `src/components/local/SegmentedControl.tsx`. Used by `components/TitleBar.tsx` (size `"sm"`, 26px) for the title bar's own mirrored Rendered/Source/Diff toggle AND (Diff mode only) the unified/split layout toggle — DESIGN-SPEC Amendments round 3 item 18's "Header consolidation" absorbed both from the old `EditorHeader.tsx` row. `EditorHeader.tsx` itself still renders the exact same pair, now only mounted for the slim PER-PANE header shown when >1 pane is open (`EditorPane.tsx`'s `multiPane` gate) — sized `"xs"` (18px, added Phase 8) to fit the new, visibly-shorter `--app-chrome-paneheader-h` band (20-28px across the three density tiers) rather than `"sm"`'s 26px, which the title bar's own copy keeps using since its 40-46px band has room to spare. `iconOnly` (label text hidden, each segment wrapped in the library's `Tooltip` instead — Phase 6.5b, DESIGN-SPEC Amendments item 13) applies at every size. |
-| `FileIcon` | display | File/folder identity icon set (the tree/tabs identity system) resolved VSCode-style from filename/extension/folder-name, with real open/closed folder states. | `<FileIcon kind="md" name="architecture.md" open size="sm" />` | **built-locally** — `src/components/local/FileIcon.tsx` + `src/components/local/materialIcons.curated.ts` (generated) + `src/components/local/materialIconLoader.ts`, used by `ExplorerTree` and `EditorTabBar`. DESIGN-SPEC Amendments item 1: no longer hand-mapped `lucide-react` glyphs — icons come from the **Material Icon Theme** pack (`material-icon-theme` npm, MIT, © Philipp Kief). `lucide-react` stays for everything that isn't file/folder identity (chevrons, git glyphs, gear, search, toolbar actions) and is also the not-found/loading fallback glyph. Resolution is VSCode-style (`fileNames` → longest-matching `fileExtensions` → default `file`; `folderNames`/`folderNamesExpanded` by name → default `folder`/`folder-open`) and two-tiered for bundle discipline: (1) `materialIcons.curated.ts`, generated by `scripts/generate-icon-manifest.mjs`, is a small hand-curated slice of the upstream ~450KB/~12,800-entry manifest (demo vault's needs + a common web/dev set — 53 extensions, 18 filenames, 26 folder names, 96 icons) imported statically with one explicit lazy `import()` per curated SVG; this resolves `notes/`→`folder-docs`, `src/`→`folder-src`, `assets/`→`folder-resource`, and the exact-filename special case `architecture.md`→a dedicated `architecture` icon. (2) Only on a genuine file-extension miss does `materialIconLoader.ts` get dynamically imported — the *full* manifest + an `import.meta.glob` over all ~1250 icons — to upgrade the icon if the full pack recognizes it; folders never trigger this tier (folder names are open-ended enough that the full 4650-entry map rarely helps beyond the curated ~26, confirmed empirically: this app's own `vault/` root folder was the first thing to hit that tier before it was scoped to files only). Measured with Playwright summing response bytes to `networkidle` against `vite preview` with the demo vault open: cold-boot payload 1456.2 kB → 868.7 kB, and the ~450KB manifest + ~160KB full-loader chunks make zero requests on that boot (only fired on an actual exotic-type miss). Main JS entry chunk: 778.49 kB → 788.69 kB minified (247.31 kB → 250.33 kB gzip) — the curated table's small, fixed cost. |
-| `TreeView` inline rename + row adornments + drag-drop move | data | `TreeNode.label` is `string` (no per-row color/strikethrough), the only highlight state (`current`) is internal keyboard-focus with no `selectedId`/`onSelect` prop, leaf rows have no click handler at all, and there's no accent-left-edge, context-menu, rename-in-place, or `draggable`/drop-target hook at all. Composition couldn't reach any of this — confirmed by reading `node_modules/my-you-eye/dist/index.js`'s `TreeItem`. | `row: {adornment?, tone?, editing?}`, `onRenameCommit`, `onContextMenu`, `onMove(sourcePath, newParentPath)`, `dropTarget: {rowId, mode: "into"\|"before"\|"after", invalid}` | **built-locally** — `src/components/local/ExplorerTree.tsx` (parallel implementation, same tokens + a11y pattern as `TreeView`, not a fork of its source), used by `src/components/Sidebar.tsx`. Phase 2: inline rename (`Input`-in-row, commit on Enter/blur, cancel on Esc), the local `ContextMenu` (New File/Folder, Rename, Delete, Reveal, Copy path), and HTML5 drag & drop (DESIGN-SPEC Amendments item 7) — drop-onto-folder highlights + auto-expands after 600ms hover, drop-between-rows shows a 2px insertion line and targets the neighbors' shared parent (a real fs move has no persistent sibling order to land "between", so between-rows and onto-the-parent-folder are the same operation aimed two ways), Esc cancels via a ref flag checked in `onDrop` (the native drag gesture is already committed by then so it can't be aborted mid-flight, but the drop itself becomes a no-op), and dropping a folder into itself/a descendant is refused (red insertion line / red ring, `dropEffect="none"`, no-op drop) via `lib/fileTree.ts`'s `collectDescendantIds` (extracted from `useFsStore` in round 6 item 10 so this component stays importable from the vault-isolated `/share/` chunk). Round 6 items 7/9/10: the share chain indicator has three tiers (own/inherited/containing-ancestor), the glyph itself click-opens Manage share, the row menu gains Revoke share, and a new `readOnly` prop (used by the rebuilt share reader `src/share/ShareApp.tsx`) renders the same rows with no drag & drop, no OS import/paste, and no context menu at all. |
-| `TitleBar` | patterns | Window chrome: traffic-light spacer, app identity, breadcrumb slot, trailing icon actions. `Toolbar`'s `search` slot only centers within its `leading` group, not across the whole bar width. | `<TitleBar title subtitle glyph breadcrumb={…} actions={…} />` | **built-locally** — `src/components/local/TitleBar.tsx`, used by `src/components/TitleBar.tsx`. Phase 8 (DESIGN-SPEC Amendments round 3 item 18, "Header consolidation") reshaped this: the old 3-column grid with a wide centered global-search `Input` became a simpler 2-zone flex row (left: glyph/title/subtitle/breadcrumb; right: actions) — the `center` prop is gone, replaced by a new `breadcrumb` slot rendered in the LEFT cluster. `components/TitleBar.tsx` (the app-facing composition) now also carries the focused pane's diff-stat chip + Rendered/Source/Diff mode toggle + (Diff mode only) unified/split layout toggle in its `actions`, wrapped in `data-testid="titlebar-pane-controls"` — these mirror whichever pane is focused (`App.tsx` reads `useTabsStore`'s `activePaneId`) and, when changed FROM the title bar, write back to that same focused pane, not a separate global setting. The old wide search `Input` (which had no `onClick`/`onFocus` handler at all — inert on click, only ever openable via the `⌘K` keydown shortcut) is now a real, clickable icon button whose only job is opening the command palette; it started as icon + a literal `⌘K` `Kbd` badge per the base DESIGN-SPEC brief, then dropped the badge after review (icon + badge both read as "this is the shortcut," which is redundant, and every sibling action in the same cluster is already a bare icon button with its shortcut living only in the tooltip) — see DESIGN-SPEC.md's Amendments round 3 item 18 note for the same deviation recorded there. |
-| `SidebarContainer` | patterns | The shared left-sidebar REGION shell: width box, collapse-to-zero state (DESIGN-SPEC Amendments round 3 item 20), border, the draggable resize/grab-edge `ResizeHandle`, and a standard header row (small-caps label + optional trailing action icons). No component in the catalog owns "a collapsible/resizable persistent side-panel region" (checked `skills/components.json`: no `Sidebar`/persistent-region `Panel` entry; `DrawerContent` is a transient overlay, not a persistent layout region). | `<SidebarContainer testId label headerActions={…} width onWidthChange collapsed onCollapsedChange>{children}</SidebarContainer>` | **built-locally** — `src/components/local/SidebarContainer.tsx`. A course-correction within Phase 8: item 20's first pass bound resize/collapse to `Sidebar.tsx` (Explorer) specifically, so `SearchPanel.tsx`/`SourceControlPanel.tsx` each kept their own hardcoded `width: 288` with no resize/collapse of their own — switching activity-bar views visibly snapped the layout back to 288px. Width/collapsed-ness are properties of the sidebar REGION, not any one view (true in real VSCode too), so all four activity views (`Sidebar.tsx`, `SearchPanel.tsx`, `SourceControlPanel.tsx`, and the new `ExtensionsPanel.tsx`, which previously rendered nothing at all for the Extensions rail icon) now mount themselves inside one of these, all reading/writing the SAME `useSettingsStore` `sidebarWidth`/`sidebarCollapsed` pair via props `App.tsx` passes down — each keeps its own historical `data-testid` via the `testId` prop so every pre-existing spec scoped to `explorer-sidebar`/`search-panel`/`scm-panel` kept working unchanged. Reuses `PaneGroup.tsx`'s `ResizeHandle` (same drag primitive a pane divider uses), same as `Sidebar.tsx` always did. |
-| `DiffStatChip` | display | Tiny `+12 -5` added/removed chip used in headers and status bars. | `<DiffStatChip added removed size="sm" />` | **built-locally** — `src/components/local/DiffStatChip.tsx`, used by `EditorHeader.tsx` and `StatusBar.tsx`. |
-| `ConflictResolver` | overlay | Phase 11 (real sync, roadmap §5.2): a per-file, per-chunk three-way merge conflict resolution UI — file list + an EDITABLE diff view seeded from "mine" against "theirs" with per-chunk accept/reject, plus whole-file take-mine/take-theirs/keep-both actions. No component in the catalog owns anything merge-conflict-shaped (checked `skills/components.json`: `Dialog`/`Tabs`/`Textarea` exist, nothing composes a live 2-way editable diff with quick-resolve actions). | `<ConflictResolver />` (reads `useGitStore`'s `conflict`/`resolveConflict`/`cancelConflict` directly — no props) | **built-locally** — `src/components/local/ConflictResolver.tsx`, mounted unconditionally in `App.tsx` (opens itself off `useGitStore`'s `conflict` field, same pattern `PublishDialog`'s boolean-gated mount uses for its own overlay). Composes the library's `Dialog`/`DialogContent`/`DialogHeader`/`DialogTitle`/`DialogDescription`/`DialogFooter`/`Button`/`Badge`/`ScrollArea`/`Alert`/`Tooltip` for the chrome; the one genuinely new piece is a raw CM6 instance built on the EXISTING `@codemirror/merge` stack (CLAUDE.md rule 7 — no second editor engine) using `unifiedMergeView` for its OTHER documented purpose besides the read-only diff viewer `editor/DiffView.tsx` already uses: a genuinely editable buffer diffed live against a reference document, with its built-in `mergeControls`/`acceptChunk`/`rejectChunk` per-chunk accept-reject machinery reused as-is. |
-| `VirtualList` | data | Virtualized rows for big trees/lists (50k-note vaults) — Phase 17 Milestone D. | `<VirtualList<T> items={T[]} rowHeight={number} overscan? renderRow={(item,index)=>ReactNode} getKey={(item,index)=>string} className? style? role? aria-label? data-testid? onPaste? />` | **built-locally** — `src/components/local/VirtualList.tsx`, used by `src/components/local/ExplorerTree.tsx` once its own flattened row count crosses `lib/treeFlatten.ts`'s `VIRTUALIZE_ROW_THRESHOLD` (200 — comfortably above every tree state this app's own e2e suite exercises, comfortably below "hundreds of real notes"). Composes the library's own `ScrollArea` for the scrolling region (CLAUDE.md rule 1) and adds only fixed-row-height windowing on top: an inner spacer sized to `items.length * rowHeight` (so the scrollbar always reflects the FULL row count) with the current window's rows absolutely positioned inside it; the windowing math itself (`computeVirtualWindow`, `DEFAULT_OVERSCAN = 8`) is pure and lives in `src/lib/virtualization.ts`, unit-tested in `tests/unit/virtualization.test.ts` without a DOM. `ExplorerTree.tsx`'s own flatten step (`flattenTree`/`computeExpanded`/`defaultExpandedFor`, `src/lib/treeFlatten.ts`, unit-tested in `tests/unit/treeFlatten.test.ts`) required lifting each row's expand/collapse state out of its old private `TreeRow` `useState` into one `Map<nodeId, boolean>` on `ExplorerTree` itself, since both the threshold decision and the flat row data need the same answer to "what's visible right now". Below the threshold, `ExplorerTree` still renders the ORIGINAL nested recursive `<ul role="group">` markup, byte-for-byte identical to before this phase (this app's own tree never crosses 200 rows, so every pre-existing e2e spec stays on that exact code path) — a shared `TreeRowContent` component now backs BOTH the recursive `TreeRow` and the new flat `FlatRow`, so selection, inline rename, the context menu, drag & drop, OS import/paste, git/share decoration, and `readOnly` mode behave identically either way. A flattened row list has no nested `role="group"` left to express depth/sibling position, so the flat path adds the WAI-ARIA "flattened tree" alternative — `aria-level`/`aria-setsize`/`aria-posinset` directly on each `role="treeitem"` row (added to both paths for consistency; purely additive, nothing removed from the existing DOM). Proven at scale by `tests/e2e/explorer-virtualization.spec.ts` (seeds 300 files via a permanent, inert-unless-called `window.__vsnoteTestSeed` hook — `src/stores/useFsStore.ts`, same precedent as `git/backupRefs.ts`'s `window.__vsnoteGitDebug` — since there's no server/terminal to script bulk file creation another way): the DOM never carries more than a bounded handful of row elements regardless of total row count, and files at the very top, the very bottom, and the middle of the scroll range are all reachable and openable. |
-| `Toolbar` icon-button density | patterns | Sidebar header micro-toolbars (16px icon buttons, tight gaps). Possibly just a `size="xs"`/`variant="ghost"` addition to `Toolbar`/`Button`. | `Button size="xs" variant="ghost" icon-only` | planned — Phase 1's Explorer header (`Sidebar.tsx`) works around it with inline `style` sizing on `Button size="icon-sm"`, which is layout-only per CLAUDE.md rule 1, not a restyle |
-| `Shortcut`/`KbdHint` in inputs | inputs | Input with trailing kbd hint (search field `⌘K`) — composable today (Input+Kbd) but recurring enough to standardize. | `<Input trailing={<Kbd>⌘K</Kbd>} />` slot support | planned — confirmed composable in `src/components/TitleBar.tsx` (absolutely-positioned `Kbd` over `Input`); still worth a real slot upstream |
-| `CheckboxTree` | data | Phase 10.5 (folder shares, roadmap §5.1): the Publish dialog's subtree exclusion picker needs a per-row checkbox with tri-state folders (checked/unchecked/indeterminate, derived from descendant files) — `TreeView`'s `TreeNode.label` is a bare `string` (no leading-control slot at all, same gap `ExplorerTree.tsx` already documents) and it has no checkbox concept whatsoever. | `<CheckboxTree data={CheckboxTreeNode[]} checked={ReadonlySet<string>} onToggle={(node, next) => void} />` | **built-locally** — `src/components/local/CheckboxTree.tsx`, used by `src/components/local/PublishDialog.tsx`'s folder-publish mode. Controlled from the outside (owns only expand/collapse UI state, never the checked set — see `share/folderManifest.ts` for the exclusion-filtering logic that actually decides what ends up in the manifest); composes the library's `Checkbox` (tri-state via Radix's `checked: boolean \| "indeterminate"`) and the existing `FileIcon`. |
-| `DropdownSubmenu` | overlay | Nested submenus for `DropdownMenu` (DESIGN-SPEC item 38's `⋯` overflow menu: Format/Insert are submenus of it). The library exports `DropdownMenu`/`DropdownMenuTrigger`/`DropdownMenuContent`/`DropdownMenuItem`/`DropdownMenuLabel`/`DropdownMenuSeparator` but no `Sub`/`SubTrigger`/`SubContent` — confirmed via `node_modules/my-you-eye/dist/index.d.ts`, which re-exports only Radix's `Root`/`Trigger` for `DropdownMenu` itself. | `DropdownSubmenu, DropdownSubmenuTrigger, DropdownSubmenuContent` (Radix Sub-menu parts) | **built-locally** — `src/components/local/DropdownSubmenu.tsx`, used by `src/components/local/OverflowMenu.tsx` (the title-bar/per-pane-header `⋯` menu's Format and Insert submenus). Wraps `@radix-ui/react-dropdown-menu`'s `Sub`/`SubTrigger`/`SubContent` (already present in `node_modules` as an indirect dependency of `my-you-eye`; promoted to a direct dependency in `package.json` since this file imports it by name, same precedent as `ContextMenu.tsx`'s `@radix-ui/react-context-menu`) restyled with the *identical* Tailwind classes `my-you-eye`'s own `DropdownMenuContent`/`DropdownMenuItem` use internally (read from `node_modules/my-you-eye/dist/index.js` lines ~1392-1421), so a submenu is visually indistinguishable from the library's own top-level dropdown, not a fork of it. |
-| `OverflowMenu` | patterns | DESIGN-SPEC item 38: the `⋯` overflow menu (Format submenu: bold/italic/strikethrough/inline code/link; Insert submenu: table/code block/horizontal rule; Export as PDF), relocated by round 6 item 16 into each pane's TAB BAR `…` menu (`EditorTabBar`'s `documentActions` slot) — the title-bar `⋯` and per-pane `EditorHeader` copies are gone; the component now exports menu CONTENT (`OverflowMenuItems`), not a standalone trigger. Composition-only otherwise (the library's `DropdownMenu`/`DropdownMenuContent`/`DropdownMenuItem`/`DropdownMenuSeparator` plus the new local `DropdownSubmenu` above), recorded here rather than left undocumented since it's the one new interactive surface this phase adds. | `<OverflowMenuItems paneId kind mode path missing />` | **built-locally** — `src/components/local/OverflowMenu.tsx`, used by `src/components/EditorPane.tsx` (via `EditorTabBar`'s `documentActions`). Format/Insert dispatch through `src/editor/formatActions.ts` (a pure CM6 command layer, no React) against `editor/activeView.ts`'s `getActiveEditorView(paneId)` — the same "reach the real focused view without prop-drilling" mechanism `⌘F` already uses. Export as PDF composes a SEPARATE static print renderer (`src/lib/printExport.tsx`) rather than printing the live CM6 Rendered view — see that file's doc for why (a virtualized, scrolled editor viewport doesn't paginate safely) and for the scope note that PDF export ships for `.md` only this phase, disabled (not hidden) for every other kind. |
-| `ColorPicker`/`ColorField` | inputs | A themed accent-color picker (Settings' "Appearance" category — DESIGN-SPEC "Misc / settings" + Amendments item 11). No component in the catalog owns "pick a color" at all (checked `skills/components.json`'s full list: no `Color*` entry). | `<ColorField value onChange presets? />` | planned — `src/components/SettingsView.tsx` (Phase 6.5c; the modal `SettingsDialog.tsx` it replaced did the same thing) uses the platform's native `<input type="color">` instead (a small swatch + hex readout), which fully satisfies "pick an accent color" without inventing UI the library has no opinion on yet; not built locally since a hand-rolled swatch grid would be over-engineering for what the native control already does correctly. Worth upstreaming if a fancier in-app picker (presets, recent colors) is ever wanted. |
+---
 
-Notes
-- Per SKILL.md the proper home for all of these is upstream `my-you-eye` (`src/ui/` +
-  showcase). This file is the curated wishlist to drive those PRs.
-- Anything that turns out to be pure composition of existing parts should be recorded
-  here too, then dropped with a note ("solved by composition") rather than upstreamed.
-- `ExtensionsPanel` (`src/components/ExtensionsPanel.tsx`, Phase 8 — DESIGN-SPEC
-  Amendments round 3 item 20's course-correction: the Extensions activity-bar icon
-  previously rendered nothing at all, a blank gap where `App.tsx` had no
-  `activePanel === "extensions"` branch) — solved by composition: the library's own
-  `EmptyState` inside the new `SidebarContainer` shell, no new primitive needed.
-- `PublishDialog` (`src/components/local/PublishDialog.tsx`) and `SharedPanel`
-  (`src/components/local/SharedPanel.tsx`), Phase 10 (sharing) — solved by composition:
-  `Dialog`/`DialogHeader`/`DialogTitle`/`DialogDescription`/`DialogFooter`/`FormField`/
-  `Select`/`Switch`/`Input`/`Button`/`Badge`/`Alert`/`useToast` for the publish/edit-
-  policy dialog (plus the already-`built-locally` `SegmentedControl` for its raw/
-  rendered mode toggle — no second copy), and the library's raw `Table`/`TableHeader`/
-  `TableBody`/`TableRow`/`TableHead`/`TableCell`/`Tooltip`/`ConfirmDialog`/`EmptyState`
-  for the Shared panel (`DataTable`, the data-driven pattern built on `Table`, has no
-  row-click/actions slot at all — checked `skills/components.json`; `Table`'s own
-  manifest description says to reach for it directly for exactly this case: "bespoke
-  markup a data-driven API can't express"). Both live in `src/components/local/` only
-  because they're app-specific compositions (same precedent as `SettingsView.tsx`
-  itself, which this file's own header doc calls out as "composition only — no new
-  local primitive needed"), not because either is a new reusable primitive in the
-  library's own style — no upstream candidacy, same reasoning as this Notes section's
-  other composition-only entries.
-- `share/ShareApp.tsx` (Phase 10) is not a `components/local/` file at all and carries
-  no primitive of its own — it composes the EXISTING `renderers/HtmlPreview.tsx`
-  (Phase 4's sandboxed iframe, reused verbatim for shared HTML) and
-  `editor/LivePreviewEditor.tsx` (read-only, for shared markdown). Recorded here only so
-  a future pass doesn't go looking for a missing "rendered-mode sandbox" component that
-  was never needed — the sandbox IS `HtmlPreview`, unchanged.
+## Part 1 — Import decisions (from elsewhere)
 
-`VaultSetupPanel` (`src/components/local/VaultSetupPanel.tsx`), Phase 17 Milestone C2
-(server-mounted vault setup wizard + mirror-remotes management, Settings → Git & Sync's
-new "Server vault" row) — solved by composition, same precedent as `PublishDialog`/
-`SharedPanel` above: `Alert`/`Badge`/`Button`/`ConfirmDialog`/`DataList`/`Dialog`/
-`DialogHeader`/`DialogTitle`/`DialogDescription`/`DialogFooter`/`FormField`/`Input`/
-`Select`/`Skeleton`/`Switch`/`Table`/`TableHeader`/`TableBody`/`TableRow`/`TableHead`/
-`TableCell`/`Textarea`/`Tooltip`/`useToast` for both the wizard steps and the
-mirror-remotes add/edit dialog and management table. No new local primitive.
+### 1.1 `dnd-kit` — conditional future import for drag-and-drop
 
-`ImportConflictDialog` (`src/components/local/ImportConflictDialog.tsx`), DESIGN-SPEC
-Amendments round 5 item 39 (OS drag-drop + Ctrl+V paste import) — solved by
-composition: `ConfirmDialog` is confirm/cancel only, so the Rename-or-Replace-or-Cancel
-prompt composes `Dialog`/`DialogContent`/`DialogHeader`/`DialogTitle`/
-`DialogDescription`/`DialogFooter`/`Button` directly, same precedent as
-`PublishDialog`/`SharedPanel` above. Used by `App.tsx` off `fs/importEntries.ts`'s
-`detectConflictingPaths`.
+- **Status:** planned (conditional trigger, not now)
+- **Source:** negative finding — none of the seven skill sources covers DnD mechanics
+  at all (`skills/ANALYSIS.md` cross-cutting finding #1). This entry exists so the
+  decision isn't re-litigated from scratch each time DnD friction appears.
+- **Current state:** ExplorerTree move + EditorTabBar drag-to-dock use native HTML5
+  DnD (`draggable`, `application/x-vsnote-tab` payload). Works, but has known ceilings:
+  no touch/pen support without extra work, drop-target hit-testing is manual
+  (drop-onto-folder vs insertion-line logic in `ExplorerTree.tsx`), no keyboard-driven
+  drag equivalent, and Esc-cancel already required a ref-flag hack because the native
+  gesture can't be aborted mid-flight.
+- **Trigger criteria for importing dnd-kit:** (a) tab dock needs cross-pane reorder
+  previews, (b) tree DnD needs multi-select drag, or (c) touch/PWA pen input becomes a
+  supported surface. Any one of these justifies the dependency.
+- **Constraints if imported:** must be styled to produce the exact same visual
+  affordances we have today (2px teal insertion line, red invalid ring, folder
+  highlight); keyboard alternative still required regardless (see Part 3.5) because
+  WIG's rule ("drag gestures need tap/click and keyboard alternatives unless essential")
+  applies to both native and library DnD.
 
-`TexturedSurface` (library component, DESIGN-SPEC Amendments round 3 item 22(a)) —
-**used, no gap.** An earlier pass at item 22(a) rejected it in favor of translucent
-`color-mix()` surface tokens, on the grounds that composing it would mean touching five
-shell components for little benefit. That judgement was wrong, and is kept here rather
-than quietly deleted: the translucency approach was independently measured to render
-**zero** texture anywhere (luma std-dev 0.000, exactly 1 distinct level, in all five
-chrome regions under `metallic`), because four independently-translucent layers stack
-in the real paint path and transmit ~0.03%. The app now composes `TexturedSurface`
-(`texture="theme"`) as a `z-index: -1`, `pointer-events: none` layer behind the real
-content of `local/TitleBar.tsx`, `local/ActivityBar.tsx`, `local/StatusBar.tsx`,
-`local/SidebarContainer.tsx` and `EditorPane.tsx` — each host getting `position:
-relative` + `isolation: isolate`. Nothing was forked or wrap-overridden (CLAUDE.md
-rule 1), so this is composition of an existing library component, not a missing
-primitive. Full reasoning and the measured before/after numbers are in
-`docs/ARCHITECTURE.md`'s Deviations entry and `src/theme.css`'s `.dark` block comment.
+### 1.2 Virtualization: stay local; TanStack Virtual recorded as escape hatch
+
+- **Status:** decision recorded — not importing
+- **Source:** kursku `optimize` recommends react-window/react-virtualized (stale advice;
+  current default is TanStack Virtual); vercel-labs `react-best-practices` endorses
+  virtualization generally.
+- **Decision:** our `VirtualList.tsx` + pure `lib/virtualization.ts` windowing stays.
+  It composes the library's own `ScrollArea` (CLAUDE.md rule 1), is unit-tested without
+  a DOM, and its fixed-row-height model matches the tree's row metrics exactly. A
+  general-purpose virtualizer buys variable-height support we don't need yet and costs
+  integration risk against `ExplorerTree`'s dual code path (recursive <200 rows,
+  flat ≥200).
+- **Escape hatch:** if variable-height rows ever arrive (wrapped markdown lines in
+  outline view, multi-line git-commit rows), evaluate TanStack Virtual first, then
+  extending our spacer/window math second. Do NOT reach for react-window/react-virtualized
+  — unmaintained lineage.
+
+### 1.3 Non-import ledger (decisions with reasons — do not revisit without new evidence)
+
+| Rejected import | Why rejected | Would-be source |
+|---|---|---|
+| Million.js runtime | `block()` wraps components with its own memoization/renderer — fights custom VirtualList windowing, fights CM6 widget-managed DOM, violates the no-wrap-override law | millionco/react-doctor's parent project |
+| shadcn/ui components (any) | Copy-the-source ownership model is the inverse of our npm-library-first law; React 19/RSC assumptions; their token names would fragment our theme | shadcn official skill |
+| TanStack Table | Headless table machinery is overkill for SharedPanel/VaultSetupPanel tables; the gap is only the *row-actions interaction pattern*, which we compose from my-you-eye `Table` + `DropdownMenu` | shadcn data-table pattern |
+| TanStack Query / SWR / Redux Toolkit / Jotai | zustand-only law; server-state lives in services + `useGitStore`; wshobson's skill routes "large app" to RTK — explicitly overridden here | wshobson react-state-management |
+| Base UI, motion/react | baseline-ui mandates them for new primitives/animations — different stack than my-you-eye + Radix; DESIGN-SPEC motion rules already govern animation | kursku baseline-ui |
+| react-window / react-virtualized | Unmaintained lineage; superseded by TanStack Virtual (itself not needed, see 1.2) | kursku optimize |
+| sickn33 tailwind-design-system patterns | Tailwind v3 idioms (config-file, HSL triplets) would break our v4 CSS-first setup; Patterns 1–3 hand-roll primitives | index line 5 |
+
+---
+
+## Part 2 — my-you-eye gaps (upstream candidates)
+
+Each entry: the gap, what's lacking in the closest existing library component, the
+spec we'd implement locally or upstream, and the design reference mined from the
+skill analysis.
+
+### 2.1 DataTable row-actions column
+
+- **Gap:** `DataTable` has no row-click/actions slot at all (recorded in the issued
+  backlog's PublishDialog/SharedPanel notes). SharedPanel needs per-row manage/revoke.
+- **What's lacking:** `Table`'s own manifest says to reach for it directly for bespoke
+  markup, but nothing standardizes the trailing actions column — every consumer will
+  hand-roll alignment, stop-propagation on the actions cell, and menu wiring.
+- **Spec (compose, don't import):** last column renders an icon-only ghost `Button`
+  opening a `DropdownMenu` (or local `OverflowMenuItems` when actions are document-shaped);
+  cell gets `onClick={e => e.stopPropagation()}`; row click opens the Drawer/detail view.
+  Keyboard: actions trigger must be reachable in tab order after the row's primary
+  action, labeled via `aria-label` naming the row ("Actions for <name>").
+- **Design reference:** shadcn's data-table pattern (trailing actions column with
+  DropdownMenu trigger) — mine the interaction shape only.
+- **Status:** planned (first needed by SharedPanel row management).
+
+### 2.2 ResizeHandle keyboard accessibility (PaneGroup / SidebarContainer)
+
+- **Gap:** our `ResizeHandle` primitive (used by `PaneDivider` for the N-way pane grid
+  and by `SidebarContainer` for sidebar width) is pointer-only: wide invisible hit-area,
+  hover tint, double-click equalize/reset. No keyboard operation at all.
+- **What's lacking:** nothing in the catalog owns resizable panels (issued backlog row),
+  and our local fill inherited pointer-only mechanics.
+- **Spec:** handle becomes a focused element (`role="separator"`,
+  `aria-orientation` perpendicular to the split, `aria-valuenow/min/max` = size %),
+  Arrow keys nudge by step (2% or 16px-equivalent), Shift+Arrow large step,
+  Home/End clamp to min/max, Enter/Space = equalize (panes) / reset width (sidebar).
+  Focus ring uses the accent token like other chrome.
+- **Design reference:** shadcn `Resizable` (thin wrapper over react-resizable-panels)
+  ships this exact a11y contract; WIG's "gestures need keyboard alternatives".
+- **Status:** planned — required before the a11y-hardening pass (Part 3.4) can close.
+
+### 2.3 ColorPicker / ColorField — spec frozen, implementation deferred
+
+- **Gap:** catalog has no `Color*` component (confirmed against full manifest). Settings
+  currently uses native `<input type="color">` (issued backlog row: deliberately not
+  built locally).
+- **Spec when upgraded:** follow shadcn `customization.md`'s OKLCH doctrine — the picker
+  writes `--color-accent` / `--color-accent-foreground` OKLCH pairs registered via
+  `@theme inline` in the single global CSS file; presets are named OKLCH values, never
+  raw hex scattered in components; contrast check between the pair before commit
+  (accent-on-accent-foreground must clear WCAG for text usage). Swatch grid +
+  recent-colors row are the minimum viable UI; native input stays the fallback.
+- **Why deferred:** native control fully satisfies "pick an accent color"; the OKLCH
+  token work is the valuable part and can land independently of fancier picker UI.
+- **Status:** planned.
+
+### 2.4 Sidebar token namespace
+
+- **Gap:** explorer/sidebar chrome currently rides generic surface tokens. DESIGN-SPEC
+  wants near-black surfaces with teal/cyan accents; sidebar hierarchy (active row,
+  hover, badge counts, share-chain glyphs) is controllable but fragile against generic
+  `surface`/`muted` tokens.
+- **Spec:** introduce a dedicated `--sidebar-*` family (bg, border, item-hover,
+  item-active, badge-bg/fg) derived from the same OKLCH base hues, scoped so
+  `SidebarContainer` and its four activity views consume only these tokens. Mirrors
+  shadcn's precedent of separating sidebar chrome from page surfaces; keeps
+  "switching `data-theme` + `.dark` restyles everything" true (SKILL.md rule 12).
+- **Status:** planned — pair with the next DESIGN-SPEC amendment round.
+
+### 2.5 Command palette empty-state integration
+
+- **Gap:** `CommandPaletteHost` works but has no standardized empty/no-results state;
+  shadcn's doctrine ("Empty states use Empty") plus SKILL.md design rule 4 ("the three
+  states ship with v1") suggest composing the library's `EmptyState` inside the palette
+  dialog for zero-result queries and pre-index states.
+- **Status:** resolved 2026-08-21 by inspection — (1) no-results already covered:
+  the library `CommandPalette` has an `emptyText` prop and `CommandPaletteHost`
+  passes mode-appropriate copy ("No matching files" / "No matching files or
+  commands"); (2) indexing state is N/A — file lists come synchronously from
+  `useFsStore`, there is no corpus build to show progress for; (3) empty-query shows
+  all actions (standard jump-palette behavior, correct). The one genuine gap — a
+  polite (`aria-live`) announcement of filtered-result counts — is **not composable
+  from outside** the library component (query state is internal, no
+  `onQueryChange`), so it was filed upstream as sadigaxund/my-you-eye#32 and is
+  closed here pending that.
+
+### 2.6 Carried-over planned rows (unchanged, tracked in issued backlog)
+
+`Toolbar` xs icon-button density; `Input` trailing kbd-hint slot. Both remain valid
+upstream candidates; no new information from the skill analysis changes their specs.
+
+---
+
+## Part 3 — Improvements to existing components/code
+
+Concrete work items, each traceable to a skill source. Ordered roughly by leverage.
+
+### 3.1 Zustand selector granularity audit (+ v5 equality footgun)
+
+- **Source:** vercel-labs `rerender-derived-state`, `rerender-defer-reads`,
+  `rerender-memo-with-default-value`; wshobson Pattern 2 selector hooks.
+- **Problem:** hot-path components subscribe too broadly. Row-level components in
+  `ExplorerTree`/`VirtualList` should subscribe to booleans (`isExpanded(id)`,
+  `isSelected(id)`), never whole-node objects; `EditorTabBar` handlers should read via
+  `useStore.getState()` inside callbacks instead of subscribing every tab to the array.
+- **Footgun to encode in review checklist:** zustand v5 defaults to `Object.is`
+  equality — a selector returning a fresh object/array each call loops forever. Our
+  row selectors will hit this first; either select primitives or pass a shallow
+  equality fn.
+- **Derived-data corollary (wshobson Don't):** flatten PaneNode→visible-rows inside a
+  memoized selector (`lib/treeFlatten.ts` already lives outside the store — keep it
+  that way); never cache derived rows in store state.
+- **Acceptance:** React Profiler shows a single-row expand re-rendering only that row's
+  component at 200+ rows; no selector returns fresh references without custom equality.
+
+### 3.2 Barrel-import audit of my-you-eye
+
+- **Source:** vercel-labs `bundle-barrel-imports`, `bundle-analyzable-paths`.
+- **Problem:** 114 components behind `my-you-eye`'s main entry is exactly the barrel
+  shape the rule warns about; if app imports go through the barrel, tree-shaking
+  depends on the package's side-effect flags holding.
+- **Action:** audit current imports; prefer per-component subpaths where the package
+  exposes them (motion/scenes entries already are); verify with a build stats diff
+  (`npm run build` + analyzer) that unused groups (charts, canvas, scenes, video) don't
+  leak into the SPA chunk. The `/share/` vault-isolated chunk matters most.
+- **Acceptance:** charts/canvas/scenes symbols absent from the main bundle's symbol dump.
+- **Findings (2026-08-21 audit):**
+  - All 42 library imports use the main barrel; there are no alternative static-UI
+    subpaths to switch to (exports map: only `/motion`, `/scenes`, `/present`,
+    `/present/player`, `/video`, CSS entries).
+  - One shared chunk (`api-*.js`, ~378 KB minified — downloaded by the main app AND
+    the `/share/` reader) contains `GraphNode`, `ConnectionLine`, `SequenceDiagram`
+    with **zero call sites**: a contiguous ~107 KiB (29%) dead region. Root cause is
+    NOT module-level inclusion (a scoped `treeshake.moduleSideEffects` hint was built
+    and measured: zero effect) but statement-level: `X.displayName="…"` assignments
+    inside the same dist modules as live exports can't be proven pure, so Rollup keeps
+    the functions. Fix requires upstream changes — per-module ESM publishing or
+    `/*#__PURE__*/` annotations on displayName assignments — documented with full
+    evidence on sadigaxund/my-you-eye#31.
+  - `Sparkline` in the same chunk is NOT dead: reachable via
+    `DataList`/`DataTable` → `CellType`'s `"sparkline"` case. Correct behavior.
+  - `package.json#sideEffects` is absent from the published manifest (secondary —
+    see root cause above).
+- **Verdict:** not fixable app-side without vendoring/forking (forbidden). Re-audit
+  after my-you-eye#31 ships; acceptance criterion unchanged.
+
+### 3.3 Dirty-buffer `beforeunload` guard
+
+- **Source:** WIG "warn before navigation with unsaved changes".
+- **Problem:** arguably mandatory for a code editor; unverified whether implemented.
+- **Action:** when any pane's tab is dirty, register `beforeunload` with
+  `event.preventDefault()` (and legacy `returnValue`) — remove when clean. Must not
+  fire for the `/share/` reader (read-only). PWA note: also covers reload-during-sync.
+- **Status:** done 2026-08-21 (commit `352f5c8`). `lib/dirtyGuard.ts` (pure,
+  unit-tested per the fs-isolation invariant) + `lib/useDirtyBeforeunloadGuard.ts`
+  (transient store subscription — flips the listener on the clean↔dirty edge only,
+  zero re-renders per keystroke), mounted once from `App.tsx`; structurally absent
+  from the share route because `main.tsx` reaches App only on the non-share branch.
+
+### 3.4 Accessibility hardening pass (compiled acceptance criteria)
+
+Sources: kursku `fixing-accessibility` (primary structure), WIG, addyosmani WCAG 2.2
+patterns, shadcn forms/composition rules. Apply per surface:
+
+- **Menus (ContextMenu, DropdownSubmenu, OverflowMenu):** full arrow/Home/End/Escape
+  traversal; triggers expose `aria-haspopup` + `aria-expanded`; submenu triggers get
+  `aria-controls`; icon-only items carry `aria-label`.
+- **ExplorerTree:** ARIA tree pattern — `role="tree"/"treeitem"/"group"`,
+  `aria-expanded`, `aria-level`, `aria-selected`; typeahead; rename-in-place announces
+  via `aria-live="polite"`; DnD affordances mirrored by a keyboard path (3.5).
+- **Tabs (EditorTabBar):** `role="tablist/tab"` with arrow-key movement, dirty state
+  announced in accessible name ("notes.md, modified"), close buttons labeled.
+- **Dialogs (PublishDialog, ImportConflictDialog, VaultSetupPanel dialogs,
+  ConflictResolver):** focus trap + restore-to-trigger + initial focus inside;
+  `DialogTitle` always present (sr-only fallback); field errors wired
+  `aria-describedby` + `aria-invalid` (+ `data-invalid` styling hook); disabled submit
+  explains why; `overscroll-behavior: contain` so background doesn't scroll.
+- **StatusBar async updates:** `aria-live="polite"` region for save/git/sync status
+  flips; conflict toast stays assertive only for genuine blockers.
+- **Global:** focus-visible rings ≥3:1 against adjacent colors (addyosmani); decorative
+  icons `aria-hidden`; no positive tabindex anywhere; every transition honors
+  `prefers-reduced-motion` (matches DESIGN-SPEC motion rules and mblode/ui-animation
+  guidance); `color-scheme: dark` verified so native inputs/scrollbars render dark;
+  hover affordances have focus-visible equivalents so keyboard users see the same
+  state changes mouse users do (WIG hover-states group).
+- **Tool boundaries (from fixing-accessibility, adopted as-is):** minimal diffs, no
+  unrelated refactors, never add ARIA where native semantics suffice, never migrate
+  libraries during a11y fixes.
+
+### 3.5 Keyboard alternatives for drag operations
+
+- **Source:** WIG gesture duality rule; fixing-accessibility keyboard category.
+- **Scope:** tree move (a "Move to…" command-palette entry operating on the selected
+  node), tab dock (keyboard pane-focus cycling + "Move tab to pane" command), OS
+  import already has Ctrl+V paste parity (keep it). During any active drag: disable
+  text selection and set `inert` on dragged elements (WIG).
+
+### 3.6 Performance micro-items (50k-note push)
+
+- **Source:** vercel-labs `js-*`/`client-*` slices; kursku `optimize`; react-doctor
+  categories.
+- Items:
+  - Passive listeners on the VirtualList scroll region (`client-passive-event-listeners`).
+  - Path→node lookups via `Map` (not array scans) in `fileTree.ts`;
+    git-status membership via `Set` (`js-index-maps`, `js-set-map-lookups`).
+  - Batch reads/writes in `ResizeHandle` drag loop — measure once per frame, write
+    transforms/styles once (`js-batch-dom-css`; kursku anti-thrashing snippet).
+  - Defer search-corpus/index building with `requestIdleCallback` (`js-request-idle-callback`).
+  - Lazy-load candidates: ConflictResolver's `@codemirror/merge` instance and
+    `lib/printExport.tsx` PDF renderer (`bundle-dynamic-imports` translated to
+    `React.lazy` — neither is needed on boot or in the share chunk).
+  - `content-visibility: auto` / `contain` on inactive panes (kursku; validate against
+    CM6 measure invalidation before committing).
+  - Key stability: never array-index keys for tree rows / tabs (react-doctor
+    `no-array-index-as-key`) — rename/DnD identity depends on stable keys.
+  - Verify pass: low-end device profile + CPU throttle before/after (kursku Verify).
+
+### 3.7 Settings persistence schema versioning
+
+- **Source:** vercel-labs `client-localstorage-schema`, `js-cache-storage`.
+- **Action:** version the persisted `useSettingsStore` (and any lightning-fs metadata)
+  payloads now, before v2 sync starts migrating settings across devices; include a
+  migration function per version and a discard-on-unknown-version policy.
+- **Status:** already satisfied — audit found `useSettingsStore` on zustand `persist`
+  with `version: 4` and a full `migrate` chain (v1 density remap, v3 dead-field
+  deletion, v4 policy-split + setup-gate), and `useTabsStore` on the same pattern
+  (`version: 1`, pre-Phase-6 flat-shape migration). The file's own comments document
+  the bump discipline ("pure additions never need a version bump"). Remaining work is
+  only to KEEP the discipline for future shape changes — nothing to build.
+
+### 3.8 SKILL.md upgrade for our own skill (meta-item)
+
+- **Source:** shadcn skill architecture (Tier A #2).
+- **Action:** evolve `skills/my-you-eye/SKILL.md` toward: (i) a project-context section
+  pointing at `components.json` + the `src/components/local/` inventory with the rule
+  "check installed/local components first; don't rebuild ContextMenu/SegmentedControl/
+  FindWidget/etc."; (ii) Critical-Rules files written as Incorrect/Correct pairs
+  (❌ hand-rolled styled button → ✅ library component + root token; ❌ silent inline
+  submenu → ✅ local comp + backlog entry); (iii) a need→component table covering all
+  ~20 local gap-fillers; (iv) consent-gated workflow for anything that would add a
+  dependency or fork a component ("registry must be explicit, ask, never default").
+- **Constraint:** keep the file lean (its own maintenance rules say every paragraph
+  must earn its keep); detail goes into referenced files, mirroring the thin-SKILL +
+  rules/ layout.
+
+### 3.9 One-time react-doctor audit
+
+- **Source:** Tier A #3.
+- **Action:** run `npx react-doctor@latest --verbose --no-telemetry` once, read-only;
+  triage findings against the hot paths above; lift recurring rule names into the
+  review checklist (Part 4). Skip the agent-skill install (remote-drifting playbook)
+  and ignore any suggestion to adopt Million.js runtime (ledger 1.3).
+
+---
+
+## Part 4 — Adopted review checklists
+
+Standing checklists for PR review, compiled from the prioritized sources. Not new
+law — a condensation of external doctrine aligned with CLAUDE.md.
+
+**React/perf (vercel-labs client slices + react-doctor categories):**
+derived state computed in render, not stored; reads deferred to callbacks via
+`getState()`; memoized rows get stable/defaulted props; no inline component
+definitions in render paths; functional setState for state-dependent updates;
+effects only for synchronization (move event logic to events); `useDeferredValue`
+for palette/tree filter over large corpora; Map/Set over array scans; passive scroll
+listeners; stable keys everywhere.
+
+**Interaction/a11y (WIG + fixing-accessibility + addyosmani):**
+icon buttons named; overlays never cover the focused element; errors inline +
+focus-first-error; destructive actions confirm-or-undo; gestures have keyboard
+alternatives; `tabular-nums` on numeric columns (DiffStatChip counts, diff stats);
+flex children `min-w-0` for truncation (tab titles, long filenames); `aria-live`
+for async status; reduced-motion honored; no `<div>` click-targets; no
+`outline-none` without focus-visible replacement; no `transition: all`.
+
+**State (wshobson Do/Don'ts, zustand-scoped):**
+colocate; select primitives; compute derived data in selectors; persist middleware
+only for real preferences; never store derived rows; watch `Object.is` equality.
+
+**Theming (shadcn customization doctrine, adapted):**
+semantic tokens only — never raw color values in components; adding a color means
+editing the global CSS file; accent changes are two OKLCH vars at the root;
+sidebar chrome uses its own namespace (Part 2.4).
+
+**Anti-slop (baseline-ui with Stack section struck):**
+one accent per view; empty states carry one clear next action; skeletons mirror real
+layout; destructive actions use confirm dialogs; `h-dvh` over `h-screen` for PWA
+viewport correctness; never block paste; fixed z-index scale; compositor-only
+animation properties.
+
+---
+
+## Part 5 — Backfill annex (full-report sweep)
+
+First pass through the seven source reports compressed out roughly a third of
+actionable detail. This annex restores everything executable that Parts 1–4 didn't
+already carry, grouped into workstreams. Each entry names its source so nothing here
+is untraceable. Status: all `planned`.
+
+### 5.1 Tailwind v4 modernization of our own CSS
+
+- **Source:** wshobson `tailwind-design-system` (the v4-correct one, found via finfin);
+  shadcn `customization.md`.
+- **Items:**
+  - Audit how `.dark` is wired: if it's a media/variant hack rather than
+    `@custom-variant dark (&:where(.dark, .dark *))`, migrate.
+  - Declare keyframes inside `@theme` (`--animate-*` tokens) instead of ad-hoc
+    `@keyframes` in component CSS, so animations participate in the token system.
+  - Adopt `@starting-style` for Dialog/popover/menu entry transitions — removes
+    mount-class hacks and works for the `display`-toggled overlays we compose.
+  - OKLCH migration path for `theme.css`: convert hand-picked hex values to OKLCH so
+    accent derivations (§2.3/§2.4) can be computed, not guessed.
+  - Container-query audit: StatusBar got priority-collapse via `@container`; check
+    whether pane headers / sidebar headers should be containers too instead of
+    JS-measured breakpoints.
+- **Acceptance:** no non-token keyframes outside `@theme`; dialogs animate via
+  `@starting-style`; `grep` finds no raw hex outside the token layer.
+
+### 5.2 Motion discipline audit
+
+- **Source:** kursku `baseline-ui` (Stack section struck); mblode `ui-animation`
+  (finfin index); DESIGN-SPEC motion rules.
+- **Items:** every interactive feedback ≤200ms; entrances ease-out (exits may ease-in);
+  compositor-only properties only (`transform`/`opacity`) — audit current transitions
+  for `width`/`height`/`top`/`left` animation (ResizeHandle drag already writes width;
+  verify it doesn't transition it); loops pause when offscreen (`content-visibility`
+  or IntersectionObserver); `text-balance` on display headings, `text-pretty` on body
+  paragraphs where wrapping shows raggedness.
+- **Acceptance:** a sweep grep + visual pass per DESIGN-SPEC amendment round; reduced-
+  motion already covered in §3.4.
+
+### 5.3 Micro-copy & numeric typography
+
+- **Source:** WIG Content & Copy / Typography groups.
+- **Items:** keyboard hints use non-breaking space (`⌘⍽K`, `Ctrl⍽S`) so hints never
+  wrap mid-combo; truncated labels use the real `…` character (not three periods) —
+  audit TitleBar breadcrumb, tab titles, status bar segments; `tabular-nums` extends
+  beyond DiffStatChip to every numeric column/comparison: git ahead/behind counts,
+  sync progress, match counters in FindWidget ("N of M"), VirtualList row counts.
+- **Acceptance:** grep-audit + visual pass; no layout shift when counts tick.
+
+### 5.4 Resiliency: error boundaries & offline states
+
+- **Source:** kursku `harden` (partially un-skipped: its resiliency checklist is
+  compatible with DESIGN-SPEC authority even though its taste siblings are not).
+- **Items:** per-pane error boundary so one crashing editor pane renders an inline
+  error card (library `EmptyState`/`Alert`) instead of unwinding the whole grid;
+  offline-first error states for sync/share operations (PWA must degrade gracefully —
+  CLAUDE.md rule 3); text-overflow audit across chrome (every truncating surface has
+  a `title` tooltip or expansion affordance).
+- **Acceptance:** forced-throw test in dev renders the error card in-pane only;
+  airplane-mode walkthrough of sync actions degrades with messages, not breaks.
+
+### 5.5 PWA viewport & caching strategy
+
+- **Source:** kursku `optimize`; baseline-ui interaction rules.
+- **Items:** `h-dvh` over `h-screen` on the app shell (mobile browser chrome
+  correctness); `env(safe-area-inset-*)` padding on chrome edges if phone-sized
+  viewports are supported; review service-worker caching strategy against kursku's
+  offline guidance (app-shell precache, API/network-only for share fetches) — aligns
+  with CLAUDE.md rule 3's "already-loaded or PWA-cached app keeps editing fully
+  offline".
+- **Acceptance:** Lighthouse PWA checks; manual mobile-viewport pass.
+
+### 5.6 Onboarding polish for VaultSetupPanel
+
+- **Source:** kursku `onboard` (un-skipped subset); SKILL.md design rule 4.
+- **Items:** wizard steps get empty-state-with-one-clear-action framing; first-run
+  vault detection explains *why* setup is needed before asking for input; completion
+  step lands on a concrete next action ("Open notes/architecture.md").
+- **Acceptance:** fresh-profile walkthrough; every screen has exactly one primary
+  action.
+
+### 5.7 Share-page metadata (v2 tie-in)
+
+- **Source:** kursku `fixing-metadata` — repurposed from SEO marketing to unfurling:
+  shared links are meant to be *sent to people*, and link previews are part of that UX.
+- **Items:** when the FastAPI backend serves `/share/:id` pages (roadmap §5.x), emit
+  OG/Twitter meta tags derived from the share manifest (title = note title, description
+  = first heading/excerpt, type=article). SPA shell alone can't do this — it's a
+  server-side template concern, so this item lands with v2 server work, tracked now so
+  it isn't rediscovered late.
+- **Status:** planned (blocked on v2 backend routes).
+
+### 5.8 State tooling upgrades
+
+- **Source:** wshobson Pattern 2 tail + quick-start; vercel-labs `rerender-*`.
+- **Items:** add `devtools` middleware to stores in development builds (PaneNode tree
+  debugging earns it immediately); adopt `persist` middleware for `useSettingsStore`
+  instead of hand-rolled load/save (pairs with schema versioning §3.7 — persist's
+  `version`/`migrate` options implement exactly that); transient `subscribe()`
+  outside React for ResizeHandle drag — pointermove writes sizes via store.subscribe
+  or direct DOM style writes, never re-rendering panes per frame.
+- **Acceptance:** drag-resize causes zero React renders in Profiler; settings survive
+  reload via persist with migration test.
+
+### 5.9 CI guardrail on this repo
+
+- **Source:** react-doctor GitHub Action mode (`ci install` — PR reviews reporting
+  only newly introduced issues), applied to the **vsnote** repo, not the library.
+- **Items:** workflow runs `npx react-doctor ci --no-telemetry` in diff mode per PR;
+  baseline the current findings once so only regressions gate; keep score-chasing out
+  by treating it as a regression tripwire, not a metric.
+- **Acceptance:** PR with a deliberately reintroduced anti-pattern gets flagged;
+  clean PRs unaffected.
+
+### 5.10 Explicitly evaluated and still skipped
+
+Recorded so the skip survives future sweeps: WIG Locale/i18n group (app is
+English-only; revisit if localization ever becomes real — date formatting should then
+route through the library's `CellType`/valueFormat doctrine rather than ad-hoc
+`toLocaleDateString` calls); WIG hydration-safety group (no SSR); shadcn chat
+primitives and registry/MCP machinery; react-doctor runtime profiler (Chrome-trace
+based; React Profiler suffices at current scale); kursku taste cluster (bolder/
+delight/polish/etc. — fights DESIGN-SPEC authority); Anthropic brand-guidelines;
+remotion/RN/game skills; sickn33 entirely (Part 1.3 ledger).
