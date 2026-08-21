@@ -130,9 +130,14 @@ def test_raw_mode_success_never_takes_the_html_shell_branch(app, owner_client, a
 def test_html_navigation_falls_back_to_json_deny_when_spa_not_built(app, anon_client):
     """No `dist/` yet (fresh checkout, `npm run build` never run) — must
     degrade to the exact same JSON 404, never crash, never hang. Explicit
-    coverage, not a skip: `app.state.spa_index_html` is forced to `None`
-    regardless of whatever the real filesystem happens to have."""
+    coverage, not a skip: both shell sources are forced empty —
+    `spa_index_html` (the bytes-override hook tests normally use) AND
+    `spa_index_path` (production's per-request disk read, added when the
+    startup preload was removed so rebuilds go live without a backend
+    restart) — regardless of whatever the real filesystem happens to
+    have."""
     app.state.spa_index_html = None
+    app.state.spa_index_path = None
     r = anon_client.get(f"/share/{random_wellformed_slug()}", headers=HTML_ACCEPT)
     assert r.status_code == 404
     assert r.json() == NOT_FOUND

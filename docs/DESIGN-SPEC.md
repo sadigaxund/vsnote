@@ -637,3 +637,11 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     vault…" stays, wiping only the ephemeral sandbox behind its confirm.
     Supersedes item 36's load-command mechanism; item 36's opt-in seeding
     behavior on fresh boots is unchanged.
+46. **"Restore from remote…"** — non-demo palette command next to Reset
+    vault: wipes the local vault (files, edits, git history) then clones the
+    currently-configured sync remote into it via the sync pipeline's own
+    fetch/fast-forward primitives. Hidden in demo builds (the sandbox never
+    touches a real remote). Failure after the wipe falls back to the welcome
+    seed with the sync error surfaced — never a broken half-state. Answers
+    "start over from what's on the server" without reset-then-reconfigure-
+    then-pull by hand.

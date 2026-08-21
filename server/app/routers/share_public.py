@@ -84,6 +84,7 @@ file, same uniform 404.
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 import hashlib
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -162,7 +163,13 @@ def _spa_shell_response(request: Request) -> Optional[Response]:
     crashing — the API stays fully usable with no `dist/` present."""
     html = getattr(request.app.state, "spa_index_html", None)
     if html is None:
-        return None
+        # Production: read the CURRENT dist/index.html per request (a rebuild
+        # goes live without a backend restart). Tests inject bytes via the
+        # state attribute, which still wins when present.
+        path = getattr(request.app.state, "spa_index_path", None)
+        if path is None:
+            return None
+        return Response(content=Path(path).read_bytes(), media_type="text/html; charset=utf-8", headers={"X-Content-Type-Options": "nosniff"})
     return Response(content=html, media_type="text/html; charset=utf-8", headers={"X-Content-Type-Options": "nosniff"})
 
 

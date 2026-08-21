@@ -294,21 +294,38 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # or `/api/*` (a separate mounted sub-app — an unmatched path under it
     # never reaches anything outside that mount, so it keeps returning
     # api_app's own 404 untouched, never this fallback's index.html).
-    index_html = DIST_DIR / "index.html"
-    if index_html.is_file():
-        app.state.spa_index_html = index_html.read_bytes()
+    # NOTE: `app.state.spa_index_html` is deliberately NOT preloaded with
+    # index.html bytes anymore. It previously cached the file AT STARTUP, so
+    # rebuilding dist/ without also restarting uvicorn served the old shell
+    # forever — the "changes invisible even after hard refresh" trap.
+    # Production now reads index.html from disk per request (see
+    # `_spa_shell_bytes`); the attribute remains as an OVERRIDE hook that
+    # server/tests use to inject a fake shell.
+    app.state.spa_index_html = None  # test-override hook: bytes win when set
+    app.state.spa_index_path = (DIST_DIR / "index.html") if (DIST_DIR / "index.html").is_file() else None
+    if app.state.spa_index_path:
         logger.info("Serving built SPA from %s", DIST_DIR)
     else:
-        app.state.spa_index_html = None
         logger.warning(
             "No built SPA found at %s (run `npm run build` from the repo root) — "
             "the API/share/git surfaces still work; only static serving is unavailable.",
             DIST_DIR,
         )
 
+    def _spa_shell_bytes() -> bytes | None:
+        """Tests may inject bytes via `app.state.spa_index_html`; production
+        reads the CURRENT dist/index.html per request so a rebuild is live
+        on the next navigation without a backend restart."""
+        override = app.state.spa_index_html
+        if override is not None:
+            return override
+        path = app.state.spa_index_path
+        return path.read_bytes() if path is not None else None
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_catch_all(full_path: str) -> Response:
-        if app.state.spa_index_html is None:
+        shell = _spa_shell_bytes()
+        if shell is None:
             return Response(status_code=404, content="Not found")
         # Real file at that path under dist/ (hashed JS/CSS chunks, PWA
         # icons, manifest.webmanifest, sw.js, favicon, ...) — resolved and
@@ -319,7 +336,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         candidate = (DIST_DIR / full_path).resolve()
         if candidate.is_file() and DIST_DIR in candidate.parents:
             return FileResponse(candidate)
-        return Response(content=app.state.spa_index_html, media_type="text/html; charset=utf-8")
+        return Response(content=shell, media_type="text/html; charset=utf-8")
 
     # Exposed for tests/introspection: tests override the JWKS fetch via
     # `app.state.cf_jwks_fetcher.override = lambda: FAKE_JWKS` (both app and
