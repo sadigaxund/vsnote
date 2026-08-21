@@ -1,0 +1,80 @@
+{
+  "sources": {
+    "vercel-labs/agent-skills": {
+      "ref": "main",
+      "sha": "dd089a8c752c966dee8bf0f27cb625ba193ffd9e",
+      "fetchedAt": "2026-08-21T19:20:43.762Z"
+    },
+    "vercel-labs/web-interface-guidelines": {
+      "ref": "main",
+      "sha": "e3d624baaf29dc1fc645aff3e38f03e564d2d6b1",
+      "fetchedAt": "2026-08-21T19:20:44.408Z"
+    },
+    "shadcn-ui/ui": {
+      "ref": "main",
+      "sha": "1773ecfeeb4a04366978d353e69b5c7ded78dcb2",
+      "fetchedAt": "2026-08-21T19:20:47.775Z"
+    },
+    "millionco/react-doctor": {
+      "ref": "main",
+      "sha": "2b0f06ec70943f083d8893f8a1b989eba2ae40c6",
+      "fetchedAt": "2026-08-21T19:20:50.302Z"
+    },
+    "wshobson/agents": {
+      "ref": "main",
+      "sha": "367cb6a4a182cf7e9b0a17c9429f7411ddd9cf35",
+      "fetchedAt": "2026-08-21T19:20:51.637Z"
+    },
+    "kursku/skills": {
+      "ref": "master",
+      "sha": "346c313fd2ec241a088c68274da26c538422568b",
+      "fetchedAt": "2026-08-21T19:20:54.853Z"
+    },
+    "mblode/agent-skills": {
+      "ref": "main",
+      "sha": "0ac9eb94205c043a72d78bf821654f6d89b1cffa",
+      "fetchedAt": "2026-08-21T19:20:55.740Z"
+    },
+    "addyosmani/web-quality-skills": {
+      "ref": "main",
+      "sha": "95d6e255afe1596b557d7a8498517884438f5b3a",
+      "fetchedAt": "2026-08-21T19:20:56.372Z"
+    },
+    "julianoczkowski/designer-skills": {
+      "ref": "main",
+      "sha": "c259656c76d9758d7ead46b0d2f125cbe84f8665",
+      "fetchedAt": "2026-08-21T19:20:57.074Z"
+    },
+    "bergside/awesome-design-skills": {
+      "ref": "main",
+      "sha": "f631a09b4fcc0166f2e2c1a8c81906ef680c57e8",
+      "fetchedAt": "2026-08-21T19:20:58.396Z"
+    },
+    "rampstackco/claude-skills": {
+      "ref": "main",
+      "sha": "0479242522549dfdb389bb9b7807ad4d6016ffb7",
+      "fetchedAt": "2026-08-21T19:21:00.442Z"
+    },
+    "content-designer/ux-writing-skill": {
+      "ref": "main",
+      "sha": "98cacde4ba2dd10ed28df43a8d53eef1e321c539",
+      "fetchedAt": "2026-08-21T19:21:01.047Z"
+    },
+    "anthropics/knowledge-work-plugins": {
+      "ref": "main",
+      "sha": "5267cf7bff3031921d4474b8e8f86ad02d2b8f6d",
+      "fetchedAt": "2026-08-21T19:21:02.969Z"
+    },
+    "jakubkrehel/skills": {
+      "ref": "main",
+      "sha": "6c43b20ce00f720eed854591abe480127629c191",
+      "fetchedAt": "2026-08-21T19:21:03.548Z"
+    },
+    "blader/humanizer": {
+      "ref": "main",
+      "sha": "e2e92e7b4b8229253ed5c8e81dc65463fdeddda5",
+      "fetchedAt": "2026-08-21T19:21:50.185Z"
+    }
+  },
+  "updatedAt": "2026-08-21T19:21:50.186Z"
+}

@@ -13,7 +13,9 @@
     "server": "server/.venv/bin/python -m uvicorn app.main:app --reload --port 8787 --app-dir server --proxy-headers --forwarded-allow-ips='*'",
     "test:unit": "vitest run",
     "test:e2e": "VSNOTE_DEMO_VAULT=1 VSNOTE_SHARE_PROXY_TARGET=http://127.0.0.1:8788 vite build && VSNOTE_SHARE_PROXY_TARGET=http://127.0.0.1:8788 playwright test",
-    "test": "npm run test:unit && npm run test:e2e"
+    "test": "npm run test:unit && npm run test:e2e",
+    "skills:update": "node scripts/update-skill-references.mjs",
+    "skills:update:latest": "node scripts/update-skill-references.mjs --latest"
   },
   "dependencies": {
     "@atomic-editor/editor": "^0.6.2",

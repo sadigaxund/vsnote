@@ -45,3 +45,6 @@ server/git-repos/
 # default. Never commit this — see app/secrets_store.py's module docstring.
 server/secrets/
 nice.png
+
+# Vendored skill bodies (fetched by scripts/update-skill-references.mjs; pinned via skills/references.lock.json)
+skills/references/

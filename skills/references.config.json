@@ -1,0 +1,22 @@
+{
+  "$comment": "Drives scripts/update-skill-references.mjs — the vendored skill-reference fetcher. Each source is downloaded as a GitHub tarball at a pinned commit (resolved from `ref`, cached in references.lock.json) and only the listed `paths` are copied into destRoot/<owner>/<repo>/<path>. Use paths:[\"*\"] to vendor an entire small repo. Reusable across projects: copy this file + the script + adjust sources.",
+  "destRoot": "skills/references",
+  "lockFile": "skills/references.lock.json",
+  "sources": [
+    { "id": "vercel-labs/agent-skills", "repo": "vercel-labs/agent-skills", "ref": "main", "paths": ["skills/react-best-practices", "skills/composition-patterns"] },
+    { "id": "vercel-labs/web-interface-guidelines", "repo": "vercel-labs/web-interface-guidelines", "ref": "main", "paths": ["command.md"] },
+    { "id": "shadcn-ui/ui", "repo": "shadcn-ui/ui", "ref": "main", "paths": ["skills/shadcn"] },
+    { "id": "millionco/react-doctor", "repo": "millionco/react-doctor", "ref": "main", "paths": [".agents/skills/react-doctor"] },
+    { "id": "wshobson/agents", "repo": "wshobson/agents", "ref": "main", "paths": ["plugins/frontend-mobile-development/skills/react-state-management", "plugins/frontend-mobile-development/skills/tailwind-design-system"] },
+    { "id": "kursku/skills", "repo": "kursku/skills", "ref": "master", "paths": ["frontend"] },
+    { "id": "mblode/agent-skills", "repo": "mblode/agent-skills", "ref": "main", "paths": ["skills/ui-animation", "skills/typography-audit"] },
+    { "id": "addyosmani/web-quality-skills", "repo": "addyosmani/web-quality-skills", "ref": "main", "paths": ["*"] },
+    { "id": "julianoczkowski/designer-skills", "repo": "julianoczkowski/designer-skills", "ref": "main", "paths": ["*"] },
+    { "id": "bergside/awesome-design-skills", "repo": "bergside/awesome-design-skills", "ref": "main", "paths": ["*"] },
+    { "id": "rampstackco/claude-skills", "repo": "rampstackco/claude-skills", "ref": "main", "paths": ["skills"] },
+    { "id": "content-designer/ux-writing-skill", "repo": "content-designer/ux-writing-skill", "ref": "main", "paths": ["*"] },
+    { "id": "anthropics/knowledge-work-plugins", "repo": "anthropics/knowledge-work-plugins", "ref": "main", "paths": ["design/skills/ux-copy"] },
+    { "id": "jakubkrehel/skills", "repo": "jakubkrehel/skills", "ref": "main", "paths": ["skills/better-writing"] },
+    { "id": "blader/humanizer", "repo": "blader/humanizer", "ref": "main", "paths": ["SKILL.md", "README.md", "LICENSE*"] }
+  ]
+}
