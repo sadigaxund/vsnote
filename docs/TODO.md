@@ -599,3 +599,62 @@ apply to lucide-in-my-you-eye sizing.
 5. Repo goes BEYOND the skill on unload safety: visibilitychange flush exists
    because beforeunload alone is unreliable in SPAs — don't "simplify" toward
    generic guidance.
+
+---
+
+## 7.x — Phase E1 findings: UXUI sources (2026-08-21)
+
+Deep-read of the vendored UXUI cluster against the app. Verdicts: bergside =
+unroutable style-preset library under DESIGN-SPEC authority; rampstack
+art-direction/calculator/comparison = off-product; everything below is the
+actionable residue. Copy-cluster sources confirmed existing enforcement
+(em-dash superset deliberate — future punctuation checks scope to RENDERED
+copy only, per mblode typography-audit's gotcha).
+
+### 7.1 Standing design-review checklist (julianoczkowski design-review)
+
+Adopt as repo process: screenshots are mandatory evidence (breakpoints,
+hover/focus/error/empty states, theme variants); findings ranked
+Must/Should/Could; saved `.design/<feature>/DESIGN_REVIEW.md`. First applied
+to SettingsView. `grill-me` becomes the pre-amendment interrogation gate for
+DESIGN-SPEC changes.
+
+### 7.2 Motion tokens (julianoczkowski design-tokens gap)
+
+Add `--duration-*` / `--ease-*` tokens to theme.css; replace the six hardcoded
+100/120/150ms transition literals found in the §5.2 audit so durations are
+tunable per density/theme and honored centrally by the reduced-motion guard.
+
+### 7.3 IA naming glossary (information-architecture)
+
+Single glossary for recurring nouns (vault/note/file/tab/pane/share/sync) used
+across palette labels, Settings categories, dialog copy, docs — kills
+note-vs-file drift.
+
+### 7.4 a11y depth from rampstack accessibility-audit
+
+Four passes our shipped §3.4 didn't cover: (1) live-region announcements for
+save/share state + error-boundary catches (currently visual-only); (2) zoom/
+reflow verification at 200% + 320px across the three-pane shell; (3) non-text
+contrast ≥3:1 checks on focus ring/active-tab/diff indicators + color-
+independence of added/removed lines under deuteranopia; (4) editor-convention
+audit vs VSCode/Obsidian using competitor-experience-audit's observable-only
+method (middle-click close, dirty dot, drag-reorder, breadcrumb depth).
+
+### 7.5 Copy standards pack (ux-writing × anthropic ux-copy × better-writing)
+
+Standing rules + checkable tests:
+1. **Sentence case everywhere** in UI string literals; no Title Case, no
+   text-transform fakes.
+2. **Confirm buttons name the consequence** — ban bare Yes/No/OK/Submit.
+   Retrofit: Reset (`Reset settings`/`Keep changes`), Import conflict
+   (`Replace file`/`Keep both`), Restore (`Wipe & pull` ✓ already).
+3. **Error-toast template**: `[What failed]. [Why]. [Next imperative step].`
+   Ban "Something went wrong"/"invalid"/exclamation marks; test asserts ≥ an
+   imperative next-step sentence per error toast string.
+4. **Wizard vocabulary lock**: enter=Get started, advance=Continue,
+   finish=Done — never synonyms.
+5. **Filter-empty states name the query** ("No settings matching 'sync'")
+   with one Clear-filters action — extends EmptyState doctrine.
+6. **Settings-label rules**: positive ON-state toggles, no possessives, no
+   "Click", errors never "We're having trouble".
