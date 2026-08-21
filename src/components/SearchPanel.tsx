@@ -16,12 +16,13 @@
  * vault-walk/highlight logic out of the cold-boot bundle per
  * IMPLEMENTATION-PLAN.md Phase 5's bundle discipline note.
  */
-import { useEffect, useState } from "react";
-import { EmptyState, Input, ScrollArea, Spinner } from "my-you-eye";
+import { useEffect, useMemo, useState } from "react";
+import { EmptyState, Input, Spinner } from "my-you-eye";
 import { Search as SearchIcon } from "lucide-react";
 import { FileIcon } from "./local/FileIcon";
+import { VirtualList } from "./local/VirtualList";
 import { SidebarContainer } from "./local/SidebarContainer";
-import { searchVault, type SearchFileResult } from "../lib/vaultSearch";
+import { searchVault, type SearchFileResult, type SearchMatch } from "../lib/vaultSearch";
 
 export interface SearchPanelProps {
   onOpenResult: (path: string, line: number) => void;
@@ -36,6 +37,19 @@ const DEBOUNCE_MS = 200;
 export function SearchPanel({ onOpenResult, width, onWidthChange, collapsed, onCollapsedChange }: SearchPanelProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchFileResult[]>([]);
+
+  // Flattened, uniformly-tall rows for the virtualized results list (§6.1.2):
+  // one header row per file + one row per match, group order preserved.
+  const searchRows = useMemo<SearchRow[]>(() => {
+    const rows: SearchRow[] = [];
+    for (const result of results) {
+      rows.push({ kind: "header", key: `h:${result.path}`, result });
+      for (const match of result.matches) {
+        rows.push({ kind: "match", key: `m:${result.path}:${match.line}:${match.column}`, result, match });
+      }
+    }
+    return rows;
+  }, [results]);
   const [loading, setLoading] = useState(false);
 
   const trimmedQuery = query.trim();
@@ -112,116 +126,136 @@ export function SearchPanel({ onOpenResult, width, onWidthChange, collapsed, onC
         )}
       </div>
 
-      <ScrollArea className="flex-1" style={{ minHeight: 0 }}>
-        {/* `loading` can only be true while `trimmedQuery` is non-empty (the
-            effect above never sets it otherwise), but gate on both anyway —
-            clearing the box while a debounced search is still in flight
-            cancels that search without a chance to reset `loading` itself
-            (its cleanup only flips a local `cancelled` flag), so relying on
-            `loading` alone could otherwise strand a spinner over what
-            should immediately read as the empty "Search your vault" state. */}
-        {loading && trimmedQuery ? (
-          <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
-            <Spinner size="sm" />
-          </div>
-        ) : !trimmedQuery ? (
-          <div style={{ padding: "24px 16px" }}>
-            <EmptyState
-              icon={<SearchIcon size={22} />}
-              title="Search your vault"
-              description="Full-text search across every note and file."
-            />
-          </div>
-        ) : results.length === 0 ? (
-          <div style={{ padding: "24px 16px" }}>
-            <EmptyState icon={<SearchIcon size={22} />} title="No results" description={`Nothing matches "${trimmedQuery}".`} />
-          </div>
-        ) : (
-          <div style={{ paddingBottom: 12 }}>
-            {results.map((result) => (
-              <FileResultGroup key={result.path} result={result} query={trimmedQuery} onOpenResult={onOpenResult} />
-            ))}
-          </div>
-        )}
-      </ScrollArea>
+{loading && trimmedQuery ? (
+        <div style={{ display: "flex", justifyContent: "center", padding: 24, flex: 1 }}>
+          <Spinner size="sm" />
+        </div>
+      ) : !trimmedQuery ? (
+        <div style={{ padding: "24px 16px" }}>
+          <EmptyState
+            icon={<SearchIcon size={22} />}
+            title="Search your vault"
+            description="Full-text search across every note and file."
+          />
+        </div>
+      ) : results.length === 0 ? (
+        <div style={{ padding: "24px 16px" }}>
+          <EmptyState icon={<SearchIcon size={22} />} title="No results" description={`Nothing matches "${trimmedQuery}".`} />
+        </div>
+      ) : (
+        /* TODO §6.1.2 — results are virtualized through the SAME fixed-height
+           VirtualList the Explorer tree uses (vercel-labs
+           rendering-content-visibility slice): a 50k-vault search can return
+           hundreds of grouped rows and `results.map` mounted all of them.
+           Rows are flattened to uniform 26px entries (file-header rows styled
+           distinctly but identical height), preserving group order. */
+        <VirtualList<SearchRow>
+          items={searchRows}
+          rowHeight={26}
+          getKey={(row) => row.key}
+          role="list"
+          aria-label="Search results"
+          className="flex-1"
+          style={{ minHeight: 0 }}
+          renderRow={(row) =>
+            row.kind === "header" ? (
+              <FileResultHeader row={row} />
+            ) : (
+              <MatchButton row={row} onOpenResult={onOpenResult} query={trimmedQuery} />
+            )
+          }
+        />
+      )}
     </SidebarContainer>
   );
 }
 
-function FileResultGroup({
-  result,
+type SearchRow =
+  | { kind: "header"; key: string; result: SearchFileResult }
+  | { kind: "match"; key: string; result: SearchFileResult; match: SearchMatch };
+
+const ROW_H = 26;
+
+/** Fixed-height file header row — same pixel height as a match row so the
+ * virtualizer's single `rowHeight` assumption holds (TODO §6.1.2). */
+function FileResultHeader({ row }: { row: Extract<SearchRow, { kind: "header" }> }) {
+  const { result } = row;
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        height: ROW_H,
+        padding: "0 10px",
+        fontFamily: "var(--font-sans)",
+      }}
+    >
+      <FileIcon kind={result.kind} name={result.name} size={13} />
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontSize: 12.5,
+          fontWeight: 600,
+          color: "var(--color-fg)",
+        }}
+        title={result.path}
+      >
+        {result.name}
+      </span>
+      <span style={{ flexShrink: 0, fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)" }}>
+        {result.matches.length}
+      </span>
+    </div>
+  );
+}
+
+/** Fixed-height match row — opens the file at the match's line. */
+function MatchButton({
+  row,
   query,
   onOpenResult,
 }: {
-  result: SearchFileResult;
+  row: Extract<SearchRow, { kind: "match" }>;
   query: string;
   onOpenResult: (path: string, line: number) => void;
 }) {
+  const { result, match } = row;
   return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "6px 10px 2px",
-          fontFamily: "var(--font-sans)",
-        }}
-      >
-        <FileIcon kind={result.kind} name={result.name} size={13} />
-        <span
-          style={{
-            flex: 1,
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            fontSize: 12.5,
-            fontWeight: 600,
-            color: "var(--color-fg)",
-          }}
-          title={result.path}
-        >
-          {result.name}
-        </span>
-        <span style={{ flexShrink: 0, fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)" }}>
-          {result.matches.length}
-        </span>
-      </div>
-      {result.matches.map((match) => (
-        <button
-          key={`${result.path}:${match.line}:${match.column}`}
-          type="button"
-          onClick={() => onOpenResult(result.path, match.line)}
-          title={`${result.path}:${match.line}`}
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            gap: 8,
-            width: "100%",
-            minHeight: 22,
-            padding: "2px 10px 2px 28px",
-            border: "none",
-            background: "transparent",
-            cursor: "pointer",
-            color: "inherit",
-            font: "inherit",
-            textAlign: "left",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "var(--sidebar-item-hover)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-          }}
-        >
-          <span style={{ flexShrink: 0, fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--color-muted)", minWidth: 22, textAlign: "right" }}>
-            {match.line}
-          </span>
-          <HighlightedLine text={match.text} query={query} />
-        </button>
-      ))}
-    </div>
+    <button
+      type="button"
+      onClick={() => onOpenResult(result.path, match.line)}
+      title={`${result.path}:${match.line}`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        width: "100%",
+        height: ROW_H,
+        padding: "0 10px 0 28px",
+        border: "none",
+        background: "transparent",
+        cursor: "pointer",
+        color: "inherit",
+        font: "inherit",
+        textAlign: "left",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "var(--sidebar-item-hover)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+      }}
+    >
+      <span style={{ flexShrink: 0, fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--color-muted)", minWidth: 22, textAlign: "right" }}>
+        {match.line}
+      </span>
+      <HighlightedLine text={match.text} query={query} />
+    </button>
   );
 }
 
