@@ -28,6 +28,7 @@ import { detectConflictingPaths, importEntriesIntoVault } from "./fs/importEntri
 import { type FlattenedEntry } from "./fs/importEntries";
 import { ImportConflictDialog } from "./components/local/ImportConflictDialog";
 import { flattenFiles } from "./lib/flattenTree";
+import { useDirtyBeforeunloadGuard } from "./lib/useDirtyBeforeunloadGuard";
 import { resolveVaultDisplayLabel } from "./lib/vaultLabel";
 import { probeRender } from "./lib/renderProbe";
 import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
@@ -134,6 +135,11 @@ function parentOf(path: string): string {
 }
 
 export default function App() {
+  // COMPONENT-BACKLOG §3.3 — warn before unload while any buffer is dirty
+  // (transient store subscription; see lib/dirtyGuard.ts's doc for why the
+  // /share/ reader never gets this and why it costs zero re-renders).
+  useDirtyBeforeunloadGuard();
+
   // DESIGN-SPEC Amendments item 16 (typing-latency bug) instrumentation —
   // see `lib/renderProbe.ts`'s doc. Inert unless a profiling script opts
   // in; left in place as a standing regression guard.
