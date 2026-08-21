@@ -49,6 +49,7 @@ import { AppTabBar } from "./TabBar";
 import { EditorHeader } from "./EditorHeader";
 import { EditorContent } from "./EditorContent";
 import { DockOverlay } from "./local/PaneGroup";
+import { PaneErrorBoundary } from "./local/PaneErrorBoundary";
 import { OverflowMenuItems } from "./local/OverflowMenu";
 import type { TabDragPayload } from "./local/EditorTabBar";
 import { findLeaf, useTabsStore } from "../stores/useTabsStore";
@@ -340,6 +341,7 @@ export function EditorPane({
         onDragLeave={() => setDockPreview(null)}
         onDrop={handleDrop}
       >
+        <PaneErrorBoundary key={`${paneId}:${activeTab?.path ?? "empty"}`} paneId={paneId}>
         <EditorContent
           paneId={paneId}
           hasTab={!!activeTab}
@@ -360,6 +362,7 @@ export function EditorPane({
           onExportVault={onExportVault}
           onRequestResetVault={onRequestResetVault}
         />
+        </PaneErrorBoundary>
         {dockPreview && <DockOverlay edge={dockPreview} />}
       </div>
 
