@@ -264,7 +264,7 @@ function RemoteDialog({ open, onOpenChange, editingRemote, onSaved }: RemoteDial
                 rows={5}
                 value={sshKeyDraft}
                 onChange={(e) => setSshKeyDraft(e.target.value)}
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                placeholder="OpenSSH private key, pasted once and never stored by this app"
                 aria-label="SSH private key"
                 aria-invalid={Boolean(sshKeyDraft && credentialError)}
                 data-testid="vault-remote-ssh-key"

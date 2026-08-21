@@ -265,6 +265,19 @@ export interface ExplorerTreeProps {
   className?: string;
 }
 
+/** Pure id lookup over the tree — module scope so it isn't rebuilt on every
+ * ExplorerTree render (react-doctor prefer-module-scope-pure-function). */
+function findNodeById(nodes: FileNode[], id: string): FileNode | null {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    if (n.children) {
+      const found = findNodeById(n.children, id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 export function ExplorerTree({
   data,
   selectedId,
@@ -392,17 +405,6 @@ export function ExplorerTree({
     void flattenCapturedItems(captured).then((entries) => {
       if (entries.length > 0) onImportEntries?.(target.targetParentPath, entries);
     });
-  }
-
-  function findNodeById(nodes: FileNode[], id: string): FileNode | null {
-    for (const n of nodes) {
-      if (n.id === id) return n;
-      if (n.children) {
-        const found = findNodeById(n.children, id);
-        if (found) return found;
-      }
-    }
-    return null;
   }
 
   // Ctrl+V paste target: the selected node if it's a folder, else its

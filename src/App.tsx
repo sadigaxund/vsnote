@@ -1580,8 +1580,10 @@ async function readFolderPublishData(root: FileNode): Promise<{ tree: CheckboxTr
   collectFiles(root.children ?? []);
 
   const entries: FolderPublishEntry[] = [];
+  // Independent buffer loads — one concurrent batch (react-doctor
+  // async-await-in-loop); entries keep file order via the map.
+  await Promise.all(filePaths.map((fp) => useBufferStore.getState().ensureLoaded(fp.vaultPath)));
   for (const fp of filePaths) {
-    await useBufferStore.getState().ensureLoaded(fp.vaultPath);
     const buf = useBufferStore.getState().buffers[fp.vaultPath];
     entries.push({ relpath: fp.relpath, content: buf?.content ?? "" });
   }

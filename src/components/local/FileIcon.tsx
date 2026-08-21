@@ -117,6 +117,12 @@ export function FileIcon({ kind, name, open, size = 14, className }: FileIconPro
         if (!betterKey) return; // full manifest agrees with the curated default
         const url = await loader.loadIconUrl(manifest, betterKey);
         if (!cancelled && url) setResolved({ key: requestKey, src: url });
+      })
+      .catch(() => {
+        // Background upgrade only — the curated icon is already on screen;
+        // a failed lazy-manifest fetch (offline, quota) must never surface
+        // as an unhandled rejection. react-doctor
+        // no-promise-then-side-effect-in-effect-without-catch.
       });
     }
 

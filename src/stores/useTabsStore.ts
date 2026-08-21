@@ -412,13 +412,17 @@ export const useTabsStore = create<TabsStoreState>()(
 
       setKind: (path, kind) => {
         set((state) => {
+          // Hoisted out of the per-tab map — recomputing the availability
+          // list (an O(n) scan) once per call instead of once per tab
+          // (react-doctor js-set-map-lookups).
+          const validModes = modeAvailabilityFor(kind, false);
           function apply(node: PaneNode): PaneNode {
             if (node.type === "leaf") {
               let changed = false;
               const tabs = node.tabs.map((t) => {
                 if (t.path !== path || t.kind === kind) return t;
                 changed = true;
-                const stillValid = modeAvailabilityFor(kind, false).includes(t.mode);
+                const stillValid = validModes.includes(t.mode);
                 return { ...t, kind, mode: stillValid ? t.mode : defaultModeFor(kind) };
               });
               return changed ? { ...node, tabs } : node;

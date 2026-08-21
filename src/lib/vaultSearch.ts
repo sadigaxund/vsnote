@@ -66,19 +66,30 @@ export async function searchVault(query: string): Promise<SearchFileResult[]> {
   const files = flattenFiles(useFsStore.getState().tree).filter((f) => SEARCHABLE_KINDS.has(f.kind));
   const results: SearchFileResult[] = [];
 
-  for (const file of files) {
+  // Chunked-parallel reads (react-doctor async-await-in-loop): lightning-fs
+  // reads are independent IndexedDB gets, so a window of them runs
+  // concurrently — but the MAX_FILES_WITH_RESULTS early-exit must keep
+  // working, so we stop between chunks rather than firing every read at
+  // once. Results stay in file order (chunks flatten in order).
+  const CHUNK = 16;
+  for (let i = 0; i < files.length; i += CHUNK) {
     if (results.length >= MAX_FILES_WITH_RESULTS) break;
-    const content = await contentFor(file);
-    if (!content) continue;
+    const chunk = files.slice(i, i + CHUNK);
+    const contents = await Promise.all(chunk.map((file) => contentFor(file)));
+    for (let j = 0; j < chunk.length; j++) {
+      if (results.length >= MAX_FILES_WITH_RESULTS) break;
+      const content = contents[j];
+      if (!content) continue;
 
-    const lines = content.split("\n");
-    const matches: SearchMatch[] = [];
-    for (let i = 0; i < lines.length && matches.length < MAX_MATCHES_PER_FILE; i++) {
-      const idx = lines[i].toLowerCase().indexOf(needle);
-      if (idx !== -1) matches.push({ line: i + 1, column: idx + 1, text: lines[i] });
-    }
-    if (matches.length > 0) {
-      results.push({ path: file.path, name: file.name, kind: file.kind, matches });
+      const lines = content.split("\n");
+      const matches: SearchMatch[] = [];
+      for (let k = 0; k < lines.length && matches.length < MAX_MATCHES_PER_FILE; k++) {
+        const idx = lines[k].toLowerCase().indexOf(needle);
+        if (idx !== -1) matches.push({ line: k + 1, column: idx + 1, text: lines[k] });
+      }
+      if (matches.length > 0) {
+        results.push({ path: chunk[j].path, name: chunk[j].name, kind: chunk[j].kind, matches });
+      }
     }
   }
 

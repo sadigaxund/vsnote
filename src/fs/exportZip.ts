@@ -21,17 +21,22 @@ async function collectVaultFiles(): Promise<Record<string, Uint8Array>> {
   const files: Record<string, Uint8Array> = {};
 
   async function walk(nodes: RawTreeNode[]): Promise<void> {
-    for (const node of nodes) {
-      if (node.type === "file") {
-        const data = (await pfs.readFile(node.path)) as Uint8Array;
-        // Zip entries keyed by display path ("vault/notes/architecture.md")
-        // so the extracted archive's root folder is literally "vault/",
-        // matching what the app itself calls the workspace.
-        files[fsToDisplayPath(node.path)] = data;
-      } else if (node.children) {
-        await walk(node.children);
-      }
-    }
+    // Sibling subtrees are independent reads — one concurrent batch per
+    // level (react-doctor async-await-in-loop). Zip entry keys are unique
+    // paths, so unordered completion is harmless.
+    await Promise.all(
+      nodes.map(async (node) => {
+        if (node.type === "file") {
+          const data = (await pfs.readFile(node.path)) as Uint8Array;
+          // Zip entries keyed by display path ("vault/notes/architecture.md")
+          // so the extracted archive's root folder is literally "vault/",
+          // matching what the app itself calls the workspace.
+          files[fsToDisplayPath(node.path)] = data;
+        } else if (node.children) {
+          await walk(node.children);
+        }
+      }),
+    );
   }
 
   await walk(tree);

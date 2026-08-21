@@ -372,6 +372,30 @@ patterns, shadcn forms/composition rules. Apply per surface:
   triage findings against the hot paths above; lift recurring rule names into the
   review checklist (Part 4). Skip the agent-skill install (remote-drifting playbook)
   and ignore any suggestion to adopt Million.js runtime (ledger 1.3).
+- **Results (2026-08-21):** 83 findings. **19 were scanner overreach** — it walked
+  `server/.venv` third-party Python (sqlalchemy/dulwich "SQL injection"/"command
+  execution"); if CI mode is ever adopted (§5.9), exclude that path. The rest
+  triaged as follows.
+- **Fixed:** `vaultSearch` chunked-parallel file reads (16-wide, early-exit kept);
+  `exportZip` sibling-parallel tree walk; `importEntriesFs` concurrent existence
+  checks + writes (order-preserving); App's folder-publish concurrent buffer loads;
+  `FileIcon` lazy-manifest promise got its missing `.catch`; `autoRepublish`
+  exclusions blob versioned (`{v:1,map}`, legacy bare-map adopted on read); `ShareApp`
+  tab-close side effect moved out of the state updater; `useTabsStore.setKind`
+  hoists the availability scan out of the per-tab map; `ExplorerTree.findNodeById`
+  hoisted to module scope; zen-mode exit overlay made keyboard-operable; SSH-key
+  placeholder reworded so the secret-leak heuristic stops flagging a PEM-header
+  *example string* in the built bundle.
+- **Wontfix, with reasons (standing ledger):** git add/commit loops stay sequential
+  (index integrity requires ordering); "giant component" flags on App/SettingsView/
+  ExplorerTree etc. are real but are refactor projects, not perf items;
+  `no-derived-state` on StatusBar's sync live region is deliberate transition
+  detection; `prefer-useReducer` on FindWidget and the eight `.filter().map()`
+  single-pass suggestions are style/micro at our list sizes; nested-interactive tab
+  (close button inside `role="tab"`) matches VSCode's own accepted pattern;
+  `prefer-tag-over-role` misreads the wrapper `<li role="none">` presentation idiom.
+  `interactive-supports-focus` on `ResizeHandle` is REAL — subsumed by §2.2's
+  keyboard contract (Phase D).
 
 ---
 

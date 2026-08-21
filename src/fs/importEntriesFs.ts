@@ -27,10 +27,15 @@ export async function detectConflictingPaths(
 ): Promise<string[]> {
   const targetFsPath = displayToFsPath(targetDisplayPath);
   const conflicts: string[] = [];
-  for (const entry of entries) {
-    const fsPath = joinFsPath(targetFsPath, entry.relativePath);
-    if (await pathExists(fsPath)) conflicts.push(entry.relativePath);
-  }
+  // Independent existence checks — one concurrent batch (react-doctor
+  // async-await-in-loop); conflicts keep entry order via the map.
+  const checks = await Promise.all(
+    entries.map(async (entry) => {
+      const fsPath = joinFsPath(targetFsPath, entry.relativePath);
+      return (await pathExists(fsPath)) ? entry.relativePath : null;
+    }),
+  );
+  for (const rel of checks) if (rel !== null) conflicts.push(rel);
   return conflicts;
 }
 
@@ -43,17 +48,23 @@ export async function importEntriesIntoVault(
   mode: "rename" | "replace",
 ): Promise<string[]> {
   const targetFsPath = displayToFsPath(targetDisplayPath);
-  const existing = new Set<string>();
-  for (const entry of entries) {
-    const fsPath = joinFsPath(targetFsPath, entry.relativePath);
-    if (await pathExists(fsPath)) existing.add(fsPath);
-  }
+  // Concurrent existence sweep (react-doctor async-await-in-loop).
+  const exists = await Promise.all(
+    entries.map(async (entry) => {
+      const fsPath = joinFsPath(targetFsPath, entry.relativePath);
+      return (await pathExists(fsPath)) ? fsPath : null;
+    }),
+  );
+  const existing = new Set<string>(exists.filter((p): p is string => p !== null));
   const plan = planImportPaths(targetFsPath, entries, existing, mode);
-  const createdDisplayPaths: string[] = [];
-  for (const item of plan) {
-    const bytes = new Uint8Array(await item.entry.file.arrayBuffer());
-    await writeFile(item.targetFsPath, bytes);
-    createdDisplayPaths.push(fsToDisplayPath(item.targetFsPath));
-  }
+  // Plan targets are unique after conflict resolution, so the writes are
+  // independent — one concurrent batch; created paths keep plan order.
+  const createdDisplayPaths = await Promise.all(
+    plan.map(async (item) => {
+      const bytes = new Uint8Array(await item.entry.file.arrayBuffer());
+      await writeFile(item.targetFsPath, bytes);
+      return fsToDisplayPath(item.targetFsPath);
+    }),
+  );
   return createdDisplayPaths;
 }

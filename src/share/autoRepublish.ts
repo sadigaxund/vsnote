@@ -30,12 +30,23 @@ import type { FileNode } from "../types";
 
 const DEBOUNCE_MS = 3000;
 const EXCLUSIONS_KEY = "vsnote-share-exclusions";
+/** Persisted-blob schema version (react-doctor client-localstorage-no-version,
+ * COMPONENT-BACKLOG §3.7 discipline): the envelope is `{ v: 1, map }`. A
+ * pre-versioning blob was the bare `Record<string, string[]>` itself, so
+ * `loadExclusions` treats "object without v" as that legacy shape and keeps
+ * working — no discard-on-upgrade for existing sessions. */
+const EXCLUSIONS_VERSION = 1;
 
 function loadExclusions(): Record<string, string[]> {
   try {
     const raw = localStorage.getItem(EXCLUSIONS_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : {};
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, string[]>) : {};
+    if (typeof parsed === "object" && parsed !== null && "v" in (parsed as Record<string, unknown>)) {
+      const env = parsed as { v: number; map: Record<string, string[]> };
+      return env.v === EXCLUSIONS_VERSION && typeof env.map === "object" && env.map !== null ? env.map : {};
+    }
+    // Legacy bare-map blob — adopt it as-is.
+    return parsed as Record<string, string[]>;
   } catch {
     return {};
   }
@@ -50,7 +61,7 @@ export function rememberShareExclusions(shareId: number, excludedRelpaths: strin
     const map = loadExclusions();
     if (excludedRelpaths.length === 0) delete map[String(shareId)];
     else map[String(shareId)] = excludedRelpaths;
-    localStorage.setItem(EXCLUSIONS_KEY, JSON.stringify(map));
+    localStorage.setItem(EXCLUSIONS_KEY, JSON.stringify({ v: EXCLUSIONS_VERSION, map }));
   } catch {
     // Storage denied — the manifest-only fallback below still applies.
   }

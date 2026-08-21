@@ -365,8 +365,16 @@ export function EditorPane({
 
       {zen && (
         <div
-          role="status"
+          role="button"
+          aria-label="Exit zen mode"
+          tabIndex={0}
           onClick={onExitZen}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onExitZen();
+            }
+          }}
           style={{
             position: "absolute",
             top: 14,

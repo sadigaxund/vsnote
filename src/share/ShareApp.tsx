@@ -387,11 +387,13 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
             activeId={activeRelpath ?? undefined}
             onSelect={(id) => setActiveRelpath(id)}
             onClose={(id) => {
-              setTabs((prev) => {
-                const next = prev.filter((t) => t.id !== id);
-                if (activeRelpath === id) setActiveRelpath(next.length > 0 ? next[next.length - 1].relpath : null);
-                return next;
-              });
+              // Computed OUTSIDE the updater — react-doctor
+              // no-impure-state-updater: an updater must be a pure
+              // (state) => state function; calling setActiveRelpath from
+              // inside it both side-effects and reads stale render scope.
+              const next = tabs.filter((t) => t.id !== id);
+              setTabs(next);
+              if (activeRelpath === id) setActiveRelpath(next.length > 0 ? next[next.length - 1].relpath : null);
             }}
           />
           {activeContent ? (
