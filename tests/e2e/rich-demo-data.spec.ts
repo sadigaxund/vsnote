@@ -93,25 +93,29 @@ test.describe("representative demo data", () => {
     // classes seen so far actually growing — a real synchronization point
     // (CM6 has rendered something new), not a bare timeout.
     const seenClasses = new Set<string>();
+    // Decoration class names are @atomic-editor/editor's (the 2026-08-21
+    // engine swap — see ARCHITECTURE.md's deviation note). Ordered-list
+    // markers stay as plain text in atomic-editor (they carry real sequence
+    // information), so they're covered by the shared `cm-atomic-list-marker`
+    // assertion rather than a dedicated class.
     const MARKER_CLASSES = [
-      "cm-md-h1",
-      "cm-md-h2",
-      "cm-md-h3",
-      "cm-md-h4",
-      "cm-md-h5",
-      "cm-md-h6",
-      "cm-md-strong",
-      "cm-md-em",
-      "cm-md-strike",
-      "cm-md-list-item",
-      "cm-md-ordered-item",
-      "cm-md-task-item",
-      "cm-md-checkbox",
-      "cm-md-link",
-      "cm-md-quote",
-      "cm-md-code",
-      "cm-md-fence",
-      "cm-md-hr",
+      "cm-atomic-h1",
+      "cm-atomic-h2",
+      "cm-atomic-h3",
+      "cm-atomic-h4",
+      "cm-atomic-h5",
+      "cm-atomic-h6",
+      "cm-atomic-strong",
+      "cm-atomic-em",
+      "cm-atomic-strike",
+      "cm-atomic-bullet",
+      "cm-atomic-list-marker",
+      "cm-atomic-task-checkbox",
+      "cm-atomic-link",
+      "cm-atomic-blockquote",
+      "cm-atomic-inline-code",
+      "cm-atomic-fenced-code",
+      "cm-atomic-hr",
     ];
     async function sampleVisibleMarkers(): Promise<void> {
       const found = await content.evaluate((el, classes: string[]) => {
@@ -148,13 +152,16 @@ test.describe("representative demo data", () => {
     }
 
     // Task-list checkboxes are real, interactive inputs with the right
-    // checked state — scroll back to the task list specifically (near the
-    // top) and verify that beyond "the class exists somewhere."
-    await scroller.evaluate((el) => {
-      el.scrollTop = 0;
-    });
-    await page.getByText("Task list:").scrollIntoViewIfNeeded();
-    const checkboxes = content.locator(".cm-md-checkbox");
+    // checked state — navigate to the task list specifically (find jumps
+    // there and CM6 renders the surrounding lines, so the inputs exist)
+    // and verify that beyond "the class exists somewhere."
+    await page.keyboard.press("Control+f");
+    const taskFindInput = page.locator(".atomic-editor-search-panel input").first();
+    await expect(taskFindInput).toBeVisible();
+    await taskFindInput.fill("Task list:");
+    await taskFindInput.press("Enter");
+    await page.keyboard.press("Escape");
+    const checkboxes = content.locator("input.cm-atomic-task-checkbox");
     await expect(checkboxes).toHaveCount(4);
     await expect(checkboxes.nth(0)).toBeChecked();
     await expect(checkboxes.nth(2)).not.toBeChecked();
@@ -163,24 +170,33 @@ test.describe("representative demo data", () => {
     // (Ctrl+End, a real user gesture CM6 scrolls into view on its own).
     await content.click();
     await page.keyboard.press("Control+End");
-    await expect(content.locator(".cm-md-hr")).toHaveCount(2);
+    await expect(content.locator(".cm-atomic-hr")).toHaveCount(2);
     await expect(page.getByText("The end.")).toBeVisible();
 
     // The internal link resolves and opens indexer.ts in a tab when
     // clicked (DESIGN-SPEC "Internal links ... open that file in a tab") —
-    // use the find widget to scroll it into view deterministically rather
-    // than guessing a scroll position.
+    // use find-in-document to scroll it into view deterministically rather
+    // than guessing a scroll position. Rendered mode's panel is the one
+    // @atomic-editor/editor ships (`.atomic-editor-search-panel`); App's
+    // global Ctrl+F handler opens exactly that via `openSearchPanel` on the
+    // registered view.
     await page.keyboard.press("Control+Home");
     await page.keyboard.press("Control+f");
-    const findInput = page.getByTestId("find-widget").getByPlaceholder("Find");
+    const findInput = page.locator(".atomic-editor-search-panel input").first();
+    await expect(findInput).toBeVisible();
     await findInput.fill("indexer.ts");
     // `setSearchQuery` alone only highlights matches — it doesn't move the
     // selection/scroll. `findNext` (Enter) actually jumps to (and scrolls
     // to) the first match, same as a real user pressing Enter in the
-    // widget.
+    // panel.
     await findInput.press("Enter");
     await page.keyboard.press("Escape");
-    const internalLink = content.getByText("indexer.ts", { exact: true });
+    // The match left the caret ON the link, so it's revealed as raw source
+    // (cursor-inside-link rule) — move off it and wait for it to re-render
+    // into its clickable form before clicking.
+    await page.keyboard.press("ArrowUp");
+    const internalLink = content.locator(".cm-atomic-link", { hasText: "indexer.ts" });
+    await expect(internalLink).toBeVisible();
     await internalLink.click();
     await expect(tab(page, "vault/src/indexer.ts")).toBeVisible();
   });

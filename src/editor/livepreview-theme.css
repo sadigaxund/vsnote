@@ -1,0 +1,24 @@
+/*
+ * VSNote glue for @atomic-editor/editor (Rendered `.md` mode).
+ *
+ * Everything theme-colored flows through atomic-editor's own CSS custom
+ * properties, mapped from DESIGN-SPEC tokens on the wrapper element's
+ * inline style in `LivePreviewEditor.tsx`. This file only holds STATIC
+ * layout glue that has no variable hook:
+ *
+ * - The editor surface: atomic-editor's root paints itself transparent,
+ *   so the canvas token goes on our wrapper (same layering the hand-rolled
+ *   implementation used — see livepreview/theme.ts in git history).
+ * - The reading column's fixed top/bottom breathing room (56px/160px),
+ *   carried over verbatim from the pre-swap `.cm-content` padding. Left/
+ * *   right margins are NOT here — the Settings margin slider drives them
+ *   dynamically as wrapper `paddingInline`.
+ */
+.vsnote-live-preview {
+  height: 100%;
+  background: var(--app-editor-canvas-bg);
+}
+
+.vsnote-live-preview .cm-content {
+  padding-block: 56px 160px;
+}

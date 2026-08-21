@@ -273,7 +273,7 @@ export function GraphView({ entries }: GraphViewProps) {
  * note exercising EVERY element the live-preview/rendered-markdown pipeline
  * supports — h1-h6, bold/italic/strikethrough, nested lists, task lists,
  * links (external + an internal one in the exact form
- * `editor/livepreview/links.ts`'s `resolveMarkdownLink` actually resolves —
+ * `editor/markdownLinks.ts`'s `resolveMarkdownLink` actually resolves —
  * `../src/indexer.ts` from `notes/`, the same relative-path shape
  * `architecture.md`'s own seeded working copy already uses), an image
  * (the existing `assets/cover.png`), nested blockquotes, inline code, fenced
@@ -284,13 +284,13 @@ export function GraphView({ entries }: GraphViewProps) {
  * `diffStat.test.ts`/`rich-demo-data.spec.ts` all pin: 6 changed files, 1
  * untracked).
  *
- * Note on images: `editor/livepreview/plugin.ts`'s decoration switch has no
- * `case "Image"` (only `"Link"`) — inline `![]()` markdown is valid syntax
- * lezer-markdown parses correctly, but this codebase's live-preview has no
- * widget for it yet (a pre-existing gap, not something this phase's scope
- * touches), so the image line below renders as plain unstyled markdown
- * text in Rendered mode rather than an inline `<img>`. Recorded here and in
- * ARCHITECTURE.md's Deviations rather than silently worked around.
+ * Note on images: this note predates Rendered mode's image support — the
+ * original hand-rolled decoration switch had no `case "Image"`, so the
+ * image line below rendered as plain unstyled markdown text. The
+ * @atomic-editor/editor swap (2026-08-21) closed that gap (its
+ * `imageBlocks` renders inline `<img>` widgets), so the fixture line now
+ * exercises real image rendering. Recorded here rather than silently
+ * changed.
  */
 const MARKDOWN_KITCHEN_SINK_MD = `# Markdown kitchen sink
 

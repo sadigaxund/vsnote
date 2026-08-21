@@ -16,6 +16,7 @@
     "test": "npm run test:unit && npm run test:e2e"
   },
   "dependencies": {
+    "@atomic-editor/editor": "^0.6.2",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-css": "^6.3.1",

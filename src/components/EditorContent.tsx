@@ -3,8 +3,9 @@
  *  - **Rendered**: routed per-kind through `filetypes/registry.ts`'s
  *    `renderer` field (Phase 4, IMPLEMENTATION-PLAN.md's "renderer wiring +
  *    SegmentedControl logic"): `.md` gets the real Obsidian-style live-
- *    preview CM6 editor (`editor/LivePreviewEditor` — the centerpiece, see
- *    its module doc and `editor/livepreview/`), `.html` a sandboxed iframe,
+ *    preview CM6 editor (`editor/LivePreviewEditor`, wrapping the
+ *    @atomic-editor/editor package — see its module doc and
+ *    ARCHITECTURE.md's 2026-08-21 deviation note), `.html` a sandboxed iframe,
  *    `.csv` a `DataTable`, `.json` a tree view, images the checkerboard
  *    viewer. Phase 1's static single-note placeholder is gone — every kind
  *    now renders its own real, per-file content.

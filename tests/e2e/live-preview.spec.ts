@@ -24,9 +24,11 @@ test.describe("live preview (Rendered mode)", () => {
     expect(text).not.toMatch(/^#{1,6}\s/m); // no raw "# Heading" lines
     expect(text).not.toContain("[indexer.ts]("); // link rendered, not raw markdown
 
-    // Styled, not raw: the H1 line class + a real anchor for the link.
-    await expect(page.locator(".cm-md-h1")).toBeVisible();
-    await expect(content.getByRole("link", { name: "indexer.ts" })).toBeVisible();
+    // Styled, not raw: the H1 line class + a styled link span for the link.
+    // (Class names are @atomic-editor/editor's — see ARCHITECTURE.md's
+    // deviation note on the 2026-08-21 engine swap.)
+    await expect(page.locator(".cm-atomic-h1")).toBeVisible();
+    await expect(content.locator(".cm-atomic-link", { hasText: "indexer.ts" })).toBeVisible();
   });
 
   test("clicking into the bold word reveals exactly one **…** pair; blurring re-hides it", async ({ page }) => {

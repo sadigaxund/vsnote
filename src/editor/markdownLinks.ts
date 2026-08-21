@@ -1,12 +1,14 @@
 /**
  * Resolves a markdown link's `href` against the note that contains it, for
- * the live-preview `LinkWidget`'s click handler (DESIGN-SPEC "Internal
- * links `[text](file.ext)` render accent-colored and open that file in a
- * tab"). No `path`/`url` module exists in the browser bundle, so relative
- * segment resolution (`../`, `./`) is hand-rolled here rather than pulling
- * in a polyfill for a handful of lines of stack math.
+ * Rendered mode's link-click handler (DESIGN-SPEC "Internal links
+ * `[text](file.ext)` render accent-colored and open that file in a tab").
+ * App.tsx hands the RAW href written in the source markdown here — the
+ * editor component (`@atomic-editor/editor`) deliberately stays unopinionated
+ * about vault paths. No `path`/`url` module exists in the browser bundle, so
+ * relative segment resolution (`../`, `./`) is hand-rolled here rather than
+ * pulling in a polyfill for a handful of lines of stack math.
  */
-import { parentOfDisplayPath } from "../../fs/paths";
+import { parentOfDisplayPath } from "../fs/paths";
 
 const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 

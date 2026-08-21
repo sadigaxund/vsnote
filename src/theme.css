@@ -170,9 +170,10 @@
      exactly the pre-item-22(a) values — so there is nothing left to stack
      multiplicatively. `--app-editor-canvas-bg` (below) is the one
      additional token this fix needed: CodeMirror's own DOM
-     (`editor/theme.ts`, `editor/livepreview/theme.ts`) paints its `&`/
-     `.cm-gutters` background OVER `EditorPane.tsx`'s texture layer, so
-     that specific consumer reads a token that resolves to `transparent`
+     (`editor/theme.ts`; Rendered mode's @atomic-editor/editor surface)
+     paints its `&`/`.cm-gutters` background OVER `EditorPane.tsx`'s
+     texture layer, so that specific consumer reads a token that resolves
+     to `transparent`
      under every theme except VSNote — a single, un-stacked layer, so the
      ancestor's opaque-fill-plus-texture shows through with no attenuation
      at all (nothing to compound). Verified empirically (not just reasoned
@@ -205,8 +206,8 @@
      invented, so it still tracks each theme's own bg. */
   --app-editor-bg: color-mix(in oklab, var(--color-bg) 92%, black);
   --app-titlebar-bg: var(--color-surface-elevated, var(--color-surface));
-  /* CodeMirror's own canvas (`&`/`.cm-gutters` in `editor/theme.ts` and
-     `editor/livepreview/theme.ts`) reads THIS token instead of
+  /* CodeMirror's own canvas (`&`/`.cm-gutters` in `editor/theme.ts`, and
+     Rendered mode's editor surface) reads THIS token instead of
      `--app-editor-bg` directly, so it can be transparent here (letting
      `EditorPane.tsx`'s `TexturedSurface` ancestor's opaque-fill-plus-
      texture show through with no attenuation) while staying the exact

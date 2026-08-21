@@ -7,6 +7,14 @@
  * `.cm-searchMatch` highlighting, Enter/⇧Enter navigation with a live
  * counter, the "No results" state, replace-one/replace-all, per-pane
  * targeting in a split, and Esc closing it.
+ *
+ * Since the 2026-08-21 engine swap (ARCHITECTURE.md's deviation note),
+ * Rendered `.md` mode runs @atomic-editor/editor, which ships its OWN
+ * `@codemirror/search` panel (`.atomic-editor-search-panel`) — App's global
+ * ⌘F handler opens whatever panel the focused view was configured with, so
+ * Source/Diff get the React FindWidget and Rendered mode gets atomic-editor's
+ * (same native search state, same `.cm-searchMatch` highlighting). The
+ * Rendered-mode tests below assert THAT panel.
  */
 import { test, expect } from "@playwright/test";
 import { gotoApp, pane, paneContent, panes, tab } from "./fixtures";
@@ -112,18 +120,24 @@ test.describe("find widget", () => {
     await expect(content).toContainText("DONE");
   });
 
-  test("works in Rendered mode (live preview is also a CM6 editor)", async ({ page }) => {
+  test("works in Rendered mode (atomic-editor's own search panel; same native match state)", async ({ page }) => {
     await gotoApp(page);
-    // architecture.md boots in Rendered mode.
+    // architecture.md boots in Rendered mode — its view is configured with
+    // @atomic-editor/editor's `search()` panel, which App's global ⌘F opens.
     const content = page.locator(".cm-content").first();
     await content.click();
     await page.keyboard.press("Control+f");
 
-    const widget = page.getByTestId("find-widget");
-    await expect(widget).toBeVisible();
-    await widget.getByPlaceholder("Find").fill("Rollback");
-    await expect(widget.getByTestId("find-widget-count")).toHaveText("1 of 1");
+    const panel = page.locator(".atomic-editor-search-panel");
+    await expect(panel).toBeVisible();
+    const findInput = panel.locator("input").first();
+    await findInput.fill("Rollback");
+    await findInput.press("Enter");
+    // Same native @codemirror/search decorations as Source mode — only the
+    // panel DOM differs.
     await expect(content.locator(".cm-searchMatch").first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
   });
 
   test("DESIGN-SPEC Amendments item 24: the widget is 30-40% smaller than Phase 6.5b's original box", async ({ page }) => {
@@ -173,10 +187,14 @@ test.describe("find widget", () => {
     const paneIds = await panes(page).evaluateAll((els) => els.map((el) => el.getAttribute("data-pane-id")!));
     const [leftId, rightId] = paneIds;
 
-    // Right pane (the split target) is focused; open find there.
+    // Splitting MOVES the active tab: the right pane holds architecture.md
+    // (Rendered mode → @atomic-editor/editor's search panel), while the
+    // left pane falls back to the next open tab, indexer.ts (Source mode →
+    // the React FindWidget). ⌘F must open each focused pane's OWN panel —
+    // and nothing in the other pane.
     await paneContent(page, rightId).locator(".cm-content").first().click();
     await page.keyboard.press("Control+f");
-    await expect(pane(page, rightId).getByTestId("find-widget")).toBeVisible();
+    await expect(pane(page, rightId).locator(".atomic-editor-search-panel")).toBeVisible();
     await expect(pane(page, leftId).getByTestId("find-widget")).toHaveCount(0);
 
     // Close it, then open find in the LEFT pane instead.
@@ -185,6 +203,6 @@ test.describe("find widget", () => {
     await paneContent(page, leftId).locator(".cm-content").first().click();
     await page.keyboard.press("Control+f");
     await expect(pane(page, leftId).getByTestId("find-widget")).toBeVisible();
-    await expect(pane(page, rightId).getByTestId("find-widget")).toHaveCount(0);
+    await expect(pane(page, rightId).locator(".atomic-editor-search-panel")).toHaveCount(0);
   });
 });

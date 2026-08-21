@@ -84,12 +84,19 @@ test.describe("Settings view", () => {
   test("changing the Rendered view content-width/margin/line-spacing sliders actually reconfigures the live LivePreviewEditor", async ({ page }) => {
     await gotoApp(page);
     // Boot's active tab (architecture.md) is already Rendered mode.
+    // Since the 2026-08-21 engine swap (@atomic-editor/editor — see
+    // ARCHITECTURE.md's deviation note): max-width and line-height are
+    // atomic-editor CSS variables consumed on `.cm-content`; the margin
+    // slider drives the wrapper's horizontal padding (atomic-editor owns
+    // `.cm-content`'s own inline padding).
     const content = page.locator(".cm-content").first();
+    const wrapper = page.getByTestId("live-preview-root");
     await expect(content).toBeVisible();
     const before = await content.evaluate((el) => {
       const cs = getComputedStyle(el);
-      return { maxWidth: cs.maxWidth, paddingLeft: cs.paddingLeft, lineHeight: getComputedStyle(el.closest(".cm-scroller")!).lineHeight };
+      return { maxWidth: cs.maxWidth, lineHeight: cs.lineHeight };
     });
+    const beforeMargin = await wrapper.evaluate((el) => getComputedStyle(el).paddingLeft);
 
     await openSettingsTab(page);
     await page.getByTestId("settings-nav-rendered-view").click();
@@ -108,12 +115,13 @@ test.describe("Settings view", () => {
     await tab(page, "vault/notes/architecture.md").click();
     const after = await content.evaluate((el) => {
       const cs = getComputedStyle(el);
-      return { maxWidth: cs.maxWidth, paddingLeft: cs.paddingLeft, lineHeight: getComputedStyle(el.closest(".cm-scroller")!).lineHeight };
+      return { maxWidth: cs.maxWidth, lineHeight: cs.lineHeight };
     });
+    const afterMargin = await wrapper.evaluate((el) => getComputedStyle(el).paddingLeft);
 
     expect(after.maxWidth).not.toBe(before.maxWidth);
-    expect(after.paddingLeft).not.toBe(before.paddingLeft);
     expect(after.lineHeight).not.toBe(before.lineHeight);
+    expect(afterMargin).not.toBe(beforeMargin);
   });
 
   test("content max-width slider's top position is Full — removes the cap, labeled, and persists across reload", async ({ page }) => {

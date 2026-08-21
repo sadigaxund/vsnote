@@ -32,6 +32,17 @@ client and the v2 backend, August 2026) lives in the git log.
   unreachable backend never gates: an installed or already-loaded app keeps
   editing its local clone offline.
 
+### Changed
+- **Rendered markdown mode runs on `@atomic-editor/editor`** (MIT), replacing the
+  hand-rolled live-preview decoration plugin. The Obsidian behavior is unchanged —
+  one raw-markdown document, rendered by default, raw syntax only around the caret —
+  and the swap fixes real caret bugs (vertical arrow motion across fenced code blocks
+  jumped several lines in one keypress). Two visible deltas: Rendered mode's Ctrl/⌘F
+  panel is now atomic-editor's minimal find bar (Source/Diff keep the React find
+  widget), and the Rendered margin slider applies as horizontal padding. Settings
+  sliders, read-only lock, internal-link opening, task checkboxes, and per-pane ⌘F
+  all behave as before.
+
 ### Added
 - **Server-mounted authoritative vault.** `VSNOTE_VAULT_PATH` /
   `VSNOTE_VAULT_REPO_NAME`, a single vault identity every server module

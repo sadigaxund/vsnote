@@ -30,10 +30,14 @@
 - `filetypes/` — registry keyed by extension: icon, color, language extension for CM6,
   available modes + default mode, renderer component. Adding a file type = one entry.
 - `editor/` — CM6 setup: base extensions (theme matched to design tokens), language
-  loading, git gutter extension, diff (merge) mode, **livepreview/** (the
-  Obsidian-style decoration plugin — hide-marks-except-at-cursor, widgets for links/
-  code blocks/checkboxes). Adapt proven OSS (e.g. patterns from ixora /
-  codemirror-rich-markdoc); keep license headers.
+  loading, git gutter extension, diff (merge) mode. Rendered `.md` mode is
+  **@atomic-editor/editor** (npm, MIT) — the Obsidian-style live-preview editor
+  (hide-marks-except-at-cursor, widgets for links/code blocks/checkboxes/tables),
+  wrapped by `editor/LivePreviewEditor.tsx`, which owns token mapping, settings
+  wiring, pane view registration, and external-content sync; `editor/markdownLinks.ts`
+  resolves link hrefs against the vault. The previous hand-rolled decoration plugin
+  (`editor/livepreview/`) was removed 2026-08-21 in favor of the hardened package —
+  see the Deviations entry at the end of this document.
 - `renderers/` — HtmlPreview (sandboxed iframe, `sandbox=""`), CsvTable (DataTable),
   JsonView, ImageView.
 - `components/` — app-specific composition (Shell, ActivityBar, Sidebar panels,
@@ -2452,3 +2456,30 @@ stack choices in this doc.
   `main.tsx`'s router can parse the relpath and mount `ShareApp` itself, unchanged from
   the root case). Verified fixed by rerunning `tests/e2e/share-folder.spec.ts` green
   after the change (RED beforehand, confirmed against this exact failure, not assumed).
+- **(2026-08-21) The hand-rolled live-preview decoration engine was replaced by the
+  `@atomic-editor/editor` package.** The in-house `editor/livepreview/` plugin
+  (StateField + syntax-tree walk, patterned after ixora / codemirror-rich-markdoc)
+  had a real, reproducible caret-geometry defect class: vertical arrow motion across
+  the fenced-code block whose fence lines carry replace-across-newline decorations
+  landed multiple logical lines away in one keypress (measured: L20 → L12), because
+  landing positions were computed against pre-reveal line geometry that changed
+  under the caret. Rather than re-derive atomic-editor's accumulated fixes for this
+  exact bug family (layout-stable lines, narrow decoration invalidation, a
+  mouse-freeze guard against click/reveal cursor drift — all documented in its
+  README's design notes), the engine swapped to the package itself; "don't reinvent
+  the wheel" and CLAUDE.md rule 7 both point the same way. What remains ours is the
+  integration layer in `editor/LivePreviewEditor.tsx`: the unchanged props contract
+  (`onChange`/`onCursorChange`/`onOpenLink`, read-only lock, per-path remount),
+  view capture + pane registration via its `extensions` escape hatch (keeps ⌘F and
+  format actions working through `activeView.ts`), echo-suppressed external-content
+  sync, DESIGN-SPEC token mapping onto its CSS variables (colors/fonts/measure/
+  leading/font-size offset — restyle at the variable layer only, never forked CSS),
+  lazy-loaded grammars for already-installed languages, and one small upstream-gap
+  workaround (its search panel lacks an Escape handler on its own DOM; a capture
+  listener closes it). Known user-visible deltas, both spec-amended (DESIGN-SPEC
+  round 8 item 61): Rendered mode's find panel is now atomic-editor's minimal panel
+  instead of Source/Diff's React `FindWidget` (its `search()` config is baked into
+  the component; stacking a second `search()` is not supported), and the margin
+  slider applies as horizontal wrapper padding since atomic-editor owns vertical
+  rhythm. Historical decision notes referencing `editor/livepreview/*` paths below
+  describe the removed implementation and are kept as record.

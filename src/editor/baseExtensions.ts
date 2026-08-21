@@ -23,7 +23,7 @@
  * (previously `"1.6"`), so there's no second `EditorView.theme()` rule
  * fighting this one over the same property/selector, and therefore no
  * `Prec.highest` precedence dance needed to make it win (the mechanism
- * `LivePreviewEditor.tsx`'s `fontSizeCompartment` usage documents in
+ * `CodeMirrorEditor.tsx`'s `fontSizeCompartment` usage documents in
  * detail, for a case where a competing static rule DOES exist). */
 import { Compartment, EditorState } from "@codemirror/state";
 import {

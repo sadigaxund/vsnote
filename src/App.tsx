@@ -20,7 +20,7 @@ import { useDecoratedTree } from "./stores/useDecoratedTree";
 import { EMPTY_DIFF } from "./git/diff";
 import { fileTypeFor } from "./filetypes/registry";
 import { getActiveEditorView, openSearchInActiveView } from "./editor/activeView";
-import { resolveMarkdownLink } from "./editor/livepreview/links";
+import { resolveMarkdownLink } from "./editor/markdownLinks";
 import { modeAvailabilityFor } from "./filetypes/registry";
 import { pathExists } from "./fs/operations";
 import { displayToFsPath, VAULT_LABEL } from "./fs/paths";
@@ -1111,8 +1111,9 @@ export default function App() {
   // all (see that component's doc).
 
   // DESIGN-SPEC "Internal links [text](file.ext) ... open that file in a
-  // tab when clicked" — the live-preview `LinkWidget`'s click handler
-  // (editor/livepreview/widgets.ts) calls this with the raw href; external
+  // tab when clicked" — Rendered mode's link-click handler (the
+  // @atomic-editor/editor `onLinkClick` prop, wired in
+  // editor/LivePreviewEditor.tsx) calls this with the raw href; external
   // links (http(s)://, mailto:, …) open in a real browser tab instead.
   // Phase 6: resolved relative to the PANE that link was clicked in (not a
   // single global active tab) and opened in that same pane — clicking a

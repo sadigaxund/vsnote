@@ -1,109 +1,128 @@
 /**
- * "Rendered" mode for `.md` files — the Obsidian-style live-preview CM6
- * editor (DESIGN-SPEC "Markdown live preview ... non-negotiable"; the
- * centerpiece of Phase 4 per IMPLEMENTATION-PLAN.md). This is a REAL,
- * editable CM6 `EditorView` with decorations, not a static HTML render and
- * not a read-only preview pane — see `editor/livepreview/` for the
- * decoration plugin and its OSS attribution.
+ * "Rendered" mode for `.md` files — the Obsidian-style live-preview editor
+ * (DESIGN-SPEC "Markdown live preview ... non-negotiable"). As of 2026-08-21
+ * the decoration engine itself is no longer hand-rolled: this wraps
+ * **@atomic-editor/editor** (MIT, github.com/kenforthewin/atomic-editor),
+ * the hardened CM6 live-preview component this repo's own `editor/livepreview/`
+ * plugin was patterned after (see ARCHITECTURE.md's Deviations entry for the
+ * full swap rationale — caret-geometry bugs in vertical motion across
+ * hidden fence lines were the trigger).
  *
- * Mirrors `CodeMirrorEditor.tsx`'s mount/remount-per-path pattern (one
- * `EditorView` per open file, remounted rather than patched on file
- * switch — `useBufferStore` stays the source of truth so nothing is lost)
- * but swaps in prose-typography extensions instead of the code-editor
- * baseline: no line numbers/gutter, `EditorView.lineWrapping` always on
- * (a centered reading column always wraps, independent of the
- * `wordWrap` code-editor setting), and its own `livePreviewTheme`
- * typography instead of `editor/theme.ts`'s monospace editor theme.
+ * The contract with the rest of the app is UNCHANGED from the previous
+ * hand-rolled version, so `EditorContent.tsx`, `ShareApp.tsx`,
+ * `activeView.ts`, and the settings store all keep working untouched:
  *
- * `readOnly` implements DESIGN-SPEC's "read-only reading view lock" as the
- * *same* view with editing disabled (not a separate renderer) — Obsidian
- * read/write parity. No lock-toggle UI ships this phase (optional per
- * spec); the prop exists so Phase 5's settings-driven default can flip it
- * without touching this component.
+ * - One real, editable CM6 `EditorView` per open file whose document is
+ *   always raw markdown; rendered appearance is decorations only.
+ *   atomic-editor remounts its view when `documentId` changes, mirroring
+ *   this file's old mount-per-path pattern (`key={path}` upstream does the
+ *   equivalent at the React layer).
+ * - `onChange`/`onCursorChange`/`onOpenLink` keep their previous semantics:
+ *   raw-markdown strings out, `{line, column}` (1-based) cursor reports,
+ *   and RAW link hrefs handed to App.tsx's resolver
+ *   (`editor/markdownLinks.ts`) exactly like the old LinkWidget did.
+ * - The underlying view is captured through a tiny `ViewPlugin` passed via
+ *   atomic-editor's documented `extensions` escape hatch, which keeps
+ *   `activeView.ts`'s pane registration (⌘F, format actions) working and
+ *   gives the external-content sync effect below the same `viewRef` access
+ *   the hand-rolled version had.
  *
- * Phase 5a: reuses `baseExtensions.ts`'s shared `fontSizeCompartment` so
- * the Settings dialog's editor-font-size slider takes effect here too —
- * Rendered/`.md` is the default mode for the default boot tab
- * (app-preview.png), so it's the surface most settings verification
- * actually exercises. Word wrap is deliberately NOT wired to the settings
- * toggle (`EditorView.lineWrapping` stays unconditionally on, per the
- * class doc above: "a centered reading column always wraps, independent of
- * the wordWrap code-editor setting") — that's an existing Phase 4 design
- * decision, not a Phase 5a gap.
+ * External content changes (second pane editing the same shared buffer, an
+ * external discard) are applied as a full-document dispatch — NOT a remount
+ * — with the same `lastEmittedRef` echo-suppression trick as before: the
+ * last string THIS editor emitted via `onMarkdownChange` is recognized when
+ * it echoes back through `useBufferStore`, skipping a redundant
+ * `doc.toString()` + dispatch round-trip on every keystroke.
  *
- * The setting is applied as an OFFSET from `RENDERED_BASE_FONT_SIZE`
- * (`fontSize - DEFAULT_EDITOR_FONT_SIZE`), not as the raw pixel value —
- * `useSettingsStore`'s one `editorFontSize` field is shared with Source
- * mode's monospace 13px baseline (`baseExtensions.ts`), which is a much
- * smaller number than Rendered's carefully-tuned 17px prose size
- * (`livepreview/theme.ts`, matched to app-preview.png's typography). Wiring
- * the raw value straight through was tried first and is a real regression,
- * caught during Phase 5a verification: at the setting's own default (13) it
- * silently shrank every fresh boot's Rendered view from 17px to 13px,
- * visibly off-spec and (worse) enough to shift the live-preview reveal
- * decorations' pixel geometry — a scripted click at a coordinate computed
- * from the *current* (regressed) layout landed on the wrong line entirely
- * once compared line-for-line against the pre-Phase-5a build at the same
- * coordinates. The offset keeps the default (unconfigured) boot state
- * pixel-identical to Phase 4 while the slider still visibly scales the
- * Rendered view up/down by the same delta it applies to Source.
+ * Theming/settings: atomic-editor reads CSS custom properties, so VSNote's
+ * DESIGN-SPEC look is restored by mapping tokens onto its variables on the
+ * wrapper element (never forking library CSS): canvas/body/muted/accent
+ * colors, sans/mono fonts, selection tint, transparent code background
+ * (spec: fences sit flush on the editor surface), and the Settings-dialog
+ * sliders — font size as the same 17px-based OFFSET as before
+ * (`RENDERED_BASE_FONT_SIZE`), line spacing as `--atomic-editor-body-leading`,
+ * content width as `--atomic-editor-measure`. The margin slider applies as
+ * horizontal wrapper padding now (atomic-editor owns vertical rhythm via
+ * line padding; see ARCHITECTURE.md's deviation note).
  *
- * Phase 6.5c (DESIGN-SPEC Amendments item 11, "Rendered view" category)
- * adds `renderedLayoutCompartment`: content column max-width (ch),
- * left/right margin (px), and line height (multiplier) — all three settings
- * DIRECT (not offset) values, unlike font size, since `livepreview/theme.ts`
- * never hardcoded a competing rule for any of them in the first place (see
- * that file's own doc) — no regression risk from a raw-value default the
- * way font size had.
+ * ⌘F note: Rendered mode now uses atomic-editor's own find panel (its
+ * `search()` extension ships one). App.tsx still owns the global Mod-f
+ * handler and calls `openSearchPanel` on the registered view — that opens
+ * the panel this view was configured with, i.e. atomic-editor's — instead
+ * of Source/Diff mode's React `FindWidget`. Documented in ARCHITECTURE.md.
  */
-import { useEffect, useRef } from "react";
-import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
-import { EditorView, drawSelection, dropCursor, keymap, rectangularSelection, crosshairCursor } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { markdown } from "@codemirror/lang-markdown";
-import { Strikethrough, TaskList } from "@lezer/markdown";
-import { livePreviewExtensions } from "./livepreview";
-import { fontSizeCompartment, fontSizeTheme } from "./baseExtensions";
-import { createFindPanel } from "./findPanel";
-import { getActiveEditorView, setActiveEditorView } from "./activeView";
-import { useSettingsStore, DEFAULT_EDITOR_FONT_SIZE, RENDERED_CONTENT_WIDTH_FULL } from "../stores/useSettingsStore";
+import { useEffect, useMemo, useRef } from "react";
+import type { CSSProperties } from "react";
+import { EditorView, ViewPlugin, type PluginValue } from "@codemirror/view";
+import type { Extension } from "@codemirror/state";
+import { LanguageDescription } from "@codemirror/language";
+import { closeSearchPanel } from "@codemirror/search";
+import {
+  AtomicCodeMirrorEditor,
+  type AtomicCodeMirrorEditorHandle,
+} from "@atomic-editor/editor";
+import "@atomic-editor/editor/styles.css";
+import "./livepreview-theme.css";
+import {
+  getActiveEditorView,
+  setActiveEditorView,
+} from "./activeView";
+import {
+  useSettingsStore,
+  DEFAULT_EDITOR_FONT_SIZE,
+  RENDERED_CONTENT_WIDTH_FULL,
+} from "../stores/useSettingsStore";
 import type { CursorPos } from "./CodeMirrorEditor";
 
-/** Matches `livepreview/theme.ts`'s own `"&": { fontSize: "17px" }` — the
- * one place that number is allowed to be "true," everything else derives
- * an offset from it (see the module doc above). */
+/** Matches the pre-swap `RENDERED_BASE_FONT_SIZE` (17px prose baseline) —
+ * the Settings slider applies `(settingFontSize - DEFAULT_EDITOR_FONT_SIZE)`
+ * as an offset around it, keeping the default boot state pixel-identical to
+ * the hand-rolled implementation while still scaling both modes by the same
+ * delta. */
 const RENDERED_BASE_FONT_SIZE = 17;
 
 function renderedFontSize(settingFontSize: number): number {
   return RENDERED_BASE_FONT_SIZE + (settingFontSize - DEFAULT_EDITOR_FONT_SIZE);
 }
 
-/** Phase 6.5c — see this file's module doc. Direct (non-offset) values:
- * content column max-width (ch), left/right margin (px, matching the
- * removed `"56px {margin}px 160px"` shape — top/bottom stay fixed), and
- * line height (a `.cm-scroller` multiplier). */
-const renderedLayoutCompartment = new Compartment();
-
-function renderedLayoutTheme(contentWidthCh: number, marginPx: number, lineSpacing: number) {
-  // DESIGN-SPEC Amendments round 4 item 25: the slider's top position is
-  // "Full" (`RENDERED_CONTENT_WIDTH_FULL`), not a ch value — remove the cap
-  // entirely instead of clamping to some large number, so the reading
-  // column genuinely spans the whole editor area on any monitor width.
-  const maxWidth = contentWidthCh === RENDERED_CONTENT_WIDTH_FULL ? "none" : `${contentWidthCh}ch`;
-  return EditorView.theme({
-    ".cm-content": { maxWidth, padding: `56px ${marginPx}px 160px` },
-    ".cm-scroller": { lineHeight: String(lineSpacing) },
-  });
-}
-
-// Same reasoning as `baseExtensions.ts`: we own Ctrl/Cmd+F globally
-// (DESIGN-SPEC Amendments item 5) — Rendered mode is also a real CM6 view,
-// so the same owned-search wiring makes ⌘F open our panel here too instead
-// of a second, competing binding.
-const ownedSearchKeymap = searchKeymap.filter((k) => k.key !== "Mod-f" && k.key !== "Mod-Shift-f");
-
-const markdownLanguage = markdown({ extensions: [TaskList, Strikethrough] });
+/** Fenced-code grammars for languages this vault actually contains, wired
+ * through atomic-editor's lazy-loading `codeLanguages` (each grammar is
+ * dynamically imported on first use by a matching fence — no cost until
+ * then). Kept to packages already in `dependencies`; more can be added the
+ * same way. */
+const codeLanguages = [
+  LanguageDescription.of({
+    name: "javascript",
+    alias: ["javascript", "js", "jsx", "mjs", "cjs"],
+    extensions: ["js", "jsx", "mjs", "cjs"],
+    load: () => import("@codemirror/lang-javascript").then((m) => m.javascript({ jsx: true })),
+  }),
+  LanguageDescription.of({
+    name: "typescript",
+    alias: ["typescript", "ts", "tsx"],
+    extensions: ["ts", "tsx"],
+    load: () =>
+      import("@codemirror/lang-javascript").then((m) => m.javascript({ jsx: true, typescript: true })),
+  }),
+  LanguageDescription.of({
+    name: "css",
+    alias: ["css"],
+    extensions: ["css"],
+    load: () => import("@codemirror/lang-css").then((m) => m.css()),
+  }),
+  LanguageDescription.of({
+    name: "html",
+    alias: ["html", "htm"],
+    extensions: ["html", "htm"],
+    load: () => import("@codemirror/lang-html").then((m) => m.html()),
+  }),
+  LanguageDescription.of({
+    name: "json",
+    alias: ["json"],
+    extensions: ["json", "map"],
+    load: () => import("@codemirror/lang-json").then((m) => m.json()),
+  }),
+];
 
 export interface LivePreviewEditorProps {
   /** Which pane this instance belongs to — see `editor/activeView.ts`'s
@@ -117,24 +136,25 @@ export interface LivePreviewEditorProps {
   onOpenLink?: (href: string) => void;
 }
 
-export function LivePreviewEditor({ paneId, path, content, readOnly = false, onChange, onCursorChange, onOpenLink }: LivePreviewEditorProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+export function LivePreviewEditor({
+  paneId,
+  path,
+  content,
+  readOnly = false,
+  onChange,
+  onCursorChange,
+  onOpenLink,
+}: LivePreviewEditorProps) {
+  // The underlying CM6 view, captured via the `CaptureView` plugin below
+  // (atomic-editor's handle doesn't expose the view itself). Drives the
+  // external-content sync effect; pane registration happens in the plugin
+  // so ⌘F/format-actions resolve this pane's Rendered view like before.
   const viewRef = useRef<EditorView | null>(null);
-  // DESIGN-SPEC Amendments item 16 (typing-latency bug): the LAST content
-  // string this editor itself emitted via `onChange` — lets the content-sync
-  // effect below tell "this `content` prop update is just OUR OWN edit
-  // echoing back through `useBufferStore`" apart from "content changed for
-  // some OTHER reason (a second pane editing the same shared buffer, an
-  // external discard/undo)". Diagnosed with a temporary before/after
-  // profiling run (`lib/renderProbe.ts`'s doc + ARCHITECTURE.md's
-  // Deviations entry): every keystroke was paying for TWO full-document
-  // `doc.toString()` calls plus a full string-equality check on a large
-  // document — one in the `updateListener` below (to hand the new content
-  // to `onChange`), and a second, redundant one in the content-sync effect
-  // immediately after, re-serializing the SAME doc just to confirm it
-  // already matched what was just emitted. Skipping the second one
-  // whenever `content` is recognizably our own echo cut measured
-  // over-16ms-blocked keystrokes by roughly a third on a 1k-line document.
+  const handleRef = useRef<AtomicCodeMirrorEditorHandle | null>(null);
+  // The LAST content string this editor itself emitted — lets the sync
+  // effect tell our own edit's echo apart from an external change (same
+  // mechanism as the pre-swap implementation; see its notes in git history
+  // and ARCHITECTURE.md).
   const lastEmittedRef = useRef<string | null>(null);
 
   const onChangeRef = useRef(onChange);
@@ -151,51 +171,54 @@ export function LivePreviewEditor({ paneId, path, content, readOnly = false, onC
   const margin = useSettingsStore((s) => s.renderedMargin);
   const lineSpacing = useSettingsStore((s) => s.renderedLineSpacing);
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const extensions: Extension[] = [
-      history(),
-      drawSelection(),
-      dropCursor(),
-      rectangularSelection(),
-      crosshairCursor(),
-      // No `highlightActiveLine()` here (unlike `baseExtensions.ts`'s
-      // code-editor baseline) — a reading-column editor doesn't get the
-      // code-editor "current line" background wash; it would visually
-      // compete with the reveal/hide toggle this mode already draws
-      // attention to, and doesn't appear anywhere in app-preview.png.
-      EditorState.allowMultipleSelections.of(true),
-      // DESIGN-SPEC Amendments item 9 — see `editor/findPanel.ts`'s module
-      // doc for why this keeps `.cm-searchMatch` highlighting fully native
-      // while replacing the vanilla panel's DOM.
-      search({ top: true, createPanel: createFindPanel }),
-      highlightSelectionMatches(),
-      keymap.of([...defaultKeymap, ...historyKeymap, ...ownedSearchKeymap]),
-      EditorView.lineWrapping,
-      markdownLanguage,
-      livePreviewExtensions({ onOpenLink: (href) => onOpenLinkRef.current?.(href) }),
-      // `Prec.highest` (not just array position — verified empirically:
-      // placing this after `livePreviewExtensions` in the array alone did
-      // NOT win the tie, CM6's `StyleModule` doesn't resolve identical-
-      // specificity `&{...}` rules from two separate `EditorView.theme()`
-      // calls by extension order the way a plain stylesheet would) so this
-      // compartment's `fontSize` rule always beats `livePreviewTheme`'s own
-      // hardcoded `&{fontSize: "17px"}` regardless of extension order.
-      // Compartments keep whatever `Prec` wraps them across `.reconfigure()`
-      // (CM6's documented pattern for dynamically-reconfigured content that
-      // needs guaranteed precedence), so the Settings dialog's font-size
-      // slider keeps working after every later reconfigure too.
-      Prec.highest(fontSizeCompartment.of(fontSizeTheme(renderedFontSize(fontSize)))),
-      renderedLayoutCompartment.of(renderedLayoutTheme(contentWidth, margin, lineSpacing)),
-      EditorView.editable.of(!readOnly),
-      EditorState.readOnly.of(readOnly),
+  // Stable across the document's lifetime: atomic-editor captures the
+  // `extensions` array once per `documentId`, so these are constructed once
+  // per mount (paneId is fixed for a given mounted instance — upstream keys
+  // the whole component by `path`).
+  const extraExtensions = useMemo<Extension[]>(() => {
+    let registered: EditorView | null = null;
+    class CaptureView implements PluginValue {
+      constructor(view: EditorView) {
+        viewRef.current = view;
+        registered = view;
+        setActiveEditorView(paneId, view);
+      }
+      destroy() {
+        if (viewRef.current === registered) viewRef.current = null;
+        if (getActiveEditorView(paneId) === registered) setActiveEditorView(paneId, null);
+      }
+    }
+    // Upstream gap workaround (fixed here, not forked): atomic-editor's
+    // search panel doesn't bind Escape on its own DOM, so Esc while typing
+    // in the find field did nothing (CM6's default panel closes; theirs
+    // forgot the listener). Keydowns inside `.cm-panels` bubble through the
+    // editor root, so one capture listener on `view.dom` closes the panel —
+    // and only the panel — from anywhere inside it. (This can't be an
+    // `EditorView.domEventHandlers` entry: those bind to the CONTENT dom,
+    // which the panel is not part of.)
+    class EscapeClosesPanel implements PluginValue {
+      private readonly view: EditorView;
+      private readonly handler = (event: KeyboardEvent) => {
+        if (event.key !== "Escape") return;
+        const target = event.target;
+        if (!(target instanceof Element) || !target.closest(".cm-panels")) return;
+        event.preventDefault();
+        closeSearchPanel(this.view);
+      };
+      constructor(view: EditorView) {
+        this.view = view;
+        view.dom.addEventListener("keydown", this.handler);
+      }
+      destroy() {
+        this.view.dom.removeEventListener("keydown", this.handler);
+      }
+    }
+    return [
+      ViewPlugin.fromClass(CaptureView),
+      ViewPlugin.fromClass(EscapeClosesPanel),
+      // Same Ln/Col reporting contract as the pre-swap updateListener
+      // (1-based column; fires on doc or selection changes).
       EditorView.updateListener.of((update) => {
-        if (update.docChanged && !readOnly) {
-          const value = update.state.doc.toString();
-          lastEmittedRef.current = value;
-          onChangeRef.current?.(value);
-        }
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
@@ -203,29 +226,13 @@ export function LivePreviewEditor({ paneId, path, content, readOnly = false, onC
         }
       }),
     ];
-
-    const state = EditorState.create({ doc: content, extensions });
-    const view = new EditorView({ state, parent: containerRef.current });
-    viewRef.current = view;
-    setActiveEditorView(paneId, view);
-
-    return () => {
-      if (viewRef.current === view) viewRef.current = null;
-      if (getActiveEditorView(paneId) === view) setActiveEditorView(paneId, null);
-      view.destroy();
-    };
-    // Scoped to `path` only, same rationale as `CodeMirrorEditor.tsx` —
-    // this effect owns one EditorView's mount lifecycle per open file.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path]);
+  }, [paneId]);
 
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    // This `content` update is our own last edit echoing back through
-    // `useBufferStore` — the view already reflects it (we're the one who
-    // produced it), so skip re-serializing the whole document just to
-    // confirm that. See `lastEmittedRef`'s doc above.
+    // Our own last edit echoing back through `useBufferStore` — skip the
+    // redundant re-serialize + dispatch (see `lastEmittedRef` above).
     if (content === lastEmittedRef.current) {
       lastEmittedRef.current = null;
       return;
@@ -236,15 +243,49 @@ export function LivePreviewEditor({ paneId, path, content, readOnly = false, onC
     }
   }, [content]);
 
-  useEffect(() => {
-    viewRef.current?.dispatch({ effects: fontSizeCompartment.reconfigure(fontSizeTheme(renderedFontSize(fontSize))) });
-  }, [fontSize]);
+  // DESIGN-SPEC token mapping onto atomic-editor's CSS variables — restyle
+  // at the variable layer only, never by overriding library rules (repo
+  // rule 1). Recomputed per render; the vars cascade into the editor DOM.
+  const wrapperStyle = {
+    paddingInline: `${margin}px`,
+    "--atomic-editor-font": "var(--font-sans)",
+    "--atomic-editor-font-mono": "var(--font-mono)",
+    "--atomic-editor-body-size": `${renderedFontSize(fontSize)}px`,
+    "--atomic-editor-body-leading": String(lineSpacing),
+    // Amendments round 4 item 25: "Full" removes the cap entirely rather
+    // than clamping to a large ch value.
+    "--atomic-editor-measure":
+      contentWidth === RENDERED_CONTENT_WIDTH_FULL ? "none" : `${contentWidth}ch`,
+    "--atomic-editor-fg": "var(--markdown-body)",
+    "--atomic-editor-fg-muted": "var(--color-muted)",
+    "--atomic-editor-accent": "var(--color-primary)",
+    "--atomic-editor-accent-bright": "var(--color-primary)",
+    "--atomic-editor-link": "var(--color-accent-text, var(--color-primary))",
+    "--atomic-editor-selection-bg":
+      "color-mix(in oklab, var(--color-primary) 25%, transparent)",
+    // Spec correction: fenced code sits flush on the editor surface — no
+    // raised panel behind it.
+    "--atomic-editor-code-bg": "transparent",
+    // Code token color follows the same `--syntax-string` role token Source
+    // mode highlights with (Amendments round 3 item 22(b)).
+    "--atomic-editor-hl-string": "var(--syntax-string)",
+  } as CSSProperties;
 
-  useEffect(() => {
-    viewRef.current?.dispatch({
-      effects: renderedLayoutCompartment.reconfigure(renderedLayoutTheme(contentWidth, margin, lineSpacing)),
-    });
-  }, [contentWidth, margin, lineSpacing]);
-
-  return <div ref={containerRef} style={{ height: "100%" }} />;
+  return (
+    <div className="vsnote-live-preview" style={wrapperStyle} data-testid="live-preview-root">
+      <AtomicCodeMirrorEditor
+        documentId={path}
+        markdownSource={content}
+        readOnly={readOnly}
+        codeLanguages={codeLanguages}
+        extensions={extraExtensions}
+        editorHandleRef={handleRef}
+        onMarkdownChange={(md) => {
+          lastEmittedRef.current = md;
+          onChangeRef.current?.(md);
+        }}
+        onLinkClick={(url) => onOpenLinkRef.current?.(url)}
+      />
+    </div>
+  );
 }

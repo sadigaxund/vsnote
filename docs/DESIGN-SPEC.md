@@ -588,3 +588,17 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     selected, the people-and-roles list (add by account email, pick role, remove) is
     visible in the same dialog with a one-row explanation of how recipients sign in.
     Account-based only for now (OAuth deferred, see round 7 header).
+
+## Amendments round 8 — 2026-08-21 (live-preview engine swap; OVERRIDE above)
+
+61. **Rendered mode runs on the `@atomic-editor/editor` engine.** The Obsidian
+    live-preview behavior itself is unchanged and still non-negotiable: one raw-
+    markdown document, rendered by default, raw syntax revealed only around the
+    cursor, instant re-render on leave. Two user-visible deltas come with the
+    hardened package: (a) Rendered mode's Ctrl/⌘F panel is atomic-editor's own
+    minimal find bar (same native match highlighting; Source/Diff keep the React
+    `FindWidget`) — item 9's "vanilla panel replaced everywhere" intent now reads
+    "replaced in Source/Diff; Rendered uses its engine's panel"; (b) the Rendered
+    margin slider applies as horizontal page padding (the engine owns vertical
+    rhythm). Implementation detail lives in ARCHITECTURE.md's 2026-08-21 deviation
+    entry.

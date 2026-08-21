@@ -58,17 +58,16 @@ export type UiDensity = "compact" | "default" | "comfortable";
 /** Phase 6.5c (DESIGN-SPEC Amendments item 11, "Rendered view" category) —
  * every default matches the exact hardcoded value the pre-6.5c static
  * `EditorView.theme()` blocks used (`editor/theme.ts`'s `.cm-scroller`
- * `lineHeight: "1.6"`, `editor/livepreview/theme.ts`'s `.cm-content`
- * `maxWidth: "54ch"` / `padding: "56px 32px 160px"` / `.cm-scroller`
- * `lineHeight: "1.8"`), so an unconfigured fresh boot stays pixel-identical
- * to every phase before this one — the same discipline
- * `DEFAULT_EDITOR_FONT_SIZE`/`renderedFontSize` already established. Those
- * two theme files no longer hardcode these properties at all (single
- * source now: the settings-driven CM6 `Compartment`s in
- * `editor/baseExtensions.ts`/`editor/LivePreviewEditor.tsx`), so there's no
- * "two `EditorView.theme()` calls fight over the same property" precedence
- * question to resolve (ARCHITECTURE.md's Deviations note on
- * `fontSizeCompartment`'s `Prec.highest` requirement doesn't recur here). */
+ * `lineHeight: "1.6"`, and Rendered mode's old `livepreview/theme.ts`:
+ * `.cm-content` `maxWidth: "54ch"` / `padding: "56px 32px 160px"` /
+ * `.cm-scroller` `lineHeight: "1.8"`), so an unconfigured fresh boot stays
+ * pixel-identical to every phase before this one — the same discipline
+ * `DEFAULT_EDITOR_FONT_SIZE`/`renderedFontSize` already established. Since
+ * the 2026-08-21 engine swap these values reach Rendered mode as
+ * atomic-editor CSS variables set in `editor/LivePreviewEditor.tsx`
+ * (Source mode keeps the CM6 `Compartment`s in `editor/baseExtensions.ts`),
+ * so there's no "two rules fight over the same property" precedence
+ * question on either surface. */
 export const DEFAULT_EDITOR_LINE_SPACING = 1.6;
 export const DEFAULT_RENDERED_CONTENT_WIDTH_CH = 54;
 /** DESIGN-SPEC Amendments round 4 item 25: the content-max-width slider's
