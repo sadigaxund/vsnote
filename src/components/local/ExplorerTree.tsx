@@ -303,6 +303,10 @@ export function ExplorerTree({
   className,
 }: ExplorerTreeProps) {
   const [dragPath, setDragPath] = useState<string | null>(null);
+  // §3.5 keyboard move: the row id stashed by Ctrl+X, consumed by the next
+  // internal Ctrl+V (see handlePaste). A ref, not state — the only UI it
+  // drives is the live-region announcement, which is already stateful.
+  const cutPathRef = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const [autoExpandPath, setAutoExpandPath] = useState<string | null>(null);
   const cancelledRef = useRef(false);
@@ -412,7 +416,37 @@ export function ExplorerTree({
   // `App.tsx`'s `resolveCreateParent` already uses for "New file"/"New
   // folder", kept local here since the tree already has `data`/`selectedId`
   // in scope and this never needs to leave the component.
+  /** Ctrl+X on a row — stashes the id for handlePaste's keyboard move. */
+  function handleCutNode(node: FileNode) {
+    cutPathRef.current = node.id;
+    setAnnouncement(`Cut ${node.name}. Open a target folder and press Ctrl+V to move it.`);
+  }
+
   function handlePaste(e: ClipboardEvent<HTMLElement>) {
+    // Internal cut/paste FIRST (COMPONENT-BACKLOG §3.5 — the keyboard
+    // alternative to drag-move): Ctrl+X on a row stashes its id in
+    // `cutPathRef`; a later Ctrl+V with no OS files on the clipboard moves
+    // it into the resolved target folder, mirroring handleDrop's own
+    // self/descendant refusal.
+    if (cutPathRef.current) {
+      const source = cutPathRef.current;
+      const selectedNode = selectedId ? findNodeById(data, selectedId) : null;
+      const targetFolderPath = selectedNode
+        ? selectedNode.type === "folder"
+          ? selectedNode.id
+          : parentOfPath(selectedNode.id)
+        : (data[0]?.id ?? "vault");
+      const sourceName = source.split("/").pop() ?? source;
+      if (!onMove || source === targetFolderPath || collectDescendantIds(data, source).has(targetFolderPath)) {
+        cutPathRef.current = null;
+        return;
+      }
+      e.preventDefault();
+      cutPathRef.current = null;
+      onMove(source, targetFolderPath);
+      setAnnouncement(`Moved ${sourceName} to ${targetFolderPath.split("/").pop() ?? targetFolderPath}`);
+      return;
+    }
     if (!onImportEntries) return;
     const entries = extractClipboardFiles(e.clipboardData);
     if (entries.length === 0) return;
@@ -541,6 +575,7 @@ export function ExplorerTree({
     onToggleExpandNode: toggleExpandNode,
     onTreeKeyDown: handleTreeKeyDown,
     onAnnounce: setAnnouncement,
+    onCutNode: handleCutNode,
     readOnly,
   };
 
@@ -623,6 +658,8 @@ interface SharedTreeRowProps {
   /** Screen-reader announcements (rename commit/cancel) into the tree's
    * shared polite live region. */
   onAnnounce: (message: string) => void;
+  /** Ctrl+X — stash the node for the keyboard move (§3.5). */
+  onCutNode: (node: FileNode) => void;
   readOnly?: boolean;
 }
 
@@ -757,6 +794,7 @@ function TreeRowContent({
   onToggleExpandNode,
   onTreeKeyDown,
   onAnnounce,
+  onCutNode,
   readOnly,
 }: TreeRowContentProps) {
   const isFolder = node.type === "folder";
@@ -854,6 +892,15 @@ function TreeRowContent({
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       handleActivate({ pin: e.key === "Enter" });
+      return;
+    }
+    // §3.5 keyboard move: Ctrl+X stashes the row for the next internal
+    // Ctrl+V (handlePaste). Same guards as the drag gesture.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "x") {
+      if (readOnly || isRenaming) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onCutNode(node);
       return;
     }
     // Arrows/Home/End → the ARIA-tree nav implemented at ExplorerTree level

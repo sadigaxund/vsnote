@@ -137,9 +137,17 @@ a backlog entry changes materially, update its issue in the same pass):
   raw hex scattered in components; contrast check between the pair before commit
   (accent-on-accent-foreground must clear WCAG for text usage). Swatch grid +
   recent-colors row are the minimum viable UI; native input stays the fallback.
-- **Why deferred:** native control fully satisfies "pick an accent color"; the OKLCH
-  token work is the valuable part and can land independently of fancier picker UI.
-- **Status:** planned.
+- **Why deferred / status update (2026-08-21 audit):** the CONTRAST-GATE half of this
+  spec already ships — `lib/accentContrast.ts` (round 6 item 17, unit-tested) derives
+  a WCAG-AA-readable `primary` from ANY picked color against the live theme bg,
+  derives `primary-fg`, and applies a stricter 7:1 tier for accent-tinted text;
+  `applyDomSettings` writes them as root-level CSS vars (the app-side equivalent of
+  the OKLCH-pair registration). The delta vs the spec is only the picker UI surface
+  (presets/recent/in-app popover) — exactly what my-you-eye#20 says not to build
+  until a consumer needs it. Remaining: when built, presets should be named token
+  values and the derivation should migrate HSL-lightness math to OKLCH for
+  perceptually even adjustments (small, self-contained follow-up in
+  `accentContrast.ts`).
 
 ### 2.4 Sidebar token namespace
 
@@ -152,7 +160,12 @@ a backlog entry changes materially, update its issue in the same pass):
   `SidebarContainer` and its four activity views consume only these tokens. Mirrors
   shadcn's precedent of separating sidebar chrome from page surfaces; keeps
   "switching `data-theme` + `.dark` restyles everything" true (SKILL.md rule 12).
-- **Status:** planned — pair with the next DESIGN-SPEC amendment round.
+- **Status: done 2026-08-21** — family defined in both theme blocks (derived aliases +
+  exact VSNote-default values), sidebar-scoped consumers migrated (`SidebarContainer`
+  TexturedSurface, `ExplorerTree` row active/hover, Search/SourceControl hovers,
+  App's Suspense fallback), DESIGN-SPEC amendment item 43 in the same commit.
+  Pixel-identical by construction. Upstream tracker: my-you-eye#27 (open — the
+  library-side namespace documentation still belongs there).
 
 ### 2.5 Command palette empty-state integration
 
@@ -336,6 +349,17 @@ patterns, shadcn forms/composition rules. Apply per surface:
   node), tab dock (keyboard pane-focus cycling + "Move tab to pane" command), OS
   import already has Ctrl+V paste parity (keep it). During any active drag: disable
   text selection and set `inert` on dragged elements (WIG).
+- **Status: done 2026-08-21, with a simpler shape than first sketched:**
+  - **Tree move** = standard cut/paste semantics instead of a bespoke dialog: Ctrl+X
+    on a focused row stashes it (announced), Ctrl+V on a resolved target folder moves
+    it via the same `onMove` the drag path uses — including handleDrop's
+    self/descendant refusal. No new destination-picker UI to maintain.
+  - **Tab dock** already had its non-drag affordance all along: the per-tab context
+    menu's Split/Move items, reachable from the keyboard since B3 (tabs are focusable;
+    Menu key fires a real contextmenu event on them). Documented here so nobody
+    rebuilds it.
+  - Drag-gesture hardening (`user-select`/`inert` during active drags) remains open —
+    low value until multi-select drag lands (§1.1 trigger criteria).
 
 ### 3.6 Performance micro-items (50k-note push)
 
