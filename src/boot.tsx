@@ -49,6 +49,33 @@ import { Spinner, TooltipProvider, Toaster } from "my-you-eye";
 import { getAppConfig, whoami } from "./share/api";
 import { LoginGate } from "./components/LoginGate";
 
+// TODO §5.8 — DEV-only console access to the core stores (inspect/patch from
+// DevTools: `vsnote.tabs.getState()`). Deliberately NOT the zustand devtools
+// middleware: wrapping persist(devtools(...)) would mean restructuring two
+// large persisted stores for editor-only convenience, and a named window
+// handle covers the real debugging workflow. Dynamic imports keep the
+// dependency graph identical; the module cache shares instances with App.
+if (import.meta.env.DEV) {
+  void Promise.all([
+    import("./stores/useTabsStore"),
+    import("./stores/useSettingsStore"),
+    import("./stores/useFsStore"),
+    import("./stores/useGitStore"),
+    import("./stores/useBufferStore"),
+  ]).then(([tabs, settings, fsStore, gitStore, buffers]) => {
+    Object.assign(window, {
+      vsnote: {
+        tabs: tabs.useTabsStore,
+        settings: settings.useSettingsStore,
+        fs: fsStore.useFsStore,
+        git: gitStore.useGitStore,
+        buffers: buffers.useBufferStore,
+      },
+    });
+  });
+}
+
+
 // `React.lazy`'s factory is called once and its promise cached internally —
 // starting the import here (module-eval time, the instant `boot.tsx` itself
 // is downloaded/evaluated) means the App chunk's network fetch overlaps

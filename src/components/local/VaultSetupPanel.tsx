@@ -616,7 +616,7 @@ export function VaultSetupPanel({ clientRepoName }: VaultSetupPanelProps) {
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }} data-testid="vault-wizard-create">
         <p style={{ fontSize: 13, fontWeight: 600, color: "var(--color-fg)", margin: 0 }}>Step 1 of 2: Create the vault repository</p>
         <p style={{ fontSize: 12.5, color: "var(--color-muted)", margin: 0 }}>
-          Creates a real git repository on the server at <code>{vault.path}</code>. An existing repository there is never overwritten.
+          Sync and sharing need a server-side git repo to talk to. This creates it at <code>{vault.path}</code>. An existing repository there is never overwritten.
         </p>
         <FormField label="Branch name" hint="The vault's default branch. Matches this app's own default unless you change it.">
           <Input

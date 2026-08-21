@@ -57,7 +57,18 @@ conformant-or-N/A; one guard added.
 - **Acceptance:** no non-token keyframes outside `@theme`; dialogs animate via
   `@starting-style`; `grep` finds no raw hex outside the token layer.
 
-### 5.2 Motion discipline audit
+### 5.2 Motion discipline audit — ✅ done 2026-08-21, conformant
+
+Audit table: all app-owned transitions are opacity/background/color at
+100–150ms (`EditorPane` pane fade, VaultSetup/SharedPanel loading dims,
+PaneDivider hover tint, SegmentedControl, chevron rotate-transform) — within
+the ≤200ms cap, no width/height/top/left animation anywhere; ResizeHandle
+writes width during drag with NO transition; entry animations on overlays are
+Radix's own system; reduced-motion is globally honored by the index.css guard.
+`text-pretty/balance` recorded N/A: rendered typography belongs to the
+atomic-editor engine, not app CSS.
+
+### 5.2 Motion discipline audit (original spec)
 
 - **Source:** kursku `baseline-ui` (Stack section struck); mblode `ui-animation`
   (finfin index); DESIGN-SPEC motion rules.
@@ -70,7 +81,15 @@ conformant-or-N/A; one guard added.
 - **Acceptance:** a sweep grep + visual pass per DESIGN-SPEC amendment round; reduced-
   motion already covered in §3.4.
 
-### 5.3 Micro-copy & numeric typography
+### 5.3 Micro-copy & numeric typography — ✅ done 2026-08-21
+
+Findings: keyboard hints are all single-modifier combos (no multi-key runs →
+nbsp rule vacuously satisfied); zero "..." literals anywhere (real "…"
+already standard). Shipped: `tabular-nums` on DiffStatChip, status-bar
+ahead/behind + Ln/Col + untracked segments (StatusBarItem gained a style
+passthrough), FindWidget's "N of M" counter, SearchPanel result counts.
+
+### 5.3 Micro-copy & numeric typography (original spec)
 
 - **Source:** WIG Content & Copy / Typography groups.
 - **Items:** keyboard hints use non-breaking space (`⌘⍽K`, `Ctrl⍽S`) so hints never
@@ -80,7 +99,17 @@ conformant-or-N/A; one guard added.
   sync progress, match counters in FindWidget ("N of M"), VirtualList row counts.
 - **Acceptance:** grep-audit + visual pass; no layout shift when counts tick.
 
-### 5.4 Resiliency: error boundaries & offline states
+### 5.4 Resiliency — ✅ core shipped 2026-08-21
+
+Per-pane `PaneErrorBoundary` (class boundary, keyed pane+active-tab;
+"Reload pane" forces real child remount via attempt-keyed wrapper) — one bad
+render isolates to a danger card instead of unwinding the grid. Overflow
+spot-check added native title tooltips to the two truncating labels that
+lacked them (tree rows, tab titles). Offline error states were already
+covered by LoginGate/SyncSetupPanel unreachable-states + status-bar sync
+error surfacing; pointers recorded rather than new code.
+
+### 5.4 Resiliency (original spec)
 
 - **Source:** kursku `harden` (partially un-skipped: its resiliency checklist is
   compatible with DESIGN-SPEC authority even though its taste siblings are not).
@@ -92,7 +121,16 @@ conformant-or-N/A; one guard added.
 - **Acceptance:** forced-throw test in dev renders the error card in-pane only;
   airplane-mode walkthrough of sync actions degrades with messages, not breaks.
 
-### 5.5 PWA viewport & caching strategy
+### 5.5 PWA — ✅ partial shipped 2026-08-21 + server fix
+
+Shipped: app shells moved to `100dvh`; `viewport-fit=cover` meta. MAJOR:
+backend SPA shell now read per-request (was startup-cached bytes — the root
+cause of "changes invisible even after hard refresh"); rebuilds go live
+without restarting uvicorn. Deferred pending a real-device pass:
+safe-area-inset padding; service-worker caching-strategy changes (current
+autoUpdate + hourly poll assessed adequate).
+
+### 5.5 PWA viewport & caching strategy (original spec)
 
 - **Source:** kursku `optimize`; baseline-ui interaction rules.
 - **Items:** `h-dvh` over `h-screen` on the app shell (mobile browser chrome
@@ -103,7 +141,13 @@ conformant-or-N/A; one guard added.
   offline".
 - **Acceptance:** Lighthouse PWA checks; manual mobile-viewport pass.
 
-### 5.6 Onboarding polish for VaultSetupPanel
+### 5.6 Onboarding — ✅ done 2026-08-21
+
+Create step now states WHY setup exists before asking for input (sync/share
+need the server-side repo); existing never-overwritten + one-primary-action
+framing was already in place and verified.
+
+### 5.6 Onboarding polish (original spec)
 
 - **Source:** kursku `onboard` (un-skipped subset); SKILL.md design rule 4.
 - **Items:** wizard steps get empty-state-with-one-clear-action framing; first-run
@@ -123,7 +167,16 @@ conformant-or-N/A; one guard added.
   it isn't rediscovered late.
 - **Status:** planned (blocked on v2 backend routes).
 
-### 5.8 State tooling upgrades
+### 5.8 State tooling — ✅ resolved differently 2026-08-21
+
+DEV-only `window.vsnote = {tabs, settings, fs, git, buffers}` handles in
+boot.tsx (dynamic imports keep the graph identical) — chosen over the
+zustand devtools middleware because wrapping persist(devtools(...)) would
+restructure two large persisted stores for editor-only convenience.
+Transient subscribe() for drag already exists where needed; persist
+middleware was already native.
+
+### 5.8 State tooling upgrades (original spec)
 
 - **Source:** wshobson Pattern 2 tail + quick-start; vercel-labs `rerender-*`.
 - **Items:** add `devtools` middleware to stores in development builds (PaneNode tree
