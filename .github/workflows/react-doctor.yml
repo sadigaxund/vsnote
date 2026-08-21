@@ -1,0 +1,76 @@
+# React Doctor audit (TODO §5.9) — report-only regression tripwire.
+#
+# Scans only files CHANGED relative to the PR base (`--scope changed --base`),
+# so findings are "newly introduced issues", not the historical backlog —
+# exactly the tripwire shape TODO.md §5.9 specifies (no score-chasing).
+#
+# v1 is deliberately NON-BLOCKING (`|| true`): run it for a few weeks, confirm
+# the signal/noise ratio on real PRs, then drop `|| true` from the audit step
+# to make it a required gate. `--project src` scopes away server/.venv and
+# skills/references (the two paths that produced 19 bogus findings in the
+# one-time audit — see TODO.md §3.9).
+
+name: react-doctor
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # --scope changed needs the base ref's commits
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: React Doctor audit (changed files only)
+        continue-on-error: true # v1 report-only; flip after baseline confidence
+        run: |
+          npx -y react-doctor@latest \
+            --no-telemetry \
+            --project src \
+            --scope changed \
+            --base "origin/${{ github.base_ref }}" \
+            --json \
+            --json-out react-doctor-report.json || true
+
+      - name: Summarize findings
+        if: always()
+        run: |
+          if [ ! -f react-doctor-report.json ]; then
+            echo "### React Doctor" >> "$GITHUB_STEP_SUMMARY"
+            echo "No report produced (audit step failed or no changed JS/TS)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node -e '
+            const fs = require("fs");
+            const d = JSON.parse(fs.readFileSync("react-doctor-report.json", "utf8"));
+            const items = Array.isArray(d) ? d : d.findings ?? [];
+            const byRule = {};
+            for (const f of items) {
+              const k = `${f.rule ?? "?"} (${f.severity ?? "?"})`;
+              byRule[k] = (byRule[k] ?? 0) + 1;
+            }
+            const lines = Object.entries(byRule).sort((a, b) => b[1] - a[1])
+              .map(([k, n]) => `- ${k}: ${n}`);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              "### React Doctor — newly introduced findings\n" +
+              (lines.length ? lines.join("\n") : "_none_") + "\n");
+          '
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: react-doctor-report
+          path: react-doctor-report.json
+          if-no-files-found: ignore
