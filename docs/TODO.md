@@ -492,7 +492,9 @@ Status after the 2026-08-21 implementation pass: **items 1–3 done** (`e49f830`
 5. ✅ **Preload lazy panels on rail hover/focus** (`bundle-preload`) — see item 5 above (merged implementation).
 6. **Cheap-guard-before-await audit** (`async-cheap-condition-before-await`) —
    sweep `src/share/*` + `git/sync.ts` for remote awaits preceding local guards.
-7. Micro-batch (spinner half ✅ — all 17 wrapped): hoist locals in
+7. Micro-batch (spinner half ✅; `rendering-hoist-jsx` recorded as wontfix-
+   with-reason 2026-08-21: post-§3.1 these components re-render rarely, so
+   hoisting static JSX is churn without measurable payoff); — all 17 wrapped): hoist locals in
    vaultSearch inner loop; primitive-useMemo sweep; hoist static empty-state JSX;
    split fused filter+sort memos if deps mix.
 5. **Preload lazy panels on ActivityBar intent** — done: `onItemIntent`
