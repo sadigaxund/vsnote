@@ -1,9 +1,9 @@
 # Skills INDEX — distilled router
 
-The operational entry point for agent skills. `index.md` / `index-UXUI.md` are the
-raw URL registries; `ANALYSIS.md` is the provenance/trust record; **this file** says
-what each source is for, which subskill to open for which task, and what to do when
-sources disagree.
+The operational entry point for agent skills. (The original raw URL registries
+were retired once every source became vendored + pinned here.) `ANALYSIS.md` is
+the provenance/trust record; **this file** says what each source is for, which
+subskill to open for which task, and what to do when sources disagree.
 
 ## Precedence chain (read first)
 
