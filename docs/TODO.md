@@ -442,3 +442,82 @@ one accent per view; empty states carry one clear next action; skeletons mirror 
 layout; destructive actions use confirm dialogs; `h-dvh` over `h-screen` for PWA
 viewport correctness; never block paste; fixed z-index scale; compositor-only
 animation properties.
+
+---
+
+## 6.x — Phase E0 deep-read findings (2026-08-21)
+
+First full ingestion of the vendored reference bodies (no summaries): all 70
+vercel-labs rule files, all composition-patterns bodies, shadcn's
+base-vs-radix/forms/styling/icons rules — audited against `src/`. Result counts:
+vercel rules **20 applied / 19 NEW / 26 N-A / 5 already-queued**; composition
+doctrine audited against 4 local components. New items below.
+
+### 6.1 Perf: from vercel rule bodies (ordered by impact)
+
+1. **fs read cache (from `server-cache-lru`, translated)** — Map-based LRU (~500
+   entries, TTL) over `fs/operations.ts` `readTextFile`/`listDir` so repeated tree
+   renders + search sweeps skip IndexedDB round-trips. Biggest unqueued 50k lever.
+   Invalidate on every `writeFile`/delete/rename through the same module.
+2. **SearchPanel rows through existing `VirtualList`** (`rendering-content-visibility`
+   extension) — `SearchPanel.tsx` renders `results.map` unwindowed; fixed-row-height
+   fits our VirtualList exactly.
+3. **VirtualList scroll in a transition** (`rerender-transitions`) —
+   `VirtualList.tsx` `onScroll → setScrollTop` re-renders synchronously per frame;
+   wrap in `startTransition` or rAF-throttle (pair with queued passive-listener).
+4. **Single-pass flattens** (`js-combine-iterations`/`flatmap-filter`) —
+   `lib/flattenTree.ts` + `lib/filterTree.ts` multi-pass per node; collapse walks.
+5. **Preload lazy panels on ActivityBar hover/focus** (`bundle-preload`) — fire
+   `void import()` for Settings/SourceControl/Search chunks on intent.
+6. **Cheap-guard-before-await audit** (`async-cheap-condition-before-await`) —
+   sweep `src/share/*` + `git/sync.ts` for remote awaits preceding local guards.
+7. Micro-batch: spinner SVGs wrapped (`Loader2 animate-spin` directly on lucide svg
+   at 6 sites → wrap in span, `rendering-animate-svg-wrapper`); hoist locals in
+   vaultSearch inner loop; primitive-useMemo sweep; hoist static empty-state JSX;
+   split fused filter+sort memos if deps mix.
+8. Watchlist (post-profile only): `memo()` adoption — deliberately zero today;
+   selector granularity + hygiene test is OUR mechanism (see 6.4 contradiction #2).
+
+### 6.2 Component doctrine: PublishDialog variant refactor
+
+`architecture-avoid-boolean-props` + `patterns-explicit-variants` verdict on the
+audit: PublishDialog derives `editMode`/`isFolder` from discriminators
+(`existingShare`, folder triple) → 4 implicit modes with conditional rendering =
+textbook boolean sprawl. Refactor shape: explicit variants
+(`PublishFileNew`/`PublishFolderNew`/`EditShareFile`/`EditShareFolder`) composing
+shared parts (header, policy section, footer) — "no impossible states".
+ExplorerTree/EditorTabBar/SidebarContainer conform or have documented tradeoffs;
+ExplorerTree is an exemplar for state-decouple/lift-state.
+
+### 6.3 Forms contract enrichment for my-you-eye#29
+
+shadcn `forms.md` exact pairing (stronger than our current one-sided fix):
+**both** `data-invalid` on the Field wrapper (styles label/description) AND
+`aria-invalid` on the control (styles input); same for `data-disabled`/`disabled`;
+description/error node rendered beneath the control gets an id wired via
+`aria-describedby`. Works uniformly across Input/Textarea/Select/Checkbox/
+RadioGroupItem/Switch/Slider. Update #29 comment + our VaultSetupPanel usage to
+the full pairing once upstream exposes ids. Also from `base-vs-radix.md`: we're
+Radix-column conformant (inline SelectItem JSX, placeholder on SelectValue);
+ToggleGroup unused; Slider takes array values ✓. Styling-rules audit of src:
+zero violations (no space-x-*, no raw status colors, no manual dark:, no manual
+overlay z-index outside tokens). `icons.md`'s `data-icon` convention is shadcn-
+specific — N/A for my-you-eye; its "no sizing classes on icons" principle does not
+apply to lucide-in-my-you-eye sizing.
+
+### 6.4 Contradictions ledger additions (extends INDEX.md register)
+
+1. **content-visibility vs JS windowing**: rule prescribes CSS
+   `content-visibility:auto`; repo's threshold-gated VirtualList is the stronger
+   choice around CodeMirror measure invalidation — CSS form survives only for
+   non-CM long lists (item 6.1.2).
+2. **memo()/compiler philosophy vs selector granularity**: skill leans on memo();
+   repo enforces subscription granularity via static-scan test instead. Both valid;
+   apply memo() only post-profile (6.1.8) so it can't paper over the store invariant.
+3. **client-event-listeners prescribes SWR subscription** — rejected: zustand-only
+   law; moot anyway (all window/document listeners are app singletons).
+4. **useTransition-loading vs SearchPanel's debounced isLoading** — manual state is
+   correct where loading wraps a real async sweep; keep.
+5. Repo goes BEYOND the skill on unload safety: visibilitychange flush exists
+   because beforeunload alone is unreliable in SPAs — don't "simplify" toward
+   generic guidance.
