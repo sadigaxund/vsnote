@@ -1,5 +1,14 @@
 # Skills index analysis — curated for VSNote
 
+> **What this document is and isn't.** A *synthesis + pointer layer* over the seven
+> `skills/index.md` entries: provenance, inventories, relevance mappings, and
+> verdicts, written so `docs/TODO.md` work items are executable without re-fetching.
+> It is NOT a full mirror. Not ingested: per-rule detail bodies (vercel-labs'
+> `rules/*.md` wrong/right pairs, shadcn's six domain rule files), react-doctor's
+> remote per-rule fix recipes, and everything below the skip verdicts. Re-fetch from
+> origin when exact rule/example text matters — and note the sources drift (finfin's
+> index lagged upstream by 8 rules within months).
+
 Analysis of every entry in `skills/index.md`, fetched and read in full (one research
 subagent per entry, including sub-skills), then judged against THIS repo: a browser-only
 VSCode + Obsidian hybrid whose UI law is **my-you-eye-first** (114-component npm library,
