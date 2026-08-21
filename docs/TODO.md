@@ -455,14 +455,16 @@ doctrine audited against 4 local components. New items below.
 
 ### 6.1 Perf: from vercel rule bodies (ordered by impact)
 
-1. **fs read cache (from `server-cache-lru`, translated)** — Map-based LRU (~500
+Status after the 2026-08-21 implementation pass: **items 1–3 done** (`e49f830`, `1ada982`, `310785d`), item 7's spinner-wrap done in the same batch; rest still open.
+
+1. ✅ **fs read cache** (`server-cache-lru` translated) — Map-based LRU (~500
    entries, TTL) over `fs/operations.ts` `readTextFile`/`listDir` so repeated tree
    renders + search sweeps skip IndexedDB round-trips. Biggest unqueued 50k lever.
    Invalidate on every `writeFile`/delete/rename through the same module.
-2. **SearchPanel rows through existing `VirtualList`** (`rendering-content-visibility`
+2. ✅ **SearchPanel rows through existing `VirtualList`** (`rendering-content-visibility`
    extension) — `SearchPanel.tsx` renders `results.map` unwindowed; fixed-row-height
    fits our VirtualList exactly.
-3. **VirtualList scroll in a transition** (`rerender-transitions`) —
+3. ✅ **VirtualList scroll rAF-coalesced** (`rerender-transitions`) —
    `VirtualList.tsx` `onScroll → setScrollTop` re-renders synchronously per frame;
    wrap in `startTransition` or rAF-throttle (pair with queued passive-listener).
 4. **Single-pass flattens** (`js-combine-iterations`/`flatmap-filter`) —
@@ -471,8 +473,7 @@ doctrine audited against 4 local components. New items below.
    `void import()` for Settings/SourceControl/Search chunks on intent.
 6. **Cheap-guard-before-await audit** (`async-cheap-condition-before-await`) —
    sweep `src/share/*` + `git/sync.ts` for remote awaits preceding local guards.
-7. Micro-batch: spinner SVGs wrapped (`Loader2 animate-spin` directly on lucide svg
-   at 6 sites → wrap in span, `rendering-animate-svg-wrapper`); hoist locals in
+7. Micro-batch (spinner half ✅ — all 17 wrapped): hoist locals in
    vaultSearch inner loop; primitive-useMemo sweep; hoist static empty-state JSX;
    split fused filter+sort memos if deps mix.
 8. Watchlist (post-profile only): `memo()` adoption — deliberately zero today;
