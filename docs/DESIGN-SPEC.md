@@ -626,3 +626,14 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     Enter/Space as the primary action (equalize the neighboring panes / restore the
     default sidebar width; while collapsed, Enter is the grab-edge restore). Focus
     ring comes from the global accent-token `:focus-visible` baseline.
+45. **Demo builds are sandboxed; no destructive demo command.** A
+    `VSNOTE_DEMO_VAULT=1` build never touches the real vault database: the
+    filesystem is a separate lightning-fs DB (`vsnote-vault-demo-fs`)
+    constructed with `wipe: true`, so every page load deletes it and boot
+    re-seeds the showcase — fully interactive in-session, zero lasting
+    artifacts, real vault structurally unreachable. The former "Load demo
+    vault" palette command (whose only function was destroying the current
+    vault to make room for demo content) is removed entirely; "Reset demo
+    vault…" stays, wiping only the ephemeral sandbox behind its confirm.
+    Supersedes item 36's load-command mechanism; item 36's opt-in seeding
+    behavior on fresh boots is unchanged.

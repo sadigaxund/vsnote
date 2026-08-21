@@ -1,26 +1,41 @@
 /**
- * DESIGN-SPEC Amendments round 5 item 36 — the demo vault is opt-in.
+ * DESIGN-SPEC Amendments round 9 item 45 (supersedes the item 36 opt-in
+ * coverage this file used to carry): a demo build runs on a SEPARATE
+ * lightning-fs database with `wipe: true`, so the demo is a per-session
+ * sandbox and the destructive "Load demo vault" command was removed
+ * entirely. What's covered here — all against the suite's DEMO build (see
+ * `package.json`'s `test:e2e`):
  *
- * What this file can and cannot cover: the suite builds with
- * `VSNOTE_DEMO_VAULT=1` (see `package.json`'s `test:e2e` and the note in
- * `fixtures.ts`), so every spec here runs against a DEMO build. The
- * welcome-vault default is a different bundle and is verified outside
- * Playwright, by building without the flag. What IS covered here is the
- * half that lives in the app rather than the build: the "Load demo vault"
- * palette command, and the fact that it warns before destroying a vault.
+ *  1. The self-destruct command can never surface: typing its exact old
+ *     label into the palette yields no such action.
+ *  2. The sandbox really is ephemeral: an edit made in-session vanishes on
+ *     reload, and the seeded demo state comes back pristine.
  */
 import { test, expect } from "@playwright/test";
-import { gotoApp, treeRow, waitForNoDialog } from "./fixtures";
+import { gotoApp, treeRow } from "./fixtures";
 
-test.describe("demo vault opt-in (item 36)", () => {
-  test("'Load demo vault' warns that it replaces the vault, then restores demo content", async ({ page }) => {
+test.describe("demo vault sandbox (item 45)", () => {
+  test("the destructive 'Load demo vault' command no longer exists in the palette", async ({ page }) => {
     await gotoApp(page);
 
-    // Prove the load really REPLACES the vault rather than merging into it:
-    // add a file that the demo vault has never contained, so its
-    // DISAPPEARANCE can only come from a genuine wipe + reseed. (Deleting a
-    // seeded file and watching it return is the weaker check — a plain
-    // store refresh can resurrect a row without any reseed happening.)
+    await page.keyboard.press("Control+k");
+    const palette = page.getByRole("dialog");
+    await expect(palette).toBeVisible();
+    await page.keyboard.type("Load demo");
+
+    // Filtered to nothing matching the old self-destruct label...
+    await expect(palette.getByRole("button", { name: /Load demo vault/i })).toHaveCount(0);
+    // ...while the SAFE demo command is still offered.
+    await palette.getByRole("button", { name: "Reset demo vault…" }).click();
+    // It keeps its confirm dialog — wiping even a sandbox deserves consent.
+    const confirm = page.getByRole("dialog");
+    await expect(confirm.getByText(/re-seeds/i)).toBeVisible();
+  });
+
+  test("the demo filesystem is ephemeral: session edits vanish on reload", async ({ page }) => {
+    await gotoApp(page);
+
+    // Leave a mark that the seeded vault has never contained.
     await treeRow(page, "vault/src").click({ button: "right" });
     await page.getByRole("menuitem", { name: "New File" }).click();
     const draft = treeRow(page, "vault/src/.vsnote-draft-file");
@@ -29,41 +44,13 @@ test.describe("demo vault opt-in (item 36)", () => {
     await draft.locator("input").press("Enter");
     await expect(treeRow(page, "vault/src/only-mine.md")).toBeVisible();
 
-    await page.keyboard.press("Control+k");
-    const palette = page.getByRole("dialog");
-    await expect(palette).toBeVisible();
-    await page.keyboard.type("Load demo vault");
-    await palette.getByRole("button", { name: /Load demo vault/ }).click();
-
-    // The replace warning is the point of the command, not decoration.
-    const confirm = page.getByRole("dialog");
-    await expect(confirm).toBeVisible();
-    await expect(confirm.getByText(/Replaces your current vault/)).toBeVisible();
-
-    await confirm.getByRole("button", { name: "Load demo vault" }).click();
-    await waitForNoDialog(page);
-
-    // The added file is gone (the vault was really replaced) and the demo
-    // content is present.
-    await expect(treeRow(page, "vault/src/only-mine.md")).toHaveCount(0);
-    await expect(treeRow(page, "vault/notes/architecture.md")).toBeVisible();
-    await expect(treeRow(page, "vault/notes/reading-list.md")).toBeVisible();
-    await expect(treeRow(page, "vault/metrics.csv")).toBeVisible();
-  });
-
-  test("cancelling the warning leaves the vault untouched", async ({ page }) => {
+    // Reload = new page load = lightning-fs `wipe: true` drops the sandbox DB,
+    // boot re-seeds it from scratch.
     await gotoApp(page);
 
-    await page.keyboard.press("Control+k");
-    const palette = page.getByRole("dialog");
-    await page.keyboard.type("Load demo vault");
-    await palette.getByRole("button", { name: /Load demo vault/ }).click();
-
-    const confirm = page.getByRole("dialog");
-    await expect(confirm).toBeVisible();
-    await confirm.getByRole("button", { name: "Cancel" }).click();
-    await waitForNoDialog(page);
-
+    await expect(treeRow(page, "vault/src/only-mine.md")).toHaveCount(0);
     await expect(treeRow(page, "vault/notes/architecture.md")).toBeVisible();
+    await expect(treeRow(page, "vault/src/searchRank.ts")).toBeVisible();
+    await expect(treeRow(page, "vault/metrics.csv")).toBeVisible();
   });
 });

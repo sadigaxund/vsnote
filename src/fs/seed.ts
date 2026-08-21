@@ -31,8 +31,13 @@
  * `VSNOTE_DEMO_VAULT=1` (CI's Pages job and `npm run test:e2e` both do);
  * every other build seeds the minimal `welcome.md` vault instead, and
  * `resetVault()` resets to whichever of the two this build uses.
- * `loadDemoVault()` forces the demo vault regardless, for the palette's
- * "Load demo vault" command.
+ *
+ * DESIGN-SPEC Amendments round 9 item 45 went further: in a demo build the
+ * filesystem is a SEPARATE lightning-fs database with `wipe: true`
+ * (`fs/client.ts`) — wiped on every page load, real vault unreachable — so
+ * the old destructive "Load demo vault" command has no reason to exist and
+ * was removed. There is no code path that replaces a real vault with demo
+ * content anymore.
  */
 import * as git from "isomorphic-git";
 import { fs, GIT_DIR, DEFAULT_BRANCH, DEMO_AUTHOR } from "../git/client";
@@ -719,9 +724,6 @@ you and keeps working offline.
 
 Your vault is a real git repository, so the Source Control panel shows real
 diffs and history from the first edit you make.
-
-Want the full tour? Run "Load demo vault" from the command palette. It
-replaces this vault with a showcase one.
 `;
 
 /**
@@ -776,13 +778,3 @@ export async function resetVault(): Promise<void> {
   await seedWelcomeVault();
 }
 
-/**
- * Explicitly replaces the current vault with the full demo vault, whatever
- * the build flag says (item 36's "Load demo vault" palette command). The
- * caller is responsible for warning the user first: this destroys the
- * current vault, including its git history.
- */
-export async function loadDemoVault(): Promise<void> {
-  resetFilesystem();
-  await seedVault();
-}

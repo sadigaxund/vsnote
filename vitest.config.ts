@@ -9,6 +9,13 @@ import { defineConfig } from "vitest/config";
 // instead, which is enough for zustand `persist` + the real lightning-fs
 // client to run unmodified.
 export default defineConfig({
+  // `__VSNOTE_DEMO_VAULT__` is a vite `define` global (vite.config.ts) that
+  // fs/client.ts now reads at module scope to pick the demo sandbox database
+  // (DESIGN-SPEC item 45). Vitest doesn't inherit vite's define — pin it to
+  // the NON-demo value so unit tests exercise the real, persistent-fs path.
+  define: {
+    __VSNOTE_DEMO_VAULT__: JSON.stringify(false),
+  },
   test: {
     environment: "node",
     include: ["tests/unit/**/*.test.ts"],

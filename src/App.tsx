@@ -7,7 +7,7 @@ import { SourceControlPanel } from "./components/SourceControlPanel";
 import { ExtensionsPanel } from "./components/ExtensionsPanel";
 import { EditorArea } from "./components/EditorArea";
 import { AppStatusBar } from "./components/StatusBar";
-import { ensureSeeded, resetVault, loadDemoVault, isDemoVaultBuild } from "./fs/seed";
+import { ensureSeeded, resetVault, isDemoVaultBuild } from "./fs/seed";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "./fs/persistence";
 import { downloadBlob, exportVaultZip, vaultZipFilename } from "./fs/exportZip";
 import { useFsStore, inferFileKind } from "./stores/useFsStore";
@@ -164,7 +164,6 @@ export default function App() {
   const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
   const [zenMode, setZenMode] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
-  const [loadDemoConfirmOpen, setLoadDemoConfirmOpen] = useState(false);
   // DESIGN-SPEC Amendments round 5 item 39 — OS drag-drop/Ctrl+V paste
   // import (`ExplorerTree.tsx`'s `onImportEntries`): set only when
   // `detectConflictingPaths` found at least one colliding path, so
@@ -688,15 +687,6 @@ export default function App() {
     toast({ title: "Vault reset", description: "Filesystem and git history re-seeded from scratch.", variant: "success" });
   }
 
-  /** DESIGN-SPEC item 36's "Load demo vault" palette command. Always seeds
-   * the showcase vault, whatever this build's default is, and warns first
-   * because it destroys the current vault including its git history. */
-  async function handleLoadDemoVaultConfirmed(): Promise<void> {
-    await loadDemoVault();
-    await reopenAfterReseed(true);
-    setLoadDemoConfirmOpen(false);
-    toast({ title: "Demo vault loaded", description: "The previous vault was replaced.", variant: "success" });
-  }
 
   // DESIGN-SPEC Amendments item 5 ("Own the browser shortcuts"): one global
   // keydown handler that `preventDefault`s and owns every shortcut this app
@@ -1202,7 +1192,6 @@ export default function App() {
     // vault this build actually seeds, so it never offers to restore demo
     // content a normal build has never had.
     { id: "reset-vault", label: isDemoVaultBuild() ? "Reset demo vault…" : "Reset vault…" },
-    { id: "load-demo-vault", label: "Load demo vault…" },
     { id: "zen", label: "Toggle zen mode", shortcut: "⌘⇧Z" },
     { id: "search", label: "Search in files" },
     { id: "save", label: "Save file", shortcut: "⌘S" },
@@ -1230,9 +1219,6 @@ export default function App() {
         break;
       case "reset-vault":
         setResetConfirmOpen(true);
-        break;
-      case "load-demo-vault":
-        setLoadDemoConfirmOpen(true);
         break;
       case "zen":
         toggleZenMode();
@@ -1486,15 +1472,6 @@ export default function App() {
         onConfirm={() => void handleResetVaultConfirmed()}
       />
 
-      <ConfirmDialog
-        title="Load demo vault?"
-        description="Replaces your current vault and its git history with the demo vault. Any files or edits you've made are lost."
-        confirmLabel="Load demo vault"
-        destructive
-        open={loadDemoConfirmOpen}
-        onOpenChange={setLoadDemoConfirmOpen}
-        onConfirm={() => void handleLoadDemoVaultConfirmed()}
-      />
 
       <ConfirmDialog
         title="Revoke share?"
