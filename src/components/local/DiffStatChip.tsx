@@ -26,8 +26,8 @@ export function DiffStatChip({ added, removed, size = "sm" }: DiffStatChipProps)
         fontFamily: "var(--font-mono)",
         fontSize,
         fontWeight: 500,
-      }}
-    >
+            fontVariantNumeric: "tabular-nums",
+    }} >
       <span style={{ color: "var(--git-added)" }}>+{added}</span>
       <span style={{ color: "var(--git-deleted)" }}>-{removed}</span>
     </span>

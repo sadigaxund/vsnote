@@ -150,7 +150,7 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
       }
       right={
         <>
-          <StatusBarItem label={`Ln ${cursor.line}, Col ${cursor.column}`} tooltip="Go to line" />
+          <StatusBarItem label={`Ln ${cursor.line}, Col ${cursor.column}`} tooltip="Go to line" style={{ fontVariantNumeric: "tabular-nums" }} />
           <StatusBarItem label={encoding} tooltip="Select encoding" priority="low" />
           <StatusBarItem label={eol} tooltip="Select end of line sequence" priority="low" />
           <StatusBarItem label={language} tooltip="Select language mode" priority="mid" />

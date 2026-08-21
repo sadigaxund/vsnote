@@ -120,7 +120,7 @@ export function SearchPanel({ onOpenResult, width, onWidthChange, collapsed, onC
           />
         </div>
         {trimmedQuery && !loading && (
-          <div style={{ marginTop: 6, fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)" }}>
+          <div style={{ marginTop: 6, fontSize: 11, color: "var(--color-muted)", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
             {totalMatches} result{totalMatches === 1 ? "" : "s"} in {results.length} file{results.length === 1 ? "" : "s"}
           </div>
         )}

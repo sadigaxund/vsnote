@@ -92,6 +92,9 @@ export interface StatusBarItemProps {
   /** Optional ellipsis cap for long labels (branch names). The label keeps
    * its natural size under this cap and truncates with an ellipsis over it. */
   maxLabelWidth?: number;
+  /** Inline overrides on the segment button (TODO §5.3: numeric segments set
+   * `fontVariantNumeric: "tabular-nums"` so counts don't jitter). */
+  style?: React.CSSProperties;
 }
 
 const TONE_COLOR: Record<NonNullable<StatusBarItemProps["tone"]>, string> = {
@@ -102,7 +105,7 @@ const TONE_COLOR: Record<NonNullable<StatusBarItemProps["tone"]>, string> = {
   primary: "var(--color-primary)",
 };
 
-export function StatusBarItem({ icon, label, tooltip, tone = "default", onClick, priority = "high", maxLabelWidth }: StatusBarItemProps) {
+export function StatusBarItem({ icon, label, tooltip, tone = "default", onClick, priority = "high", maxLabelWidth, style }: StatusBarItemProps) {
   const content = (
     <button
       type="button"
@@ -123,6 +126,7 @@ export function StatusBarItem({ icon, label, tooltip, tone = "default", onClick,
         fontSize: "inherit",
         minWidth: 0,
         whiteSpace: "nowrap",
+        ...style,
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = "var(--color-surface-hover)";

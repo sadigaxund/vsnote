@@ -448,6 +448,7 @@ export function FindWidget({ view, registerUpdateListener }: FindWidgetProps) {
             fontSize: 10,
             color: showNoResults ? "var(--git-deleted)" : "var(--color-muted)",
             whiteSpace: "nowrap",
+            fontVariantNumeric: "tabular-nums",
           }}
         >
           {search ? (showNoResults ? "No results" : `${current} of ${total}`) : ""}
