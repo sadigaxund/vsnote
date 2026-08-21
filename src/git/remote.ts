@@ -45,6 +45,7 @@
 import * as git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 import { fs, GIT_DIR } from "./client";
+import { clearReadCache } from "../fs/operations";
 import { computeStatus } from "./status";
 import { buildGitAuth, classifyDivergence, pullAction, pushAction, DIVERGED_MESSAGE, type AheadBehind } from "./syncStatus";
 
@@ -356,6 +357,9 @@ export async function fastForwardBranch(branch: string): Promise<void> {
     }
     await git.writeRef({ fs, dir: GIT_DIR, ref: `refs/heads/${branch}`, value: targetOid, force: true });
     await git.checkout({ fs, dir: GIT_DIR, ref: branch, force: true });
+    // The checkout rewrote worktree bytes OUTSIDE fs/operations.ts — drop its
+    // read cache so post-pull reads can't serve pre-pull content (TODO §6.1.1).
+    clearReadCache();
   } catch (err) {
     throw mapError(err);
   }

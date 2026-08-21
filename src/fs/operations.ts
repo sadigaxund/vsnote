@@ -7,6 +7,7 @@
  */
 import { pfs } from "./client";
 import { dirname } from "./paths";
+import { LruTtlCache } from "../lib/lruCache";
 
 export type FsNodeType = "file" | "dir";
 
@@ -72,7 +73,26 @@ export async function statType(fsPath: string): Promise<FsNodeType | null> {
 }
 
 export async function readTextFile(fsPath: string): Promise<string> {
-  return pfs.readFile(fsPath, { encoding: "utf8" });
+  // TODO §6.1.1 (vercel-labs server-cache-lru, translated): repeated reads
+  // of unchanged files (tree paints, search sweeps) skip the IndexedDB
+  // round-trip. Correctness: EVERY mutation in this module clears the
+  // cache outright (mutations are rare relative to reads), and git flows
+  // that rewrite the worktree outside this module (fastForwardBranch's
+  // checkout) clear it explicitly. The TTL is a backstop for any bypass
+  // path a future contributor adds without invalidating.
+  const hit = readCache.get(fsPath);
+  if (hit !== undefined) return hit;
+  const value = (await pfs.readFile(fsPath, { encoding: "utf8" })) as string;
+  readCache.set(fsPath, value);
+  return value;
+}
+
+const readCache = new LruTtlCache<string>(500, 5_000);
+
+/** Drops all cached reads — call after ANY code path that changes vault
+ * bytes without going through this module's mutators. */
+export function clearReadCache(): void {
+  readCache.clear();
 }
 
 export async function readBinaryFile(fsPath: string): Promise<Uint8Array> {
@@ -87,11 +107,13 @@ export async function writeFile(
   await ensureDir(dirname(fsPath));
   await pfs.writeFile(fsPath, content, typeof content === "string" ? "utf8" : undefined);
   await flush();
+  readCache.clear();
 }
 
 export async function removeFile(fsPath: string): Promise<void> {
   await pfs.unlink(fsPath);
   await flush();
+  readCache.clear();
 }
 
 /** Recursively deletes a file or directory. */
@@ -101,6 +123,7 @@ export async function removePath(fsPath: string): Promise<void> {
   if (type === "file") {
     await pfs.unlink(fsPath);
     await flush();
+    readCache.clear();
     return;
   }
   const names = await pfs.readdir(fsPath);
@@ -109,12 +132,14 @@ export async function removePath(fsPath: string): Promise<void> {
   }
   await pfs.rmdir(fsPath);
   await flush();
+  readCache.clear();
 }
 
 export async function renamePath(oldFsPath: string, newFsPath: string): Promise<void> {
   await ensureDir(dirname(newFsPath));
   await pfs.rename(oldFsPath, newFsPath);
   await flush();
+  readCache.clear();
 }
 
 /**
