@@ -204,6 +204,7 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                     <FileIcon kind={tab.kind} name={tab.name} size={14} />
                   )}
                   <span
+                    title={tab.path}
                     style={{
                       flex: 1,
                       minWidth: 0,

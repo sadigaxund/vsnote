@@ -1029,6 +1029,7 @@ function TreeRowContent({
         />
       ) : (
         <span
+          title={node.id}
           style={{
             flex: 1,
             minWidth: 0,
