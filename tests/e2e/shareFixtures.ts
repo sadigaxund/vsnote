@@ -130,12 +130,14 @@ async function waitForReady(baseUrl: string, proc: ChildProcessWithoutNullStream
   }
 }
 
-function runPython(args: string[], env: NodeJS.ProcessEnv): Promise<void> {
+function runPython(args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
     const proc = spawn(PYTHON, args, { cwd: SERVER_DIR, env });
+    let stdout = "";
     let stderr = "";
+    proc.stdout.on("data", (d) => (stdout += d.toString()));
     proc.stderr.on("data", (d) => (stderr += d.toString()));
-    proc.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`bootstrap failed (${code}): ${stderr}`))));
+    proc.on("exit", (code) => (code === 0 ? resolve(stdout) : reject(new Error(`bootstrap failed (${code}): ${stderr}`))));
     proc.on("error", reject);
   });
 }
@@ -272,6 +274,13 @@ export async function stopShareBackend(): Promise<void> {
 
   if (!existsSync(HANDLE_FILE)) return;
   const { pid, dbDir } = JSON.parse(readFileSync(HANDLE_FILE, "utf-8")) as HandleFileContents;
+  try {
+    // DEBUG(§6.2 net): snapshot the final DB (audit_events holds the login
+    // failure reason) before teardown deletes it.
+    copyFileSync(path.join(dbDir, "test.db"), "/tmp/vsnote-e2e-final-db.sqlite");
+  } catch {
+    // best-effort debug artifact only
+  }
   try {
     process.kill(pid, "SIGTERM");
   } catch {

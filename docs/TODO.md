@@ -658,3 +658,27 @@ Standing rules + checkable tests:
    with one Clear-filters action — extends EmptyState doctrine.
 6. **Settings-label rules**: positive ON-state toggles, no possessives, no
    "Click", errors never "We're having trouble".
+
+### 6.5 E2E baseline triage (2026-08-21, §6.2 net bootstrap)
+
+`npm run test:e2e` baseline: **103 passed / 3 failed / 2 fixed-in-place**.
+
+- **Fixed by this triage:** `fs-git` badge count 6→7 (stale after searchRank
+  showcase landed); `demo-vault-optin` rewritten for the item-45 sandbox
+  contract — its old filter logic also had a genuine bug (typing "Load demo"
+  filters the palette, so the Reset option it then clicks can't be visible).
+- **Pre-existing environmental failures (fail identically at pre-today tip
+  `60d2d14`, verified by checkout + rebuild):**
+  1. `git-sync` divergence auto-merge — sign-in gets a REAL backend 401
+     ("Invalid username or password") even though mid-run introspection shows
+     the correct DB URL with 9 tables and users:1; at teardown the SAME file
+     is a zero-table database. Something replaces/recreates the sqlite file
+     mid-run on this machine. Needs a dedicated server-side session
+     (strace/lsof on the uvicorn PID during the run).
+  2. `share-auto-republish` — manifest poll assertion, same sign-in/backend
+     cluster.
+  3. `share-sandbox` embedded-HTML case — timeout waiting on iframe state,
+     same cluster.
+  All three block §6.2's safety net: root-cause #1 FIRST (suspects: tmpdir
+  filesystem quirk on `/home/sakhund/tmp`, a second process recreating the
+  DB, or git identity missing for merge commits).

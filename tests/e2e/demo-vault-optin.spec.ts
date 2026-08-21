@@ -25,7 +25,9 @@ test.describe("demo vault sandbox (item 45)", () => {
 
     // Filtered to nothing matching the old self-destruct label...
     await expect(palette.getByRole("button", { name: /Load demo vault/i })).toHaveCount(0);
-    // ...while the SAFE demo command is still offered.
+
+    // The SAFE demo command still exists — clear the filter to reach it.
+    await page.keyboard.press("Backspace".repeat(9));
     await palette.getByRole("button", { name: "Reset demo vault…" }).click();
     // It keeps its confirm dialog — wiping even a sandbox deserves consent.
     const confirm = page.getByRole("dialog");

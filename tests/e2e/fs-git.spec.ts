@@ -36,11 +36,12 @@ test.describe("fs + git", () => {
 
   test("Source Control badge shows the total changed-file count", async ({ page }) => {
     await gotoApp(page);
-    // architecture.md, indexer.ts, metrics.csv (M) + legacy-parser.ts (D) +
-    // GraphView.tsx (A) + daily-2026-08-14.md (U) = 6, per DESIGN-SPEC §3.
+    // architecture.md, indexer.ts, searchRank.ts, metrics.csv (M) +
+    // legacy-parser.ts (D) + GraphView.tsx (A) + daily-2026-08-14.md (U) = 7,
+    // per DESIGN-SPEC §3 as amended (searchRank added as diff showcase).
     const scmButton = page.getByRole("button", { name: "Source Control" });
     await expect(scmButton).toBeVisible();
-    await expect(scmButton).toContainText("6");
+    await expect(scmButton).toContainText("7");
   });
 
   test("the +12 -5 chip is a real computed diff, not a hardcoded prop", async ({ page }) => {
