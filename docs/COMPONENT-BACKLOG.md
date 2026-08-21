@@ -115,12 +115,16 @@ a backlog entry changes materially, update its issue in the same pass):
   and our local fill inherited pointer-only mechanics.
 - **Spec:** handle becomes a focused element (`role="separator"`,
   `aria-orientation` perpendicular to the split, `aria-valuenow/min/max` = size %),
-  Arrow keys nudge by step (2% or 16px-equivalent), Shift+Arrow large step,
-  Home/End clamp to min/max, Enter/Space = equalize (panes) / reset width (sidebar).
-  Focus ring uses the accent token like other chrome.
-- **Design reference:** shadcn `Resizable` (thin wrapper over react-resizable-panels)
-  ships this exact a11y contract; WIG's "gestures need keyboard alternatives".
-- **Status:** planned — required before the a11y-hardening pass (Part 3.4) can close.
+  Arrow keys nudge by step (2% of the branch, or 16px for the sidebar), Shift+Arrow
+  large step (8% / 64px), Home/End clamp to min/max (`MIN_FRACTION` 12% for panes;
+  the sidebar's `[MIN_SIDEBAR_WIDTH, max]` clamp), Enter/Space fires the
+  equalize/reset affordance. Focus ring via the global accent-token baseline.
+- **Design reference:** shadcn `Resizable` (react-resizable-panels) a11y contract;
+  WIG's "gestures need keyboard alternatives".
+- **Status:** done 2026-08-21 — optional `keyboard` prop on the primitive (units stay
+  consumer-owned: fractions vs px), wired into both `PaneDivider` and
+  `SidebarContainer`; DESIGN-SPEC amendment item 44 records the contract. This also
+  closes react-doctor's `interactive-supports-focus` finding from §3.9.
 
 ### 2.3 ColorPicker / ColorField — spec frozen, implementation deferred
 

@@ -30,7 +30,7 @@
 import { useRef, type ReactNode } from "react";
 import { TexturedSurface } from "my-you-eye";
 import { ResizeHandle } from "./PaneGroup";
-import { MAX_SIDEBAR_WIDTH_FALLBACK, MIN_SIDEBAR_WIDTH, SIDEBAR_COLLAPSE_THRESHOLD } from "../../stores/useSettingsStore";
+import { DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH_FALLBACK, MIN_SIDEBAR_WIDTH, SIDEBAR_COLLAPSE_THRESHOLD } from "../../stores/useSettingsStore";
 
 export interface SidebarContainerProps {
   /** Distinguishes which view is currently mounted for tests/tooling —
@@ -132,9 +132,39 @@ export function SidebarContainer({
           currently showing. */}
       <ResizeHandle
         direction="row"
-        title="Drag to resize the sidebar"
+        title="Drag to resize the sidebar · arrow keys step · Enter restores default width"
         aria-label="Resize sidebar"
         data-testid="sidebar-resize-handle"
+        keyboard={{
+          // Values in px of the sidebar's width; while COLLAPSED the
+          // keyboard's primary action (Enter) is the "grab edge" restore —
+          // the same contract the pointer drag has, per DESIGN-SPEC item 20.
+          valueNow: Math.round(effectiveWidth),
+          valueMin: MIN_SIDEBAR_WIDTH,
+          valueMax: MAX_SIDEBAR_WIDTH_FALLBACK,
+          step: 16,
+          coarseStep: 64,
+          onStep: (dir, coarse) => {
+            const maxWidth = typeof window !== "undefined" ? window.innerWidth * 0.5 : MAX_SIDEBAR_WIDTH_FALLBACK;
+            const next = effectiveWidth + dir * (coarse ? 64 : 16);
+            if (next < SIDEBAR_COLLAPSE_THRESHOLD) {
+              onCollapsedChange(true);
+              return;
+            }
+            onCollapsedChange(false);
+            onWidthChange(Math.min(maxWidth, Math.max(MIN_SIDEBAR_WIDTH, next)));
+          },
+          onEdge: (edge) => {
+            const maxWidth = typeof window !== "undefined" ? window.innerWidth * 0.5 : MAX_SIDEBAR_WIDTH_FALLBACK;
+            const next = edge === "min" ? MIN_SIDEBAR_WIDTH : Math.min(maxWidth, MAX_SIDEBAR_WIDTH_FALLBACK);
+            onCollapsedChange(false);
+            onWidthChange(next);
+          },
+          onActivate: () => {
+            onCollapsedChange(false);
+            onWidthChange(DEFAULT_SIDEBAR_WIDTH);
+          },
+        }}
         onDragStart={() => {
           dragStartWidthRef.current = effectiveWidth;
         }}

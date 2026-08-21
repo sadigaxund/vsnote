@@ -620,3 +620,9 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     values equal the surfaces these regions already painted — pixel-identical
     migration; shadcn's `--sidebar-*` namespace is the precedent (see
     docs/COMPONENT-BACKLOG.md §2.4).
+44. **Resize handles are keyboard-operable.** Both `ResizeHandle` consumers — pane
+    dividers and the sidebar edge — are focusable separators (`aria-valuenow/min/max`)
+    with arrow stepping (Shift = coarse), Home/End clamped to the extremes, and
+    Enter/Space as the primary action (equalize the neighboring panes / restore the
+    default sidebar width; while collapsed, Enter is the grab-edge restore). Focus
+    ring comes from the global accent-token `:focus-visible` baseline.

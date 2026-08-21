@@ -55,6 +55,24 @@ export interface ResizeHandleProps {
   title?: string;
   "aria-label"?: string;
   "data-testid"?: string;
+  /** Keyboard contract (COMPONENT-BACKLOG §2.2, mined from shadcn's
+   * Resizable a11y checklist + WIG's gestures-need-keyboard-alternatives):
+   * when provided, the handle becomes a FOCUSABLE separator with
+   * `aria-valuenow/min/max`, arrow-key stepping (Shift = coarse), Home/End
+   * clamping to the extremes, and Enter/Space as the primary action
+   * (equalize the neighboring pair / restore default width). Values are in
+   * the CONSUMER'S units — fractions for `PaneDivider`, px for
+   * `SidebarContainer` — so this primitive stays pane-tree-agnostic. */
+  keyboard?: {
+    valueNow: number;
+    valueMin: number;
+    valueMax: number;
+    step: number;
+    coarseStep: number;
+    onStep: (dir: -1 | 1, coarse: boolean) => void;
+    onEdge?: (edge: "min" | "max") => void;
+    onActivate?: () => void;
+  };
 }
 
 export function ResizeHandle({
@@ -66,9 +84,44 @@ export function ResizeHandle({
   title,
   "aria-label": ariaLabel,
   "data-testid": testId,
+  keyboard,
 }: ResizeHandleProps) {
   const [hovered, setHovered] = useState(false);
   const isRow = direction === "row";
+
+  /** Arrow semantics mirror the pointer: for a vertical bar (row direction),
+   * Right = handle moves right = first sibling grows (+1). Shift = coarse. */
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (!keyboard) return;
+    const coarse = e.shiftKey;
+    switch (e.key) {
+      case "ArrowLeft":
+      case "ArrowUp":
+        e.preventDefault();
+        keyboard.onStep(-1, coarse);
+        break;
+      case "ArrowRight":
+      case "ArrowDown":
+        e.preventDefault();
+        keyboard.onStep(1, coarse);
+        break;
+      case "Home":
+        e.preventDefault();
+        keyboard.onEdge?.("min");
+        break;
+      case "End":
+        e.preventDefault();
+        keyboard.onEdge?.("max");
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        keyboard.onActivate?.();
+        break;
+      default:
+        break;
+    }
+  }
 
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -96,6 +149,11 @@ export function ResizeHandle({
       role="separator"
       aria-orientation={isRow ? "vertical" : "horizontal"}
       aria-label={ariaLabel}
+      aria-valuenow={keyboard?.valueNow}
+      aria-valuemin={keyboard?.valueMin}
+      aria-valuemax={keyboard?.valueMax}
+      tabIndex={keyboard ? 0 : undefined}
+      onKeyDown={keyboard ? handleKeyDown : undefined}
       data-testid={testId}
       title={title}
       onPointerDown={handlePointerDown}
@@ -206,8 +264,45 @@ function PaneDivider({ containerRef, direction, sizes, index, branchId, onResize
   return (
     <ResizeHandle
       direction={direction}
-      title="Drag to resize · double-click to equalize"
+      title="Drag to resize · double-click to equalize · arrow keys step"
       data-testid={`pane-divider-${branchId}-${index}`}
+      keyboard={{
+        valueNow: Math.round(sizes[index] * 100),
+        valueMin: Math.round(MIN_FRACTION * 100),
+        valueMax: 100 - Math.round(MIN_FRACTION * 100),
+        step: 0.02,
+        coarseStep: 0.08,
+        onStep: (dir, coarse) => {
+          const total = sizes[index] + sizes[index + 1];
+          let a = sizes[index] + dir * (coarse ? 0.08 : 0.02);
+          let b = total - a;
+          if (a < MIN_FRACTION) {
+            a = MIN_FRACTION;
+            b = total - a;
+          }
+          if (b < MIN_FRACTION) {
+            b = MIN_FRACTION;
+            a = total - b;
+          }
+          const next = sizes.slice();
+          next[index] = a;
+          next[index + 1] = b;
+          onResize(branchId, next);
+        },
+        onEdge: (edge) => {
+          const total = sizes[index] + sizes[index + 1];
+          const next = sizes.slice();
+          if (edge === "min") {
+            next[index] = MIN_FRACTION;
+            next[index + 1] = total - MIN_FRACTION;
+          } else {
+            next[index] = total - MIN_FRACTION;
+            next[index + 1] = MIN_FRACTION;
+          }
+          onResize(branchId, next);
+        },
+        onActivate: () => onEqualize(branchId),
+      }}
       onDragStart={() => {
         const rect = containerRef.current?.getBoundingClientRect();
         startRef.current = {
