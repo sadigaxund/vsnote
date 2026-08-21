@@ -97,11 +97,22 @@ export function computeExpanded(node: FileNode, opts: FlattenOptions = {}): bool
  */
 export function flattenTree(nodes: FileNode[], opts: FlattenOptions = {}, depth = 0): FlatTreeRow[] {
   const rows: FlatTreeRow[] = [];
+  flattenInto(nodes, opts, depth, rows);
+  return rows;
+}
+
+/** Single-pass worker (TODO §6.1.4, vercel-labs js-combine-iterations): the
+ * old shape spread each folder's recursive result into the parent array
+ * (`rows.push(...recurse)`), copying the accumulated prefix once per folder
+ * level — O(n·depth) allocations on a 50k-note flatten. Pushing into one
+ * shared accumulator preserves the exact depth-first sibling order. */
+function flattenInto(nodes: FileNode[], opts: FlattenOptions, depth: number, out: FlatTreeRow[]): void {
   const setsize = nodes.length;
-  nodes.forEach((node, i) => {
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i];
     const isFolder = node.type === "folder";
     const expanded = computeExpanded(node, opts);
-    rows.push({
+    out.push({
       node,
       depth,
       parentPath: isFolder ? node.id : parentOfPath(node.id),
@@ -111,8 +122,7 @@ export function flattenTree(nodes: FileNode[], opts: FlattenOptions = {}, depth 
       setsize,
     });
     if (isFolder && expanded && node.children && node.children.length > 0) {
-      rows.push(...flattenTree(node.children, opts, depth + 1));
+      flattenInto(node.children, opts, depth + 1, out);
     }
-  });
-  return rows;
+  }
 }
