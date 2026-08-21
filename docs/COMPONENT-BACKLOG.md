@@ -197,6 +197,22 @@ Concrete work items, each traceable to a skill source. Ordered roughly by levera
   that way); never cache derived rows in store state.
 - **Acceptance:** React Profiler shows a single-row expand re-rendering only that row's
   component at 200+ rows; no selector returns fresh references without custom equality.
+- **Results (2026-08-21):**
+  - `App.tsx` held the LAST two whole-store subscriptions in the app
+    (`useGitStore()`/`useTabsStore()`) — replaced with targeted selectors for exactly
+    what App renders (focused-pane identity + eight git summary numbers); every tabs/git
+    ACTION now reads `getState()` at call time. A tab rename, mode flip, or sync tick no
+    longer re-renders the shell.
+  - Fresh-reference selector sweep: none found anywhere (StatusBar's mode selector is a
+    primitive; EditorPane's leaf selector returns an immutable-tree node whose identity
+    only changes when that subtree does).
+  - Both rules are now pinned by `tests/unit/storeSelectorHygiene.test.ts` (static scan,
+    fsIsolation-style) so whole-store calls and `(s) => ({...})`/`.map()` selectors fail CI.
+- **Deferred as §3.1b (row-level memoization):** rows in `ExplorerTree`'s virtualized path
+  are props-driven and NOT `React.memo`-wrapped, and their handler props get fresh
+  identities per ExplorerTree render — memo without handler stabilization would be a no-op.
+  This is the remaining work for the "single-row expand" Profiler criterion; needs a
+  browser-side Profiler session anyway, which this environment can't run honestly.
 
 ### 3.2 Barrel-import audit of my-you-eye
 

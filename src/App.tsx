@@ -273,8 +273,22 @@ export default function App() {
     };
     return insertDraftNode(tree, creatingNode.parentPath, draft);
   }, [tree, creatingNode]);
-  const git = useGitStore();
-  const tabs = useTabsStore();
+  // COMPONENT-BACKLOG §3.1 (react-doctor rerender-defer-reads / derived-
+  // state discipline): App renders only the focused-pane identity and the
+  // git summary NUMBERS — every tabs/git ACTION below is read via
+  // `.getState()` at call time, so a tab rename, mode flip, or sync tick
+  // can no longer re-render the whole shell through whole-store
+  // subscriptions (the same fix item 16 applied to fs/buffers).
+  const tabsTree = useTabsStore((s) => s.tree);
+  const activePaneId = useTabsStore((s) => s.activePaneId);
+  const gitBranch = useGitStore((s) => s.branch);
+  const gitAhead = useGitStore((s) => s.ahead);
+  const gitBehind = useGitStore((s) => s.behind);
+  const gitLastSyncedAt = useGitStore((s) => s.lastSyncedAt);
+  const gitSyncing = useGitStore((s) => s.syncing);
+  const gitSyncError = useGitStore((s) => s.syncError);
+  const gitUntrackedCount = useGitStore((s) => s.untrackedCount);
+  const gitChangedCount = useGitStore((s) => s.changedCount);
   // Targeted selector (DESIGN-SPEC Amendments item 10) — only re-renders App
   // while the sidebar is actually being dragged, never on an unrelated
   // settings change (every other `useSettingsStore` field is read via
@@ -455,7 +469,7 @@ export default function App() {
   // directly) — the focused pane is always mounted (in the grid, or alone
   // in zen mode), so its fetch always runs and `activeDiff` below reads a
   // cache that's already warm by the time this component needs it.
-  const focusedLeaf = useMemo(() => findLeaf(tabs.tree, tabs.activePaneId), [tabs.tree, tabs.activePaneId]);
+  const focusedLeaf = useMemo(() => findLeaf(tabsTree, activePaneId), [tabsTree, activePaneId]);
   const activeTab = useMemo(() => focusedLeaf?.tabs.find((t) => t.path === focusedLeaf.activeTabId), [focusedLeaf]);
 
   const activeDiff = useGitStore((s) => (activeTab ? (s.diffCache[activeTab.path] ?? EMPTY_DIFF) : EMPTY_DIFF));
@@ -876,7 +890,7 @@ export default function App() {
   const handleSelectFile = (node: FileNode, opts?: { pin?: boolean }) => {
     setSelectedId(node.id);
     if (node.type === "folder") return;
-    tabs.openFile({ path: node.path, name: node.name, kind: node.kind }, opts);
+    useTabsStore.getState().openFile({ path: node.path, name: node.name, kind: node.kind }, opts);
     void useBufferStore.getState().ensureLoaded(node.path);
   };
 
@@ -888,7 +902,7 @@ export default function App() {
   // — `EditorPane.tsx` deliberately skips buffer/diff fetching entirely for
   // this kind, since there's no fs content behind it.
   const handleOpenSettings = () => {
-    tabs.openFile({ path: SETTINGS_TAB_PATH, name: SETTINGS_TAB_NAME, kind: "settings" }, { pin: true });
+    useTabsStore.getState().openFile({ path: SETTINGS_TAB_PATH, name: SETTINGS_TAB_NAME, kind: "settings" }, { pin: true });
   };
 
   // Source Control panel row click: opens (or focuses) the file pinned,
@@ -897,8 +911,8 @@ export default function App() {
   const handleOpenDiff = (path: string) => {
     const name = path.slice(path.lastIndexOf("/") + 1);
     const kind = inferFileKind(name);
-    tabs.openFile({ path, name, kind }, { pin: true });
-    tabs.setMode(path, "diff");
+    useTabsStore.getState().openFile({ path, name, kind }, { pin: true });
+    useTabsStore.getState().setMode(path, "diff");
     setSelectedId(path);
     void useBufferStore.getState().ensureLoaded(path);
   };
@@ -947,12 +961,12 @@ export default function App() {
       if (creatingNode.type === "file") {
         const newPath = await useFsStore.getState().createFile(creatingNode.parentPath, newName);
         setSelectedId(newPath);
-        tabs.openFile({ path: newPath, name: newPath.slice(newPath.lastIndexOf("/") + 1), kind: inferFileKind(newPath.slice(newPath.lastIndexOf("/") + 1)) }, { pin: true });
+        useTabsStore.getState().openFile({ path: newPath, name: newPath.slice(newPath.lastIndexOf("/") + 1), kind: inferFileKind(newPath.slice(newPath.lastIndexOf("/") + 1)) }, { pin: true });
       } else {
         const newPath = await useFsStore.getState().createFolder(creatingNode.parentPath, newName);
         setSelectedId(newPath);
       }
-      await git.refresh();
+      await useGitStore.getState().refresh();
       return;
     }
     await handleRenameCommit(node, newName);
@@ -961,30 +975,30 @@ export default function App() {
   const handleRenameCommit = async (node: FileNode, newName: string) => {
     setRenamingId(null);
     const newPath = await useFsStore.getState().renameNode(node.path, newName);
-    tabs.renamePrefix(node.path, newPath);
+    useTabsStore.getState().renamePrefix(node.path, newPath);
     useBufferStore.getState().rekeyPrefix(node.path, newPath);
     // A folder rename remaps many descendant tab paths whose own filenames
     // (and therefore kind) never changed — only a file rename can change
     // its own extension, so `setKind` only ever applies to that one tab.
     if (node.type === "file") {
-      tabs.setKind(newPath, inferFileKind(newName));
+      useTabsStore.getState().setKind(newPath, inferFileKind(newName));
     }
     setSelectedId((prev) => (prev && (prev === node.path || prev.startsWith(`${node.path}/`)) ? newPath + prev.slice(node.path.length) : prev));
     // Round 6 item 8 — keep any share's recorded path following the file.
     // Fire-and-forget: never blocks or fails the rename (see the store doc).
     void useShareStore.getState().notifyPathMoved(node.path, newPath);
     scheduleShareAutoRepublish(node.path, newPath); // item 58
-    await git.refresh();
+    await useGitStore.getState().refresh();
   };
 
   const handleMove = async (sourcePath: string, targetParentPath: string) => {
     const newPath = await useFsStore.getState().moveNode(sourcePath, targetParentPath);
-    tabs.renamePrefix(sourcePath, newPath);
+    useTabsStore.getState().renamePrefix(sourcePath, newPath);
     useBufferStore.getState().rekeyPrefix(sourcePath, newPath);
     setSelectedId((prev) => (prev && (prev === sourcePath || prev.startsWith(`${sourcePath}/`)) ? newPath + prev.slice(sourcePath.length) : prev));
     void useShareStore.getState().notifyPathMoved(sourcePath, newPath); // item 8, as above
     scheduleShareAutoRepublish(sourcePath, newPath); // item 58
-    await git.refresh();
+    await useGitStore.getState().refresh();
   };
 
   // DESIGN-SPEC Amendments round 5 item 39 — OS drag-drop/Ctrl+V paste
@@ -998,7 +1012,7 @@ export default function App() {
       await importEntriesIntoVault(targetFolderPath, entries, "replace");
       await useFsStore.getState().refresh();
       scheduleShareAutoRepublish(targetFolderPath); // item 58
-      await git.refresh();
+      await useGitStore.getState().refresh();
       return;
     }
     setPendingImport({ targetFolderPath, entries, conflictNames });
@@ -1011,16 +1025,16 @@ export default function App() {
     await importEntriesIntoVault(pending.targetFolderPath, pending.entries, mode);
     await useFsStore.getState().refresh();
     scheduleShareAutoRepublish(pending.targetFolderPath); // item 58
-    await git.refresh();
+    await useGitStore.getState().refresh();
   };
 
   const handleConfirmDelete = async (node: FileNode) => {
     await useFsStore.getState().removeNode(node.path);
-    tabs.closeByPrefix(node.path);
+    useTabsStore.getState().closeByPrefix(node.path);
     useBufferStore.getState().forgetPrefix(node.path);
     setSelectedId((prev) => (prev && (prev === node.path || prev.startsWith(`${node.path}/`)) ? undefined : prev));
     scheduleShareAutoRepublish(node.path); // item 58
-    await git.refresh();
+    await useGitStore.getState().refresh();
   };
 
   const handleCopyPath = (node: FileNode) => {
@@ -1126,7 +1140,7 @@ export default function App() {
   // link in pane B's rendered view opens the target in pane B, not
   // wherever focus happened to be.
   const handlePaneOpenLink = async (paneId: string, href: string) => {
-    const leaf = findLeaf(tabs.tree, paneId);
+    const leaf = findLeaf(useTabsStore.getState().tree, paneId);
     const fromTab = leaf?.tabs.find((t) => t.path === leaf.activeTabId);
     if (!fromTab) return;
     const resolved = resolveMarkdownLink(fromTab.path, href);
@@ -1138,7 +1152,7 @@ export default function App() {
     if (!(await pathExists(fsPath))) return;
     const name = resolved.path.slice(resolved.path.lastIndexOf("/") + 1);
     const kind = inferFileKind(name);
-    tabs.openFile({ path: resolved.path, name, kind }, undefined, paneId);
+    useTabsStore.getState().openFile({ path: resolved.path, name, kind }, undefined, paneId);
     setSelectedId(resolved.path);
     void useBufferStore.getState().ensureLoaded(resolved.path);
   };
@@ -1149,7 +1163,7 @@ export default function App() {
   const handlePaletteFileSelect = (path: string) => {
     const name = path.slice(path.lastIndexOf("/") + 1);
     const kind = inferFileKind(name);
-    tabs.openFile({ path, name, kind }, { pin: true });
+    useTabsStore.getState().openFile({ path, name, kind }, { pin: true });
     setSelectedId(path);
     void useBufferStore.getState().ensureLoaded(path);
   };
@@ -1163,8 +1177,8 @@ export default function App() {
     const name = path.slice(path.lastIndexOf("/") + 1);
     const kind = inferFileKind(name);
     pendingJumpStaleView.current = getActiveEditorView();
-    tabs.openFile({ path, name, kind }, { pin: true });
-    tabs.setMode(path, "source");
+    useTabsStore.getState().openFile({ path, name, kind }, { pin: true });
+    useTabsStore.getState().setMode(path, "source");
     setSelectedId(path);
     void useBufferStore.getState().ensureLoaded(path);
     setPendingJump({ path, line });
@@ -1264,9 +1278,15 @@ export default function App() {
           diff={activeDiff}
           mode={activeTab?.mode}
           availableModes={titlebarAvailableModes}
-          onModeChange={(mode) => activeTab && tabs.setMode(activeTab.path, mode, tabs.activePaneId)}
+          onModeChange={(mode) => {
+            const st = useTabsStore.getState();
+            if (activeTab) st.setMode(activeTab.path, mode, st.activePaneId);
+          }}
           diffLayout={titlebarDiffLayout}
-          onDiffLayoutChange={(layout) => tabs.setDiffLayout(layout, tabs.activePaneId)}
+          onDiffLayoutChange={(layout) => {
+            const st = useTabsStore.getState();
+            st.setDiffLayout(layout, st.activePaneId);
+          }}
           onEnterZen={enterZenMode}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={() => useSettingsStore.getState().toggleSidebarCollapsed()}
@@ -1281,7 +1301,7 @@ export default function App() {
           <AppActivityBar
             active={activePanel}
             onSelect={handleActivitySelect}
-            changedCount={git.changedCount}
+            changedCount={gitChangedCount}
             onOpenSettings={handleOpenSettings}
           />
         )}
@@ -1369,15 +1389,15 @@ export default function App() {
       {!zenMode && (
         <AppStatusBar
           git={{
-            branch: git.branch,
-            ahead: git.ahead,
-            behind: git.behind,
-            lastSyncedAt: git.lastSyncedAt,
-            syncing: git.syncing,
-            syncError: git.syncError,
+            branch: gitBranch,
+            ahead: gitAhead,
+            behind: gitBehind,
+            lastSyncedAt: gitLastSyncedAt,
+            syncing: gitSyncing,
+            syncError: gitSyncError,
             diff: activeDiff,
-            untracked: git.untrackedCount,
-            changedCount: git.changedCount,
+            untracked: gitUntrackedCount,
+            changedCount: gitChangedCount,
           }}
           encoding="UTF-8"
           eol="LF"
