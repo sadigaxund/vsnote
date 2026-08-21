@@ -2483,3 +2483,47 @@ stack choices in this doc.
   slider applies as horizontal wrapper padding since atomic-editor owns vertical
   rhythm. Historical decision notes referencing `editor/livepreview/*` paths below
   describe the removed implementation and are kept as record.
+
+### Hard-won notes — Phases A–D skills-application pass (2026-08-21)
+
+Findings from the systematic improvement pass (`skills/ANALYSIS.md`,
+`docs/TODO.md`) that aren't recorded anywhere else durable. Ordered by how
+likely they are to bite again.
+
+- **Statement-level tree-shaking defeats `sideEffects`.** Rollup cannot prove
+  `Ng.displayName = "GraphNode"` pure (property write → possible setter), so an
+  unreachable component ships whenever its assignment shares a dist module with
+  live exports — measured at ~107 KiB / 29% of a shared chunk that even `/share/`
+  downloads. Module-scoped knobs (`sideEffects: false`, consumer
+  `treeshake.moduleSideEffects`) do nothing here; the fix is upstream
+  (`/*#__PURE__*/` annotations or per-module publishing — my-you-eye#31). When
+  auditing bundle bloat, grep built chunks for symbols with ZERO call sites before
+  blaming module inclusion.
+- **Secret-leak heuristics flag EXAMPLE strings in built assets.** The literal
+  placeholder `"-----BEGIN OPENSSH PRIVATE KEY-----"` tripped react-doctor's
+  artifact scan on `SettingsView-*.js`. Never ship credential-shaped example
+  strings, even as placeholders. Same tool also walks `server/.venv` (19 bogus
+  Python findings) — exclude that path if its CI mode is ever adopted (§5.9).
+- **Menu-key context menus come free when the focusable element IS the Radix
+  trigger.** Browsers dispatch a real `contextmenu` MouseEvent on Menu key /
+  Shift+F10 aimed at the focused element, so keyboard users can open our
+  ContextMenus precisely because rows/tabs are themselves the trigger elements.
+  Any future overlay that opens from a wrapper div instead silently loses this.
+- **De-subscription trap:** converting whole-store reads to `.getState()` must
+  preserve handler-scoped object paths. `handlePaneOpenLink(paneId, …)`'s
+  `findLeaf(tree, paneId)` was one careless edit away from becoming
+  `activeLeaf()` — same-looking code, different pane, silent behavior change.
+  When de-subscribing, diff SEMANTICS not just identifiers.
+- **The em-dash ban covers ALL string literals**, placeholders and aria-labels
+  included — `tests/unit/uiCopyEmDash.test.ts` enforces DESIGN-SPEC round 4
+  item 28 against `src/**/*.ts(x)` outside comments. It rejected an otherwise
+  good SSH placeholder during Phase C; word copy with commas, not dashes.
+- **`TexturedSurface`'s `color` prop takes the BARE token name**
+  (`color="--sidebar-bg"`), not a `var()` reference — passing `var(--x)` renders
+  nothing. Discovered while migrating the sidebar namespace (item 43).
+- **Match-based editing of very large files is fragile across multiple steps.**
+  Restructuring `ExplorerTree.tsx` (~1000 lines) with interleaved removal +
+  insertion let one edit consume another's anchor, duplicating a component
+  header that only surfaced as parser errors two gates later. Land such
+  restructurings as ONE atomic edit, and run `tsc -b` immediately after each
+  step rather than batching.
