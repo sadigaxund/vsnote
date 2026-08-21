@@ -1356,7 +1356,7 @@ export default function App() {
         )}
 
         {!zenMode && activePanel === "search" && (
-          <Suspense fallback={<div style={{ width: sidebarCollapsed ? 0 : sidebarWidth, flexShrink: 0, background: "var(--app-sidebar-bg)", borderRight: sidebarCollapsed ? "none" : "1px solid var(--app-chrome-border)" }} />}>
+          <Suspense fallback={<div style={{ width: sidebarCollapsed ? 0 : sidebarWidth, flexShrink: 0, background: "var(--sidebar-bg)", borderRight: sidebarCollapsed ? "none" : "1px solid var(--sidebar-border)" }} />}>
             <SearchPanel
               onOpenResult={handleSearchOpenResult}
               width={sidebarWidth}

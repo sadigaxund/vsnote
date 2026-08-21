@@ -95,7 +95,7 @@ export function SidebarContainer({
           aria-hidden
           radius="none"
           variant="surface"
-          color="--app-sidebar-bg"
+          color="--sidebar-bg"
           layer="page"
           style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none" }}
         />

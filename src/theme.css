@@ -201,6 +201,23 @@
   --app-chrome-bg: var(--color-bg);
   --app-chrome-border: var(--color-border);
   --app-sidebar-bg: var(--color-surface);
+
+  /* ---- Sidebar chrome namespace (DESIGN-SPEC Amendments item 42,
+     COMPONENT-BACKLOG §2.4) ----
+     Persistent side-panel chrome (SidebarContainer shell + the Explorer/
+     Search/Source-Control rows inside it) consumes ONLY this `--sidebar-*`
+     family for its surfaces, instead of borrowing the generic
+     surface/hover tokens — shadcn's `--sidebar-*` precedent. Derived from
+     the same base hues as everything else, so switching `data-theme` +
+     `.dark` restyles it like any other token (SKILL.md rule 12). Text
+     inside the sidebar stays on the global fg/muted tokens deliberately:
+     text color is not sidebar-specific chrome. */
+  --sidebar-bg: var(--app-sidebar-bg);
+  --sidebar-border: var(--app-chrome-border);
+  --sidebar-item-hover: var(--color-surface-hover);
+  --sidebar-item-active: var(--color-surface-active);
+  --sidebar-badge-bg: var(--color-secondary);
+  --sidebar-badge-fg: var(--color-secondary-fg);
   /* No single library token matches this app's third, darker-than-bg
      content depth (app-preview.png's editor surface) — derived rather than
      invented, so it still tracks each theme's own bg. */
@@ -323,6 +340,17 @@
   --app-chrome-border: #1e2128;
   /* Sidebar surface — measured LIGHTER than the editor, see note above. */
   --app-sidebar-bg: #15171c;
+
+  /* ---- Sidebar chrome namespace, VSNote-default exact values (item 42).
+     Same surfaces the sidebar has always painted, reasserted under their
+     own names so per-theme tuning of side-panel chrome no longer has to
+     borrow generic surface tokens. ---- */
+  --sidebar-bg: #15171c;
+  --sidebar-border: #1e2128;
+  --sidebar-item-hover: #1c1f26;
+  --sidebar-item-active: #292e37;
+  --sidebar-badge-bg: #1c1f26;
+  --sidebar-badge-fg: #d8dfe6;
   /* Editor / content surface — measured the darkest "content" depth,
      shared by the active tab (see EditorTabBar) so it visually merges
      into the editor below it. */

@@ -209,7 +209,7 @@ function FileResultGroup({
             textAlign: "left",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "var(--color-surface-hover)";
+            e.currentTarget.style.background = "var(--sidebar-item-hover)";
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = "transparent";

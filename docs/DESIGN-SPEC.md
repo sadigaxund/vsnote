@@ -605,3 +605,18 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     margin slider applies as horizontal page padding (the engine owns vertical
     rhythm). Implementation detail lives in ARCHITECTURE.md's 2026-08-21 deviation
     entry.
+
+## Amendments round 9 — 2026-08-21 (skills-analysis hardening pass; OVERRIDE above)
+
+43. **Sidebar chrome token namespace.** Persistent side-panel chrome — the
+    `SidebarContainer` shell and the row surfaces inside the Explorer, Search, and
+    Source Control views — paints exclusively from a dedicated `--sidebar-*` family
+    (`--sidebar-bg/-border/-item-hover/-item-active/-badge-bg/-badge-fg`) defined in
+    `src/theme.css` for every theme (derived block) with exact hand-sampled values in
+    the VSNote-default block. Rationale: sidebar hierarchy no longer borrows generic
+    `--color-surface-*` tokens, so per-theme side-panel tuning can't drift page
+    content; switching `data-theme` + `.dark` alone still restyles everything.
+    Text inside the sidebar stays on global fg/muted tokens by design. Initial
+    values equal the surfaces these regions already painted — pixel-identical
+    migration; shadcn's `--sidebar-*` namespace is the precedent (see
+    docs/COMPONENT-BACKLOG.md §2.4).

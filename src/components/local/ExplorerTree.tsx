@@ -917,7 +917,7 @@ function TreeRowContent({
               ? "color-mix(in srgb, var(--color-danger) 16%, transparent)"
               : "color-mix(in srgb, var(--color-primary) 16%, transparent)"
             : selected
-              ? "var(--color-surface-active)"
+              ? "var(--sidebar-item-active)"
               : "transparent",
         outline:
           isDropRow && dropTarget?.mode === "into" && !dropTarget.invalid
@@ -926,7 +926,7 @@ function TreeRowContent({
         outlineOffset: -1,
       }}
       onMouseEnter={(e) => {
-        if (!selected && !isDropRow) e.currentTarget.style.background = "var(--color-surface-hover)";
+        if (!selected && !isDropRow) e.currentTarget.style.background = "var(--sidebar-item-hover)";
       }}
       onMouseLeave={(e) => {
         if (!selected && !isDropRow) e.currentTarget.style.background = "transparent";
