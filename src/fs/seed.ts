@@ -3,13 +3,16 @@
  * "Git features" describes as REAL isomorphic-git history + working-tree
  * edits, not hardcoded status letters:
  *
- *  - two real commits on the default branch (`main`)
+ *  - three real commits on the default branch (`main`)
  *  - `architecture.md` modified unstaged (M) — its committed vs working
  *    content is hand-authored so `git/diff.ts`'s real LCS diff genuinely
  *    computes +12 -5 (verified with the exact production `toLines()`
  *    splitting logic before being written here; see the module comment on
  *    `ARCHITECTURE_MD_HEAD`/`_WORKING` below)
  *  - `indexer.ts`, `metrics.csv` modified unstaged (M)
+ *  - `searchRank.ts` modified unstaged (M) — a second code-diff showcase
+ *    tuned for the DIFF VIEW: exactly 4 separated hunks, +26 −10 (verified
+ *    with real `git diff -U3`; see the comment above its content pair)
  *  - `legacy-parser.ts` deleted from the working tree, unstaged (D)
  *  - `GraphView.tsx` written + staged, never committed (A)
  *  - `daily-2026-08-14.md` written, never staged (U)
@@ -490,6 +493,113 @@ function parseLinks(_path: string): string[] {
 `;
 
 /**
+ * A second modified-code showcase, tuned for the DIFF VIEW rather than the
+ * status matrix: `SEARCH_RANK_TS_HEAD` → `_WORKING` is a genuine multi-hunk
+ * edit (verified with real `git diff -U3`: exactly **4 hunks, +26 −10**),
+ * so unified/split mode shows several separated change regions — a top
+ * import/comment+STOP_WORDS edit, a doc-comment rewrite, a scoring-core
+ * rewrite, and an appended `topK` export — instead of one contiguous block.
+ * Committed in the same "feat: indexing architecture draft" commit as
+ * `indexer.ts` (keeps the seeded history at exactly 3 commits / ahead-3)
+ * with its working copy left unstaged (one more M).
+ */
+const SEARCH_RANK_TS_HEAD = `// Search ranking v1 — path-substring hits plus raw link degree.
+
+const STOP_WORDS = new Set(["the", "a", "an", "of", "and", "or"]);
+
+export interface ScoredNote {
+  path: string;
+  score: number;
+}
+
+/**
+ * Ranks vault notes for a query: case-insensitive substring hits on the
+ * path earn a flat boost; every inbound/outbound link adds a little.
+ */
+export function rankNotes(
+  query: string,
+  index: Map<string, string[]>,
+): ScoredNote[] {
+  const terms = tokenize(query);
+  const results: ScoredNote[] = [];
+  for (const [path, links] of index) {
+    let score = 0;
+    if (terms.some((t) => path.toLowerCase().includes(t))) score += 5;
+    score += links.length;
+    if (score > 0) results.push({ path, score });
+  }
+  return results.sort(byScoreDesc);
+}
+
+function byScoreDesc(a: ScoredNote, b: ScoredNote): number {
+  return b.score - a.score;
+}
+
+function tokenize(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\\s+/)
+    .filter((t) => t.length > 1 && !STOP_WORDS.has(t));
+}
+`;
+
+const SEARCH_RANK_TS_WORKING = `// Search ranking v2 — BM25-lite scoring over paths and link degree.
+
+const STOP_WORDS = new Set([
+  "the", "a", "an", "of", "and", "or", "to", "in", "on", "for",
+  "with", "is", "it",
+]);
+
+export interface ScoredNote {
+  path: string;
+  score: number;
+}
+
+/**
+ * Ranks vault notes for a query with a BM25-lite heuristic: term hits in
+ * the path dominate, link degree acts as a mild prior, and stop-word
+ * filtering keeps short queries from matching everything in the vault.
+ */
+export function rankNotes(
+  query: string,
+  index: Map<string, string[]>,
+): ScoredNote[] {
+  const terms = tokenize(query);
+  const results: ScoredNote[] = [];
+  for (const [path, links] of index) {
+    let score = 0;
+    let hits = 0;
+    for (const t of terms) {
+      if (!path.toLowerCase().includes(t)) continue;
+      hits += 1;
+      score += 2 * t.length;
+    }
+    // Link degree as a prior: worth something, never decisive.
+    score += Math.log1p(links.length);
+    if (hits > 0 || links.length > 8) results.push({ path, score });
+  }
+  return results.sort(byScoreThenPath);
+}
+
+function byScoreThenPath(a: ScoredNote, b: ScoredNote): number {
+  if (b.score !== a.score) return b.score - a.score;
+  return a.path.localeCompare(b.path);
+}
+
+function tokenize(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\\s+/)
+    .filter((t) => t.length > 1 && !STOP_WORDS.has(t));
+}
+
+/** Keeps the palette's top-N cut stable across equal scores. */
+export function topK(results: ScoredNote[], k = 20): ScoredNote[] {
+  return results.slice(0, k);
+}
+`;
+
+/**
  * Committed (HEAD) draft of architecture.md — an earlier, shorter version.
  * Paired with `ARCHITECTURE_MD_WORKING` below, this exact pair was verified
  * against a standalone run of `my-you-eye`'s `lcsDiffFlags` (the same
@@ -553,6 +663,7 @@ async function seedVault(): Promise<void> {
   await writeFile(`${VAULT_DIR}/notes/architecture.md`, ARCHITECTURE_MD_HEAD);
   await writeFile(`${VAULT_DIR}/src/theme.css`, THEME_CSS);
   await writeFile(`${VAULT_DIR}/src/indexer.ts`, INDEXER_TS_HEAD);
+  await writeFile(`${VAULT_DIR}/src/searchRank.ts`, SEARCH_RANK_TS_HEAD);
   await writeFile(`${VAULT_DIR}/src/legacy-parser.ts`, LEGACY_PARSER_TS);
   await writeFile(`${VAULT_DIR}/assets/cover.png`, coverPngBytes());
   await writeFile(`${VAULT_DIR}/metrics.csv`, METRICS_CSV_HEAD);
@@ -572,7 +683,7 @@ async function seedVault(): Promise<void> {
     "chore: scaffold vault",
   );
   await commitPaths(
-    ["notes/architecture.md", "src/indexer.ts", "metrics.csv"],
+    ["notes/architecture.md", "src/indexer.ts", "src/searchRank.ts", "metrics.csv"],
     "feat: indexing architecture draft",
   );
   await commitPaths(
@@ -584,6 +695,7 @@ async function seedVault(): Promise<void> {
   // reports M/A/D/U per DESIGN-SPEC §3 — nothing here is a hardcoded label.
   await writeFile(`${VAULT_DIR}/notes/architecture.md`, ARCHITECTURE_MD_WORKING); // M (unstaged)
   await writeFile(`${VAULT_DIR}/src/indexer.ts`, INDEXER_TS_WORKING); // M (unstaged)
+  await writeFile(`${VAULT_DIR}/src/searchRank.ts`, SEARCH_RANK_TS_WORKING); // M (unstaged) — multi-hunk diff showcase
   await writeFile(`${VAULT_DIR}/metrics.csv`, METRICS_CSV_WORKING); // M (unstaged)
   await removePath(`${VAULT_DIR}/src/legacy-parser.ts`); // D (unstaged)
 

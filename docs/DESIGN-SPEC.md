@@ -52,8 +52,10 @@ buildable detail. When in doubt, open the image and match it.
   - Inline rename (input replaces the label).
 - Demo vault contents must match the screenshot: `vault/notes/{architecture.md [M],
   daily-2026-08-14.md [U], reading-list.md}`, `vault/src/{indexer.ts [M],
-  GraphView.tsx [A], theme.css, legacy-parser.ts [D]}`, `vault/assets/` (collapsed;
-  contains `cover.png`), `vault/metrics.csv [M]`, `vault/vault.config.json`.
+  searchRank.ts [M], GraphView.tsx [A], theme.css, legacy-parser.ts [D]}`,
+  `vault/assets/` (collapsed; contains `cover.png`), `vault/metrics.csv [M]`,
+  `vault/vault.config.json`. (`searchRank.ts` postdates the reference screenshot —
+  added as a 4-hunk +26/−10 diff showcase; see seed.ts.)
 
 ### 4. Editor group
 - **Tab bar**: one tab per open file — file-type icon, name, close ×. Dirty (unsaved)
@@ -242,7 +244,8 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     exercise truncation/scrolling/sticky header; `vault.config.json` gets deep
     nesting, arrays of objects, and long string values. CRITICAL: the seeder must
     still reproduce the screenshot git states (metrics.csv keeps its `M`, +12 −5 on
-    architecture.md, 6 changes, 1 untracked, ahead 3 / behind 1).
+    architecture.md, 7 changes, 1 untracked, ahead 3 / behind 1; "7" grew from the
+    screenshot-era 6 when `searchRank.ts` was added as a multi-hunk diff showcase).
 16. **Typing latency (performance bug, not a feature).** Typing feels subtly
     delayed. Profile the keystroke path and fix the cause(s); likely suspects:
     per-keystroke React re-renders of the whole shell (e.g. cursor Ln/Col state

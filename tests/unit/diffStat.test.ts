@@ -104,4 +104,112 @@ Every commit is content-addressed, so a bad update reverts by replaying the comm
     expect(added).toBe(12);
     expect(removed).toBe(5);
   });
+
+  it("reproduces the seeded searchRank.ts pair: +26 -10 across a multi-hunk edit", () => {
+    // The exact HEAD/WORKING strings fs/seed.ts seeds for src/searchRank.ts
+    // (SEARCH_RANK_TS_HEAD/_WORKING, duplicated here per the same
+    // algorithm-pinning rationale as the architecture.md case above). This
+    // pair was authored for the DIFF VIEW showcase and verified with real
+    // `git diff -U3` to be exactly 4 separated hunks, +26 −10; this test
+    // pins that the app's own LCS pipeline agrees with git on the counts.
+    const head = `// Search ranking v1 — path-substring hits plus raw link degree.
+
+const STOP_WORDS = new Set(["the", "a", "an", "of", "and", "or"]);
+
+export interface ScoredNote {
+  path: string;
+  score: number;
+}
+
+/**
+ * Ranks vault notes for a query: case-insensitive substring hits on the
+ * path earn a flat boost; every inbound/outbound link adds a little.
+ */
+export function rankNotes(
+  query: string,
+  index: Map<string, string[]>,
+): ScoredNote[] {
+  const terms = tokenize(query);
+  const results: ScoredNote[] = [];
+  for (const [path, links] of index) {
+    let score = 0;
+    if (terms.some((t) => path.toLowerCase().includes(t))) score += 5;
+    score += links.length;
+    if (score > 0) results.push({ path, score });
+  }
+  return results.sort(byScoreDesc);
+}
+
+function byScoreDesc(a: ScoredNote, b: ScoredNote): number {
+  return b.score - a.score;
+}
+
+function tokenize(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\\s+/)
+    .filter((t) => t.length > 1 && !STOP_WORDS.has(t));
+}
+`;
+    const working = `// Search ranking v2 — BM25-lite scoring over paths and link degree.
+
+const STOP_WORDS = new Set([
+  "the", "a", "an", "of", "and", "or", "to", "in", "on", "for",
+  "with", "is", "it",
+]);
+
+export interface ScoredNote {
+  path: string;
+  score: number;
+}
+
+/**
+ * Ranks vault notes for a query with a BM25-lite heuristic: term hits in
+ * the path dominate, link degree acts as a mild prior, and stop-word
+ * filtering keeps short queries from matching everything in the vault.
+ */
+export function rankNotes(
+  query: string,
+  index: Map<string, string[]>,
+): ScoredNote[] {
+  const terms = tokenize(query);
+  const results: ScoredNote[] = [];
+  for (const [path, links] of index) {
+    let score = 0;
+    let hits = 0;
+    for (const t of terms) {
+      if (!path.toLowerCase().includes(t)) continue;
+      hits += 1;
+      score += 2 * t.length;
+    }
+    // Link degree as a prior: worth something, never decisive.
+    score += Math.log1p(links.length);
+    if (hits > 0 || links.length > 8) results.push({ path, score });
+  }
+  return results.sort(byScoreThenPath);
+}
+
+function byScoreThenPath(a: ScoredNote, b: ScoredNote): number {
+  if (b.score !== a.score) return b.score - a.score;
+  return a.path.localeCompare(b.path);
+}
+
+function tokenize(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\\s+/)
+    .filter((t) => t.length > 1 && !STOP_WORDS.has(t));
+}
+
+/** Keeps the palette's top-N cut stable across equal scores. */
+export function topK(results: ScoredNote[], k = 20): ScoredNote[] {
+  return results.slice(0, k);
+}
+`;
+    const lines = toDiffLines(toLines(head), toLines(working));
+    const added = lines.filter((l) => l.type === "added").length;
+    const removed = lines.filter((l) => l.type === "removed").length;
+    expect(added).toBe(26);
+    expect(removed).toBe(10);
+  });
 });

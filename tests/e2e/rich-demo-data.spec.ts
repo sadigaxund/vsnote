@@ -214,12 +214,12 @@ test.describe("representative demo data", () => {
     expect(sandboxAttr).toBe("");
   });
 
-  test("git invariants still hold with the regenerated demo data: metrics.csv M, architecture.md +12/-5, 6 changes, 1 untracked", async ({ page }) => {
+  test("git invariants still hold with the regenerated demo data: metrics.csv M, architecture.md +12/-5, 7 changes, 1 untracked", async ({ page }) => {
     await seedShowGitStatusInExplorer(page); // tree letters are opt-in now (round 6 item 15)
     await gotoApp(page);
     await expect(treeRow(page, "vault/metrics.csv")).toContainText("M");
     const scmButton = page.getByRole("button", { name: "Source Control" });
-    await expect(scmButton).toContainText("6");
+    await expect(scmButton).toContainText("7");
 
     const header = page.getByTestId("app-titlebar");
     await expect(header).toContainText("+12");
