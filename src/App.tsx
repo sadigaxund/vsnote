@@ -165,7 +165,22 @@ export default function App() {
   // `handleOpenSettings` below the same way any other file open is.
   const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
   const [zenMode, setZenMode] = useState(false);
-  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+    // TODO §6.1.5 (bundle-preload): warm a panel's lazy chunk on rail hover/
+  // focus intent, hiding dynamic-import latency behind travel time. The
+  // module cache dedupes these with React.lazy's own loaders.
+  const preloadedPanelsRef = useRef<Set<string>>(new Set());
+  function handleActivityIntent(panel: ActivityPanel): void {
+    if (panel === "explorer" || preloadedPanelsRef.current.has(panel)) return;
+    preloadedPanelsRef.current.add(panel);
+    if (panel === "search") {
+      void import("./components/SearchPanel");
+    } else if (panel === "scm") {
+      void import("./components/local/PublishDialog");
+      void import("./components/local/ConflictResolver");
+    }
+  }
+
+const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false);
   // DESIGN-SPEC Amendments round 5 item 39 — OS drag-drop/Ctrl+V paste
   // import (`ExplorerTree.tsx`'s `onImportEntries`): set only when
@@ -1323,6 +1338,7 @@ export default function App() {
             onSelect={handleActivitySelect}
             changedCount={gitChangedCount}
             onOpenSettings={handleOpenSettings}
+            onItemIntent={handleActivityIntent}
           />
         )}
 

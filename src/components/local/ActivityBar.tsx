@@ -33,13 +33,17 @@ export interface ActivityBarItem {
 }
 
 export interface ActivityBarProps {
+  /** Hover/focus intent on a rail button (TODO §6.1.5, bundle-preload):
+   * lets the app warm lazy chunks for the panel the user is about to open,
+   * hiding dynamic-import latency behind pointer/keyboard travel. */
   items: ActivityBarItem[];
   onSelect?: (id: string) => void;
+  onItemIntent?: (id: string) => void;
   footer?: ActivityBarItem;
   onFooterSelect?: (id: string) => void;
 }
 
-export function ActivityBar({ items, onSelect, footer, onFooterSelect }: ActivityBarProps) {
+export function ActivityBar({ items, onSelect, onItemIntent, footer, onFooterSelect }: ActivityBarProps) {
   return (
     <nav
       aria-label="Activity Bar"
@@ -72,7 +76,12 @@ export function ActivityBar({ items, onSelect, footer, onFooterSelect }: Activit
           density is supposed to visibly affect. */}
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--app-density-icon-gap)" }}>
         {items.map((item) => (
-          <RailButton key={item.id} item={item} onClick={() => onSelect?.(item.id)} />
+          <RailButton
+            key={item.id}
+            item={item}
+            onClick={() => onSelect?.(item.id)}
+            onIntent={() => onItemIntent?.(item.id)}
+          />
         ))}
       </div>
       {footer && (
@@ -82,7 +91,15 @@ export function ActivityBar({ items, onSelect, footer, onFooterSelect }: Activit
   );
 }
 
-function RailButton({ item, onClick }: { item: ActivityBarItem; onClick: () => void }) {
+function RailButton({
+  onIntent,
+  item,
+  onClick,
+}: {
+  item: ActivityBarItem;
+  onClick: () => void;
+  onIntent?: () => void;
+}) {
   return (
     <Tooltip content={item.label} side="right">
       <div style={{ position: "relative", width: 48, display: "flex", justifyContent: "center" }}>
@@ -107,6 +124,8 @@ function RailButton({ item, onClick }: { item: ActivityBarItem; onClick: () => v
           aria-label={item.label}
           aria-pressed={item.active}
           onClick={onClick}
+          onMouseEnter={onIntent}
+          onFocus={onIntent}
           className="relative"
           style={{
             width: 32,

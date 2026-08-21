@@ -489,13 +489,15 @@ Status after the 2026-08-21 implementation pass: **items 1–3 done** (`e49f830`
    wrap in `startTransition` or rAF-throttle (pair with queued passive-listener).
 4. **Single-pass flattens** (`js-combine-iterations`/`flatmap-filter`) —
    `lib/flattenTree.ts` + `lib/filterTree.ts` multi-pass per node; collapse walks.
-5. **Preload lazy panels on ActivityBar hover/focus** (`bundle-preload`) — fire
-   `void import()` for Settings/SourceControl/Search chunks on intent.
+5. ✅ **Preload lazy panels on rail hover/focus** (`bundle-preload`) — see item 5 above (merged implementation).
 6. **Cheap-guard-before-await audit** (`async-cheap-condition-before-await`) —
    sweep `src/share/*` + `git/sync.ts` for remote awaits preceding local guards.
 7. Micro-batch (spinner half ✅ — all 17 wrapped): hoist locals in
    vaultSearch inner loop; primitive-useMemo sweep; hoist static empty-state JSX;
    split fused filter+sort memos if deps mix.
+5. **Preload lazy panels on ActivityBar intent** — done: `onItemIntent`
+   (mouseenter/focus) warms SearchPanel / PublishDialog+ConflictResolver
+   chunks behind pointer travel; module cache dedupes with React.lazy.
 8. Watchlist (post-profile only): `memo()` adoption — deliberately zero today;
    selector granularity + hygiene test is OUR mechanism (see 6.4 contradiction #2).
 

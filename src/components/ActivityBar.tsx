@@ -12,6 +12,9 @@ export interface AppActivityBarProps {
   onSelect: (panel: ActivityPanel) => void;
   changedCount: number;
   onOpenSettings?: () => void;
+  /** Hover/focus intent (TODO §6.1.5) — forwarded so the app can preload
+   * the panel's lazy chunk behind pointer/keyboard travel. */
+  onItemIntent?: (panel: ActivityPanel) => void;
 }
 
 export function AppActivityBar({
@@ -19,6 +22,7 @@ export function AppActivityBar({
   onSelect,
   changedCount,
   onOpenSettings,
+  onItemIntent,
 }: AppActivityBarProps) {
   return (
     <ActivityBarShell
@@ -51,6 +55,7 @@ export function AppActivityBar({
       ]}
       onSelect={(id) => onSelect(id as ActivityPanel)}
       footer={{ id: "settings", label: "Settings", icon: <Settings size={19} /> }}
+      onItemIntent={(id) => onItemIntent?.(id as ActivityPanel)}
       onFooterSelect={onOpenSettings}
     />
   );
