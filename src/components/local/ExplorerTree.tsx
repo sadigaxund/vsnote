@@ -443,6 +443,76 @@ export function ExplorerTree({
   const virtualize = flatRows.length > VIRTUALIZE_ROW_THRESHOLD;
   const rowHeightPx = useTreeRowHeightPx();
 
+  // ---- Keyboard navigation + announcements (COMPONENT-BACKLOG §3.4, B2) ----
+  // The ARIA tree pattern requires full arrow/Home/End traversal with
+  // selection following focus. Implemented over the FLATTENED visible-row
+  // list (`lib/treeFlatten.ts`, shared by both render paths), focusing via
+  // each row's existing `data-tree-path` attribute so recursive and
+  // virtualized modes behave identically. In virtualized mode a Home/End
+  // jump past the rendered window moves SELECTION but not DOM focus (the
+  // row isn't mounted); acceptable v1, noted in §3.4.
+  const visibleIds = useMemo(() => flatRows.map((r) => r.node.id), [flatRows]);
+  const [announcement, setAnnouncement] = useState("");
+  const handleTreeKeyDown = (e: KeyboardEvent<HTMLDivElement>, node: FileNode): void => {
+    if (!["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"].includes(e.key)) return;
+    const treeEl = e.currentTarget.closest<HTMLElement>('[role="tree"]');
+    const idx = visibleIds.indexOf(node.id);
+    if (idx === -1) return;
+    const isFolder = node.type === "folder";
+    const rowEl = treeEl?.querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(node.id)}"]`);
+    let targetId: string | undefined;
+    switch (e.key) {
+      case "ArrowDown":
+        targetId = visibleIds[idx + 1];
+        break;
+      case "ArrowUp":
+        targetId = visibleIds[idx - 1];
+        break;
+      case "ArrowRight":
+        if (isFolder && rowEl?.getAttribute("aria-expanded") === "false") {
+          toggleExpandNode(node);
+          return;
+        }
+        targetId = flatRows[idx + 1]?.depth > flatRows[idx].depth ? visibleIds[idx + 1] : undefined;
+        break;
+      case "ArrowLeft":
+        if (isFolder && rowEl?.getAttribute("aria-expanded") === "true") {
+          toggleExpandNode(node);
+          return;
+        }
+        for (let i = idx - 1; i >= 0; i -= 1) {
+          if (flatRows[i].depth < flatRows[idx].depth) {
+            targetId = visibleIds[i];
+            break;
+          }
+        }
+        break;
+      case "Home":
+        targetId = visibleIds[0];
+        break;
+      case "End":
+        targetId = visibleIds[visibleIds.length - 1];
+        break;
+    }
+    e.preventDefault();
+    const targetRow = targetId ? flatRows.find((r) => r.node.id === targetId) : undefined;
+    if (!targetRow) return;
+    // Selection follows focus (ARIA tree pattern).
+    onSelect?.(targetRow.node);
+    treeEl?.querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(targetRow.node.id)}"]`)?.focus();
+  };
+  /** Screen-reader announcements (rename commit/cancel) — visually hidden,
+   * polite live region rendered alongside both tree variants below. */
+  const liveRegion = (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 }}
+    >
+      {announcement}
+    </div>
+  );
+
   const sharedRowProps: SharedTreeRowProps = {
     selectedId,
     onSelect,
@@ -467,43 +537,51 @@ export function ExplorerTree({
     onDropNode: handleDrop,
     onDragEndNode: resetDrag,
     onToggleExpandNode: toggleExpandNode,
+    onTreeKeyDown: handleTreeKeyDown,
+    onAnnounce: setAnnouncement,
     readOnly,
   };
 
   if (virtualize) {
     return (
-      <VirtualList<FlatTreeRow>
-        items={flatRows}
-        rowHeight={rowHeightPx}
-        getKey={(row) => row.node.id}
-        className={className}
-        role="tree"
-        data-testid="explorer-tree-viewport"
-        onPaste={readOnly ? undefined : handlePaste}
-        renderRow={(row) => <FlatRow row={row} {...sharedRowProps} />}
-      />
+      <>
+        {liveRegion}
+        <VirtualList<FlatTreeRow>
+          items={flatRows}
+          rowHeight={rowHeightPx}
+          getKey={(row) => row.node.id}
+          className={className}
+          role="tree"
+          data-testid="explorer-tree-viewport"
+          onPaste={readOnly ? undefined : handlePaste}
+          renderRow={(row) => <FlatRow row={row} {...sharedRowProps} />}
+        />
+      </>
     );
   }
 
   return (
-    <ul
-      role="tree"
-      className={className}
-      style={{ listStyle: "none", margin: 0, padding: 0 }}
-      onPaste={readOnly ? undefined : handlePaste}
-    >
-      {data.map((node) => (
-        <TreeRow
-          key={node.id}
-          node={node}
-          depth={0}
-          expandAll={expandAll}
-          forceExpandId={forceExpandId ?? null}
-          expandOverrides={expandOverrides}
-          {...sharedRowProps}
-        />
-      ))}
-    </ul>
+    <>
+      {liveRegion}
+      <ul
+        role="tree"
+        className={className}
+        style={{ listStyle: "none", margin: 0, padding: 0 }}
+        onPaste={readOnly ? undefined : handlePaste}
+      >
+        {data.map((node) => (
+          <TreeRow
+            key={node.id}
+            node={node}
+            depth={0}
+            expandAll={expandAll}
+            forceExpandId={forceExpandId ?? null}
+            expandOverrides={expandOverrides}
+            {...sharedRowProps}
+          />
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -536,6 +614,13 @@ interface SharedTreeRowProps {
   onDropNode: (e: DragEvent<HTMLDivElement>) => void;
   onDragEndNode: () => void;
   onToggleExpandNode: (node: FileNode) => void;
+  /** ARIA-tree keyboard nav (arrows/Home/End, selection follows focus) —
+   * implemented once at `ExplorerTree` over the flattened visible list;
+   * every row delegates its non-activation keys here. */
+  onTreeKeyDown: (e: KeyboardEvent<HTMLDivElement>, node: FileNode) => void;
+  /** Screen-reader announcements (rename commit/cancel) into the tree's
+   * shared polite live region. */
+  onAnnounce: (message: string) => void;
   readOnly?: boolean;
 }
 
@@ -668,6 +753,8 @@ function TreeRowContent({
   onDropNode,
   onDragEndNode,
   onToggleExpandNode,
+  onTreeKeyDown,
+  onAnnounce,
   readOnly,
 }: TreeRowContentProps) {
   const isFolder = node.type === "folder";
@@ -765,14 +852,20 @@ function TreeRowContent({
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       handleActivate({ pin: e.key === "Enter" });
+      return;
     }
+    // Arrows/Home/End → the ARIA-tree nav implemented at ExplorerTree level
+    // (needs the flattened visible list, which rows don't see).
+    onTreeKeyDown(e, node);
   };
 
   const commitRename = () => {
     const trimmed = draftName.trim();
     if (trimmed && trimmed !== node.name) {
+      onAnnounce(`Renamed to ${trimmed}`);
       onRenameCommit?.(node, trimmed);
     } else {
+      onAnnounce("Rename cancelled");
       onRenameCancel?.();
     }
   };
@@ -868,6 +961,7 @@ function TreeRowContent({
           size="sm"
           autoFocus
           ref={inputRef}
+          aria-label={`Rename ${node.name}`}
           value={draftName}
           onChange={(e) => setDraftName(e.target.value)}
           onClick={(e) => e.stopPropagation()}

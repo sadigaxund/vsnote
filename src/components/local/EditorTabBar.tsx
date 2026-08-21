@@ -23,7 +23,7 @@
  * the tab") — plus Close, so the whole split feature is reachable without
  * knowing the drag gesture exists.
  */
-import type { ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,6 +67,54 @@ export interface EditorTabBarProps {
 }
 
 export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDropExternalTab, onSplitTab, documentActions }: EditorTabBarProps) {
+  // ARIA tabs pattern (COMPONENT-BACKLOG §3.4/B3): a tablist has ONE tab
+  // stop — the focused/active tab — with Arrow keys moving focus among tabs
+  // (focus follows the roving index; activation stays explicit via
+  // Enter/Space or click). `focusedId` trails whichever tab last received
+  // focus (mouse clicks included, via onFocus); when it dangles (tab closed)
+  // ownership falls back to the ACTIVE tab so there is always exactly one
+  // tabIndex=0 in the list.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const owner = tabs.some((t) => t.id === focusedId) ? focusedId! : activeId;
+
+  const moveFocus = (e: KeyboardEvent<HTMLDivElement>, dir: "next" | "prev" | "first" | "last"): void => {
+    e.preventDefault();
+    if (tabs.length === 0) return;
+    const idx = tabs.findIndex((t) => t.id === owner);
+    const next =
+      dir === "first" ? tabs[0] : dir === "last" ? tabs[tabs.length - 1] : tabs[dir === "next" ? Math.min(idx + 1, tabs.length - 1) : Math.max(idx - 1, 0)];
+    if (!next || next.id === owner) return;
+    setFocusedId(next.id);
+    stripRef.current?.querySelector<HTMLElement>(`[data-tab-path="${CSS.escape(next.path)}"]`)?.focus();
+  };
+
+  const handleTabKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    switch (e.key) {
+      case "ArrowRight":
+        moveFocus(e, "next");
+        break;
+      case "ArrowLeft":
+        moveFocus(e, "prev");
+        break;
+      case "Home":
+        moveFocus(e, "first");
+        break;
+      case "End":
+        moveFocus(e, "last");
+        break;
+      case "Enter":
+      case " ":
+        // Activation is explicit; the click handler owns selection. Find
+        // the owning tab from the event target's data attribute.
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).click();
+        break;
+      default:
+        break;
+    }
+  };
+
   return (
     <div
       role="tablist"
@@ -80,6 +128,7 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
       }}
     >
       <div
+        ref={stripRef}
         style={{
           display: "flex",
           overflowX: "auto",
@@ -110,10 +159,13 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                 <div
                   role="tab"
                   aria-selected={active}
+                  aria-label={`${tab.name}${tab.dirty ? ", modified" : ""}`}
                   data-tab-path={tab.path}
                   data-pane-id={paneId}
-                  tabIndex={0}
+                  tabIndex={owner === tab.id ? 0 : -1}
                   draggable
+                  onFocus={() => setFocusedId(tab.id)}
+                  onKeyDown={handleTabKeyDown}
                   onDragStart={(e) => {
                     const payload: TabDragPayload = { path: tab.path, paneId, name: tab.name, kind: tab.kind };
                     e.dataTransfer.setData("application/x-vsnote-tab", JSON.stringify(payload));

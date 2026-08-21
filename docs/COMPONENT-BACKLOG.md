@@ -247,6 +247,25 @@ Concrete work items, each traceable to a skill source. Ordered roughly by levera
 Sources: kursku `fixing-accessibility` (primary structure), WIG, addyosmani WCAG 2.2
 patterns, shadcn forms/composition rules. Apply per surface:
 
+**Progress (2026-08-21, Phase B):**
+- **Menus — audited, no gaps to fix.** ContextMenu/DropdownSubmenu wrap the Radix
+  primitives that supply the full contract natively (arrow traversal, Escape,
+  focus restore, `aria-haspopup`/`aria-expanded`/`aria-controls` on
+  triggers/subtriggers); every trigger site is already keyboard-reachable because the
+  focusable element IS the trigger (tree rows, tabs), so the browser's Menu key /
+  Shift+F10 fires a real contextmenu event on them. Icon-only items carry labels.
+- **ExplorerTree — done:** ARIA-tree arrow navigation added (Arrow/Right/Left expand-
+  or-enter / collapse-or-parent semantics over the flattened visible list,
+  selection-follows-focus, Home/End; virtualized off-window jumps move selection but
+  not DOM focus — noted limitation), rename input gets an accessible name, and a
+  shared polite live region announces "Renamed to …"/"Rename cancelled". Typeahead
+  deliberately not implemented: ⌘P file-jump covers it with better UX at vault scale.
+- **EditorTabBar — done:** proper roving tabindex (one tab stop; arrows/Home/End move
+  focus without activating; Enter/Space activate via the existing click path) and
+  accessible names now include dirty state ("notes.md, modified").
+- **Still open:** dialogs pass, StatusBar live regions, global focus-visible/
+  reduced-motion/color-scheme sweep (B4–B6 below).
+
 - **Menus (ContextMenu, DropdownSubmenu, OverflowMenu):** full arrow/Home/End/Escape
   traversal; triggers expose `aria-haspopup` + `aria-expanded`; submenu triggers get
   `aria-controls`; icon-only items carry `aria-label`.
