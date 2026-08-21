@@ -13,6 +13,14 @@
 
 @import "./theme.css";
 
+/* Theming guard (TODO §5.1 audit): NEVER use Tailwind `dark:` utilities in
+   this app. Appearance is token-driven — theme blocks in theme.css keyed off
+   `data-theme` + the VSNote-default palette, with zero `dark:` usage today.
+   Tailwind v4's default dark variant maps to prefers-color-scheme, so a
+   stray `dark:bg-x` would silently follow the OS setting instead of the
+   user's chosen theme. If a dark-variant hook is ever genuinely needed,
+   define `@custom-variant dark` against the theme-block selectors first. */
+
 html,
 body,
 #root {

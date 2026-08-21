@@ -20,6 +20,26 @@ is untraceable. Status: all `planned`.
 
 ### 5.1 Tailwind v4 modernization of our own CSS
 
+**Audit resolution (2026-08-21):** four of five sub-items resolve as
+conformant-or-N/A; one guard added.
+1. `.dark` wiring — **N/A + guard rule**: zero `dark:` utilities exist in src;
+   appearance is token-block-driven via `data-theme`. Guard comment added to
+   `index.css`: never introduce `dark:` (v4 default maps it to
+   prefers-color-scheme → silently wrong); wire `@custom-variant dark` first if
+   ever needed.
+2. Keyframes-in-`@theme` — **N/A**: the app owns zero `@keyframes`; all motion is
+   library utilities or inline transitions.
+3. `@starting-style` — **no fit**: Radix owns every overlay's entry animation;
+   sidebar/status-bar state changes are intentionally instant (VSCode behavior).
+   Revisit only when hand-rolling a new popover/panel.
+4. OKLCH migration — **anchors stay hex** (pixel-sampled DESIGN-SPEC authority);
+   derivations already perceptual (`--app-editor-bg` = `color-mix(in oklab …)`).
+   Remaining OKLCH work is isolated in `lib/accentContrast.ts`'s HSL lightness
+   math — tracked as the §2.3 follow-up, not a theme.css rewrite.
+5. Container queries — **done where warranted**: StatusBar priority collapse uses
+   `@container`; pane/sidebar headers have no size-based JS breakpoints (density
+   is data-attribute driven). Nothing further to convert.
+
 - **Source:** wshobson `tailwind-design-system` (the v4-correct one, found via finfin);
   shadcn `customization.md`.
 - **Items:**
