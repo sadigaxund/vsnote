@@ -23,7 +23,7 @@
  * only modes with a real CM6 selection worth showing) — Rendered mode/no
  * tab show the neutral `1,1` placeholder, exactly as before.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell, Cloud, GitBranch, ShieldAlert } from "lucide-react";
 import { Spinner } from "my-you-eye";
 import { DiffStatChip } from "./local/DiffStatChip";
@@ -78,8 +78,32 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
       ? "sync failed"
       : syncedLabel;
 
+  // Screen-reader announcements (COMPONENT-BACKLOG §3.4/B5, WIG's
+  // aria-live rule): announce only the meaningful TRANSITIONS of the sync
+  // segment — started / completed / failed — never the periodic
+  // "synced Nm ago" re-derivation, which would chatter every tick.
+  const prevSyncRef = useRef<{ syncing: GitSummary["syncing"] | null; error: string | null }>({ syncing: null, error: null });
+  const [syncLiveMessage, setSyncLiveMessage] = useState("");
+  useEffect(() => {
+    const prev = prevSyncRef.current;
+    if (!prev.syncing && git.syncing) {
+      setSyncLiveMessage(git.syncing === "push" ? "Pushing to remote" : git.syncing === "pull" ? "Pulling from remote" : "Syncing with remote");
+    } else if (prev.syncing && !git.syncing) {
+      setSyncLiveMessage(git.syncError ? `Sync failed: ${git.syncError}` : "Sync complete");
+    }
+    prevSyncRef.current = { syncing: git.syncing, error: git.syncError };
+  }, [git.syncing, git.syncError]);
+
   return (
-    <StatusBarShell
+    <>
+      <div
+        role="status"
+        aria-live="polite"
+        style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 }}
+      >
+        {syncLiveMessage}
+      </div>
+      <StatusBarShell
       left={
         <>
           <StatusBarItem
@@ -133,6 +157,7 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
           <StatusBarItem icon={<Bell size={12} />} label="" tooltip="Notifications" />
         </>
       }
-    />
+      />
+    </>
   );
 }

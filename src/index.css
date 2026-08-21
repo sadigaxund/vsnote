@@ -19,6 +19,36 @@ body,
   height: 100%;
 }
 
+/* ---- Accessibility baselines (COMPONENT-BACKLOG §3.4 / B6) ---- */
+
+/* Baseline keyboard focus indicator. The library ships no `:focus-visible`
+   styling of its own (verified against its compiled styles), so without
+   this, keyboard focus is invisible across most of the shell. Additive by
+   design: elements that define their own focus outlines keep winning via
+   their more specific rules. Uses the accent-derived `--color-ring` token
+   (`useSettingsStore.applyDomSettings`) rather than a raw color. */
+:focus-visible {
+  outline: 2px solid var(--color-ring, var(--color-primary));
+  outline-offset: 1px;
+}
+
+/* Honor prefers-reduced-motion globally: collapse animation/transition
+   durations to near-zero (rather than removing them outright, which would
+   hide state changes) and stop smooth scrolling. DESIGN-SPEC's motion
+   rules decide WHAT animates; this is the user-preference backstop for
+   HOW MUCH. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
 body {
   margin: 0;
   background-color: var(--app-chrome-bg);

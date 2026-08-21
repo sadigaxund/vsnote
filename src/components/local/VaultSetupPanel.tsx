@@ -217,6 +217,7 @@ function RemoteDialog({ open, onOpenChange, editingRemote, onSaved }: RemoteDial
               onChange={(e) => setName(e.target.value)}
               placeholder="GitHub backup"
               aria-label="Remote name"
+              aria-invalid={Boolean(name && nameError)}
               data-testid="vault-remote-name"
             />
           </FormField>
@@ -227,6 +228,7 @@ function RemoteDialog({ open, onOpenChange, editingRemote, onSaved }: RemoteDial
               onChange={(e) => setUrl(e.target.value)}
               placeholder="git@github.com:you/notes.git"
               aria-label="Remote URL"
+              aria-invalid={Boolean(url && urlError)}
               data-testid="vault-remote-url"
               style={{ fontFamily: "var(--font-mono)" }}
             />
@@ -264,6 +266,7 @@ function RemoteDialog({ open, onOpenChange, editingRemote, onSaved }: RemoteDial
                 onChange={(e) => setSshKeyDraft(e.target.value)}
                 placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
                 aria-label="SSH private key"
+                aria-invalid={Boolean(sshKeyDraft && credentialError)}
                 data-testid="vault-remote-ssh-key"
                 style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}
               />
@@ -278,6 +281,7 @@ function RemoteDialog({ open, onOpenChange, editingRemote, onSaved }: RemoteDial
                 onChange={(e) => setHttpsTokenDraft(e.target.value)}
                 placeholder="ghp_••••••••••••••••"
                 aria-label="Access token"
+                aria-invalid={Boolean(httpsTokenDraft && credentialError)}
                 data-testid="vault-remote-https-token"
               />
             </FormField>

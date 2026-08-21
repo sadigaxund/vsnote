@@ -263,8 +263,26 @@ patterns, shadcn forms/composition rules. Apply per surface:
 - **EditorTabBar — done:** proper roving tabindex (one tab stop; arrows/Home/End move
   focus without activating; Enter/Space activate via the existing click path) and
   accessible names now include dirty state ("notes.md, modified").
-- **Still open:** dialogs pass, StatusBar live regions, global focus-visible/
-  reduced-motion/color-scheme sweep (B4–B6 below).
+- **Dialogs — audited; partial app-side fix.** All four dialogs (Publish,
+  ImportConflict, ConflictResolver, VaultSetupPanel remote dialog) have both
+  `DialogTitle` and `DialogDescription`, so Radix auto-wires the dialog-level
+  `aria-describedby`, trap/restore/Escape/initial-focus all come from Radix.
+  Library gap found: `FormField` renders its `error` prop visually but wires NO
+  `aria-invalid`/`aria-describedby` onto the control (verified against dist), so
+  field-level errors are silent to screen readers. App-side compensation added:
+  `aria-invalid` on the four VaultSetupPanel credential controls (error text
+  follows in DOM order); full describedby linking needs upstream support —
+  evidence posted on my-you-eye#29.
+- **StatusBar live regions — done:** a polite `role="status"` region announces
+  sync TRANSITIONS only (started / completed / failed with error text) — never
+  the periodic "synced Nm ago" re-derivation, which would chatter every tick.
+- **Global sweep — done:** baseline `:focus-visible` accent ring added in
+  `index.css` (the library ships no focus-visible styling at all — this was the
+  single biggest gap), plus a global `prefers-reduced-motion` guard collapsing
+  animation/transition durations. `color-scheme` deliberately left at the
+  library's `light dark` default: hardcoding `dark` would break the light
+  appearance themes; a per-theme appearance→color-scheme map belongs with §2.4's
+  token-namespace work.
 
 - **Menus (ContextMenu, DropdownSubmenu, OverflowMenu):** full arrow/Home/End/Escape
   traversal; triggers expose `aria-haspopup` + `aria-expanded`; submenu triggers get
