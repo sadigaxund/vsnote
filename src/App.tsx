@@ -15,6 +15,8 @@ import { useGitStore } from "./stores/useGitStore";
 import { findLeaf, useTabsStore } from "./stores/useTabsStore";
 import { useBufferStore } from "./stores/useBufferStore";
 import { useSettingsStore } from "./stores/useSettingsStore";
+import { computeGitRemoteUrl, resolveGitCredential } from "./git/remote";
+import { restoreFromRemote } from "./git/restore";
 import { flushDraftSave } from "./fs/drafts";
 import { useDecoratedTree } from "./stores/useDecoratedTree";
 import { EMPTY_DIFF } from "./git/diff";
@@ -164,6 +166,7 @@ export default function App() {
   const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
   const [zenMode, setZenMode] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false);
   // DESIGN-SPEC Amendments round 5 item 39 — OS drag-drop/Ctrl+V paste
   // import (`ExplorerTree.tsx`'s `onImportEntries`): set only when
   // `detectConflictingPaths` found at least one colliding path, so
@@ -683,8 +686,33 @@ export default function App() {
     // (`Sidebar.tsx`'s delete confirm) already does this; this one never
     // did, so the dialog stayed open (with the toast now visible behind it)
     // after every "Reset" click.
+
     setResetConfirmOpen(false);
     toast({ title: "Vault reset", description: "Filesystem and git history re-seeded from scratch.", variant: "success" });
+  }
+
+  /** "Restore from remote…" — the gentle sibling of Reset vault: wipe the
+   * local vault, then clone the currently-configured remote into it instead
+   * of seeding a fresh welcome repo. Hidden in demo builds (the sandbox
+   * must never touch a real remote — DESIGN-SPEC item 45). Failure after
+   * the wipe falls back to the welcome seed and surfaces the sync error. */
+  async function handleRestoreRemoteConfirmed(): Promise<void> {
+    const st = useSettingsStore.getState();
+    let url = "";
+    try {
+      url = computeGitRemoteUrl({ repoName: st.gitRepoName, overrideEnabled: st.gitRemoteOverrideEnabled, overrideUrl: st.gitRemoteOverrideUrl });
+      const token = resolveGitCredential({ token: st.gitAuthToken, overrideEnabled: st.gitRemoteOverrideEnabled, overrideUrl: st.gitRemoteOverrideUrl, overrideToken: st.gitRemoteOverrideToken });
+      await restoreFromRemote({ url, token });
+      await reopenAfterReseed(false);
+      setRestoreConfirmOpen(false);
+      toast({ title: "Restored from remote", description: `Local vault replaced with ${url}.`, variant: "success" });
+    } catch (err) {
+      // The wipe already happened; leave the user with a coherent empty
+      // welcome vault rather than a broken half-state.
+      await reopenAfterReseed(false);
+      setRestoreConfirmOpen(false);
+      toast({ title: "Restore failed", description: `${err instanceof Error ? err.message : String(err)} Local vault was wiped; starting from a fresh welcome vault.`, variant: "danger" });
+    }
   }
 
 
@@ -1192,6 +1220,9 @@ export default function App() {
     // vault this build actually seeds, so it never offers to restore demo
     // content a normal build has never had.
     { id: "reset-vault", label: isDemoVaultBuild() ? "Reset demo vault…" : "Reset vault…" },
+    ...(isDemoVaultBuild()
+      ? []
+      : [{ id: "restore-remote", label: "Restore from remote…" }]),
     { id: "zen", label: "Toggle zen mode", shortcut: "⌘⇧Z" },
     { id: "search", label: "Search in files" },
     { id: "save", label: "Save file", shortcut: "⌘S" },
@@ -1219,6 +1250,9 @@ export default function App() {
         break;
       case "reset-vault":
         setResetConfirmOpen(true);
+        break;
+      case "restore-remote":
+        setRestoreConfirmOpen(true);
         break;
       case "zen":
         toggleZenMode();
@@ -1470,6 +1504,16 @@ export default function App() {
         open={resetConfirmOpen}
         onOpenChange={setResetConfirmOpen}
         onConfirm={() => void handleResetVaultConfirmed()}
+      />
+
+      <ConfirmDialog
+        title="Restore from remote?"
+        description="Wipes this vault completely: files, edits, and git history. Then pulls everything from the configured sync remote. Unpushed work cannot be recovered. The remote must be reachable and authorized."
+        confirmLabel="Wipe & pull"
+        destructive
+        open={restoreConfirmOpen}
+        onOpenChange={setRestoreConfirmOpen}
+        onConfirm={() => void handleRestoreRemoteConfirmed()}
       />
 
 
