@@ -76,6 +76,20 @@ Each entry: the gap, what's lacking in the closest existing library component, t
 spec we'd implement locally or upstream, and the design reference mined from the
 skill analysis.
 
+**Upstream tracker map** (sadigaxund/my-you-eye — kept in sync with this file; when
+a backlog entry changes materially, update its issue in the same pass):
+
+| Entry | Issue(s) | Issue state |
+|---|---|---|
+| §2.1 DataTable row-actions | #25 | open, addendum posted |
+| §2.2 ResizeHandle keyboard a11y | #8 (+ cross-ref on #13) | open, addendum posted |
+| §2.3 ColorField OKLCH spec | #20 | open, addendum posted |
+| §2.4 Sidebar token namespace | #27 | open |
+| §2.5 Palette empty states | #32 (live region only) · #28 | open · closed-as-moot |
+| §3.4 library-side a11y audit | #29 | open |
+| §3.8 SKILL.md architecture upgrade | #30 | open |
+| §3.2 barrel/tree-shaking findings | #31 | open, evidence posted |
+
 ### 2.1 DataTable row-actions column
 
 - **Gap:** `DataTable` has no row-click/actions slot at all (recorded in the issued
@@ -151,7 +165,9 @@ skill analysis.
   polite (`aria-live`) announcement of filtered-result counts — is **not composable
   from outside** the library component (query state is internal, no
   `onQueryChange`), so it was filed upstream as sadigaxund/my-you-eye#32 and is
-  closed here pending that.
+  closed here pending that. (The earlier upstream issue #28 proposing this whole
+  feature was closed as moot once the audit showed three of its four checklist
+  items already satisfied or N/A.)
 
 ### 2.6 Carried-over planned rows (unchanged, tracked in issued backlog)
 
