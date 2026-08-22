@@ -172,6 +172,7 @@ Env-driven, see `.env.example` for the full annotated list (loaded from
 | `VSNOTE_VAULT_PATH` | *(unset)* | Phase 17 — mounts a real, non-bare, plaintext working tree at this path as the AUTHORITATIVE vault. Unset (default): no change from Phase 11 — the vault is just the ordinary bare repo below. See "Server-mounted vault" below |
 | `VSNOTE_VAULT_REPO_NAME` | `vault` | Phase 17 — the repo name clients use in `<origin>/git/<name>.git` to reach the vault (whichever shape it is). Must match `gitrepo.REPO_NAME_RE`; validated at startup |
 | `VSNOTE_REQUIRE_LOGIN` | `True` | Phase 17 — the app-wide login gate. See "App-wide login gate" below |
+| `VSNOTE_OAUTH_GOOGLE_CLIENT_ID` / `_SECRET` | *(unset)* | TODO §8.2 — both set ⇒ Google sign-in goes live (`/api/auth/oauth/*`) and "Continue with Google" renders on every sign-in surface. See "OAuth sign-in (Google)" below |
 
 ## App-wide login gate (Phase 17)
 
@@ -203,6 +204,36 @@ its own auth exactly as before, and an unreachable backend never gates the
 client at all: an installed or already-loaded app keeps editing its own
 local clone offline (CLAUDE.md rule 3), with sync and sharing degrading
 gracefully until the server answers again.
+
+## OAuth sign-in (Google) — TODO §8.2
+
+Opt-in per deployment: set BOTH env vars and the capability probe
+(`GET /api/auth/oauth/providers` → `{"google": true}`) turns on a
+"Continue with Google" button on every sign-in surface — the app-wide login
+gate, Settings → Sharing, the publish dialog's inline login, and the
+share-reader password screen (this last one is the point: restricted shares
+become sign-in-with-your-account instead of password handouts).
+
+Setup:
+1. Google Cloud Console → Credentials → OAuth client ID → *Web application*.
+2. Authorized redirect URI: exactly `{public origin}/api/auth/oauth/google/callback`
+   (e.g. `https://notes.example.com/api/auth/oauth/google/callback`). Behind
+   the single-origin proxy this is the SAME origin clients use, so no extra
+   CORS work.
+3. Set the two `VSNOTE_OAUTH_GOOGLE_*` vars above and restart.
+
+Behavior contract (matches the Cloudflare Access SSO precedent):
+- Users are upserted BY VERIFIED EMAIL into `users` with
+  `password_hash = NULL` — they can never password-login, only OAuth.
+- Session is the same signed cookie as password login; `whoami` resolves
+  principal to the email, so **share grants that name a person's email
+  automatically admit their Google identity** — no grant migration.
+- `return_to` is restricted to root-relative paths (open-redirect guard);
+  `state` is HMAC-signed under `VSNOTE_SECRET_KEY` and mirrored in a
+  short-lived HttpOnly cookie (CSRF/replay guard).
+- Login success/failure lands in `audit_events` like every other auth path.
+
+Not configured? `/api/auth/oauth/*` returns 404 and no button renders.
 
 ## Fallback-login onboarding (Phase 12, DESIGN-SPEC Amendments round 4 item 32)
 
