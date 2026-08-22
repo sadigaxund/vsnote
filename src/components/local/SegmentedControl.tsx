@@ -106,7 +106,7 @@ export function SegmentedControl<T extends string>({
               opacity: opt.disabled ? 0.4 : 1,
               background: active ? "color-mix(in oklab, var(--color-primary) 16%, transparent)" : "transparent",
               color: active ? "var(--color-primary)" : "var(--color-muted)",
-              transition: "background 100ms ease, color 100ms ease",
+              transition: "background var(--motion-duration-quick) ease, color var(--motion-duration-quick) ease",
             }}
           >
             {opt.icon}

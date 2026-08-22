@@ -395,7 +395,7 @@ export function EditorPane({
             fontSize: 11.5,
             cursor: "pointer",
             opacity: zenPillHovered ? 1 : 0,
-            transition: "opacity 150ms ease",
+            transition: "opacity var(--motion-duration-slow) ease",
             pointerEvents: zenPillHovered ? "auto" : "none",
           }}
         >

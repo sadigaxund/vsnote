@@ -1205,7 +1205,7 @@ function ChevronGlyph({ expanded }: { expanded: boolean }) {
         flexShrink: 0,
         color: "var(--color-muted)",
         transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
-        transition: "transform 100ms ease",
+        transition: "transform var(--motion-duration-quick) ease",
       }}
     >
       <path

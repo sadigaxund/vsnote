@@ -98,7 +98,7 @@ export function SharedPanel({ authenticated, onEditShare }: SharedPanelProps) {
         <EmptyState icon={<Share2 size={20} />} title="No shares yet" description="Publish a file to see it listed here." />
       ) : (
         <div
-          style={{ overflowX: "auto", opacity: loading ? 0.55 : 1, transition: "opacity 120ms ease" }}
+          style={{ overflowX: "auto", opacity: loading ? 0.55 : 1, transition: "opacity var(--motion-duration-base) ease" }}
           aria-busy={loading}
         >
           <Table data-testid="shared-table">

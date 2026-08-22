@@ -656,29 +656,30 @@ actionable residue. Copy-cluster sources confirmed existing enforcement
 (em-dash superset deliberate — future punctuation checks scope to RENDERED
 copy only, per mblode typography-audit's gotcha).
 
-### 7.1 Standing design-review checklist (julianoczkowski design-review)
+### 7.1 Standing design-review checklist — ✅ adopted: skills/design-review-checklist.md
 
-Adopt as repo process: screenshots are mandatory evidence (breakpoints,
-hover/focus/error/empty states, theme variants); findings ranked
-Must/Should/Could; saved `.design/<feature>/DESIGN_REVIEW.md`. First applied
-to SettingsView. `grill-me` becomes the pre-amendment interrogation gate for
-DESIGN-SPEC changes.
+Shipped as `skills/design-review-checklist.md` (mandatory screenshot
+evidence, Must/Should/Could rankings, `.design/<feature>/` artifacts,
+WIG anti-pattern sweep). `grill-me` noted there as the pre-amendment gate.
+First application target (SettingsView visual pass) still pending a browser.
 
-### 7.2 Motion tokens (julianoczkowski design-tokens gap)
+### 7.2 Motion tokens — ✅ done 2026-08-21
 
-Add `--duration-*` / `--ease-*` tokens to theme.css; replace the six hardcoded
-100/120/150ms transition literals found in the §5.2 audit so durations are
-tunable per density/theme and honored centrally by the reduced-motion guard.
+`--motion-duration-{quick,base,slow}` (100/120/150ms) defined in theme.css's
+derived block and wired into all six transition literals (EditorPane fade,
+VaultSetup/SharedPanel dims, PaneDivider tint, SegmentedControl, chevron
+rotate) — zero behavioral change, durations now tunable centrally.
 
-### 7.3 IA naming glossary (information-architecture)
+### 7.3 IA naming glossary — ✅ shipped in docs/UI-STANDARDS.md
 
-Single glossary for recurring nouns (vault/note/file/tab/pane/share/sync) used
-across palette labels, Settings categories, dialog copy, docs — kills
-note-vs-file drift.
+Eight-noun table (vault/note/file/tab/pane/share/sync/remote + never-call-it
+column), co-located with the §7.5 copy rules so copy reviews have one file.
+Full-rename sweep of existing strings not yet run (low value, some risk).
 
 ### 7.4 a11y depth from rampstack accessibility-audit
 
-Four passes our shipped §3.4 didn't cover: (1) live-region announcements for
+Done now: pane-error card announces via `role="alert"`.
+Still open (need a real browser/device): (1) live-region announcements for
 save/share state + error-boundary catches (currently visual-only); (2) zoom/
 reflow verification at 200% + 320px across the three-pane shell; (3) non-text
 contrast ≥3:1 checks on focus ring/active-tab/diff indicators + color-
@@ -703,6 +704,10 @@ Standing rules + checkable tests:
    with one Clear-filters action — extends EmptyState doctrine.
 6. **Settings-label rules**: positive ON-state toggles, no possessives, no
    "Click", errors never "We're having trouble".
+
+Standing rules live in docs/UI-STANDARDS.md (with the §7.3 glossary).
+Retrofit status: Restore dialog already consequence-labeled (`Wipe & pull`);
+Reset/Import-conflict button renames + error-toast template test still open.
 
 ### 6.5 E2E baseline triage (2026-08-21, §6.2 net bootstrap)
 

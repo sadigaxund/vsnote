@@ -45,7 +45,7 @@ export class PaneErrorBoundary extends Component<PaneErrorBoundaryProps, PaneErr
     const { error, attempt } = this.state;
     if (error) {
       return (
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10, justifyContent: "center", height: "100%" }}>
+        <div role="alert" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10, justifyContent: "center", height: "100%" }}>
           <Alert variant="danger" size="sm" data-testid={`pane-error-${this.props.paneId}`}>
             This pane hit an internal error and was isolated.
           </Alert>

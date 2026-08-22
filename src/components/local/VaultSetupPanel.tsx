@@ -379,7 +379,7 @@ function RemotesTable({ compact }: RemotesTableProps) {
         // rather than swapping to the skeleton above, which is reserved
         // for the genuinely-empty first load.
         <div
-          style={{ overflowX: "auto", opacity: remotesLoading ? 0.55 : 1, transition: "opacity 120ms ease" }}
+          style={{ overflowX: "auto", opacity: remotesLoading ? 0.55 : 1, transition: "opacity var(--motion-duration-base) ease" }}
           aria-busy={remotesLoading}
         >
           <Table data-testid="vault-remotes-table">

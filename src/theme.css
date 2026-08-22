@@ -218,6 +218,15 @@
   --sidebar-item-active: var(--color-surface-active);
   --sidebar-badge-bg: var(--color-secondary);
   --sidebar-badge-fg: var(--color-secondary-fg);
+
+  /* ---- Motion tokens (TODO §7.2, julianoczkowski design-tokens gap) ----
+     The app's only self-owned transitions are micro state-changes (hover
+     tints, loading dims, chevron rotate); these tokens make their durations
+     tunable in one place. Overlay entry/exit animations belong to Radix +
+     the library's own system, not here. */
+  --motion-duration-quick: 100ms;
+  --motion-duration-base: 120ms;
+  --motion-duration-slow: 150ms;
   /* No single library token matches this app's third, darker-than-bg
      content depth (app-preview.png's editor surface) — derived rather than
      invented, so it still tracks each theme's own bg. */

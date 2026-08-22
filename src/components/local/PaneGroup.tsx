@@ -174,7 +174,7 @@ export function ResizeHandle({
           position: "absolute",
           pointerEvents: "none",
           background: hovered ? "var(--color-primary)" : "var(--app-chrome-border)",
-          transition: "background 100ms ease",
+          transition: "background var(--motion-duration-quick) ease",
           ...(isRow
             ? { left: "50%", top: 0, bottom: 0, width: 1, transform: "translateX(-0.5px)" }
             : { top: "50%", left: 0, right: 0, height: 1, transform: "translateY(-0.5px)" }),
