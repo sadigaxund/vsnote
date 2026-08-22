@@ -627,20 +627,24 @@ Debug instrumentation removed; per-run uvicorn output log kept
 
 ---
 
-## 8.x — Legacy deferred candidates from the 2026-08-17 project plan
+## 8.x — Legacy deferred candidates (decided 2026-08-22)
 
-Recovered from the pre-session plan doc so they don't live only in memory:
+Recovered from the pre-session plan doc; user ruled on each:
 
-1. **~~Client-side "replace local with server copy" recovery~~** — SHIPPED as
-   "Restore from remote…" (DESIGN-SPEC item 46).
-2. **Google/OAuth sign-in for restricted shares** — still open; user chose
-   defer on 2026-08-17. Needs backend OAuth flow + PublishDialog identity
-   picker integration.
-3. **Pull-from-mirror** — mirror REMOTES are manageable (VaultSetupPanel),
-   but sync only ever talks to the implicit/override primary. Pull fan-out or
-   fetch-from-mirror is unbuilt.
-4. **Shallow clones** — unbuilt; relevant only if vault repos grow large
-   enough that initial clone depth matters.
+1. **~~Replace local with server copy~~** — SHIPPED as "Restore from remote…"
+   (DESIGN-SPEC item 46).
+2. **OAuth sign-in for restricted shares** — **QUEUED NEXT** (user decision
+   2026-08-22). Backend OAuth flow + PublishDialog identity-picker
+   integration.
+3. **Pull-from-mirror** — rejected ("not needed"); mirror remotes stay
+   push/backup-only.
+4. **Shallow clones** — rejected ("not needed") at current scale.
+
+Also decided 2026-08-22: OKLCH migration of accentContrast **queued**;
+per-theme color-scheme map **queued** (+ investigate why textured themes'
+own page overlays read as identical under our chrome — see §7.6);
+§3.1b Profiler pass skipped-for-now; dnd-kit triggers none planned.
+Visual review guide lives at `.design/REVIEW-GUIDE.md` (gitignored).
 
 Note: the plan references `docs/IMPLEMENTATION-PLAN-V2.md` phase stamps; that
 file was intentionally removed from the working tree (in git history).
@@ -699,6 +703,19 @@ contrast ≥3:1 checks on focus ring/active-tab/diff indicators + color-
 independence of added/removed lines under deuteranopia; (4) editor-convention
 audit vs VSCode/Obsidian using competitor-experience-audit's observable-only
 method (middle-click close, dirty dot, drag-reorder, breadcrumb depth).
+
+### 7.6 Theme-switch re-texturing — ✅ fixed 2026-08-22 (user-reported)
+
+Reported: glass/metallic/comic all showed "the same default texture". Root
+cause: TexturedSurface bakes `--texture-paper-resolved` inline at MOUNT from
+the then-current `--texture-type`; theme switches flipped CSS vars but never
+re-rendered the five chrome consumers, so each kept its first-mount grain
+while opacity followed the new theme. Fix: all five consumers subscribe to
+`settings.theme` and key their surface (remount ⇒ fresh per-type layers).
+Regression-pinned by `tests/e2e/theme-texture.spec.ts`, which drives the REAL
+Settings UI and asserts metallic→204px brush streaks, glass→1000px frosted
+mesh, comic→paper-grain (same-type, asserted unchanged). SettingsView's theme
+Select gained a `settings-theme` testid.
 
 ### 7.5 Copy standards pack (ux-writing × anthropic ux-copy × better-writing)
 
