@@ -678,7 +678,15 @@ Full-rename sweep of existing strings not yet run (low value, some risk).
 
 ### 7.4 a11y depth from rampstack accessibility-audit
 
-Done now: pane-error card announces via `role="alert"`.
+Done now: pane-error card announces via `role="alert"`; **scriptable audit
+runner shipped** — `tests/e2e/ui-audit.spec.ts`, gated behind
+`VSNOTE_UI_AUDIT=1` (`npx playwright test tests/e2e/ui-audit.spec.ts` with
+a demo build via `npm run build:demo`). First run all-green:
+reflow@320/480 no overflow; WCAG text-spacing override survives; focus-ring
+10.07:1, title/text 14.15:1, git-added 7.33:1, git-deleted 5.55:1;
+deuteranopia/protanopia diff captures written to `.design/ui-audit/` with
+REPORT.md (gitignored).
+
 Still open (need a real browser/device): (1) live-region announcements for
 save/share state + error-boundary catches (currently visual-only); (2) zoom/
 reflow verification at 200% + 320px across the three-pane shell; (3) non-text
