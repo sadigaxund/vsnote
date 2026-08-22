@@ -48,3 +48,6 @@ nice.png
 
 # Vendored skill bodies (fetched by scripts/update-skill-references.mjs; pinned via skills/references.lock.json)
 skills/references/
+
+# Design-review evidence artifacts (skills/design-review-checklist.md)
+.design/

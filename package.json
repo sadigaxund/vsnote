@@ -15,7 +15,8 @@
     "test:e2e": "VSNOTE_DEMO_VAULT=1 VSNOTE_SHARE_PROXY_TARGET=http://127.0.0.1:8788 vite build && VSNOTE_SHARE_PROXY_TARGET=http://127.0.0.1:8788 playwright test",
     "test": "npm run test:unit && npm run test:e2e",
     "skills:update": "node scripts/update-skill-references.mjs",
-    "skills:update:latest": "node scripts/update-skill-references.mjs --latest"
+    "skills:update:latest": "node scripts/update-skill-references.mjs --latest",
+    "build:demo": "VSNOTE_DEMO_VAULT=1 npm run build"
   },
   "dependencies": {
     "@atomic-editor/editor": "^0.6.2",

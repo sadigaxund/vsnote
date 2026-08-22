@@ -83,6 +83,10 @@ workers: process.env.CI ? 2 : 4,
     // instead of relying on name resolution order.
     command: `npx vite preview --port ${PORT} --strictPort --host 127.0.0.1`,
     port: PORT,
+    // Default the proxy to the suite's own backend port so DIRECT
+    // `npx playwright test` invocations (outside package.json's test:e2e)
+    // don't silently fall back to 8787 and go Offline (TODO §6.5 lesson).
+    env: { VSNOTE_SHARE_PROXY_TARGET: process.env.VSNOTE_SHARE_PROXY_TARGET ?? "http://127.0.0.1:8788" },
     reuseExistingServer: false,
     timeout: 30_000,
     // Surface the preview server's own output. Without this its startup and
