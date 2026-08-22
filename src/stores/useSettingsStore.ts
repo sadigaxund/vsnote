@@ -15,7 +15,7 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { ACCENT_TEXT_MIN_CONTRAST, ensureReadableOn, readableForeground } from "../lib/accentContrast";
+import { ACCENT_TEXT_MIN_CONTRAST, ensureReadableOn, parseCssColor, readableForeground, relativeLuminance } from "../lib/accentContrast";
 import { defaultDeviceName } from "../git/commitTemplate";
 import { DEFAULT_GIT_REPO_NAME } from "../git/remote";
 import { DEFAULT_SYNC_INTERVAL_MINUTES } from "../git/autoSyncPolicy";
@@ -468,4 +468,14 @@ export function applyDomSettings(state: Pick<SettingsState, "theme" | "accent" |
   // `:root[data-ui-density="..."]` block keys off.
   if (state.uiDensity === "default") delete root.dataset.uiDensity;
   else root.dataset.uiDensity = state.uiDensity;
+
+  // Per-theme color-scheme (TODO §8.x decision 2026-08-22): native form
+  // controls and scrollbars follow each theme's REAL appearance, resolved
+  // from the live --color-bg token AFTER data-theme is applied above —
+  // no hand-maintained light/dark map to drift as themes evolve. Themes
+  // whose bg we can't parse keep the library's `light dark` default.
+  const bgColor = parseCssColor(themeBg);
+  if (bgColor) {
+    root.style.colorScheme = relativeLuminance(bgColor) < 0.5 ? "dark" : "light";
+  }
 }

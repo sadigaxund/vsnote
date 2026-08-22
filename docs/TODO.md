@@ -34,8 +34,9 @@ conformant-or-N/A; one guard added.
    Revisit only when hand-rolling a new popover/panel.
 4. OKLCH migration — **anchors stay hex** (pixel-sampled DESIGN-SPEC authority);
    derivations already perceptual (`--app-editor-bg` = `color-mix(in oklab …)`).
-   Remaining OKLCH work is isolated in `lib/accentContrast.ts`'s HSL lightness
-   math — tracked as the §2.3 follow-up, not a theme.css rewrite.
+   OKLCH migration SHIPPED 2026-08-22: `lib/accentContrast.ts` lightness walk
+   is now OKLCH-perceptual (all 12 tests green); parser still hex/rgb-only by
+   design.
 5. Container queries — **done where warranted**: StatusBar priority collapse uses
    `@container`; pane/sidebar headers have no size-based JS breakpoints (density
    is data-attribute driven). Nothing further to convert.
@@ -640,10 +641,12 @@ Recovered from the pre-session plan doc; user ruled on each:
    push/backup-only.
 4. **Shallow clones** — rejected ("not needed") at current scale.
 
-Also decided 2026-08-22: OKLCH migration of accentContrast **queued**;
-per-theme color-scheme map **queued** (+ investigate why textured themes'
-own page overlays read as identical under our chrome — see §7.6);
-§3.1b Profiler pass skipped-for-now; dnd-kit triggers none planned.
+Also decided 2026-08-22 and since SHIPPED: OKLCH migration of
+accentContrast (perceptual lightness walk, 12/12 tests green); per-theme
+`color-scheme` resolved dynamically from each theme's live --color-bg
+luminance in applyDomSettings — no static map to maintain. §3.1b Profiler
+pass skipped-for-now; dnd-kit triggers none planned. Texture-switch bug
+fixed + regression-tested (see §7.6).
 Visual review guide lives at `.design/REVIEW-GUIDE.md` (gitignored).
 
 Note: the plan references `docs/IMPLEMENTATION-PLAN-V2.md` phase stamps; that

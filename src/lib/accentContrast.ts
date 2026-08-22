@@ -1,19 +1,24 @@
 /**
- * Contrast-safe accent derivation — round 6 item 17. The accent picker
- * accepts ANY color (the range is deliberately never limited); what the UI
- * actually paints is a derived pair:
+ * Contrast-safe accent derivation — round 6 item 17; TODO §8.x migrated the
+ * lightness walk from HSL to **OKLCH** (user decision 2026-08-22). The
+ * accent picker accepts ANY color (the range is deliberately never
+ * limited); what the UI actually paints is a derived pair:
  *
- *  - `primary`: the user's accent, lightness-adjusted (in HSL, hue and
- *    saturation untouched) only as far as needed to reach WCAG AA (4.5:1)
- *    contrast against the current theme's `--color-bg`, so a near-black
- *    accent on the near-black VSNote theme still reads as a color rather
- *    than vanishing. An accent that is already readable passes through
- *    byte-identical.
+ *  - `primary`: the user's accent, LIGHTNESS-adjusted in OKLCH only as far
+ *    as needed to reach WCAG AA (4.5:1) against the current theme's
+ *    `--color-bg`, so a near-black accent on the near-black VSNote theme
+ *    still reads as a color rather than vanishing. An accent that is
+ *    already readable passes through byte-identical. OKLCH perceptual
+ *    uniformity means equal L steps move every hue by roughly the same
+ *    perceived amount, where HSL overshoots blues and undershoots yellows.
  *  - `primaryFg`: black or white, whichever contrasts more with the
  *    (derived) primary — text/icons ON accent-filled surfaces.
  *
  * Pure math, unit-tested in `tests/unit/accentContrast.test.ts`;
  * `useSettingsStore.ts`'s `applyDomSettings` is the one DOM consumer.
+ * Out-of-gamut results from extreme chroma are handled by simple channel
+ * clamping after conversion — a lightness-only walk stays inside gamut for
+ * all but pathological inputs.
  */
 
 export type Rgb = [number, number, number];
@@ -53,37 +58,62 @@ export function contrastRatio(a: Rgb, b: Rgb): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-function rgbToHsl([r, g, b]: Rgb): [number, number, number] {
-  const rn = r / 255, gn = g / 255, bn = b / 255;
-  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
-  const l = (max + min) / 2;
-  if (max === min) return [0, 0, l];
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h: number;
-  if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
-  else if (max === gn) h = ((bn - rn) / d + 2) / 6;
-  else h = ((rn - gn) / d + 4) / 6;
-  return [h, s, l];
+// ---- sRGB <-> OKLCH (Björn Ottosson's OKLab, D65) ---------------------
+
+const srgbToLinear = (c: number): number => {
+  const s = c / 255;
+  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+};
+const linearToSrgb = (x: number): number =>
+  (x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055) * 255;
+
+export interface Oklch {
+  /** Perceived lightness, 0..1. */
+  l: number;
+  /** Chroma, >= 0. */
+  c: number;
+  /** Hue in radians. */
+  h: number;
 }
 
-function hslToRgb([h, s, l]: [number, number, number]): Rgb {
-  if (s === 0) {
-    const v = l * 255;
-    return [v, v, v];
-  }
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  const channel = (t0: number) => {
-    let t = t0;
-    if (t < 0) t += 1;
-    if (t > 1) t -= 1;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
-  };
-  return [channel(h + 1 / 3) * 255, channel(h) * 255, channel(h - 1 / 3) * 255];
+function linearRgbToOklch([lr, lg, lb]: [number, number, number]): Oklch {
+  const l_ = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+  const m_ = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+  const s_ = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+  const L = 0.2104542553 * l_ + 0.793617785 * m_ - 0.0040720468 * s_;
+  const A = 1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_;
+  const B = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.808675766 * s_;
+  return { l: L, c: Math.hypot(A, B), h: Math.atan2(B, A) };
+}
+
+function oklchToLinearRgb({ l, c, h }: Oklch): [number, number, number] {
+  const A = Math.cos(h) * c;
+  const B = Math.sin(h) * c;
+  const l_ = l + 0.3963377774 * A + 0.2158037573 * B;
+  const m_ = l - 0.1055613458 * A - 0.0638541728 * B;
+  const s_ = l - 0.0894841775 * A - 1.291485548 * B;
+  const L = l_ * l_ * l_;
+  const M = m_ * m_ * m_;
+  const S = s_ * s_ * s_;
+  return [
+    4.0767416621 * L - 3.3077115913 * M + 0.2309699292 * S,
+    -1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S,
+    -0.0041960863 * L - 0.7034186147 * M + 1.707614701 * S,
+  ];
+}
+
+function rgbToOklch(rgb: Rgb): Oklch {
+  return linearRgbToOklch([srgbToLinear(rgb[0]), srgbToLinear(rgb[1]), srgbToLinear(rgb[2])]);
+}
+
+function oklchToRgb(oklch: Oklch): Rgb {
+  const [lr, lg, lb] = oklchToLinearRgb(oklch);
+  // Channel clamp: lightness-only walks stay in gamut except at extremes.
+  return [
+    Math.min(255, Math.max(0, linearToSrgb(lr))),
+    Math.min(255, Math.max(0, linearToSrgb(lg))),
+    Math.min(255, Math.max(0, linearToSrgb(lb))),
+  ];
 }
 
 export const ACCENT_MIN_CONTRAST = 4.5;
@@ -95,21 +125,23 @@ export const ACCENT_MIN_CONTRAST = 4.5;
 export const ACCENT_TEXT_MIN_CONTRAST = 7;
 
 /** Returns `accent` unchanged when it already reaches `min` contrast on
- * `bg`; otherwise walks its HSL lightness AWAY from the background's side
- * (dark bg -> lighter accent, light bg -> darker) in small steps until it
- * does. Hue/saturation are never touched, so the adjusted color still
- * reads as "the color the user picked". */
+ * `bg`; otherwise walks its OKLCH lightness AWAY from the background's side
+ * (dark bg -> lighter accent, light bg -> darker) in small perceptual steps
+ * until it does. Chroma and hue are never touched, so the adjusted color
+ * still reads as "the color the user picked" — and because OKLCH is
+ * perceptually uniform, every hue travels the same visual distance per
+ * step (HSL overshot blues and undershot yellows). */
 export function ensureReadableOn(accentHex: string, bgHex: string, min = ACCENT_MIN_CONTRAST): string {
   const accent = parseCssColor(accentHex);
   const bg = parseCssColor(bgHex);
   if (!accent || !bg) return accentHex;
   if (contrastRatio(accent, bg) >= min) return accentHex;
   const darkBg = relativeLuminance(bg) < 0.5;
-  const [h, s, l] = rgbToHsl(accent);
+  const ok = rgbToOklch(accent);
   let candidate = accent;
   for (let step = 1; step <= 40; step++) {
-    const nextL = darkBg ? Math.min(1, l + step * 0.02) : Math.max(0, l - step * 0.02);
-    candidate = hslToRgb([h, s, nextL]);
+    const nextL = darkBg ? Math.min(1, ok.l + step * 0.02) : Math.max(0, ok.l - step * 0.02);
+    candidate = oklchToRgb({ ...ok, l: nextL });
     if (contrastRatio(candidate, bg) >= min) break;
   }
   return toHex(candidate);
