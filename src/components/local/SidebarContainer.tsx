@@ -30,7 +30,7 @@
 import { useRef, type ReactNode } from "react";
 import { TexturedSurface } from "my-you-eye";
 import { ResizeHandle } from "./PaneGroup";
-import { DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH_FALLBACK, MIN_SIDEBAR_WIDTH, SIDEBAR_COLLAPSE_THRESHOLD } from "../../stores/useSettingsStore";
+import { DEFAULT_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH_FALLBACK, MIN_SIDEBAR_WIDTH, SIDEBAR_COLLAPSE_THRESHOLD, useSettingsStore } from "../../stores/useSettingsStore";
 
 export interface SidebarContainerProps {
   /** Distinguishes which view is currently mounted for tests/tooling —
@@ -65,7 +65,8 @@ export function SidebarContainer({
   const effectiveWidth = collapsed ? 0 : width;
   const dragStartWidthRef = useRef(effectiveWidth);
 
-  return (
+    const appTheme = useSettingsStore((s) => s.theme);
+return (
     <div style={{ display: "flex", flexShrink: 0, minHeight: 0 }}>
       <aside
         data-testid={testId}
@@ -92,6 +93,7 @@ export function SidebarContainer({
             see `src/theme.css`'s `.dark` block for the measurements that
             ruled that approach out. Inert under VSNote. */}
         <TexturedSurface
+          key={`texture-${appTheme}`}
           aria-hidden
           radius="none"
           variant="surface"

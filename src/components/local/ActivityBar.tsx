@@ -22,6 +22,7 @@
  * reasoning and the measured before/after numbers.
  */
 import { Button, Tooltip, TexturedSurface } from "my-you-eye";
+import { useSettingsStore } from "../../stores/useSettingsStore";
 import type { ReactNode } from "react";
 
 export interface ActivityBarItem {
@@ -44,7 +45,8 @@ export interface ActivityBarProps {
 }
 
 export function ActivityBar({ items, onSelect, onItemIntent, footer, onFooterSelect }: ActivityBarProps) {
-  return (
+    const appTheme = useSettingsStore((s) => s.theme);
+return (
     <nav
       aria-label="Activity Bar"
       data-testid="app-activitybar"
@@ -63,6 +65,7 @@ export function ActivityBar({ items, onSelect, onItemIntent, footer, onFooterSel
       }}
     >
       <TexturedSurface
+        key={`texture-${appTheme}`}
         aria-hidden
         radius="none"
         variant="surface"

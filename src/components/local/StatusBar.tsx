@@ -23,6 +23,7 @@
  * paints outside the bar at any width or density.
  */
 import { Tooltip, TexturedSurface } from "my-you-eye";
+import { useSettingsStore } from "../../stores/useSettingsStore";
 import type { ReactNode } from "react";
 
 export interface StatusBarProps {
@@ -31,7 +32,8 @@ export interface StatusBarProps {
 }
 
 export function StatusBar({ left, right }: StatusBarProps) {
-  return (
+    const appTheme = useSettingsStore((s) => s.theme);
+return (
     <div
       data-testid="app-statusbar"
       style={{
@@ -64,6 +66,7 @@ export function StatusBar({ left, right }: StatusBarProps) {
           the measurements that ruled the transmission approach out. Inert
           under VSNote, whose `--texture-*` values render nothing. */}
       <TexturedSurface
+        key={`texture-${appTheme}`}
         aria-hidden
         radius="none"
         variant="surface"

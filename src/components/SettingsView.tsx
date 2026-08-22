@@ -377,7 +377,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           content: (
             <FormField label="Theme">
               <Select value={theme} onValueChange={(v) => setTheme(v as AppTheme)}>
-                <SelectTrigger size="sm" style={{ width: 220 }}>
+                <SelectTrigger size="sm" style={{ width: 220 }} data-testid="settings-theme">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

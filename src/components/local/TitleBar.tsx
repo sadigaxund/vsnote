@@ -28,6 +28,7 @@
  */
 import type { ReactNode } from "react";
 import { TexturedSurface } from "my-you-eye";
+import { useSettingsStore } from "../../stores/useSettingsStore";
 
 export interface TitleBarProps {
   title: ReactNode;
@@ -38,7 +39,8 @@ export interface TitleBarProps {
 }
 
 export function TitleBar({ title, subtitle, glyph, breadcrumb, actions }: TitleBarProps) {
-  return (
+    const appTheme = useSettingsStore((s) => s.theme);
+return (
     <header
       data-testid="app-titlebar"
       style={{
@@ -55,6 +57,7 @@ export function TitleBar({ title, subtitle, glyph, breadcrumb, actions }: TitleB
       }}
     >
       <TexturedSurface
+        key={`texture-${appTheme}`}
         aria-hidden
         radius="none"
         variant="surface"

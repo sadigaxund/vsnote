@@ -239,7 +239,8 @@ export function EditorPane({
     focusPane(paneId);
   }
 
-  return (
+    const appTheme = useSettingsStore((s) => s.theme);
+return (
     <div
       data-testid="editor-pane"
       data-pane-id={paneId}
@@ -265,6 +266,7 @@ export function EditorPane({
           stacking translucent fills, which transmitted ~0.03% and rendered
           provably flat. Inert under VSNote. */}
       <TexturedSurface
+        key={`texture-${appTheme}`}
         aria-hidden
         radius="none"
         variant="surface"
