@@ -1515,7 +1515,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
             ? "Wipes the in-browser filesystem and git history and re-seeds the original demo vault from scratch. Any files or edits you've made are lost."
             : "Wipes the in-browser filesystem and git history and re-seeds a fresh welcome vault. Any files or edits you've made are lost."
         }
-        confirmLabel="Reset"
+        confirmLabel="Wipe vault"
         destructive
         open={resetConfirmOpen}
         onOpenChange={setResetConfirmOpen}

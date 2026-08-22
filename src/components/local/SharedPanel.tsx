@@ -76,7 +76,11 @@ export function SharedPanel({ authenticated, onEditShare }: SharedPanelProps) {
       await navigator.clipboard.writeText(link);
       toast({ title: "Link copied", variant: "success" });
     } catch {
-      toast({ title: "Couldn't copy the link", variant: "danger" });
+      toast({
+        title: "Couldn't copy the link",
+        description: "Clipboard access was denied. Select the link in the table and copy it manually.",
+        variant: "danger",
+      });
     }
   }
 
