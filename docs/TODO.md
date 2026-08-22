@@ -687,6 +687,11 @@ reflow@320/480 no overflow; WCAG text-spacing override survives; focus-ring
 deuteranopia/protanopia diff captures written to `.design/ui-audit/` with
 REPORT.md (gitignored).
 
+Vision-deficiency confirmation: **deferred by user decision 2026-08-22**
+("overall looks fine, not sure enough to confirm") — captures stay in
+`.design/ui-audit/` for whenever it matters; treat current diff coloring as
+accepted-until-reviewed.
+
 Still open (need a real browser/device): (1) live-region announcements for
 save/share state + error-boundary catches (currently visual-only); (2) zoom/
 reflow verification at 200% + 320px across the three-pane shell; (3) non-text
