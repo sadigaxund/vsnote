@@ -119,6 +119,55 @@ function epochSecondsToDateInput(epoch: number | null | undefined): string {
   return new Date(epoch * 1000).toISOString().slice(0, 10);
 }
 
+/**
+ * The dialog's FOUR concrete modes as one closed union (TODO §6.2, from
+ * vercel-labs composition-patterns' `architecture-avoid-boolean-props` +
+ * `patterns-explicit-variants`): instead of two independent booleans
+ * (`editMode`, `isFolder`) whose 4 combinations must all be handled and
+ * whose impossible members can't be represented, every caller-visible
+ * decision switches on this discriminated kind. Derived ONCE from props;
+ * `null` means "mounted without a usable target" (a closing-transition
+ * frame) and renders an inert shell.
+ */
+export type PublishMode =
+  | { kind: "publish-file"; filePath: string; content: string }
+  | { kind: "publish-folder"; folderPath: string; folderTree: CheckboxTreeNode[]; folderEntries: FolderPublishEntry[] }
+  | { kind: "edit-file"; share: ShareOut }
+  | { kind: "edit-folder"; share: ShareOut; folderPath: string; folderTree: CheckboxTreeNode[]; folderEntries: FolderPublishEntry[] };
+
+export function derivePublishMode(props: {
+  filePath?: string;
+  content?: string;
+  existingShare?: ShareOut;
+  folderPath?: string;
+  folderTree?: CheckboxTreeNode[];
+  folderEntries?: FolderPublishEntry[];
+}): PublishMode | null {
+  const { filePath, content, existingShare, folderPath, folderTree, folderEntries } = props;
+  const hasFolder = !!folderPath && !!folderTree && !!folderEntries;
+  if (existingShare) {
+    return hasFolder
+      ? { kind: "edit-folder", share: existingShare, folderPath: folderPath!, folderTree: folderTree!, folderEntries: folderEntries! }
+      : { kind: "edit-file", share: existingShare };
+  }
+  if (hasFolder) {
+    return { kind: "publish-folder", folderPath: folderPath!, folderTree: folderTree!, folderEntries: folderEntries! };
+  }
+  if (filePath && content !== undefined) {
+    return { kind: "publish-file", filePath, content };
+  }
+  return null;
+}
+
+/** Per-kind chrome, keyed explicitly — replaces nested ternaries over two
+ * booleans with a total map the compiler forces to stay exhaustive. */
+export const MODE_CHROME: Record<PublishMode["kind"], { title: string; verb: string }> = {
+  "publish-file": { title: "Publish", verb: "Publish" },
+  "publish-folder": { title: "Publish folder", verb: "Publish" },
+  "edit-file": { title: "Edit share", verb: "Save" },
+  "edit-folder": { title: "Edit share", verb: "Update share" },
+};
+
 export function PublishDialog({
   open,
   onOpenChange,
@@ -140,8 +189,13 @@ export function PublishDialog({
   const updateFolderManifest = useShareStore((s) => s.updateFolderManifest);
   const updateShare = useShareStore((s) => s.updateShare);
 
-  const editMode = !!existingShare;
-  const isFolder = !!folderPath && !!folderTree && !!folderEntries;
+  // TODO §6.2 — the four concrete modes, derived once (see PublishMode).
+  // `isFolderKind`/`isEditKind` are computed VIEWS over this closed union
+  // for layout gates; they are no longer the state encoding itself, so the
+  // impossible combinations simply cannot be constructed.
+  const mode = derivePublishMode({ existingShare, filePath, content, folderPath, folderTree, folderEntries });
+  const isFolderKind = mode?.kind === "publish-folder" || mode?.kind === "edit-folder";
+  const isEditKind = mode?.kind === "edit-file" || mode?.kind === "edit-folder";
 
   // Phase 10.5 — the checkbox tree's flat validation list + included set.
   // `allEntries` is derived straight from the prop (stable per mount, same
@@ -154,12 +208,13 @@ export function PublishDialog({
   // codebase for synchronous prop-derived resets).
   const allEntries = useMemo(() => (folderTree ? flattenFolderTree(folderTree) : []), [folderTree]);
   const [included, setIncluded] = useState<Set<string>>(() => defaultIncludedSet(allEntries));
-  const [manifestLoading, setManifestLoading] = useState(isFolder && editMode);
+  const [manifestLoading, setManifestLoading] = useState(isFolderKind && isEditKind);
 
   useEffect(() => {
-    if (!isFolder || !editMode || !existingShare) return;
+    if (mode?.kind !== "edit-folder") return;
+    const shareId = mode.share.id;
     let cancelled = false;
-    getShareManifest(existingShare.id)
+    getShareManifest(shareId)
       .then((manifest) => {
         if (cancelled) return;
         setIncluded(includedSetFromManifest(manifest.entries.map((e) => e.relpath)));
@@ -246,11 +301,11 @@ export function PublishDialog({
     !offline &&
     authenticated &&
     aliasCheck.valid &&
-    (authMode !== "password" || password.length > 0 || (editMode && existingShare?.has_password)) &&
+    (authMode !== "password" || password.length > 0 || (isEditKind && existingShare?.has_password)) &&
     // Item 5 — an opted-in expiry must actually have a date; "on but blank"
     // would silently save as never-expires while the UI said otherwise.
     (!expiryEnabled || expiresLocal.length > 0) &&
-    (!isFolder || (!manifestLoading && includedCount > 0)) &&
+    (!isFolderKind || (!manifestLoading && includedCount > 0)) &&
     !submitting;
 
   async function handleLogin() {
@@ -312,9 +367,16 @@ export function PublishDialog({
         ...(authMode !== "password" ? { clear_password: true } : {}),
       };
 
-      if (isFolder) {
-        const includedEntries = (folderEntries ?? []).filter((e) => included.has(e.relpath));
-        if (editMode && existingShare) {
+      if (!mode) throw new Error("Nothing to publish.");
+      // Folder kinds carry their included-subtree; computed once here so
+      // every branch below reads one shape.
+      const includedEntries =
+        mode.kind === "publish-folder" || mode.kind === "edit-folder"
+          ? mode.folderEntries.filter((e) => included.has(e.relpath))
+          : [];
+      switch (mode.kind) {
+        case "edit-folder": {
+          const existingShare = mode.share;
           // Policy fields (access/expiry/password/alias/mode) via the same
           // PATCH every share type uses, THEN "Update share" — republish
           // the CURRENT subtree to the same slug (roadmap §5.1).
@@ -324,15 +386,16 @@ export function PublishDialog({
           // auto-republish can add new files without resurrecting these.
           rememberShareExclusions(
             updated.id,
-            (folderEntries ?? []).map((e) => e.relpath).filter((r) => !included.has(r)),
+            mode.folderEntries.map((e) => e.relpath).filter((r) => !included.has(r)),
           );
           setResult(updated);
           toast({ title: "Share updated", description: `Republished ${includedEntries.length} file(s).`, variant: "success" });
-        } else {
-          if (!folderPath) throw new Error("No folder selected to publish.");
+          break;
+        }
+        case "publish-folder": {
           const share = await publishFolder(
             {
-              sourcePath: folderPath,
+              sourcePath: mode.folderPath,
               filename: folderName,
               content: "",
               renderMode,
@@ -348,31 +411,35 @@ export function PublishDialog({
           );
           rememberShareExclusions(
             share.id,
-            (folderEntries ?? []).map((e) => e.relpath).filter((r) => !included.has(r)),
+            mode.folderEntries.map((e) => e.relpath).filter((r) => !included.has(r)),
           ); // item 58, as above
           setResult(share);
           toast({ title: "Published", description: `${folderName} (${includedEntries.length} files) is now shared.`, variant: "success" });
+          break;
         }
-      } else if (editMode && existingShare) {
-        const updated = await updateShare(existingShare.id, policyPatch);
-        setResult(updated);
-      } else {
-        if (!filePath || content === undefined) throw new Error("No file selected to publish.");
-        const share = await publish({
-          sourcePath: filePath,
-          filename,
-          content,
-          renderMode,
-          generalAccess,
-          authMode,
-          password: authMode === "password" ? password : undefined,
-          alias: alias.trim(),
-          expiresAt: expiryEnabled ? dateInputToEpochSeconds(expiresLocal) : undefined,
-          grants,
-          linkRole,
-        });
-        setResult(share);
-        toast({ title: "Published", description: `${filename} is now shared.`, variant: "success" });
+        case "edit-file": {
+          const updated = await updateShare(mode.share.id, policyPatch);
+          setResult(updated);
+          break;
+        }
+        case "publish-file": {
+          const share = await publish({
+            sourcePath: mode.filePath,
+            filename,
+            content: mode.content,
+            renderMode,
+            generalAccess,
+            authMode,
+            password: authMode === "password" ? password : undefined,
+            alias: alias.trim(),
+            expiresAt: expiryEnabled ? dateInputToEpochSeconds(expiresLocal) : undefined,
+            grants,
+            linkRole,
+          });
+          setResult(share);
+          toast({ title: "Published", description: `${filename} is now shared.`, variant: "success" });
+          break;
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Publish failed.");
@@ -399,13 +466,13 @@ export function PublishDialog({
       <DialogContent size="md" data-testid="publish-dialog">
         <DialogHeader>
           <DialogTitle style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isFolder && <Folder size={16} aria-hidden />}
-            {editMode ? "Edit share" : isFolder ? "Publish folder" : "Publish"}
+            {isFolderKind && <Folder size={16} aria-hidden />}
+            {mode ? MODE_CHROME[mode.kind].title : "Publish"}
           </DialogTitle>
           <DialogDescription>
-            {editMode
-              ? existingShare?.source_path
-              : isFolder
+            {mode?.kind === "edit-file" || mode?.kind === "edit-folder"
+              ? mode.share.source_path
+              : mode?.kind === "publish-folder"
                 ? `Share "${folderName}" (a folder) with a link.`
                 : filePath
                   ? `Share "${filePath.split("/").pop()}" with a link.`
@@ -531,7 +598,7 @@ export function PublishDialog({
               />
             </FormField>
 
-            {isFolder && (
+            {isFolderKind && (
               <FormField
                 label="Files"
                 hint={
@@ -628,7 +695,7 @@ export function PublishDialog({
                   <Input
                     size="sm"
                     type="password"
-                    placeholder={editMode && existingShare?.has_password ? "Leave blank to keep current password" : "Share password"}
+                    placeholder={isEditKind && existingShare?.has_password ? "Leave blank to keep current password" : "Share password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     aria-label="Share password"
@@ -828,12 +895,8 @@ export function PublishDialog({
               <Button type="button" disabled={!canSubmit} onClick={handleSubmit} data-testid="publish-submit">
                 {submitting ? (
                   <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span>
-                ) : editMode && isFolder ? (
-                  "Update share"
-                ) : editMode ? (
-                  "Save"
                 ) : (
-                  "Publish"
+                  mode ? MODE_CHROME[mode.kind].verb : "Publish"
                 )}
               </Button>
             </>
