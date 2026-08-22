@@ -62,6 +62,15 @@ class Settings(BaseSettings):
     # setting this False for local http:// testing only.
     cookie_secure: bool = Field(default=True, validation_alias="VSNOTE_COOKIE_SECURE")
 
+    # ---- OAuth sign-in (TODO §8.2) ------------------------------------
+    # Google-first, structured for provider extension. Both client fields
+    # set ⇒ the provider's "Continue with Google" button renders and its
+    # start/callback routes go live; otherwise they 404 (UI hides them via
+    # /api/auth/oauth/providers). Redirect URI registered with the
+    # provider is `{public origin}/api/auth/oauth/google/callback`.
+    oauth_google_client_id: str = Field(default="", validation_alias="VSNOTE_OAUTH_GOOGLE_CLIENT_ID")
+    oauth_google_client_secret: str = Field(default="", validation_alias="VSNOTE_OAUTH_GOOGLE_CLIENT_SECRET")
+
     # Phase 12 (DESIGN-SPEC Amendments round 4 item 32) — "fallback-login
     # onboarding": the app-level username+password login (`routers/auth.py`)
     # is otherwise dead the moment nothing has ever created a `User` row

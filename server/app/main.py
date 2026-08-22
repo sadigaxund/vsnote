@@ -83,6 +83,7 @@ from .auth import JWKSFetcher, build_auth_deps
 from .config import Settings, resolve_secret_key
 from .db import Base, make_engine, make_sessionmaker
 from .routers import admin as admin_router
+from .routers import oauth as oauth_router
 from .routers import app_config as app_config_router
 from .routers import auth as auth_router
 from .routers import git_admin as git_admin_router
@@ -276,6 +277,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     api_app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     api_app.add_middleware(SlowAPIMiddleware)
     api_app.include_router(auth_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
+    api_app.include_router(oauth_router.build_router(get_db, settings, secret_key))
     api_app.include_router(shares_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(share_public_router.build_content_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(admin_router.build_router(get_db, auth_deps))

@@ -43,6 +43,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Layout, Loader2, Lock } from "lucide-react";
 import { Alert, Button, EmptyState, Input } from "my-you-eye";
 import { TitleBar as TitleBarShell } from "../components/local/TitleBar";
+import { fetchOAuthProviders, oauthStartUrl } from "../share/oauth";
 import { ExplorerTree } from "../components/local/ExplorerTree";
 import { EditorTabBar } from "../components/local/EditorTabBar";
 import { SegmentedControl } from "../components/local/SegmentedControl";
@@ -139,6 +140,12 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [modes, setModes] = useState<Record<string, EditorMode>>({});
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  // OAuth capability probe (TODO §8.2): the button only renders when the
+  // backend has Google credentials configured.
+  const [oauthGoogle, setOauthGoogle] = useState(false);
+  useEffect(() => {
+    void fetchOAuthProviders().then((p) => setOauthGoogle(p.google));
+  }, []);
 
   const openFileTab = useCallback((relpath: string, content: ShareContentOut) => {
     setContents((prev) => new Map(prev).set(relpath, content));
@@ -322,6 +329,11 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
             Continue
           </Button>
         </form>
+        {oauthGoogle && (
+          <a href={oauthStartUrl(location.pathname)} data-testid="share-oauth-google" className="my-1">
+            Continue with Google
+          </a>
+        )}
       </ShareShell>
     );
   }

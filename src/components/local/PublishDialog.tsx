@@ -58,6 +58,7 @@ import { Check, Copy, FileCode, Folder, Globe2, Loader2, Lock, X } from "lucide-
 import { SegmentedControl } from "./SegmentedControl";
 import { CheckboxTree, type CheckboxTreeNode } from "./CheckboxTree";
 import { useShareStore, type FolderPublishEntry } from "../../share/useShareStore";
+import { fetchOAuthProviders, oauthStartUrl } from "../../share/oauth";
 import { validateAlias } from "../../share/alias";
 import { buildFolderShareLink, buildShareLink } from "../../share/shareLinks";
 import { defaultIncludedSet, flattenFolderTree, includedSetFromManifest, relpathsUnderFolder } from "../../share/folderManifest";
@@ -285,6 +286,12 @@ export function PublishDialog({
 
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
+  // TODO §8.2 — "Continue with Google" renders only when the backend has
+  // OAuth credentials configured (providers probe).
+  const [oauthGoogle, setOauthGoogle] = useState(false);
+  useEffect(() => {
+    void fetchOAuthProviders().then((p) => setOauthGoogle(p.google));
+  }, []);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -537,6 +544,15 @@ export function PublishDialog({
               <Alert variant="danger" size="sm">
                 {loginError}
               </Alert>
+            )}
+            {oauthGoogle && (
+              <a
+                href={oauthStartUrl("/")}
+                data-testid="publish-oauth-google"
+                style={{ fontSize: 12.5, color: "var(--color-primary)" }}
+              >
+                Continue with Google instead
+              </a>
             )}
           </div>
         )}

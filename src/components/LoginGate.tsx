@@ -17,10 +17,11 @@
  * Sharing's "Sign in" row already calls) — there is no second auth
  * implementation here, just a different screen that happens to call it.
  */
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Alert, Button, Card, CardContent, CardHeader, FormField, Input } from "my-you-eye";
 import { Layout, Loader2 } from "lucide-react";
 import { useShareStore, LOGIN_UNREACHABLE_MESSAGE } from "../share/useShareStore";
+import { fetchOAuthProviders, oauthStartUrl } from "../share/oauth";
 
 export interface LoginGateProps {
   /** Called the instant a login attempt succeeds — `main.tsx` swaps
@@ -59,6 +60,10 @@ function Wordmark() {
 }
 
 export function LoginGate({ onAuthenticated }: LoginGateProps) {
+  const [oauthGoogle, setOauthGoogle] = useState(false);
+  useEffect(() => {
+    void fetchOAuthProviders().then((p) => setOauthGoogle(p.google));
+  }, []);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const loggingIn = useShareStore((s) => s.loggingIn);
@@ -140,6 +145,9 @@ export function LoginGate({ onAuthenticated }: LoginGateProps) {
               <Button type="submit" disabled={loggingIn || !username.trim() || !password} data-testid="login-submit">
                 {loggingIn ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Sign in"}
               </Button>
+          {oauthGoogle && (
+            <a href={oauthStartUrl("/")} data-testid="logingate-oauth-google" className="my-1">Continue with Google</a>
+          )}
             </form>
           </CardContent>
         </Card>

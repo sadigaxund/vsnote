@@ -87,6 +87,7 @@ import { SharedPanel } from "./local/SharedPanel";
 import { VaultSetupPanel } from "./local/VaultSetupPanel";
 import { SyncSetupPanel } from "./SyncSetupPanel";
 import { createApiToken, type ShareOut } from "../share/api";
+import { fetchOAuthProviders, oauthStartUrl } from "../share/oauth";
 import type { EditorMode, FileKind } from "../types";
 
 // Phase 10 (sharing) — the Publish dialog composes Dialog/Select/Switch/etc.
@@ -241,6 +242,10 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const shareUsername = useShareStore((s) => s.username);
   const isAdmin = useShareStore((s) => s.isAdmin);
   const loggingIn = useShareStore((s) => s.loggingIn);
+  const [oauthGoogle, setOauthGoogle] = useState(false);
+  useEffect(() => {
+    void fetchOAuthProviders().then((p) => setOauthGoogle(p.google));
+  }, []);
   const loginError = useShareStore((s) => s.loginError);
   const probeShareBackend = useShareStore((s) => s.probe);
   const loginShareBackend = useShareStore((s) => s.login);
@@ -1091,6 +1096,11 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     >
                       {loggingIn ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Sign in"}
                     </Button>
+                    {oauthGoogle && (
+                      <a href={oauthStartUrl("/")} data-testid="settings-oauth-google" className="my-1">
+                        Continue with Google
+                      </a>
+                    )}
                   </div>
                   {loginError && (
                     <Alert variant="danger" size="sm">
