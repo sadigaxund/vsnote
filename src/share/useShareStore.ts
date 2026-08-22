@@ -130,6 +130,13 @@ export const useShareStore = create<ShareStoreState>()((set, get) => ({
       username: who.username ?? null,
       isAdmin: who.is_admin ?? false,
     });
+    // Explorer share-chain indicators read `shares` — previously this list
+    // was only fetched by SharedPanel's mount effect, so the icons stayed
+    // invisible until Settings → Sharing was opened (user-reported bug).
+    // The boot probe is the one point every session passes through; feed
+    // the indicators from here when a session exists. Fire-and-forget:
+    // failures land in sharesError for the panel to surface.
+    if (who.authenticated) void get().refreshShares();
   },
 
   login: async (username, password) => {
@@ -144,6 +151,9 @@ export const useShareStore = create<ShareStoreState>()((set, get) => ({
         loggingIn: false,
         reachability: "online",
       });
+      // Same indicator fix as probe(): existing shares must reach the
+      // Explorer even when this login happened outside the Sharing panel.
+      void get().refreshShares();
       return true;
     } catch (err) {
       const message = err instanceof api.ShareApiError ? err.message : LOGIN_UNREACHABLE_MESSAGE;
