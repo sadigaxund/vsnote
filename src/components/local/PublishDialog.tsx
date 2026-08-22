@@ -665,6 +665,7 @@ export function PublishDialog({
                     value={alias}
                     onChange={(e) => setAlias(e.target.value)}
                     invalid={!aliasCheck.valid}
+                    aria-invalid={!aliasCheck.valid}
                     aria-label="Custom alias"
                     data-testid="publish-alias"
                   />

@@ -1066,6 +1066,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                       value={loginUser}
                       onChange={(e) => setLoginUser(e.target.value)}
                       aria-label="Backend username"
+                      aria-invalid={Boolean(loginError)}
                       data-testid="share-login-username"
                       style={{ flex: 1, minWidth: 0 }}
                     />
@@ -1076,6 +1077,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                       value={loginPass}
                       onChange={(e) => setLoginPass(e.target.value)}
                       aria-label="Backend password"
+                      aria-invalid={Boolean(loginError)}
                       data-testid="share-login-password"
                       style={{ flex: 1, minWidth: 0 }}
                     />
@@ -1184,6 +1186,11 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                 >
                   {persistence === "granted" ? "Persistent storage granted" : persistence === "denied" ? "Storage not persisted" : "Unsupported in this browser"}
                 </Badge>
+              )}
+              {persistence === "denied" && (
+                <p style={{ fontSize: 12, color: "var(--color-muted)", margin: 0 }}>
+                  The browser may evict this vault under disk pressure. Export a .zip backup regularly, or grant persistence when the browser asks.
+                </p>
               )}
             </FormField>
           ),

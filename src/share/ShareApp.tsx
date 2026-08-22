@@ -327,7 +327,10 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
   }
 
   return (
-    <div style={{ height: "100vh", width: "100vw", display: "flex", flexDirection: "column", background: "var(--app-chrome-bg)", color: "var(--color-fg)" }}>
+    <div style={{ height: "100dvh", width: "100vw", display: "flex", flexDirection: "column", background: "var(--app-chrome-bg)", color: "var(--color-fg)" }}>
+      <a href="#share-main" className="skip-link">
+        Skip to content
+      </a>
       <TitleBarShell
         glyph={
           <span
@@ -380,7 +383,7 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
             </div>
           </aside>
         )}
-        <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--app-editor-bg)" }} data-testid="share-folder-content">
+        <main id="share-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--app-editor-bg)" }} data-testid="share-folder-content">
           <EditorTabBar
             paneId="share"
             tabs={tabs}
@@ -426,6 +429,7 @@ export function ShareApp({ identifier, initialRelpath = "" }: ShareAppProps) {
                         variant={activeDirty ? "primary" : "secondary"}
                         disabled={!activeDirty || saveState === "saving"}
                         onClick={() => void handleSave()}
+                        aria-live="polite"
                         data-testid="share-save"
                       >
                         {saveState === "saving" ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : activeDirty ? "Save" : saveState === "saved" ? "Saved" : "Save"}
@@ -520,7 +524,7 @@ function ShareShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        height: "100vh",
+        height: "100dvh",
         width: "100vw",
         display: "flex",
         flexDirection: "column",
