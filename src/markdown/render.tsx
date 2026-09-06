@@ -111,6 +111,7 @@ import { createRegistry, mergeRegistries, renderMarkNode, type Registry, type Re
 import { defaultRegistry } from "@markii/react/components";
 import { VSNoteCodeBlock } from "./vsnoteCodeDirective";
 import { CodeTableContext, VSNOTE_CODE_DIRECTIVE_NAME, type CodeTableEntry } from "./vsnoteCodeTable";
+import { buildPackRegistry, type PackForRegistry } from "./packPlaceholderLogic";
 
 export interface RenderMarkdownOptions {
   /**
@@ -142,6 +143,17 @@ export interface RenderMarkdownOptions {
    * reaching the DOM as a broken `<img>`.
    */
   resolveImageSrc?: ResolveImageSrc;
+  /**
+   * Packs enabled for this vault (Phase M3, worker 2), whose components
+   * always render as a labelled, unrendered placeholder rather than any
+   * real component — a pack's ONLY rendering artifact is compiled
+   * third-party JavaScript (`webview.js`), which this app never executes;
+   * see `packPlaceholder.tsx`'s module doc for the full reasoning. Merged
+   * UNDER `options.registry`, so an explicit registry override still wins.
+   * Omitted or empty (the default), behavior is unchanged from before this
+   * option existed.
+   */
+  enabledPacks?: readonly PackForRegistry[];
 }
 
 const NOT_SHARED_TITLE = "Not shared";
@@ -292,7 +304,19 @@ const VSNOTE_DIRECTIVE_REGISTRY: Registry = createRegistry({
  */
 export function renderMarkdown(text: string, options: RenderMarkdownOptions = {}): ReactElement {
   const { root, codeTable } = parseAndRewriteTree(text, options);
-  const registry = mergeRegistries(defaultRegistry, VSNOTE_DIRECTIVE_REGISTRY, options.registry ?? {});
+  // `buildPackRegistry` can only report `{ ok: false, collisions }` for two
+  // ENABLED packs sharing a namespace — `packStore.ts`'s `enable()` already
+  // refuses to persist a colliding pack, so this should never happen in
+  // practice; falling back to no pack registry (never throwing, never
+  // dropping the rest of the render) is the safe degrade if it somehow did.
+  const packInstall = options.enabledPacks?.length ? buildPackRegistry(options.enabledPacks) : undefined;
+  const packRegistry = packInstall?.ok ? packInstall.registry : {};
+  const registry = mergeRegistries(
+    defaultRegistry,
+    VSNOTE_DIRECTIVE_REGISTRY,
+    packRegistry,
+    options.registry ?? {},
+  );
   const renderOptions = options.resolveImageSrc ? { resolveImageSrc: options.resolveImageSrc } : undefined;
 
   return (

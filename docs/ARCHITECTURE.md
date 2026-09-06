@@ -1730,9 +1730,17 @@ on every markii upgrade — not done here.
 `@markii/host` would otherwise supply — `completionAt`, `hoverAt`,
 `enclosingContainerFences`/`insertedContainerColonCount`/
 `fenceExtensionEdits` (fence auto-lengthening), `componentSkeleton`, and a
-TRIMMED `buildComponentCatalog` (standard components only — no pack
-support; see that directory's file headers for exactly what was dropped
-and why). Each file carries its upstream path, pinned version (0.13.0),
+`buildComponentCatalog`, re-vendored untrimmed in Phase M3 worker 2 so
+directive-name completion, kind-based skeletons and hover are pack-aware
+for enabled packs. **One trim survives on purpose**: `completion.ts` and
+`documentation.ts` still drop `packAttributesFor`, so attribute-VALUE
+completion for a pack-declared enum or default is not offered (directive
+NAMES from a pack are). That gap is small in practice because a pack's
+components cannot render here at all (see the `webview.js` decision in
+the worker-2 section below), so a pack's attributes are mostly of
+academic interest in this host today; it is recorded here rather than
+left implicit, and re-vendoring those two files is the fix if packs ever
+render. Each file carries its upstream path, pinned version (0.13.0),
 and MIT attribution. `src/editor/markiiCompletion.ts` is the CM6-specific
 glue: a `CompletionSource` and `hoverTooltip` built on those functions,
 plus an `insertMarkiiComponent` command that applies
@@ -2135,12 +2143,14 @@ or hit a scheduled refresh.
 `GrantStore` (persisted via the folder above) is keyed by
 `@markii/runtime`'s `computeGrantKey` over the note's script closure — a
 SHA-256 hash, so editing a script invalidates its grant by construction.
-Worker 1's `buildGrantClosure` (`grantClosure.ts`) populates only the
-`scripts` section of that closure today (no bundle/vault/pack module
-resolution exists yet); a `src=` long-script reference's *content*
-therefore does not yet participate in the hash, only its path — see
-finding 1 in the M3 worker-1 handoff for the fix once worker 2's bundle
-loader can resolve `src=`/`require` targets to source text.
+`buildGrantClosure` (`grantClosure.ts`) populated only the `scripts`
+section when worker 1 shipped it, because nothing could resolve the rest
+yet; worker 2 completed it, so `bundleModules` and `packs` now
+participate in the hash too and changing a bundled module or a pack
+invalidates the grant exactly the way editing a script does. This is a
+security property, not a nicety. `vaultModules` stays permanently `{}`:
+VSNote has no vault-wide shared-Lua-module concept for it to describe,
+so there is nothing to resolve rather than something left unresolved.
 
 ### API surface for workers 2 and 3
 
@@ -2162,6 +2172,251 @@ loader can resolve `src=`/`require` targets to source text.
   `createBrowserNetProvider()`/`loadPersistedValues`/`savePersistedValues`
   (`platform/browser/index.ts`) — the real adapters `runScripts`'s `deps`
   are built from in the app.
+
+## Phase M3, worker 2 — `.mkz` bundles, cache, packs (docs/PLAN-2026-09-05-refresh.md §6)
+
+Worker 2 of 3 for M3. Builds on worker 1's ports/orchestration unchanged:
+`.mkz` bundle support (`@markii/bundle`) against `FileBackend`, the
+`bundle`/`cache` capabilities `capabilities.ts` documented as its own
+explicit gap, a pack model (`@markii/pack`) with a deliberate, documented
+limit on what a pack can actually render, and the grant-closure completion
+worker 1's handoff named as finding 1. Worker 3 (UI: the grant dialog, a
+"Run scripts" action, a Packs settings category, any `.mkz` open surface)
+builds entirely on the API surface below; nothing in this section adds UI.
+
+### `.mkz`, not `.mkbundle`
+
+`@markii/bundle`'s own README is the evidence: "Bundle (`.mkz`) storage...
+The legacy `.mkbundle` extension is still recognized for one more release;
+new bundles are always written as `.mkz`." CLAUDE.md's "no backwards-
+compatibility code" rule means this app's `platform/browser/bundleVault.ts`
+never reads or writes `.mkbundle` at all — `.mkz` is the only extension
+this app produces or expects, and there is no dual-extension branch
+anywhere in this codebase.
+
+### The path jail is structural, not a convention
+
+`host/types.ts`'s `FileBackend` doc already said the quiet part: the
+interface "does not, and cannot, enforce [the path jail] itself; it is the
+implementation's job." `host/bundle.ts`'s `createBundleFileBackend` makes
+that job structurally true rather than merely followed: every one of its
+four methods (`read`/`write`/`list`/`exists`) routes through ONE private
+function, `resolveOrThrow`, which calls `@markii/bundle`'s
+`normalizeBundlePath` and throws `BundleFileBackendPathError` on rejection
+— there is no second, unjailed way for a caller-supplied path to reach the
+underlying `BundleStorage` from this module. `@markii/bundle`'s own
+`BundleStorage`/`ScriptView` also re-normalize internally (their own
+documented contract) — this is deliberate belt-and-suspenders, matching
+`@markii/lua`'s own layered-defense style, not redundant paranoia.
+
+Opening a `.mkz` (`platform/browser/bundleVault.ts`, the ONE file under
+`platform/browser/` that reaches `src/fs/*` for bundle bytes) reads the
+whole file's bytes via `readBinaryFile`, feeds them to `@markii/bundle`'s
+`openZipBundle` (zip-slip/zip-bomb/CRC-guarded, `fflate`-backed, fully
+in-memory — there is no streaming zip form in this package), and parses
+`manifest.json` via `parseManifest`, falling back to
+`createDefaultManifest()` (zero permissions, zero packs) for a missing or
+corrupt manifest — an untrusted or damaged bundle still opens, with zero
+capabilities, never a hard failure. Saving reverses this with
+`exportZipBundle` + `writeFile`.
+
+### Capability wiring: exactly the contract worker 1 wrote down
+
+`host/capabilities.ts`'s `buildCapabilityConfig` gained `bundle?: ScriptView`
+and `cache?: CacheProvider`, built by two small helpers
+(`grantedBundlePermissions`/`buildBundleCapability`) that follow worker 1's
+explicit doc-comment contract to the letter: a write-capable `ScriptView`
+(one whose granted set includes `'write:.cache/'`) is constructed ONLY
+inside the `tier === "manual"` branch, and ONLY when
+`permissions.bundleWrite` is `true`; the `tier !== "manual"` branch always
+calls the SAME helper with `includeWrite: false`, so it is structurally
+incapable of building a write-capable view — the means is never
+constructed, exactly mirroring how `net`'s `post`/`patch` stripping already
+worked in this file. `'read'` is offered unconditionally whenever a bundle
+is open, at every tier — there is no `GrantedPermissions` flag for it,
+because reading a note's own bundle-scoped assets is not the same
+exfiltration risk network access is — but `@markii/bundle`'s own DEFECT-10
+intersection (`createScriptView(storage, manifest, granted)`: effective
+capability = `manifest.permissions` ∩ `granted`) still means a bundle whose
+OWN manifest never asked for `'read'` gets none, regardless of what this
+module offers. Three independent reasons a non-manual run can never write
+to a bundle: this module never constructs the means, `@markii/bundle`'s own
+`isWriteAllowed` policy check, and `@markii/lua`'s own tier gate on
+`bundle.write`.
+
+`cache` is wired independently of both tier and `bundleWrite`: it is built
+whenever a bundle is open, for every trigger, because it is host-internal
+memoization (`.cache/` files a script can only reach through the
+`cache.get(key, ttl, fn)`/`cache.set` pair, never by arbitrary path), not
+the general bundle-write capability `bundle.write` is. This is what lets an
+`auto`/`scheduled` run memoize an expensive `net.fetch_json` without ever
+needing a manual grant.
+
+### The RPC pattern extended: `bundle-call`/`cache-call`, `packModules` as data
+
+`@markii/bundle`'s `ScriptView` and `@markii/lua`'s `CacheProvider` are, like
+`NetProvider`, real function-carrying objects — they cannot cross
+`postMessage`. `platform/browser/workerProtocol.ts` gained a `bundle-call`/
+`bundle-call-result` pair and a `cache-call`/`cache-call-result` pair,
+structurally identical to worker 1's `net-call`/`net-call-result`: the real
+`ScriptView`/`CacheProvider` stay on the MAIN thread
+(`scriptIsolate.ts`'s `WorkerRunner.config`), and the Worker
+(`scriptIsolate.worker.ts`'s `makeBundleClient`/`makeCacheClient`) holds
+only an RPC client that posts one message per call and awaits the reply.
+
+`packModules` (namespace -> module path -> source text, `host/packs.ts`'s
+`packModulesSnapshot`) is the one exception: `@markii/lua`'s
+`PackModuleResolver` is a SYNCHRONOUS function
+(`(packName, modulePath) => string | undefined`), so rather than build a
+fourth RPC pair, the main thread just sends this plain, structured-
+cloneable map in the `run` message itself, and the Worker builds a
+synchronous resolver locally (`makePackModuleResolver`) — no round trip, no
+risk of a synchronous Lua-to-JS call ever needing to "yield across a C-call
+boundary" the way a genuinely async capability would.
+
+### Cache: a normal recompute or a stale marker, never an error
+
+`host/bundle.ts`'s `createCacheProvider` stores each entry as
+`.cache/<encodeURIComponent(key)>.json` (`{ value, storedAtMs }`,
+`@markii/lua`'s own `CacheEntry` shape — TTL freshness comparison happens
+in `@markii/lua`'s own Lua prelude, not here). A missing key, a corrupt
+JSON payload, or a well-formed-but-wrong-shaped payload are ALL treated as
+a plain cache miss (`get` resolves `undefined`) — never a thrown error, so
+a hand-edited or corrupted `.cache/*.json` file degrades to "recompute this
+value" rather than breaking the run.
+
+### Pack model: `.mkp` archives, namespaces, and `require`
+
+`host/packs.ts`'s `EnabledPack` is what a decoded `.mkp` archive
+(`@markii/pack`'s `openPackArchive`) becomes for this app: `namespace`
+(`manifest.name`), the parsed `PackManifest`, and `scriptModules` (its
+shared `scripts/*.lua`, decoded to UTF-8 text) — `webview.js`/
+`webview.css` bytes are read by `openPackArchive` internally but discarded
+immediately, NEVER copied into an `EnabledPack`, NEVER persisted, NEVER
+referenced by name anywhere past `loadPackFromArchiveBytes`'s own function
+body (see the next section for why).
+
+`platform/browser/packStore.ts`'s `createPackStoreOver` persists enabled
+packs the same way worker 1 persisted grants: one JSON file,
+`/.markii/packs.json`, keyed by namespace, built over the same `FileOps`
+seam (`fileOps.ts`) `grantStore.ts` uses — no IndexedDB dependency added.
+`enable(bytes)` refuses with a `{ kind: "collision" }` error if the
+namespace is ALREADY installed (enabled or disabled) — docs/packs.md:
+"Installing two packs with the same namespace is rejected at install
+time," read here as "a namespace already claimed is never silently
+overwritten." `remove(namespace)` then `enable(bytes)` is the explicit way
+to replace/update a pack; there is no separate implicit-overwrite path.
+`disable`/`reenable` flip a stored record's `enabled` flag without
+touching its content, so re-enabling needs no re-upload.
+
+A pack-namespaced `require "ns/module"` resolves through
+`host/packs.ts`'s `createPackModuleResolverFor` (used conceptually; the
+browser Worker's actual runtime path is `scriptIsolate.worker.ts`'s
+`makePackModuleResolver`, built from the same `packModulesSnapshot` data —
+see the RPC section above) — both try the exact module path and that path
+with `.lua` appended (`require "ana/http"` has no extension; the archive's
+`scriptModules` key does), and both run `modulePath` through
+`normalizeBundlePath` before ever using it as a lookup key: defense in
+depth, since `scriptModules` is a flat map keyed by exact archive-derived
+paths and a traversal string could never coincidentally collide with a
+real key anyway, but this makes "a path outside the pack is refused" a
+directly testable, named behavior rather than an accident of map-lookup
+semantics.
+
+### `webview.js` is decoded, never executed — and what that costs
+
+A `.mkp`'s only rendering artifact is `webview.js`: a PREBUILT,
+engine-targeted (`pack.json`'s `engine`, always `"react"` for anything this
+renderer could run) JavaScript bundle. There is no second, sandboxed way to
+run it — it either runs with the SAME privileges as every other module in
+this app's own bundle (the app origin, `document`, the in-memory
+lightning-fs vault, any live share token this session holds) or it does
+not run at all, because this app's rendering path is plain React on the
+main thread with no process/iframe/worker sandbox around a directive's
+render. Unlike a script (the whole `ScriptIsolate` apparatus: a
+terminatable Worker, a capability allowlist, a grant prompt the user must
+actively accept), a pack COMPONENT would render at note-OPEN time by
+definition — there is no separate "run" action, no grant prompt, no
+opportunity to decline before it executes. That is the exact "rendering
+never executes anything" line M3 draws for scripts, applied to packs.
+
+This app does not build a real component sandbox (a V8 isolate, an iframe
+with a locked-down CSP and postMessage-only communication) to cross that
+line partially — `src/markdown/packPlaceholderLogic.ts`/
+`packPlaceholderComponents.tsx` are the ENTIRE consequence: every pack
+component, in both `render.tsx` (the static renderer, via the new
+`RenderMarkdownOptions.enabledPacks`) and `directiveLezer/decorations.ts`
+(the CM6 live-preview widget renderer, via `markiiLivePreviewDecorations`'s
+new `enabledPacks` parameter), registers as a clearly labelled, unrendered
+placeholder naming the pack and the reason — reusing `@markii/react`'s own
+`installPacks`/`composeDirectiveName`/`detectNamespaceCollisions` machinery
+so namespacing and collision handling are identical to what a host that DID
+run pack components would get, with only WHAT gets registered under each
+composed name replaced (our placeholder component, never anything derived
+from `webview.js`). DESIGN-SPEC item 93 records this placeholder as the one
+genuinely user-visible consequence of this decision.
+
+**The cost, concretely**: every pack's actual UI is unavailable in VSNote,
+indefinitely, until this app grows a real component sandbox — a pack that
+works in a VS Code or Obsidian host (both of which DO execute
+`webview.js`, inside their own webview sandboxes) shows only a labelled
+box here, for every one of its components, all the time. A pack that
+declares components but ships them for a non-`"react"` `engine` degrades
+one step further, to `@markii/react`'s own generic unknown-directive box
+(no pack name in the label): `installPacks`'s engine gate returns an empty
+registry for a non-react pack before this app's placeholder wiring ever
+sees it, and this app does not special-case that path.
+
+### Grant closure, completed
+
+`host/grantClosure.ts`'s `buildGrantClosure`/`computeNoteGrantKey` now take
+one `GrantClosureInputs` object (`scripts`, plus optional `bundleModules`
+and `packs`) instead of a bare scripts array. `host/runScripts.ts`
+populates `bundleModules` by resolving every `src=` script block's
+bundle-relative target through the note's opened bundle (when one exists)
+before hashing — a `src=` target this run has no bundle to resolve
+against, or whose read fails, is simply omitted (the path STRING still
+participates via the `scripts` section either way, so renaming a target
+still changes the key). `packs` is populated from `host/packs.ts`'s
+`referencedPackNamespaces`/`grantClosurePacksFor`: a lightweight source
+scan (`require\s*\(?\s*["']([a-z][a-z0-9-]*)\/`, not a real Lua parse) over
+every script's code, restricted to namespaces the note's currently enabled
+packs actually have — editing a required pack's version or Lua modules now
+invalidates a note's grant the same way editing an inline script already
+did. `vaultModules` stays `{}` unconditionally: VSNote has no vault-wide
+shared-Lua-module concept (nothing in this codebase resolves a `require`
+target outside a note's own bundle or an installed pack), so there is
+nothing for that section to hold.
+
+### API surface for worker 3 (Packs settings, `.mkz` open surface)
+
+- `createBrowserPackStore(): PackStore` (`platform/browser/index.ts`) —
+  `list()` (every pack, enabled and disabled, newest-enabled first),
+  `enable(bytes): Promise<PackEnableResult>` (`{ ok: true, pack }` or
+  `{ ok: false, error }`, where `error.kind` is `"zip"` | `"manifest"` |
+  `"missing-entry"` (`loadPackFromArchiveBytes`'s validation) or
+  `"collision"` (namespace already installed)), `disable(namespace)`,
+  `reenable(namespace)`, `remove(namespace)` — all four no-ops for an
+  unknown namespace.
+- `openBundleFromBytes(bytes)`/`loadBundleFromVault(fsPath)`/
+  `saveBundleToVault(fsPath, storage)` (`platform/browser/index.ts`) — the
+  `.mkz` open/save surface. `loadBundleFromVault` resolves `undefined` for
+  a missing file; `openBundleFromBytes` throws only for a genuinely hostile
+  or corrupt zip (`BundleZipError`/`BundlePathError`), never for a missing
+  or malformed manifest.
+- `setMarkiiDiscoveredPacks(packs)` (`src/editor/markiiCompletion.ts`) —
+  worker 3 calls this whenever the enabled-packs set changes; completion
+  and hover in an already-open `.mk.md` editor pick up the change on the
+  next keystroke/hover, no remount needed.
+- `RenderMarkdownOptions.enabledPacks` (`src/markdown/render.tsx`) and
+  `markiiLivePreviewDecorations(enabledPacks?)`
+  (`src/markdown/directiveLezer/decorations.ts`) — pass every currently
+  ENABLED pack (an `EnabledPack` already satisfies both call sites'
+  `PackForRegistry`/`DiscoveredPack` shapes) to get pack-placeholder
+  rendering; omit for unchanged (pre-M3-worker-2) behavior.
+- `runScripts`'s `RunScriptsDeps` gained `bundle` (`{ storage, manifest }`)
+  and `enabledPacks` (`readonly EnabledPack[]`) — both optional, both
+  additive to worker 1's existing deps.
 
 ## Deviations
 

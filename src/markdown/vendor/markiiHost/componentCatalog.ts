@@ -1,47 +1,110 @@
 /**
- * Vendored and TRIMMED from markii-org/markii (MIT license), pinned to
- * v0.13.0: packages/markii-host/src/insert/component-catalog.ts
+ * Vendored from markii-org/markii (MIT license), pinned to v0.13.0:
+ * packages/markii-host/src/insert/component-catalog.ts
  * https://github.com/markii-org/markii/blob/main/packages/markii-host/src/insert/component-catalog.ts
  *
  * `@markii/host` is `private: true` upstream and never published to npm —
- * see docs/PLAN-2026-09-05-refresh.md §6 Phase M1. TRIMMED: the upstream
- * file also builds catalog entries for installed PACKS (`@markii/pack`'s
- * `composeDirectiveName`/`packComponents`) — VSNote has no pack system yet
- * (that is Phase M3, per `docs/temp-plan-add-extension.md`), so
- * `@markii/pack` is not installed and that half of the file is dropped
- * here along with `DiscoveredPack`/`packCatalogEntries`. Every
- * `InsertableComponent` this trimmed catalog produces is always
- * `source: "standard"`. Re-vendor the full file (and add `@markii/pack`)
- * when Phase M3 lands.
+ * see docs/PLAN-2026-09-05-refresh.md §6 Phase M1. This file was
+ * originally vendored TRIMMED (every pack code path stripped, since VSNote
+ * had no pack system before Phase M3) with an explicit breadcrumb:
+ * "Re-vendor the full file (and add `@markii/pack`) when Phase M3 lands."
+ * `@markii/pack` is now a real dependency (worker 2) — this is that
+ * re-vendor, UNTRIMMED, with one adaptation: upstream imports its
+ * `DiscoveredPack` type from a sibling, Node-filesystem-based module
+ * (`../packs/discover.js`, `@markii/host`'s own folder-scanning pack
+ * loader) that has no VSNote equivalent — this app loads packs from
+ * `.mkp` ARCHIVE BYTES via `@markii/pack`'s `openPackArchive`
+ * (`src/markii/host/packs.ts`'s `EnabledPack`), never from a folder on a
+ * real filesystem. `DiscoveredPack` below is redefined locally as the
+ * minimal structural shape this file actually reads (`.manifest`) — any
+ * `EnabledPack` already satisfies it, so `src/editor/markiiCompletion.ts`
+ * passes `EnabledPack[]` straight through with no adapter needed.
  *
  * Original file header:
  * "Insert Component" (GitHub issue #17, slice 1): the flat list of
- * components a picker offers — every `@markii/stdlib` standard component.
- * Host-neutral and pure: no `vscode`, no `obsidian`, no filesystem access.
+ * components a picker offers — every `@markii/stdlib` standard component,
+ * plus one entry per component every currently discovered pack declares.
+ * Host-neutral and pure: no `vscode`, no `obsidian`, no filesystem access
+ * of its own (packs are handed in already discovered, via
+ * `@markii/host`'s own `discoverPacks`/`DiscoveredPack`).
+ *
+ * Never throws. A malformed pack (an empty or missing `components` map, or
+ * a local name that fails `@markii/pack`'s namespace validation) simply
+ * contributes nothing — the same cleanliness posture as `./discover.ts`.
+ * A pack component's declared attribute metadata (`pack.json`'s optional
+ * `attributes` list, issue #27 slice 4) is carried through untouched;
+ * `@markii/pack`'s `packComponents` has already dropped anything malformed
+ * in it, so this module never re-validates it.
  */
+import { composeDirectiveName, packComponents } from "@markii/pack";
+import type { PackComponentAttribute, PackManifest } from "@markii/pack";
 import type { ComponentKind } from "@markii/stdlib";
 import { STANDARD_COMPONENTS } from "@markii/stdlib";
 import { firstSentence } from "./firstSentence";
 
+/** VSNote's stand-in for upstream's `@markii/host`-internal `DiscoveredPack` — see this file's own vendor header for why. Any `src/markii/host/packs.ts` `EnabledPack` satisfies this. */
+export interface DiscoveredPack {
+  readonly manifest: PackManifest;
+}
+
 /**
  * The seven layout-wrapper container directive names (docs/format.md):
  * alignment (`center`, `left`, `right`) and width presets (`fit`, `narrow`,
- * `wide`, `full`).
+ * `wide`, `full`). `left` is real — it exists in `@markii/stdlib`'s
+ * `STANDARD_COMPONENTS` alongside the others — even though issue #18's
+ * prose names only five; this constant is the complete, executable set, so
+ * a picker's "layout" section can never silently drop or gain a member as
+ * the standard set evolves. Exported so a picker UI can render this group
+ * under its own heading without hand-copying the name list, and so the
+ * colocated test below can assert it stays in sync with
+ * `STANDARD_COMPONENTS`.
  */
 export const LAYOUT_WRAPPER_NAMES: readonly string[] = ["center", "left", "right", "wide", "narrow", "full", "fit"];
 
 /** One component a picker can offer to insert. */
 export interface InsertableComponent {
-  /** The directive name the author types, e.g. `callout`. */
+  /** The directive name the author types, e.g. `callout`, or `cat_card` for a pack component. */
   readonly directiveName: string;
   readonly kind: ComponentKind;
   readonly source: "standard" | "pack";
+  /**
+   * Which section of a picker this entry belongs in: the ordinary standard
+   * set, the layout-wrapper set (also `source: 'standard'`, since a layout
+   * wrapper IS a standard component — `group` is the finer split a picker
+   * UI wants), or a pack's own contribution.
+   */
   readonly group: "standard" | "layout" | "pack";
+  /** Set only when `source === 'pack'`: the owning pack's namespace. */
   readonly packName?: string;
+  /**
+   * A short, one-line detail for a picker row, when one is available. RAW
+   * material only: a standard component's contract first sentence, or a
+   * pack component's manifest-declared `description` — never a composed
+   * filler string like `From pack "x".`. A host that wants a fallback line
+   * for a pack component with no declared description writes that string
+   * itself, in its own wording module.
+   */
   readonly description?: string;
+  /**
+   * Required attribute names, in declaration order: a standard component's
+   * contract order, or a pack component's own `attributes` order for the
+   * entries it marked `required`. Empty when nothing is required, which is
+   * still the case for every pack that declares no attributes at all.
+   */
   readonly requiredAttributes: readonly string[];
-  /** Always absent in this trimmed (no-pack) vendor — kept for shape parity with upstream's `InsertableComponent`. */
-  readonly attributes?: readonly never[];
+  /**
+   * A pack component's declared attribute metadata (issue #27 slice 4),
+   * in the order the manifest declared it. Absent for a standard
+   * component, whose attributes come from its `@markii/stdlib` contract
+   * instead, and absent for a pack component that declared none.
+   */
+  readonly attributes?: readonly PackComponentAttribute[];
+  /**
+   * True when `kind` came from the component's own declaration (every
+   * standard component, and a pack component whose manifest entry
+   * declares `kind`); false when `kind` is this catalog's `'container'`
+   * default for a pack component that declared none.
+   */
   readonly kindDeclared: boolean;
 }
 
@@ -52,6 +115,16 @@ function requiredAttributeNames(attributes: Record<string, { required?: boolean 
 
 const LAYOUT_WRAPPER_NAME_SET: ReadonlySet<string> = new Set(LAYOUT_WRAPPER_NAMES);
 
+/**
+ * Every standard component (including the layout wrappers), in
+ * `STANDARD_COMPONENTS`'s own declaration order. `buildComponentCatalog`
+ * below re-splits this into the non-layout entries followed by the layout
+ * entries; since the layout wrappers already sit last in
+ * `STANDARD_COMPONENTS`'s declaration order, that re-split does not change
+ * the overall order today — it exists so the two groups can be labeled and
+ * rendered as separate picker sections without relying on that
+ * coincidence continuing to hold as the standard set grows.
+ */
 function standardCatalogEntries(): InsertableComponent[] {
   return Object.entries(STANDARD_COMPONENTS).map(([name, contract]) => ({
     directiveName: name,
@@ -65,14 +138,69 @@ function standardCatalogEntries(): InsertableComponent[] {
 }
 
 /**
- * Builds the insert catalog: every standard, non-layout component first
- * (declaration order), then the layout wrappers (declaration order).
- * TRIMMED: upstream also appends each discovered pack's components; VSNote
- * has none, so this always returns just the standard set.
+ * One pack's contribution to the catalog: its declared components
+ * (`@markii/pack`'s `packComponents`, sorted alphabetically by local name
+ * for determinism), each composed into a directive name via
+ * `@markii/pack`'s `composeDirectiveName`. A local name that fails
+ * composition (an invalid namespace or local-name shape) is skipped —
+ * never thrown. `taken` is a set of directive names already claimed (by
+ * the standard set, or by an earlier pack) that this pack must not collide
+ * with; a colliding name is skipped and `taken` is left unchanged for it
+ * (first entry keeps the name).
  */
-export function buildComponentCatalog(): readonly InsertableComponent[] {
+function packCatalogEntries(pack: DiscoveredPack, taken: Set<string>): InsertableComponent[] {
+  const listings = [...packComponents(pack.manifest)].sort((a, b) =>
+    a.localName < b.localName ? -1 : a.localName > b.localName ? 1 : 0,
+  );
+  const entries: InsertableComponent[] = [];
+
+  for (const listing of listings) {
+    const composed = composeDirectiveName(pack.manifest.name, listing.localName);
+    if (!composed.ok) continue;
+    if (taken.has(composed.name)) continue;
+
+    taken.add(composed.name);
+    entries.push({
+      directiveName: composed.name,
+      kind: listing.kind ?? "container",
+      source: "pack",
+      group: "pack",
+      packName: pack.manifest.name,
+      ...(listing.description !== undefined ? { description: listing.description } : {}),
+      requiredAttributes: (listing.attributes ?? [])
+        .filter((attribute) => attribute.required === true)
+        .map((attribute) => attribute.name),
+      ...(listing.attributes !== undefined ? { attributes: listing.attributes } : {}),
+      kindDeclared: listing.kind !== undefined,
+    });
+  }
+
+  return entries;
+}
+
+/**
+ * Builds the full insert catalog. Order: every standard, non-layout
+ * component first (declaration order), then the six layout wrappers
+ * (declaration order), then each pack's components (in the order `packs`
+ * is given, each pack's own local names sorted alphabetically). A host
+ * renders a picker's sections straight off this order — standard section,
+ * layout section, then one section per pack — without needing to re-sort
+ * or re-group the result itself.
+ *
+ * A pack component whose composed directive name collides with the
+ * standard set or with an earlier pack's entry is skipped, so the returned
+ * list never has two entries with the same `directiveName`.
+ */
+export function buildComponentCatalog(packs: readonly DiscoveredPack[] = []): readonly InsertableComponent[] {
   const standardAll = standardCatalogEntries();
   const standard = standardAll.filter((entry) => entry.group === "standard");
   const layout = standardAll.filter((entry) => entry.group === "layout");
-  return [...standard, ...layout];
+  const taken = new Set(standardAll.map((entry) => entry.directiveName));
+
+  const packEntries: InsertableComponent[] = [];
+  for (const pack of packs) {
+    packEntries.push(...packCatalogEntries(pack, taken));
+  }
+
+  return [...standard, ...layout, ...packEntries];
 }

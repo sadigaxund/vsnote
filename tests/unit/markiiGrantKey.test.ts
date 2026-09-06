@@ -17,48 +17,48 @@ function script(overrides: Partial<ScriptBlock> = {}): ScriptBlock {
 
 describe("markii grant key", () => {
   it("is stable for the exact same script content", async () => {
-    const a = await computeNoteGrantKey([script()]);
-    const b = await computeNoteGrantKey([script()]);
+    const a = await computeNoteGrantKey({ scripts: [script()] });
+    const b = await computeNoteGrantKey({ scripts: [script()] });
     expect(a).toBe(b);
     expect(a).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("changes when a script's code is edited", async () => {
-    const before = await computeNoteGrantKey([script({ code: 'return "hi"' })]);
-    const after = await computeNoteGrantKey([script({ code: 'return "bye"' })]);
+    const before = await computeNoteGrantKey({ scripts: [script({ code: 'return "hi"' })] });
+    const after = await computeNoteGrantKey({ scripts: [script({ code: 'return "bye"' })] });
     expect(after).not.toBe(before);
   });
 
   it("changes when a script's name changes", async () => {
-    const before = await computeNoteGrantKey([script({ name: "a" })]);
-    const after = await computeNoteGrantKey([script({ name: "b" })]);
+    const before = await computeNoteGrantKey({ scripts: [script({ name: "a" })] });
+    const after = await computeNoteGrantKey({ scripts: [script({ name: "b" })] });
     expect(after).not.toBe(before);
   });
 
   it("changes when a src= reference path changes even with identical (empty) inline code", async () => {
-    const before = await computeNoteGrantKey([script({ src: "scripts/a.lua", code: "" })]);
-    const after = await computeNoteGrantKey([script({ src: "scripts/b.lua", code: "" })]);
+    const before = await computeNoteGrantKey({ scripts: [script({ src: "scripts/a.lua", code: "" })] });
+    const after = await computeNoteGrantKey({ scripts: [script({ src: "scripts/b.lua", code: "" })] });
     expect(after).not.toBe(before);
   });
 
   it("is independent of script array order (order-insensitive set semantics)", async () => {
     const s1 = script({ name: "one", code: "return 1" });
     const s2 = script({ name: "two", code: "return 2" });
-    const forward = await computeNoteGrantKey([s1, s2]);
-    const backward = await computeNoteGrantKey([s2, s1]);
+    const forward = await computeNoteGrantKey({ scripts: [s1, s2] });
+    const backward = await computeNoteGrantKey({ scripts: [s2, s1] });
     expect(forward).toBe(backward);
   });
 
   it("adding an extra script changes the key", async () => {
-    const one = await computeNoteGrantKey([script({ name: "only" })]);
-    const two = await computeNoteGrantKey([script({ name: "only" }), script({ name: "extra" })]);
+    const one = await computeNoteGrantKey({ scripts: [script({ name: "only" })] });
+    const two = await computeNoteGrantKey({ scripts: [script({ name: "only" }), script({ name: "extra" })] });
     expect(two).not.toBe(one);
   });
 
   it("buildGrantClosure only carries name/lang/src/code, dropping publish/position", () => {
-    const closure = buildGrantClosure([
-      { name: "x", lang: "lua", code: "return 1", publish: true, position: undefined },
-    ]);
+    const closure = buildGrantClosure({
+      scripts: [{ name: "x", lang: "lua", code: "return 1", publish: true, position: undefined }],
+    });
     expect(closure.scripts).toEqual([{ name: "x", lang: "lua", src: undefined, code: "return 1" }]);
     expect(closure.bundleModules).toEqual({});
     expect(closure.vaultModules).toEqual({});

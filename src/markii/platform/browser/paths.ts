@@ -19,6 +19,7 @@
 const MARKII_DIR = "/.markii";
 const VALUES_DIR = `${MARKII_DIR}/values`;
 const GRANTS_FILE = `${MARKII_DIR}/grants.json`;
+const PACKS_FILE = `${MARKII_DIR}/packs.json`;
 
 /** The `/.markii/values/` folder itself, for `ensureDir`. */
 export function valuesDir(): string {
@@ -33,4 +34,9 @@ export function valueFsPath(displayPath: string): string {
 /** The single grants file path (one JSON file for every grant, see `grantStore.ts`). */
 export function grantsFsPath(): string {
   return GRANTS_FILE;
+}
+
+/** The single enabled-packs file path (worker 2, see `packStore.ts`) — mirrors `grantsFsPath()`'s one-file-for-everything convention. */
+export function packsFsPath(): string {
+  return PACKS_FILE;
 }

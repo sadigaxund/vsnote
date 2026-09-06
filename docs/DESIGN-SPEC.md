@@ -1038,3 +1038,14 @@ forms inside `.mk.md` files.
     documented trade-offs of keeping `directiveLezer/` free of VSNote
     app-state coupling (item 91) and of the "no full re-parse" performance
     requirement, not oversights.
+93. **A pack's component always renders as a labelled placeholder, never
+    the pack's real UI.** A `.mkp` pack's only rendering artifact is a
+    prebuilt, third-party `webview.js` — VSNote never executes it (no
+    sandbox exists around a directive's render on this app's main-thread
+    React tree), so every component an enabled pack declares shows a
+    dashed box reading "Pack component not rendered" with the pack's name
+    and the reason, in both the static renderer and the CM6 live-preview
+    widget. This is permanent while VSNote has no real component sandbox,
+    not a temporary gap — see `docs/ARCHITECTURE.md`'s Phase M3 (worker 2)
+    section for the full reasoning and what it costs.
+

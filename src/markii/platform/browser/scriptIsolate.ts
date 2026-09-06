@@ -53,6 +53,10 @@ import type { CapabilityConfig } from "../../host/capabilities";
 import { createWatchdogIsolate, type TerminableRunner } from "../../host/watchdog";
 import type { DocViewSnapshot, ScriptIsolate } from "../../host/types";
 import type {
+  BundleCallMessage,
+  BundleCallResultMessage,
+  CacheCallMessage,
+  CacheCallResultMessage,
   MainToWorkerMessage,
   NetCallMessage,
   NetCallResultMessage,
@@ -121,7 +125,15 @@ class WorkerRunner implements TerminableRunner {
       resolve?.(msg.result);
       return;
     }
-    void this.handleNetCall(msg);
+    if (msg.type === "net-call") {
+      void this.handleNetCall(msg);
+      return;
+    }
+    if (msg.type === "bundle-call") {
+      void this.handleBundleCall(msg);
+      return;
+    }
+    void this.handleCacheCall(msg);
   }
 
   private async handleNetCall(msg: NetCallMessage): Promise<void> {
@@ -159,6 +171,83 @@ class WorkerRunner implements TerminableRunner {
     worker.postMessage(outbound);
   }
 
+  /**
+   * `@markii/bundle`'s `ScriptView` (worker 2) has the same "real functions
+   * cannot cross `postMessage`" shape `net` already does — see
+   * `workerProtocol.ts`'s module doc's `bundle-call` section. `this.config.
+   * bundle` was built by `host/capabilities.ts` ENTIRELY on this (main)
+   * thread, honoring the tier/`bundleWrite` gate documented there; this
+   * method only ever forwards to whatever `ScriptView` it was already
+   * handed — it makes no capability decision of its own.
+   */
+  private async handleBundleCall(msg: BundleCallMessage): Promise<void> {
+    const worker = this.worker;
+    const bundle = this.config.bundle;
+    if (!worker) return;
+    if (!bundle) {
+      this.replyBundleCall(worker, { type: "bundle-call-result", callId: msg.callId, ok: false, op: msg.op, error: "no bundle is open for this run" });
+      return;
+    }
+    try {
+      if (msg.op === "read") {
+        const data = await bundle.read(msg.path);
+        this.replyBundleCall(worker, { type: "bundle-call-result", callId: msg.callId, ok: true, op: "read", data });
+      } else if (msg.op === "write") {
+        await bundle.write(msg.path, msg.data ?? new Uint8Array());
+        this.replyBundleCall(worker, { type: "bundle-call-result", callId: msg.callId, ok: true, op: "write" });
+      } else {
+        const exists = await bundle.exists(msg.path);
+        this.replyBundleCall(worker, { type: "bundle-call-result", callId: msg.callId, ok: true, op: "exists", exists });
+      }
+    } catch (err) {
+      this.replyBundleCall(worker, {
+        type: "bundle-call-result",
+        callId: msg.callId,
+        ok: false,
+        op: msg.op,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private replyBundleCall(worker: Worker, message: BundleCallResultMessage): void {
+    const outbound: MainToWorkerMessage = message;
+    worker.postMessage(outbound);
+  }
+
+  /** Same RPC pattern as `handleBundleCall`, for `@markii/lua`'s `CacheProvider` (`cache.get`/`cache.set`, worker 2). */
+  private async handleCacheCall(msg: CacheCallMessage): Promise<void> {
+    const worker = this.worker;
+    const cache = this.config.cache;
+    if (!worker) return;
+    if (!cache) {
+      this.replyCacheCall(worker, { type: "cache-call-result", callId: msg.callId, ok: false, op: msg.op, error: "no cache is configured for this run" });
+      return;
+    }
+    try {
+      if (msg.op === "get") {
+        const entry = await cache.get(msg.key);
+        this.replyCacheCall(worker, { type: "cache-call-result", callId: msg.callId, ok: true, op: "get", entry });
+      } else {
+        await cache.set(msg.key, msg.entry!);
+        this.replyCacheCall(worker, { type: "cache-call-result", callId: msg.callId, ok: true, op: "set" });
+      }
+    } catch (err) {
+      this.replyCacheCall(worker, {
+        type: "cache-call-result",
+        callId: msg.callId,
+        ok: false,
+        op: msg.op,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private replyCacheCall(worker: Worker, message: CacheCallResultMessage): void {
+    const outbound: MainToWorkerMessage = message;
+    worker.postMessage(outbound);
+  }
+
   run(input: { code: string; tier: ExecutionTier; doc?: DocViewSnapshot }): Promise<ExecuteResult> {
     const worker = this.ensureWorker();
     const id = ++this.nextRunId;
@@ -172,6 +261,9 @@ class WorkerRunner implements TerminableRunner {
         doc: input.doc,
         hasNet: Boolean(this.config.net),
         netGrants: this.config.netGrants ?? { get: [], post: [] },
+        hasBundle: Boolean(this.config.bundle),
+        hasCache: Boolean(this.config.cache),
+        packModules: this.config.packModules ?? {},
         limits: DEFAULT_LIMITS,
       };
       worker.postMessage(message);

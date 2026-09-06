@@ -38,10 +38,14 @@
  */
 import wasmGlueUrl from "wasmoon/dist/glue.wasm?url";
 import { createLuaExecutor } from "@markii/lua";
-import type { NetProvider } from "@markii/lua";
+import type { CacheEntry, CacheProvider, NetProvider, PackModuleResolver } from "@markii/lua";
+import type { ScriptView } from "@markii/bundle";
 import type { ExecuteResult } from "@markii/runtime";
+import { normalizeBundlePath } from "@markii/bundle";
 import { reconstructDocView } from "../../host/docViewSnapshot";
 import type {
+  BundleCallResultMessage,
+  CacheCallResultMessage,
   MainToWorkerMessage,
   NetCallMessage,
   RunRequestMessage,
@@ -80,16 +84,111 @@ function makeNetProvider(): NetProvider {
   };
 }
 
+/**
+ * Worker 2: the RPC-client half of `ScriptView`/`CacheProvider` — see
+ * `workerProtocol.ts`'s module doc's `bundle-call`/`cache-call` sections.
+ * Both real capabilities (a real `ScriptView`/`CacheProvider`, built from
+ * this note's actually-opened bundle) live on the MAIN thread
+ * (`scriptIsolate.ts`'s `WorkerRunner.config`); this worker only ever holds
+ * a client that posts one message per call and awaits the matching reply,
+ * mirroring `makeNetProvider` above exactly.
+ */
+let bundleCallCounter = 0;
+const pendingBundleCalls = new Map<number, { resolve: (r: BundleCallResultMessage) => void }>();
+
+function makeBundleClient(): ScriptView {
+  function call(op: "read" | "write" | "exists", path: string, data?: Uint8Array): Promise<BundleCallResultMessage> {
+    const callId = ++bundleCallCounter;
+    return new Promise((resolve) => {
+      pendingBundleCalls.set(callId, { resolve });
+      workerSelf.postMessage({ type: "bundle-call", callId, op, path, data });
+    });
+  }
+  return {
+    async read(path) {
+      const result = await call("read", path);
+      if (!result.ok) throw new Error(result.error);
+      return result.op === "read" ? result.data : undefined;
+    },
+    async write(path, data) {
+      const result = await call("write", path, data);
+      if (!result.ok) throw new Error(result.error);
+    },
+    async exists(path) {
+      const result = await call("exists", path);
+      if (!result.ok) throw new Error(result.error);
+      return result.op === "exists" ? result.exists : false;
+    },
+  };
+}
+
+let cacheCallCounter = 0;
+const pendingCacheCalls = new Map<number, { resolve: (r: CacheCallResultMessage) => void }>();
+
+function makeCacheClient(): CacheProvider {
+  function call(op: "get" | "set", key: string, entry?: CacheEntry): Promise<CacheCallResultMessage> {
+    const callId = ++cacheCallCounter;
+    return new Promise((resolve) => {
+      pendingCacheCalls.set(callId, { resolve });
+      workerSelf.postMessage({ type: "cache-call", callId, op, key, entry });
+    });
+  }
+  return {
+    async get(key) {
+      const result = await call("get", key);
+      if (!result.ok) return undefined;
+      return result.op === "get" ? result.entry : undefined;
+    },
+    async set(key, entry) {
+      const result = await call("set", key, entry);
+      if (!result.ok) throw new Error(result.error);
+    },
+  };
+}
+
+/**
+ * Builds a synchronous `PackModuleResolver` (`@markii/lua`'s `require
+ * "packName/modulePath"` seam) directly from the plain data map the `run`
+ * message carries — see `workerProtocol.ts`'s module doc for why no RPC is
+ * needed here (the resolver itself is synchronous). Tries `modulePath` and
+ * `${modulePath}.lua`, mirroring `host/packs.ts`'s
+ * `createPackModuleResolverFor` (which this worker cannot call directly:
+ * that function closes over `EnabledPack`'s full shape, including
+ * `scriptModules`, which is exactly what `packModules` already flattens to
+ * plain data for the message boundary).
+ */
+function makePackModuleResolver(packModules: Record<string, Record<string, string>>): PackModuleResolver | undefined {
+  if (Object.keys(packModules).length === 0) return undefined;
+  return (packName, modulePath) => {
+    const modules = packModules[packName];
+    if (!modules) return undefined;
+    // Defense in depth (mirrors `host/packs.ts`'s `createPackModuleResolverFor`):
+    // `modulePath` is untrusted script input, not an archive-derived key, so
+    // it is jailed the same way any other bundle-shaped path is before ever
+    // being used as a lookup key.
+    const normalized = normalizeBundlePath(modulePath);
+    if (!normalized.ok) return undefined;
+    if (Object.hasOwn(modules, normalized.path)) return modules[normalized.path];
+    const withExt = `${normalized.path}.lua`;
+    if (Object.hasOwn(modules, withExt)) return modules[withExt];
+    return undefined;
+  };
+}
+
 async function handleRun(msg: RunRequestMessage): Promise<void> {
   const net = msg.hasNet ? makeNetProvider() : undefined;
+  const bundle = msg.hasBundle ? makeBundleClient() : undefined;
+  const cache = msg.hasCache ? makeCacheClient() : undefined;
+  const packModuleResolver = makePackModuleResolver(msg.packModules);
   const executor = createLuaExecutor({
     net,
     netGrants: msg.hasNet ? msg.netGrants : undefined,
+    bundle,
+    cache,
+    packModuleResolver,
     maxFetchBytes: msg.maxFetchBytes,
     limits: msg.limits,
     marshalLimits: msg.marshalLimits,
-    // Bundle/pack `require` wiring is worker 2's to add on top of this same
-    // message once bundles exist (see `types.ts`'s `FileBackend` doc).
     wasmUri: wasmGlueUrl,
   });
   // `msg.doc` is a cloneable `DocViewSnapshot`, never a real `DocView` (see
@@ -121,6 +220,20 @@ workerSelf.addEventListener("message", (event) => {
     pendingNetCalls.delete(msg.callId);
     if (msg.ok) pending.resolve({ status: msg.status, body: msg.body });
     else pending.reject(new Error(msg.error));
+    return;
+  }
+  if (msg.type === "bundle-call-result") {
+    const pending = pendingBundleCalls.get(msg.callId);
+    if (!pending) return;
+    pendingBundleCalls.delete(msg.callId);
+    pending.resolve(msg);
+    return;
+  }
+  if (msg.type === "cache-call-result") {
+    const pending = pendingCacheCalls.get(msg.callId);
+    if (!pending) return;
+    pendingCacheCalls.delete(msg.callId);
+    pending.resolve(msg);
     return;
   }
   if (msg.type === "run") {

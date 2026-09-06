@@ -86,9 +86,25 @@ import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { MK_DIRECTIVE_CONTAINER, MK_DIRECTIVE_LEAF, MK_DIRECTIVE_TEXT } from "./extension";
+import { buildPackRegistry, type PackForRegistry } from "../packPlaceholderLogic";
 
-/** Registry used for every directive rendered by a live-preview widget. See module doc for why this is `defaultRegistry` alone. */
-const REGISTRY: Registry = createRegistry(defaultRegistry);
+/**
+ * Builds the registry used for every directive rendered by a live-preview
+ * widget: `defaultRegistry` alone (see module doc for why this file has no
+ * VSNote app-state coupling), plus (worker 2, Phase M3) a placeholder entry
+ * per enabled pack's declared component, so a `:::ns_component` directive
+ * shows the SAME labelled "not rendered (JS component)" box the static
+ * renderer shows, never a raw unknown-directive box that gives no reason.
+ * `enabledPacks` is a plain data array the CALLER (`LivePreviewEditor.tsx`)
+ * supplies per editor instance — this module still reaches no app store or
+ * global state of its own.
+ */
+function buildRegistry(enabledPacks: readonly PackForRegistry[]): Registry {
+  if (enabledPacks.length === 0) return createRegistry(defaultRegistry);
+  const packInstall = buildPackRegistry(enabledPacks);
+  const packRegistry = packInstall.ok ? packInstall.registry : {};
+  return createRegistry({ ...defaultRegistry, ...packRegistry });
+}
 
 /** Caps convention (see module doc) — an editor session touching more distinct directive source strings than this within one document evicts its oldest cache entries rather than growing unbounded. Generous: a real `.mk.md` file has, realistically, tens of directives, not thousands. */
 const MAX_CACHE_ENTRIES = 500;
@@ -103,10 +119,10 @@ function cacheAndReturn(cache: Map<string, string>, source: string, html: string
 }
 
 /** Renders a container/leaf directive's raw source (the whole span `renderMark` would parse as one or more top-level block nodes) to a static HTML string, memoized by the exact source text. Never throws — `renderMark` itself never throws (see its own doc), and this function does nothing else that could. */
-function renderBlockDirectiveHtml(cache: Map<string, string>, source: string): string {
+function renderBlockDirectiveHtml(cache: Map<string, string>, source: string, registry: Registry): string {
   const cached = cache.get(source);
   if (cached !== undefined) return cached;
-  return cacheAndReturn(cache, source, renderToStaticMarkup(renderMark(source, REGISTRY)));
+  return cacheAndReturn(cache, source, renderToStaticMarkup(renderMark(source, registry)));
 }
 
 /**
@@ -126,7 +142,7 @@ function renderBlockDirectiveHtml(cache: Map<string, string>, source: string): s
  * the exact shape expected — belt and braces, not because this has been
  * observed to happen.
  */
-function renderInlineDirectiveHtml(cache: Map<string, string>, source: string): string {
+function renderInlineDirectiveHtml(cache: Map<string, string>, source: string, registry: Registry): string {
   const cached = cache.get(source);
   if (cached !== undefined) return cached;
   const root = parse(source);
@@ -134,7 +150,7 @@ function renderInlineDirectiveHtml(cache: Map<string, string>, source: string): 
   const directiveNode =
     firstChild && "children" in firstChild && Array.isArray(firstChild.children) ? firstChild.children[0] : undefined;
   const html = renderToStaticMarkup(
-    directiveNode ? renderMarkNode(directiveNode, REGISTRY) : renderMark(source, REGISTRY),
+    directiveNode ? renderMarkNode(directiveNode, registry) : renderMark(source, registry),
   );
   return cacheAndReturn(cache, source, html);
 }
@@ -157,14 +173,15 @@ class MkBlockDirectiveWidget extends WidgetType {
   constructor(
     private readonly source: string,
     private readonly cache: Map<string, string>,
+    private readonly registry: Registry,
   ) {
     super();
   }
   eq(other: MkBlockDirectiveWidget): boolean {
-    return other.source === this.source;
+    return other.source === this.source && other.registry === this.registry;
   }
   toDOM(): HTMLElement {
-    return buildWidgetDom("div", renderBlockDirectiveHtml(this.cache, this.source), "mk-live-preview-block");
+    return buildWidgetDom("div", renderBlockDirectiveHtml(this.cache, this.source, this.registry), "mk-live-preview-block");
   }
   ignoreEvent(): boolean {
     return false; // let clicks land normally (e.g. a link inside the rendered directive) rather than swallowing every interaction.
@@ -175,14 +192,15 @@ class MkInlineDirectiveWidget extends WidgetType {
   constructor(
     private readonly source: string,
     private readonly cache: Map<string, string>,
+    private readonly registry: Registry,
   ) {
     super();
   }
   eq(other: MkInlineDirectiveWidget): boolean {
-    return other.source === this.source;
+    return other.source === this.source && other.registry === this.registry;
   }
   toDOM(): HTMLElement {
-    return buildWidgetDom("span", renderInlineDirectiveHtml(this.cache, this.source), "mk-live-preview-inline");
+    return buildWidgetDom("span", renderInlineDirectiveHtml(this.cache, this.source, this.registry), "mk-live-preview-inline");
   }
 }
 
@@ -217,7 +235,7 @@ function cursorTouches(state: EditorState, from: number, to: number): boolean {
   return false;
 }
 
-function buildBlockDecorations(state: EditorState, cache: Map<string, string>): DecorationSet {
+function buildBlockDecorations(state: EditorState, cache: Map<string, string>, registry: Registry): DecorationSet {
   const decorations: Range<Decoration>[] = [];
   const tree = treeFor(state, state.doc.length);
   const doc = state.doc;
@@ -230,7 +248,7 @@ function buildBlockDecorations(state: EditorState, cache: Map<string, string>): 
       const source = doc.sliceString(from, to);
       decorations.push(
         Decoration.replace({
-          widget: new MkBlockDirectiveWidget(source, cache),
+          widget: new MkBlockDirectiveWidget(source, cache, registry),
           block: true,
           inclusive: false,
         }).range(from, to),
@@ -242,7 +260,7 @@ function buildBlockDecorations(state: EditorState, cache: Map<string, string>): 
   return Decoration.set(decorations, true);
 }
 
-function buildInlineDecorations(view: EditorView, cache: Map<string, string>): DecorationSet {
+function buildInlineDecorations(view: EditorView, cache: Map<string, string>, registry: Registry): DecorationSet {
   const decorations: Range<Decoration>[] = [];
   const state = view.state;
   const doc = state.doc;
@@ -259,7 +277,7 @@ function buildInlineDecorations(view: EditorView, cache: Map<string, string>): D
         const source = doc.sliceString(from, to);
         decorations.push(
           Decoration.replace({
-            widget: new MkInlineDirectiveWidget(source, cache),
+            widget: new MkInlineDirectiveWidget(source, cache, registry),
             inclusive: false,
           }).range(from, to),
         );
@@ -289,17 +307,23 @@ const mkLivePreviewTheme = EditorView.baseTheme({
  * this extension is a harmless no-op. Call once per editor instance (see
  * module doc's cache-sharing note) — `LivePreviewEditor.tsx` does this
  * exactly once per `.mk.md` mount.
+ *
+ * `enabledPacks` (worker 2, Phase M3, default `[]`) is plain data the
+ * caller already has (e.g. from `platform/browser`'s `PackStore.list()`)
+ * — see `buildRegistry`'s doc comment above for why this file still takes
+ * it as a parameter rather than reaching for app state itself.
  */
-export function markiiLivePreviewDecorations(): Extension[] {
+export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegistry[] = []): Extension[] {
   const cache = new Map<string, string>();
+  const registry = buildRegistry(enabledPacks);
 
   const blockField = StateField.define<DecorationSet>({
     create(state) {
-      return buildBlockDecorations(state, cache);
+      return buildBlockDecorations(state, cache, registry);
     },
     update(value, tr) {
       if (!tr.docChanged && tr.startState.selection.eq(tr.state.selection)) return value;
-      return buildBlockDecorations(tr.state, cache);
+      return buildBlockDecorations(tr.state, cache, registry);
     },
     provide: (field) => EditorView.decorations.from(field),
   });
@@ -308,11 +332,11 @@ export function markiiLivePreviewDecorations(): Extension[] {
     class {
       decorations: DecorationSet;
       constructor(view: EditorView) {
-        this.decorations = buildInlineDecorations(view, cache);
+        this.decorations = buildInlineDecorations(view, cache, registry);
       }
       update(update: ViewUpdate): void {
         if (update.docChanged || update.viewportChanged || update.selectionSet) {
-          this.decorations = buildInlineDecorations(update.view, cache);
+          this.decorations = buildInlineDecorations(update.view, cache, registry);
         }
       }
     },

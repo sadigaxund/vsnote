@@ -80,7 +80,7 @@ describe("markii runScripts orchestration", () => {
   it("manual trigger with an existing grant never prompts again", async () => {
     const key = await (
       await import("../../src/markii/host/grantClosure")
-    ).computeNoteGrantKey([{ name: "answer", lang: "lua", code: "return 42" }]);
+    ).computeNoteGrantKey({ scripts: [{ name: "answer", lang: "lua", code: "return 42" }] });
     const grantStore = fakeGrantStore([
       { key, path: "notes/a.mk.md", permissions: { net: { get: [], post: [] }, bundleWrite: false }, grantedAt: 1 },
     ]);

@@ -36,6 +36,7 @@
  *    under this module's control).
  */
 import { parse, extractScripts, type ScriptBlock } from "@markii/core";
+import type { BundleManifest, BundleStorage } from "@markii/bundle";
 import {
   runDocumentScripts,
   tierForTrigger,
@@ -48,6 +49,7 @@ import { computeNoteGrantKey } from "./grantClosure";
 import { buildCapabilityConfig, type CapabilityConfig } from "./capabilities";
 import { buildDocViewSnapshot } from "./docViewSnapshot";
 import { hydrateValueStore, snapshotForPersist } from "./valuePersistence";
+import { grantClosurePacksFor, packModulesSnapshot, type EnabledPack } from "./packs";
 import {
   DEFAULT_DENY_PROMPT,
   type GrantPrompt,
@@ -68,6 +70,10 @@ export interface RunScriptsDeps {
   savePersistedValues: (path: string, values: Record<string, StoredValue>) => Promise<void>;
   /** Resolves a `src=` long-script reference to its source text (docs/scripting.md). Omitted, a `src=` block simply errors as that one script's failure; other blocks in the same batch still run. */
   loadSource?: (src: string) => Promise<string> | string;
+  /** This note's opened `.mkz` bundle, if any (worker 2). Omitted, no `bundle`/`cache` capability is built for any tier, and no `src=` target participates in this run's grant-closure hash. */
+  bundle?: { storage: BundleStorage; manifest: BundleManifest };
+  /** Every currently enabled pack (`platform/browser/packStore.ts`'s `list()`), for `require`-resolution and grant-closure hashing. Omitted or empty, pack-namespaced `require` fails as a clean capability denial and no pack participates in the grant closure. */
+  enabledPacks?: readonly EnabledPack[];
 }
 
 /**
@@ -91,7 +97,13 @@ export async function runScripts(
   const tier = tierForTrigger(trigger);
   const permissions = tier === "manual" ? await resolveManualPermissions(path, scripts, deps) : undefined;
 
-  const capabilityConfig = buildCapabilityConfig({ trigger, permissions, netProvider: deps.netProvider });
+  const capabilityConfig = buildCapabilityConfig({
+    trigger,
+    permissions,
+    netProvider: deps.netProvider,
+    bundle: deps.bundle,
+    packModules: packModulesSnapshot(deps.enabledPacks ?? []),
+  });
   const isolate = deps.isolateFactory(capabilityConfig);
 
   const scriptNames = scripts.map((s) => s.name);
@@ -126,13 +138,43 @@ export async function runScripts(
   }
 }
 
+/**
+ * Resolves every `src=` block's bundle-relative target to source text
+ * through this note's opened bundle (worker 2), for the grant closure's
+ * `bundleModules` section. A block with no `src` contributes nothing; a
+ * `src` this run has no bundle to resolve against, or whose read fails
+ * (missing file, path-jail rejection), is simply omitted — see
+ * `grantClosure.ts`'s module doc for why that is not a silent gap (the
+ * path STRING still participates via the `scripts` section either way).
+ */
+async function resolveBundleModulesForGrant(
+  scripts: readonly ScriptBlock[],
+  bundle: RunScriptsDeps["bundle"],
+): Promise<Record<string, string>> {
+  if (!bundle) return {};
+  const decoder = new TextDecoder();
+  const modules: Record<string, string> = {};
+  for (const script of scripts) {
+    if (!script.src) continue;
+    try {
+      const bytes = await bundle.storage.read(script.src);
+      if (bytes !== undefined) modules[script.src] = decoder.decode(bytes);
+    } catch {
+      // Path-jail rejection or a storage error: omit, never fail the run.
+    }
+  }
+  return modules;
+}
+
 /** Manual-tier-only grant resolution — see module doc step 4. Never called for `auto`/`scheduled`. */
 async function resolveManualPermissions(
   path: string,
   scripts: ScriptBlock[],
   deps: RunScriptsDeps,
 ) {
-  const grantKey = await computeNoteGrantKey(scripts);
+  const bundleModules = await resolveBundleModulesForGrant(scripts, deps.bundle);
+  const packs = grantClosurePacksFor(scripts, deps.enabledPacks ?? []);
+  const grantKey = await computeNoteGrantKey({ scripts, bundleModules, packs });
   const existing = await deps.grantStore.get(grantKey);
   if (existing) return existing.permissions;
 

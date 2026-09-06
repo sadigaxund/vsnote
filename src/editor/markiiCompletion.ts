@@ -25,11 +25,31 @@ import {
   fenceExtensionEdits,
   formatComponentDocumentation,
   hoverAt,
+  type DiscoveredPack,
   type InsertableComponent,
 } from "../markdown/vendor/markiiHost";
 
-/** Built once — pure function of `@markii/stdlib`'s standard components, no packs installed (Phase M3). See `componentCatalog.ts`'s vendor header. */
-const CATALOG: readonly InsertableComponent[] = buildComponentCatalog();
+/**
+ * Which packs the completion/hover/insert catalog below is currently built
+ * from (worker 2, Phase M3). Module-level, mutable state, set by
+ * `setMarkiiDiscoveredPacks` — worker 3's Packs settings UI calls that
+ * whenever the enabled-packs set changes (enable/disable/remove), so an
+ * already-open `.mk.md` editor's completion/hover picks up the change on
+ * its next keystroke/hover without needing to be remounted. Defaults to
+ * `[]` (standard components only), matching this module's behavior before
+ * packs existed.
+ */
+let discoveredPacks: readonly DiscoveredPack[] = [];
+
+/** Worker 3's Packs settings UI calls this whenever the enabled-packs set changes — see `discoveredPacks`'s doc comment. Pass every ENABLED pack (an `EnabledPack` from `src/markii/host/packs.ts` already satisfies `DiscoveredPack`'s shape); a disabled pack should not be included. */
+export function setMarkiiDiscoveredPacks(packs: readonly DiscoveredPack[]): void {
+  discoveredPacks = packs;
+}
+
+/** Rebuilds the catalog on every call from the CURRENT `discoveredPacks` — cheap (a handful of standard components plus, realistically, a handful of pack components) and keeps completion/hover pack-aware without a stale cache to invalidate. */
+function currentCatalog(): readonly InsertableComponent[] {
+  return buildComponentCatalog(discoveredPacks);
+}
 
 function lineAndColumnAt(context: CompletionContext): { lineText: string; column: number; lineFrom: number } {
   const line = context.state.doc.lineAt(context.pos);
@@ -88,7 +108,7 @@ function toCmCompletion(item: ReturnType<typeof completionAt>["items"][number], 
 /** `@codemirror/autocomplete` `CompletionSource` backed by `@markii/host`'s `completionAt`. */
 export function markiiCompletionSource(context: CompletionContext): CompletionResult | null {
   const { lineText, column, lineFrom } = lineAndColumnAt(context);
-  const ctx = completionAt(lineText, column, CATALOG);
+  const ctx = completionAt(lineText, column, currentCatalog());
   if (ctx.kind === "none" || ctx.items.length === 0) return null;
 
   const from = lineFrom + ctx.replaceStart;
@@ -104,7 +124,7 @@ export function markiiCompletionSource(context: CompletionContext): CompletionRe
 export const markiiHoverTooltip: Extension = hoverTooltip((view, pos): Tooltip | null => {
   const line = view.state.doc.lineAt(pos);
   const column = pos - line.from;
-  const info = hoverAt(line.text, column, CATALOG);
+  const info = hoverAt(line.text, column, currentCatalog());
   if (!info) return null;
 
   const text = formatComponentDocumentation(info.documentation) || info.directiveName;
@@ -134,7 +154,7 @@ export const markiiHoverTooltip: Extension = hoverTooltip((view, pos): Tooltip |
  * palette entry or menu item for `.mk.md` files.
  */
 export function insertMarkiiComponent(view: EditorView, directiveName: string): boolean {
-  const component = CATALOG.find((c) => c.directiveName === directiveName);
+  const component = currentCatalog().find((c) => c.directiveName === directiveName);
   if (!component) return false;
 
   const skeleton = componentSkeleton(component.directiveName, component.kind, component.requiredAttributes);

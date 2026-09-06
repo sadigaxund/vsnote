@@ -8,7 +8,7 @@
 export { completionAt, hoverAt, componentDocumentation, formatComponentDocumentation } from "./completion";
 export type { CompletionContext, CompletionContextKind, CompletionItem, CompletionItemKind, ComponentDocumentation, HoverInfo } from "./types";
 export { buildComponentCatalog, LAYOUT_WRAPPER_NAMES } from "./componentCatalog";
-export type { InsertableComponent } from "./componentCatalog";
+export type { DiscoveredPack, InsertableComponent } from "./componentCatalog";
 export { componentSkeleton, offsetToLineColumn } from "./componentSkeleton";
 export type { ComponentSkeleton, LineColumn } from "./componentSkeleton";
 export { enclosingContainerFences, insertedContainerColonCount, fenceExtensionEdits } from "./containerFences";
