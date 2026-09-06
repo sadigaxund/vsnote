@@ -20,13 +20,18 @@
  *    management table (add/edit/replace credential/clear credential/
  *    delete/test/mirror now).
  *
- * Pure composition — `Alert`/`Badge`/`Button`/`ConfirmDialog`/`DataList`/
- * `Dialog`/`FormField`/`Input`/`Select`/`Skeleton`/`Switch`/`Table`/
+ * Pure composition — `Alert`/`Button`/`ConfirmDialog`/`DataList`/`DataTable`/
+ * `Dialog`/`DropdownMenu`/`FormField`/`Input`/`Select`/`Skeleton`/`Switch`/
  * `Textarea`/`Tooltip`/`useToast` from `my-you-eye`, same "solved by
  * composition" precedent `docs/COMPONENT-BACKLOG.md`'s Notes section
  * already records for `SharedPanel`/`PublishDialog` — no new local
  * primitive needed, so this file gets no backlog table row of its own
- * (added to that Notes section instead).
+ * (added to that Notes section instead). The remotes table itself
+ * (plan §2 item 5) gets the exact same `DataTable` treatment
+ * `SharedView.tsx`'s share table already has: fixed column widths,
+ * truncation, relative dates (`lib/relativeTime.ts`), and a trailing
+ * overflow-menu actions column instead of the hand-rolled `Table`/
+ * `TableRow` markup this used to be.
  *
  * **Credentials never round-trip back into this component's own state.**
  * The add/edit dialog's `sshKeyDraft`/`httpsTokenDraft` are local `useState`
@@ -40,16 +45,21 @@
 import { useEffect, useState } from "react";
 import {
   Alert,
-  Badge,
   Button,
   ConfirmDialog,
   DataList,
+  DataTable,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   FormField,
   Input,
   Select,
@@ -59,29 +69,23 @@ import {
   SelectValue,
   Skeleton,
   Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   Textarea,
   Tooltip,
   useToast,
+  type DataTableColumn,
 } from "my-you-eye";
-import { Loader2, Pencil, PlugZap, RefreshCw, Server, Trash2 } from "lucide-react";
+import { Loader2, MoreHorizontal, Pencil, PlugZap, RefreshCw, Server, Trash2 } from "lucide-react";
 import { DEFAULT_BRANCH } from "../../git/client";
 import { deriveVaultWizardPhase, hasVaultBranchMismatch } from "../../git/vaultWizard";
 import { useGitStore } from "../../stores/useGitStore";
 import {
   describeMirrorRunResult,
   describeMirrorStatus,
-  mirrorStatusTone,
-  remoteTestTone,
   validateCredentialFields,
   validateMirrorRemoteName,
   validateMirrorRemoteUrl,
 } from "../../git/vaultRemotes";
+import { formatRelativeEpochSeconds } from "../../lib/relativeTime";
 import { useShareStore } from "../../share/useShareStore";
 import { useVaultStore } from "../../stores/useVaultStore";
 import type { RemoteCredentialKind, VaultRemoteCreateIn, VaultRemoteOut } from "../../share/vaultApi";
@@ -311,6 +315,15 @@ function RemoteDialog({ open, onOpenChange, editingRemote, onSaved }: RemoteDial
   );
 }
 
+const REMOTE_COLUMNS: DataTableColumn[] = [
+  { key: "name", header: "Name", width: "md" },
+  { key: "url", header: "URL", width: "xl" },
+  { key: "credential", header: "Credential", width: "sm" },
+  { key: "status", header: "Status", width: "sm" },
+  { key: "test", header: "Last test", width: "sm" },
+  { key: "lastRun", header: "Last run", width: "sm" },
+];
+
 interface RemotesTableProps {
   compact?: boolean;
 }
@@ -378,130 +391,97 @@ function RemotesTable({ compact }: RemotesTableProps) {
         // delete's own refetch) keeps this table mounted and dims it
         // rather than swapping to the skeleton above, which is reserved
         // for the genuinely-empty first load.
-        <div
-          style={{ overflowX: "auto", opacity: remotesLoading ? 0.55 : 1, transition: "opacity var(--motion-duration-base) ease" }}
-          aria-busy={remotesLoading}
-        >
-          <Table data-testid="vault-remotes-table">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>URL</TableHead>
-                <TableHead>Credential</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Last run</TableHead>
-                <TableHead align="right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {remotes.map((remote) => {
-                const pending = pendingRemoteIds.has(remote.id);
-                const testResult = testResults[remote.id];
-                return (
-                  <TableRow key={remote.id} data-testid={`vault-remote-row-${remote.id}`}>
-                    <TableCell>
-                      {remote.name}
-                      {!remote.enabled && (
-                        <Badge variant="neutral" tone="soft" style={{ marginLeft: 6 }}>
-                          Disabled
-                        </Badge>
+        //
+        // `DataTable` (`renderActions`/fixed column widths, my-you-eye
+        // 2026.8.3, upstream #25 — same treatment `SharedView.tsx`'s share
+        // table already got, docs/PLAN-2026-09-05-refresh.md §2 item 5)
+        // replaces the hand-rolled `Table`/`TableRow` markup this used to
+        // be: truncated URL, a plain-text status pair (mirror status + last
+        // test outcome), and a relative "Last run" instead of an absolute
+        // timestamp.
+        <div style={{ opacity: remotesLoading ? 0.55 : 1, transition: "opacity var(--motion-duration-base) ease" }} aria-busy={remotesLoading} data-testid="vault-remotes-table">
+          <DataTable
+            columns={REMOTE_COLUMNS}
+            rows={remotes.map((remote) => {
+              const testResult = testResults[remote.id];
+              return {
+                id: remote.id,
+                name: remote.enabled ? remote.name : `${remote.name} (disabled)`,
+                url: remote.url,
+                credential: credentialSummary(remote),
+                status: describeMirrorStatus(remote.last_status, remote.last_error),
+                test: testResult ? testResult.message : "Not tested",
+                lastRun: formatRelativeEpochSeconds(remote.last_mirror_at),
+              };
+            })}
+            rowKey={(row) => row.id as number}
+            actionsHeader="Actions"
+            actionsWidth="8rem"
+            renderActions={(row) => {
+              const remote = remotes.find((r) => r.id === row.id);
+              if (!remote) return null;
+              const pending = pendingRemoteIds.has(remote.id);
+              return (
+                <div style={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+                  <Tooltip content="Test connection" side="top">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Test connection"
+                      disabled={pending}
+                      onClick={() => void testRemote(remote.id)}
+                    >
+                      {pending ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : <PlugZap size={13} />}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip content="Mirror now" side="top">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Mirror now"
+                      disabled={pending}
+                      onClick={() =>
+                        void mirrorNow(remote.id).then((result) => {
+                          if (result) toast({ title: describeMirrorRunResult(result.status, result.message), variant: result.status === "success" ? "success" : "danger" });
+                        })
+                      }
+                    >
+                      {pending ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : <Server size={13} />}
+                    </Button>
+                  </Tooltip>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`More actions for ${remote.name}`} data-testid={`vault-remote-actions-${remote.id}`}>
+                        <MoreHorizontal size={13} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        data-testid={`vault-remote-edit-${remote.id}`}
+                        onClick={() => {
+                          setEditingRemote(remote);
+                          setDialogOpen(true);
+                        }}
+                      >
+                        <Pencil size={13} /> Edit
+                      </DropdownMenuItem>
+                      {remote.credential_kind !== "none" && (
+                        <DropdownMenuItem data-testid={`vault-remote-clear-credential-${remote.id}`} onClick={() => setClearTarget(remote)}>
+                          <Trash2 size={13} /> Clear credential
+                        </DropdownMenuItem>
                       )}
-                    </TableCell>
-                    <TableCell style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{remote.url}</TableCell>
-                    <TableCell style={{ fontSize: 12 }}>{credentialSummary(remote)}</TableCell>
-                    <TableCell>
-                      <Badge variant={mirrorStatusTone(remote.last_status)} tone="soft">
-                        {describeMirrorStatus(remote.last_status, remote.last_error)}
-                      </Badge>
-                      {testResult && (
-                        <div style={{ marginTop: 4 }}>
-                          <Badge variant={remoteTestTone(testResult.outcome)} tone="soft" data-testid={`vault-remote-test-result-${remote.id}`}>
-                            {testResult.message}
-                          </Badge>
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell style={{ fontSize: 12 }}>{formatEpoch(remote.last_mirror_at)}</TableCell>
-                    <TableCell align="right">
-                      <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                        <Tooltip content="Test connection" side="top">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label="Test connection"
-                            disabled={pending}
-                            data-testid={`vault-remote-test-${remote.id}`}
-                            onClick={() => void testRemote(remote.id)}
-                          >
-                            {pending ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : <PlugZap size={13} />}
-                          </Button>
-                        </Tooltip>
-                        <Tooltip content="Mirror now" side="top">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label="Mirror now"
-                            disabled={pending}
-                            data-testid={`vault-remote-mirror-${remote.id}`}
-                            onClick={() =>
-                              void mirrorNow(remote.id).then((result) => {
-                                if (result) toast({ title: describeMirrorRunResult(result.status, result.message), variant: result.status === "success" ? "success" : "danger" });
-                              })
-                            }
-                          >
-                            {pending ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : <Server size={13} />}
-                          </Button>
-                        </Tooltip>
-                        <Tooltip content="Edit" side="top">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label="Edit remote"
-                            data-testid={`vault-remote-edit-${remote.id}`}
-                            onClick={() => {
-                              setEditingRemote(remote);
-                              setDialogOpen(true);
-                            }}
-                          >
-                            <Pencil size={13} />
-                          </Button>
-                        </Tooltip>
-                        {remote.credential_kind !== "none" && (
-                          <Tooltip content="Clear credential" side="top">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label="Clear credential"
-                              data-testid={`vault-remote-clear-credential-${remote.id}`}
-                              onClick={() => setClearTarget(remote)}
-                            >
-                              <Trash2 size={13} />
-                            </Button>
-                          </Tooltip>
-                        )}
-                        <Tooltip content="Delete" side="top">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label="Delete remote"
-                            data-testid={`vault-remote-delete-${remote.id}`}
-                            onClick={() => setDeleteTarget(remote)}
-                          >
-                            <Trash2 size={13} color="var(--color-danger)" />
-                          </Button>
-                        </Tooltip>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem data-testid={`vault-remote-delete-${remote.id}`} onClick={() => setDeleteTarget(remote)}>
+                        <Trash2 size={13} color="var(--color-danger)" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              );
+            }}
+          />
         </div>
       )}
 

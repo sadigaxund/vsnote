@@ -1425,6 +1425,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
           storagePersistence={storagePersistence}
           onExportVault={() => void handleExportVaultZip()}
           onRequestResetVault={() => setResetConfirmOpen(true)}
+          onRestoreFromRemote={() => setRestoreConfirmOpen(true)}
         />
       </div>
 

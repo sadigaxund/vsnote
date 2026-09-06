@@ -287,3 +287,28 @@ upstream candidates; no new information from the skill analysis changes their sp
   internals from this app; shipped as-is.
 - **Filed:** sadigaxund/my-you-eye#37 — proposes either a persistent track border
   or a thumb color guaranteed to contrast with `bg-secondary` specifically.
+
+### 2.11 `SettingsRow` / `SettingsSection` (Settings layout refresh, 2026-09-06)
+
+- **Gap:** `my-you-eye` has no settings-layout primitive — `skills/components.json`
+  has no `SettingsRow`/`SettingsSection`, nor a horizontal "label + description
+  left, control right" variant of `FormField`. Needed for the Settings refresh
+  (docs/PLAN-2026-09-05-refresh.md §2): every category previously hand-rolled its
+  own label/hint/control flex markup per row (`FormField` plus ad hoc
+  `style={{...}}`), and the page had no consistent field-sizing-by-type story.
+- **Built:** `src/components/local/SettingsRow.tsx` — `SettingsRow` (label +
+  hint on the left, control on the right, wrapping to a stacked layout on a
+  narrow content column via plain flexbox wrap — same "flex-wrap does the
+  responsive work, no media/container query" technique `Stepper.tsx` and
+  `SegmentedControl.tsx` already use) and `SettingsSection` (the `gap: 20`
+  vertical-rhythm wrapper every category's row list sits in). `controlWidth`
+  drives field sizing BY TYPE from one place (plan §2 item 3): `"narrow"`
+  (~12rem, numbers/short enums), `"text"` (~24rem, free text), `"full"` (100%,
+  textareas/tables/multi-part panels) — replacing the per-call-site inline
+  `style={{ width }}` every row used before. Every `settings/<Category>.tsx`
+  module (the split of the former 1400-line `SettingsView.tsx`, item 4 of the
+  same plan section) uses this primitive for its rows.
+- **Filed:** ALREADY EXISTS upstream as sadigaxund/my-you-eye#34 (confirmed via
+  `gh issue list -R sadigaxund/my-you-eye --state all` before building this) —
+  not re-filed. This local component unblocks the Settings split in the
+  meantime, per CLAUDE.md rule 2's "missing component protocol."

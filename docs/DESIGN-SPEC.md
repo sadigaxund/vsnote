@@ -917,3 +917,69 @@ dialog and its API-token-as-visitor-credential model.
     policy, regenerate, manage tokens, revoke). Per item 51, a refresh
     keeps the table mounted and dims it rather than unmounting to a
     skeleton or empty state.
+
+## Amendments round 10 (continued) — 2026-09-06 (Settings layout refresh + storage onboarding)
+
+Items 84-87 implement docs/PLAN-2026-09-05-refresh.md §2 (the Settings layout
+refresh) and §1 item 4 (storage onboarding).
+
+84. **Settings gets a real page width — a bounded content column, not a
+    per-row measure standing in for one.** The content column caps at
+    ~52rem, centered in the space left over after the nav's fixed 172px
+    (`SettingsView.tsx`) — replacing the old unbounded full-bleed view and
+    its per-row `ROW_MAX_WIDTH` ("36rem") stand-in (round 7 item 46,
+    superseded by this item). Every category — including the Git & Sync
+    setup wizard and the mirror-remotes table — sits inside that one
+    column now; there is no more per-row `wide` opt-out.
+85. **`SettingsRow`/`SettingsSection` — a new local layout primitive.**
+    `my-you-eye` has no settings-layout primitive (`skills/components.json`
+    has no `SettingsRow`/`SettingsSection`, nor a horizontal `FormField`
+    variant) — already filed upstream as sadigaxund/my-you-eye#34, not
+    re-filed (`docs/COMPONENT-BACKLOG.md` §2.11). `SettingsRow` puts a
+    label + description on the left and the control on the right,
+    wrapping to a stacked layout on a narrow content column via plain
+    flexbox wrap (no media/container query needed, same technique
+    `Stepper.tsx`/`SegmentedControl.tsx` already use). Its `controlWidth`
+    drives field sizing BY TYPE from one place (item 86 below) instead of
+    a per-call-site inline `style={{ width }}`. `SettingsSection` is the
+    `gap: 20` vertical-rhythm wrapper a category's row list sits in.
+86. **Field sizing by type, driven by the primitive.** `SettingsRow`'s
+    `controlWidth`: `"narrow"` (~12rem) for numbers and short enums
+    (Select/RadioGroup/number Input), `"text"` (~24rem) for free text
+    Input/ColorField, `"full"` (100% of the content column) for
+    textareas, tables, and multi-part panels (the Git & Sync wizard, the
+    remotes table, Auto-sync's toggle stack). Every `settings/
+    <Category>.tsx` row picks one of these three, never a bespoke width.
+87. **`SettingsView.tsx` split into a thin shell + one file per category.**
+    The former ~1400-line file is now `src/components/settings/
+    {Appearance,Editor,Rendered,Git,Sharing,Storage,Keyboard}.tsx`, each
+    exporting a `use<Category>Rows()` hook returning the same row shape
+    the shell has always rendered and searched, plus `settings/types.ts`
+    for that shared shape. `SettingsView.tsx` itself keeps exactly three
+    things: the category nav, the search filter, and routing between
+    categories. Every existing `data-testid` is unchanged by the split.
+    The Git & Sync category's setup gate (item 52) and the "Show git
+    status in explorer" toggle's presence on both sides of it are
+    unchanged — `useGitRows()` still returns only the setup panel plus
+    that one row until `gitSyncSetupComplete`.
+88. **`VaultSetupPanel`'s remotes table gets the same `DataTable` treatment
+    the Shared view's share table already has (item 83).** Fixed column
+    widths, truncated URL, relative "Last run" (`lib/relativeTime.ts`,
+    replacing an absolute timestamp), and a trailing actions cell: two
+    quick icon buttons (Test connection, Mirror now) plus an overflow
+    `DropdownMenu` (Edit, Clear credential, Delete) — replacing the
+    hand-rolled `Table`/`TableRow` markup and its per-row icon-button row.
+89. **Storage onboarding: "Restore from remote" as a one-click offer, not
+    a hidden palette command (plan §1 item 4).** Settings -> Storage shows
+    a prominent card at the top of the category — reusing the EXISTING
+    restore pipeline verbatim (`src/git/restore.ts::restoreFromRemote`,
+    `App.tsx`'s `restoreConfirmOpen`/`handleRestoreRemoteConfirmed`, the
+    same confirm dialog the command palette's "Restore from remote…" entry
+    already opens) — whenever all three are true: the backend is
+    reachable, sync setup is complete (`gitSyncSetupComplete`), and the
+    local vault is empty or holds only the non-demo starter seed
+    (`welcome.md`, the one file `fs/seed.ts::seedWelcomeVault` ever
+    writes). Hidden in demo builds exactly like the palette command it
+    wraps (item 45: the sandbox must never touch a real remote) —
+    `isDemoVaultBuild()` gates both identically. No second restore
+    implementation was written.

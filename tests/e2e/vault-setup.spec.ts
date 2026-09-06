@@ -169,12 +169,16 @@ test.describe("Vault setup, real backend", () => {
       await dialog.getByTestId("vault-remote-submit").click();
       await expect(dialog).toBeHidden();
 
-      const row = page.locator('[data-testid^="vault-remote-row-"]', { hasText: "e2e mirror target" });
+      // `DataTable` (docs/PLAN-2026-09-05-refresh.md §2 item 5) renders a
+      // plain `<tr>` with no per-row data-testid; every scoped lookup below
+      // goes through this row's own visible content/labels instead. Its
+      // trailing actions cell still carries stable per-remote testids for
+      // the overflow menu, since `renderActions` fully controls that cell.
+      const row = page.locator("tr", { hasText: "e2e mirror target" });
       await expect(row).toBeVisible();
-      const remoteId = (await row.getAttribute("data-testid"))!.replace("vault-remote-row-", "");
 
-      await page.getByTestId(`vault-remote-test-${remoteId}`).click();
-      await expect(page.getByTestId(`vault-remote-test-result-${remoteId}`)).toHaveText(/reachable/i, { timeout: 15_000 });
+      await row.getByRole("button", { name: "Test connection" }).click();
+      await expect(row.getByText(/reachable/i)).toBeVisible({ timeout: 15_000 });
 
       // The shared e2e backend's legacy "vault" repo may or may not have
       // any commits yet at this exact instant (other spec files push to
@@ -185,7 +189,7 @@ test.describe("Vault setup, real backend", () => {
       // classified outcome and not a failure of this test. Either way,
       // this proves the real "Mirror now" round trip reached the real
       // backend and updated this row's status from "Never run.".
-      await page.getByTestId(`vault-remote-mirror-${remoteId}`).click();
+      await row.getByRole("button", { name: "Mirror now" }).click();
       const mirrorStatus = row.getByText(/Last mirror (succeeded|failed)/i);
       await expect(mirrorStatus).toBeVisible({ timeout: 15_000 });
       const mirrorStatusText = await mirrorStatus.textContent();
@@ -199,6 +203,14 @@ test.describe("Vault setup, real backend", () => {
         expect(branches.length).toBeGreaterThan(0);
       }
 
+      const remoteId = (await row.locator('[data-testid^="vault-remote-actions-"]').getAttribute("data-testid"))!.replace(
+        "vault-remote-actions-",
+        "",
+      );
+      await row.getByRole("button", { name: /More actions for/ }).click();
+      // The overflow menu content portals outside this row's DOM subtree
+      // (Radix pattern, same as every other `DropdownMenu` in this app), so
+      // its items are looked up page-scoped by the remote's own id.
       await page.getByTestId(`vault-remote-delete-${remoteId}`).click();
       await page.getByRole("button", { name: "Delete" }).last().click();
       await expect(row).toHaveCount(0);

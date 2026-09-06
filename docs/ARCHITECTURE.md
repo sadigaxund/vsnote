@@ -1167,6 +1167,68 @@ the thing edits reach quickly and by default:
 - **Nothing here changes what "durable" means server-side** — see
   server/README.md's "Durable storage" section for `VSNOTE_VAULT_PATH`
   itself, bind-mounting a host path, and backup advice.
+- **Storage onboarding (§1 item 4).** "Restore from remote…" already
+  existed as a command-palette entry built on `src/git/restore.ts::
+  restoreFromRemote` (wipe the local vault, then clone the currently-
+  configured remote into it) and `App.tsx`'s `restoreConfirmOpen`/
+  `handleRestoreRemoteConfirmed` confirm dialog. `settings/Storage.tsx`
+  now surfaces the SAME flow (no second implementation) as a prominent
+  card at the top of Settings → Storage whenever the backend is reachable,
+  `gitSyncSetupComplete` is true, and the vault is empty or holds only the
+  non-demo starter seed (`welcome.md`) — see DESIGN-SPEC item 89. The
+  card's button calls a new `onRestoreFromRemote` callback threaded from
+  `App.tsx` down through `EditorArea`/`EditorPane`/`EditorContent`/
+  `SettingsView` (same threading shape `onExportVault`/
+  `onRequestResetVault` already use) to `setRestoreConfirmOpen(true)` —
+  the exact same dialog the palette command opens. Hidden in demo builds
+  exactly like that command (`isDemoVaultBuild()` gates both).
+
+## Settings layout (docs/PLAN-2026-09-05-refresh.md §2)
+
+`SettingsView.tsx` was a single ~1400-line file: every category's rows,
+inline styles, and a per-row `ROW_MAX_WIDTH` ("36rem") standing in for a
+page width the view never actually had (full-bleed, unbounded). The refresh
+split it and gave it a real page width:
+
+- **Shell vs. categories.** `SettingsView.tsx` is now a thin shell owning
+  exactly the category nav, the search filter, and routing between
+  categories. Each category's rows live in their own module —
+  `src/components/settings/{Appearance,Editor,Rendered,Git,Sharing,
+  Storage,Keyboard}.tsx` — exporting a `use<Category>Rows()` hook that
+  returns the same `SettingRow[]` shape (`settings/types.ts`) the shell has
+  always rendered and searched by `label`/`keywords`. Every existing
+  `data-testid` carried over unchanged.
+- **Page width.** The content column caps at ~52rem, centered in the space
+  left over after the nav's fixed 172px — the per-row cap is gone; every
+  category (including the Git & Sync setup wizard and the mirror-remotes
+  table) sits inside that one column.
+- **`SettingsRow`/`SettingsSection`** (`src/components/local/
+  SettingsRow.tsx`, upstream gap sadigaxund/my-you-eye#34, not re-filed —
+  `docs/COMPONENT-BACKLOG.md` §2.11) replace the per-row inline
+  `FormField`/manual-flex markup: label + description left, control right,
+  wrapping to stacked on a narrow column via plain flexbox wrap (no
+  media/container query, same technique `Stepper.tsx`/`SegmentedControl.tsx`
+  use). `controlWidth` (`"narrow"` ~12rem, `"text"` ~24rem, `"full"` 100%)
+  drives field sizing by type from one place instead of per-call-site
+  inline widths.
+- **`VaultSetupPanel`'s remotes table** moved from a hand-rolled `Table` to
+  `my-you-eye`'s `DataTable` (fixed column widths, truncated URL, relative
+  "Last run", a quick-actions + overflow-menu trailing column) — the same
+  treatment `SharedView.tsx`'s share table already had. `tests/e2e/
+  vault-setup.spec.ts` was updated in the same change: `DataTable` renders
+  a plain `<tr>` with no per-row `data-testid`, so the real-backend test
+  now scopes lookups by the row's own visible text/labels instead of a
+  `vault-remote-row-<id>` attribute, while the actions cell (still fully
+  controlled by this app's `renderActions`) keeps stable per-remote
+  testids for its overflow menu.
+- **A caught bug from this pass:** an `useFsStore` selector fallback of a
+  literal `s.tree[0]?.children ?? []` allocates a new array every render;
+  since the store has no `useShallow`, `useSyncExternalStore` compares by
+  reference and re-renders forever (React error #185, "Maximum update
+  depth exceeded") — caught by the Playwright suite, not by eslint or
+  tsc. Fixed with a module-level stable empty-array constant
+  (`settings/Storage.tsx`'s `EMPTY_CHILDREN`). Worth remembering for any
+  future store selector with an inline object/array fallback.
 
 ## Explorer virtualization (Phase 17 Milestone D)
 

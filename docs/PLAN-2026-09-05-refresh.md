@@ -101,9 +101,17 @@ offline) is deferrable on top of B if B is not enough.
    "last pushed Xm ago" (`lib/relativeTime.ts::formatLastPushedLabel`,
    replacing the old "synced Xm ago" wording), both with a tooltip stating
    edits are durable once pushed to the server vault.
-4. **Not done this pass.** Promoting "Restore from remote…" for an empty
-   vault + reachable backend is still open — the existing restore flow
-   (`src/git/restore.ts`) is unchanged; nothing new prompts for it.
+4. **Shipped (2026-09-06).** Settings → Storage now offers "Restore from
+   remote" as a prominent one-click card at the top of the category
+   whenever the backend is reachable, sync setup is complete
+   (`gitSyncSetupComplete`), and the local vault is empty or holds only
+   the non-demo starter seed (`welcome.md`) — `settings/Storage.tsx`. The
+   existing restore flow (`src/git/restore.ts::restoreFromRemote`,
+   `App.tsx`'s `restoreConfirmOpen`/`handleRestoreRemoteConfirmed`) is
+   reused verbatim, reached through a new `onRestoreFromRemote` callback
+   threaded down the same way `onExportVault`/`onRequestResetVault`
+   already are. Hidden in demo builds exactly like the palette command it
+   wraps (DESIGN-SPEC item 45). See DESIGN-SPEC item 89.
 5. Server needed no code changes (`VSNOTE_VAULT_PATH` already existed) —
    documented instead: server/README.md's new "Durable storage" section
    (bind-mount example, backup advice) and docs/ARCHITECTURE.md's new
@@ -141,6 +149,34 @@ gap in `skills/my-you-eye/components.json` and the installed dist):
 DataTable column sizing/truncation/row-actions; settings layout primitives
 (`SettingsSection`/`SettingsRow` or a `FormField` horizontal variant); a
 `ColorField` (native `<input type=color>` still hand-rolled here).
+
+**Shipped (2026-09-06) — Settings layout + `VaultSetupPanel` table:**
+
+1. Content column now caps at ~52rem, centered next to the fixed-172px nav
+   (`SettingsView.tsx`); the old unbounded stretch and the `ROW_MAX_WIDTH`
+   ("36rem") per-row cap are gone.
+2. `SettingsRow`/`SettingsSection` (`src/components/local/SettingsRow.tsx`)
+   built locally — upstream gap already filed as sadigaxund/my-you-eye#34,
+   not re-filed (`docs/COMPONENT-BACKLOG.md` §2.11). `controlWidth`
+   (`"narrow"` ~12rem, `"text"` ~24rem, `"full"` 100%) drives field sizing
+   by type from one place.
+3. `SettingsView.tsx` split into a thin shell (nav, search, routing) plus
+   `src/components/settings/{Appearance,Editor,Rendered,Git,Sharing,
+   Storage,Keyboard}.tsx`, each a `use<Category>Rows()` hook. Every
+   `data-testid` carried over unchanged.
+4. `VaultSetupPanel`'s remotes table moved to `DataTable` (fixed widths,
+   truncated URL, relative "Last run", quick actions + an overflow menu) —
+   same treatment the Shared view's share table already had. `tests/e2e/
+   vault-setup.spec.ts` updated in the same change (row lookups by visible
+   text instead of a per-row `data-testid`, which `DataTable` doesn't
+   emit).
+5. Screenshot review done per `skills/design-review-checklist.md` (see
+   `docs/DESIGN-SPEC.md`'s round 10 items 84-89).
+6. DESIGN-SPEC items 51 (no flash on refresh) and 52 (Git and sync setup
+   gate) verified intact after the split.
+
+Share management is already out of Settings (round 10 item 83, shipped
+earlier) — nothing left to move.
 
 ## 3. Logo
 

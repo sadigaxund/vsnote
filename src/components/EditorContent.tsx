@@ -86,6 +86,7 @@ export interface EditorContentProps {
   storagePersistence?: StoragePersistenceStatus;
   onExportVault?: () => void;
   onRequestResetVault?: () => void;
+  onRestoreFromRemote?: () => void;
 }
 
 export function EditorContent({
@@ -105,6 +106,7 @@ export function EditorContent({
   storagePersistence,
   onExportVault,
   onRequestResetVault,
+  onRestoreFromRemote,
 }: EditorContentProps) {
   const [headContent, setHeadContent] = useState("");
   useEffect(() => {
@@ -140,6 +142,7 @@ export function EditorContent({
           storagePersistence={storagePersistence}
           onExportVault={onExportVault}
           onRequestResetVault={onRequestResetVault}
+          onRestoreFromRemote={onRestoreFromRemote}
         />
       </Suspense>
     );

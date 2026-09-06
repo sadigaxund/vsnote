@@ -41,6 +41,7 @@ export interface EditorAreaProps {
   storagePersistence?: StoragePersistenceStatus;
   onExportVault: () => void;
   onRequestResetVault: () => void;
+  onRestoreFromRemote?: () => void;
 }
 
 // DESIGN-SPEC Amendments item 16: cursor position no longer flows through
@@ -54,6 +55,7 @@ export function EditorArea({
   storagePersistence,
   onExportVault,
   onRequestResetVault,
+  onRestoreFromRemote,
 }: EditorAreaProps) {
   const tree = useTabsStore((s) => s.tree);
   const activePaneId = useTabsStore((s) => s.activePaneId);
@@ -74,6 +76,7 @@ export function EditorArea({
         storagePersistence={storagePersistence}
         onExportVault={onExportVault}
         onRequestResetVault={onRequestResetVault}
+        onRestoreFromRemote={onRestoreFromRemote}
       />
     );
   }
@@ -97,6 +100,7 @@ export function EditorArea({
           storagePersistence={storagePersistence}
           onExportVault={onExportVault}
           onRequestResetVault={onRequestResetVault}
+          onRestoreFromRemote={onRestoreFromRemote}
         />
       )}
     />

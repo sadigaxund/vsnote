@@ -83,6 +83,7 @@ export interface EditorPaneProps {
   storagePersistence?: StoragePersistenceStatus;
   onExportVault: () => void;
   onRequestResetVault: () => void;
+  onRestoreFromRemote?: () => void;
 }
 
 function computeEdge(e: React.DragEvent): DockEdge {
@@ -108,6 +109,7 @@ export function EditorPane({
   storagePersistence,
   onExportVault,
   onRequestResetVault,
+  onRestoreFromRemote,
 }: EditorPaneProps) {
   // DESIGN-SPEC Amendments item 16 (typing-latency bug) instrumentation —
   // see `lib/renderProbe.ts`'s doc.
@@ -365,6 +367,7 @@ export function EditorPane({
           storagePersistence={storagePersistence}
           onExportVault={onExportVault}
           onRequestResetVault={onRequestResetVault}
+          onRestoreFromRemote={onRestoreFromRemote}
         />
         </PaneErrorBoundary>
         {dockPreview && <DockOverlay edge={dockPreview} />}
