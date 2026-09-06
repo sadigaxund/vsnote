@@ -11,7 +11,7 @@
  */
 import { create } from "zustand";
 import * as api from "./api";
-import { shareCreatePayload, shareFolderCreatePayload } from "./sharePolicy";
+import { shareCreatePayload } from "./sharePolicy";
 
 export type BackendReachability = "unknown" | "checking" | "online" | "offline";
 
@@ -59,31 +59,25 @@ interface ShareStoreState {
   updateAdminSettings: (maxBlobBytes: number) => Promise<boolean>;
   refreshShares: () => Promise<void>;
   publish: (input: PublishInput) => Promise<api.ShareOut>;
-  /** Phase 10.5 — publish a NEW folder share. Uploads one blob per included
-   * entry (`entries`, already filtered by the Publish dialog's checkbox
-   * tree — see `share/folderManifest.ts`), then creates the share with the
-   * resulting manifest. */
-  publishFolder: (input: PublishInput, entries: FolderPublishEntry[]) => Promise<api.ShareOut>;
-  /** Phase 10.5 — "Update share" for an EXISTING folder share: republishes
-   * the subtree to the SAME slug (`PUT /api/shares/{id}/manifest`). */
-  updateFolderManifest: (id: number, entries: FolderPublishEntry[]) => Promise<api.ShareOut>;
-  getFolderManifest: (id: number) => Promise<api.ShareManifestOut>;
   updateShare: (id: number, patch: api.SharePatchIn) => Promise<api.ShareOut>;
   regenerate: (id: number) => Promise<api.ShareOut>;
   revoke: (id: number) => Promise<void>;
   /** Round 6 item 8 — a vault move/rename updates every affected share's
-   * recorded `source_path` (exact match, or a path inside a moved folder)
-   * so tree indicators and "Manage share" keep following the file.
-   * Best-effort: signed-out, offline, or a failed PATCH just leaves the old
-   * path (the indicator self-corrects on the next `refreshShares`). Never
-   * throws — callers are fs handlers that must not fail a move over
-   * share bookkeeping. */
+   * recorded `source_path` so tree indicators and "Manage share" keep
+   * following the file. §4.4 removed folder shares entirely, so every
+   * share's `source_path` now names a single FILE — a move can only match
+   * it in one of two ways: (1) `source_path` equals the moved path exactly
+   * (the file itself was moved/renamed), or (2) `source_path` is a
+   * descendant of a moved DIRECTORY (`source_path` starts with
+   * `${oldPath}/`) — renaming a real vault folder must still repoint the
+   * shares of every file inside it, even though none of those shares is
+   * itself a "folder share". The prefix check below is entirely about that
+   * directory-rename case now, not about folder shares. Best-effort:
+   * signed-out, offline, or a failed PATCH just leaves the old path (the
+   * indicator self-corrects on the next `refreshShares`). Never throws —
+   * callers are fs handlers that must not fail a move over share
+   * bookkeeping. */
   notifyPathMoved: (oldPath: string, newPath: string) => Promise<void>;
-}
-
-export interface FolderPublishEntry {
-  relpath: string;
-  content: string;
 }
 
 export interface PublishInput {
@@ -208,32 +202,6 @@ export const useShareStore = create<ShareStoreState>()((set, get) => ({
     set((state) => ({ shares: [share, ...state.shares] }));
     return share;
   },
-
-  publishFolder: async (input, entries) => {
-    const manifest: api.ManifestEntryIn[] = [];
-    for (const entry of entries) {
-      const filename = entry.relpath.split("/").pop() ?? entry.relpath;
-      const blob = await api.createBlob(filename, entry.content);
-      manifest.push({ relpath: entry.relpath, blob_id: blob.id });
-    }
-    const share = await api.createShare(shareFolderCreatePayload(input, manifest));
-    set((state) => ({ shares: [share, ...state.shares] }));
-    return share;
-  },
-
-  updateFolderManifest: async (id, entries) => {
-    const manifest: api.ManifestEntryIn[] = [];
-    for (const entry of entries) {
-      const filename = entry.relpath.split("/").pop() ?? entry.relpath;
-      const blob = await api.createBlob(filename, entry.content);
-      manifest.push({ relpath: entry.relpath, blob_id: blob.id });
-    }
-    const updated = await api.updateShareManifest(id, manifest);
-    set((state) => ({ shares: state.shares.map((s) => (s.id === id ? updated : s)) }));
-    return updated;
-  },
-
-  getFolderManifest: async (id) => api.getShareManifest(id),
 
   updateShare: async (id, patch) => {
     const updated = await api.patchShare(id, patch);

@@ -114,6 +114,9 @@ export function EditorPane({
   probeRender(`EditorPane:${paneId}`);
 
   const vaultDisplayName = useSettingsStore((s) => s.vaultDisplayName);
+  // Hoisted above the `if (!leaf) return null` guard below: a hook may not
+  // sit after an early return (react-hooks/rules-of-hooks).
+  const appTheme = useSettingsStore((s) => s.theme);
   const leaf = useTabsStore((s) => findLeaf(s.tree, paneId));
   const isFocused = useTabsStore((s) => s.activePaneId === paneId);
   const focusPane = useTabsStore((s) => s.focusPane);
@@ -239,8 +242,7 @@ export function EditorPane({
     focusPane(paneId);
   }
 
-    const appTheme = useSettingsStore((s) => s.theme);
-return (
+  return (
     <div
       data-testid="editor-pane"
       data-pane-id={paneId}

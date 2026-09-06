@@ -4,13 +4,26 @@
  *
  * Phase 5b sync-lifecycle polish (IMPLEMENTATION-PLAN.md Phase 5): the sync
  * segment shows the library's `Spinner` while `git.syncing` is truthy
- * (swapping out the static cloud glyph) and the "synced Xm ago" label is
- * re-derived from `git.lastSyncedAt` on a tick interval, not a store
+ * (swapping out the static cloud glyph) and the "last pushed Xm ago" label
+ * is re-derived from `git.lastSyncedAt` on a tick interval, not a store
  * write — a plain re-render every 15s (`useState` counter bumped from
  * `setInterval`) is enough to make the label visibly count up, since
- * `formatSyncedLabel` is pure and cheap to recompute. The interval also
+ * `formatLastPushedLabel` is pure and cheap to recompute. The interval also
  * fires once immediately (see the effect) so a slow next tick never leaves
  * a stale label on screen right after a fresh sync.
+ *
+ * PLAN-2026-09-05-refresh.md §1 item 3 (durability indicator): the owner's
+ * worry is that edits sitting only in this browser's IndexedDB are a
+ * data-loss risk — they become durable the moment they reach the server
+ * vault path. The "ahead/behind" chip below is repurposed into an
+ * "N unsynced" / "up to date" durability count computed from fields
+ * `useGitStore` already exposes (`git.ahead` = local commits not yet
+ * pushed, `git.changedCount`/`git.untracked` = uncommitted working-tree
+ * changes not yet even committed) — deliberately NOT a second status
+ * computation, just this component reading the same numbers the rest of
+ * the app already reads. The cloud segment's label becomes "last pushed
+ * Xm ago" so the two segments together answer "how much isn't durable yet"
+ * and "when did any of it last become durable".
  *
  * DESIGN-SPEC Amendments item 16 (typing-latency bug): the Ln/Col readout
  * used to arrive as a `cursor` prop computed in `App.tsx` from a `useState`
@@ -28,7 +41,7 @@ import { Bell, Cloud, GitBranch, ShieldAlert } from "lucide-react";
 import { Spinner } from "my-you-eye";
 import { DiffStatChip } from "./local/DiffStatChip";
 import { StatusBar as StatusBarShell, StatusBarItem } from "./local/StatusBar";
-import { formatSyncedLabel } from "../lib/relativeTime";
+import { formatLastPushedLabel } from "../lib/relativeTime";
 import { findLeaf, useTabsStore } from "../stores/useTabsStore";
 import { useCursorStore } from "../stores/useCursorStore";
 import type { GitSummary } from "../types";
@@ -71,12 +84,21 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
   const rawCursor = useCursorStore((s) => s.byPane[activePaneId]);
   const cursor = activeTabMode === "source" || activeTabMode === "diff" ? (rawCursor ?? { line: 1, column: 1 }) : { line: 1, column: 1 };
 
-  const syncedLabel = formatSyncedLabel(git.lastSyncedAt);
+  // Durability count (item 3): local commits not yet pushed (`git.ahead`)
+  // plus, if the working tree has uncommitted changes at all, one more for
+  // "and there's more not even committed yet" — never a second status
+  // computation, purely arithmetic over fields `useGitStore` already
+  // tracks and this component already receives as props.
+  const dirty = git.changedCount > 0 || git.untracked > 0;
+  const unsyncedCount = git.ahead + (dirty ? 1 : 0);
+  const unsyncedLabel = unsyncedCount > 0 ? `${unsyncedCount} unsynced` : "up to date";
+  const lastPushedLabel = formatLastPushedLabel(git.lastSyncedAt);
+  const durabilityExplainer = "Edits are durable once pushed to the server vault.";
   const syncLabelText = git.syncing
     ? `${git.syncing === "push" ? "pushing" : git.syncing === "pull" ? "pulling" : "syncing"}…`
     : git.syncError
       ? "sync failed"
-      : syncedLabel;
+      : lastPushedLabel;
 
   // Screen-reader announcements (COMPONENT-BACKLOG §3.4/B5, WIG's
   // aria-live rule): announce only the meaningful TRANSITIONS of the sync
@@ -114,10 +136,12 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
             maxLabelWidth={160}
           />
           <StatusBarItem
-            label={`↑${git.ahead} ↓${git.behind}`}
-            tooltip="Ahead/behind remote. Click to sync."
+            label={unsyncedLabel}
+            tooltip={`${unsyncedLabel}. ${durabilityExplainer} Click to sync.`}
             onClick={onSync}
             priority="mid"
+            tone={unsyncedCount > 0 ? "warning" : undefined}
+            style={{ fontVariantNumeric: "tabular-nums" }}
           />
           <StatusBarItem
             icon={
@@ -128,9 +152,10 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
               )
             }
             label={syncLabelText}
-            tooltip={git.syncError ?? "Click to sync now"}
+            tooltip={git.syncError ?? `${durabilityExplainer} Click to sync now.`}
             tone={git.syncError ? "danger" : undefined}
             onClick={onSync}
+            style={{ fontVariantNumeric: "tabular-nums" }}
           />
           <StatusBarItem label={<DiffStatChip added={git.diff.added} removed={git.diff.removed} />} priority="low" />
           <StatusBarItem

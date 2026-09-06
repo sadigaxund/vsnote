@@ -34,12 +34,10 @@ import { useDirtyBeforeunloadGuard } from "./lib/useDirtyBeforeunloadGuard";
 import { resolveVaultDisplayLabel } from "./lib/vaultLabel";
 import { probeRender } from "./lib/renderProbe";
 import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
-import { useShareStore, type FolderPublishEntry } from "./share/useShareStore";
-import { scheduleShareAutoRepublish } from "./share/autoRepublish";
+import { useShareStore } from "./share/useShareStore";
 import { createAutoSyncScheduler } from "./git/autoSyncPolicy";
-import { buildFolderShareLink, buildShareLink } from "./share/shareLinks";
+import { buildShareLink } from "./share/shareLinks";
 import type { ExplorerShareRow } from "./components/local/ExplorerTree";
-import type { CheckboxTreeNode } from "./components/local/CheckboxTree";
 import type { ShareOut } from "./share/api";
 import type { FileKind, FileNode } from "./types";
 
@@ -200,19 +198,12 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [pendingJump, setPendingJump] = useState<{ path: string; line: number } | null>(null);
   // Phase 10 (sharing) — Publish dialog state, opened from three places
   // (Explorer row context menu, command palette, title bar share icon).
-  // Phase 10.5 (folder shares) extended this instance to ALSO handle
-  // "Manage share…" on an already-shared Explorer row (file OR folder) —
-  // `editingShare` set means edit-policy mode, same as
-  // `SettingsView.tsx`'s own separate "Sharing" category instance (that
-  // one stays policy-only; this one additionally supports "Update share"
-  // for folders, since only the Explorer's own instance has live vault
-  // read access to re-flatten the current subtree — see `handleManageShare`).
+  // §4.4 removed folder shares entirely: publishing is a files-only
+  // action, so this instance only ever handles "Manage share…" on an
+  // already-shared FILE row — `editingShare` set means edit-policy mode,
+  // same as `SettingsView.tsx`'s own separate "Sharing" category instance.
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
-  const [publishTarget, setPublishTarget] = useState<
-    | { type: "file"; path: string; kind: FileKind }
-    | { type: "folder"; path: string; tree: CheckboxTreeNode[]; entries: FolderPublishEntry[] }
-    | null
-  >(null);
+  const [publishTarget, setPublishTarget] = useState<{ type: "file"; path: string; kind: FileKind } | null>(null);
   const [publishContent, setPublishContent] = useState<string | undefined>(undefined);
   const [editingShare, setEditingShare] = useState<ShareOut | undefined>(undefined);
   // Snapshot of whichever CM6 view was registered at the moment a jump was
@@ -235,7 +226,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   if (autoSyncSchedulerRef.current === null) {
     autoSyncSchedulerRef.current = createAutoSyncScheduler({
       getPolicy: () => {
-        const { gitSyncOnInterval, gitSyncOnOpenClose, gitSyncOnSave, gitSyncIntervalMinutes, gitSyncSetupComplete } =
+        const { gitSyncOnInterval, gitSyncOnOpenClose, gitSyncOnSave, gitSyncOnFocus, gitSyncIntervalMinutes, gitSyncSetupComplete } =
           useSettingsStore.getState();
         // Round 7 item 52 — nothing fires until setup was explicitly
         // completed, whatever the individual toggles say.
@@ -243,6 +234,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
           interval: gitSyncSetupComplete && gitSyncOnInterval,
           openClose: gitSyncSetupComplete && gitSyncOnOpenClose,
           onSave: gitSyncSetupComplete && gitSyncOnSave,
+          onFocus: gitSyncSetupComplete && gitSyncOnFocus,
           intervalMinutes: gitSyncIntervalMinutes,
         };
       },
@@ -472,9 +464,31 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     autoSyncSchedulerRef.current?.triggerOpenClose();
     function onVisibilityChange() {
       if (document.visibilityState === "hidden") autoSyncSchedulerRef.current?.triggerOpenClose();
+      // PLAN-2026-09-05-refresh.md §1 item 2 ("pull on focus") — the same
+      // visibilitychange signal, the OTHER direction: coming back to
+      // "visible" is a distinct trigger (`triggerFocus`, its own toggle
+      // and its own quiet-window gate — see `git/autoSyncPolicy.ts`'s
+      // doc), never conflated with `triggerOpenClose`'s "app just opened"
+      // semantics even though they share this listener.
+      if (document.visibilityState === "visible") autoSyncSchedulerRef.current?.triggerFocus();
+    }
+    // `visibilitychange` alone misses an OS-level app switch that leaves
+    // this tab the frontmost/only tab of a backgrounded browser window on
+    // some platforms — the `window`-level `focus` event covers exactly
+    // that gap. `triggerFocus` is idempotent-safe to call from both: its
+    // own quiet-window gate (not the coalescing queue's) means a
+    // visibilitychange + focus firing back-to-back for the same real
+    // "user came back" moment costs nothing beyond the first call actually
+    // running a sync.
+    function onFocus() {
+      autoSyncSchedulerRef.current?.triggerFocus();
     }
     document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
 
   // Phase 6: "the active tab" is now the FOCUSED pane's active tab —
@@ -543,10 +557,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
       .getState()
       .save(activeTab.path)
       .then(() => useGitStore.getState().refresh())
-      .then(() => autoSyncSchedulerRef.current?.notifySaveSettled())
-      // Round 7 item 58 — a saved file inside a shared folder republishes
-      // that share (debounced, best-effort; see share/autoRepublish.ts).
-      .then(() => scheduleShareAutoRepublish(activeTab.path));
+      .then(() => autoSyncSchedulerRef.current?.notifySaveSettled());
   }
 
   // Best-effort ⌘W (DESIGN-SPEC Amendments item 5: "⌘W is best-effort —
@@ -1020,7 +1031,6 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     // Round 6 item 8 — keep any share's recorded path following the file.
     // Fire-and-forget: never blocks or fails the rename (see the store doc).
     void useShareStore.getState().notifyPathMoved(node.path, newPath);
-    scheduleShareAutoRepublish(node.path, newPath); // item 58
     await useGitStore.getState().refresh();
   };
 
@@ -1030,7 +1040,6 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     useBufferStore.getState().rekeyPrefix(sourcePath, newPath);
     setSelectedId((prev) => (prev && (prev === sourcePath || prev.startsWith(`${sourcePath}/`)) ? newPath + prev.slice(sourcePath.length) : prev));
     void useShareStore.getState().notifyPathMoved(sourcePath, newPath); // item 8, as above
-    scheduleShareAutoRepublish(sourcePath, newPath); // item 58
     await useGitStore.getState().refresh();
   };
 
@@ -1044,7 +1053,6 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     if (conflictNames.length === 0) {
       await importEntriesIntoVault(targetFolderPath, entries, "replace");
       await useFsStore.getState().refresh();
-      scheduleShareAutoRepublish(targetFolderPath); // item 58
       await useGitStore.getState().refresh();
       return;
     }
@@ -1057,7 +1065,6 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     if (!pending) return;
     await importEntriesIntoVault(pending.targetFolderPath, pending.entries, mode);
     await useFsStore.getState().refresh();
-    scheduleShareAutoRepublish(pending.targetFolderPath); // item 58
     await useGitStore.getState().refresh();
   };
 
@@ -1066,7 +1073,6 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     useTabsStore.getState().closeByPrefix(node.path);
     useBufferStore.getState().forgetPrefix(node.path);
     setSelectedId((prev) => (prev && (prev === node.path || prev.startsWith(`${node.path}/`)) ? undefined : prev));
-    scheduleShareAutoRepublish(node.path); // item 58
     await useGitStore.getState().refresh();
   };
 
@@ -1093,38 +1099,23 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     // the dialog is already open by then.
     void useShareStore.getState().probe();
     setEditingShare(undefined);
-    if (node.type === "folder") {
-      // Phase 10.5 — folder publish. Reads the CURRENT vault subtree
-      // (`readFolderPublishData` below) the exact same way the file branch
-      // reads a buffer: `PublishDialog` never touches `fs/`/`useBufferStore`
-      // itself, it only ever sees the plain data handed to it here.
-      const { tree: folderTree, entries } = await readFolderPublishData(node);
-      setPublishTarget({ type: "folder", path: node.path, tree: folderTree, entries });
-      setPublishContent(undefined);
-    } else {
-      await useBufferStore.getState().ensureLoaded(node.path);
-      const buf = useBufferStore.getState().buffers[node.path];
-      setPublishTarget({ type: "file", path: node.path, kind: node.kind });
-      setPublishContent(buf?.content ?? "");
-    }
+    // §4.4 — folder shares are gone; publishing is a files-only action
+    // (the Explorer context menu only offers "Publish…" on file rows, see
+    // `ExplorerTree.tsx`).
+    await useBufferStore.getState().ensureLoaded(node.path);
+    const buf = useBufferStore.getState().buffers[node.path];
+    setPublishTarget({ type: "file", path: node.path, kind: node.kind });
+    setPublishContent(buf?.content ?? "");
     setPublishDialogOpen(true);
   };
 
-  // Phase 10.5 — "Manage share…" from the Explorer row context menu on an
-  // ALREADY-shared row: re-opens the SAME PublishDialog instance in
-  // edit-policy mode. For a folder share this also re-reads the CURRENT
-  // vault subtree (fresh content, in case files changed since publish) so
-  // "Update share" republishes what's on disk now, not a stale snapshot.
-  const handleManageShare = async (node: FileNode, shareRow: ExplorerShareRow) => {
+  // "Manage share…" from the Explorer row context menu on an ALREADY-shared
+  // FILE row: re-opens the SAME PublishDialog instance in edit-policy mode.
+  const handleManageShare = async (_node: FileNode, shareRow: ExplorerShareRow) => {
     void useShareStore.getState().probe();
     const share = useShareStore.getState().shares.find((s) => s.id === shareRow.id);
     if (!share) return;
-    if (node.type === "folder" && share.kind === "folder") {
-      const { tree: folderTree, entries } = await readFolderPublishData(node);
-      setPublishTarget({ type: "folder", path: node.path, tree: folderTree, entries });
-    } else {
-      setPublishTarget(null);
-    }
+    setPublishTarget(null);
     setPublishContent(undefined);
     setEditingShare(share);
     setPublishDialogOpen(true);
@@ -1133,7 +1124,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const handleCopyShareLink = (_node: FileNode, shareRow: ExplorerShareRow) => {
     const share = useShareStore.getState().shares.find((s) => s.id === shareRow.id);
     if (!share) return;
-    const link = share.kind === "folder" ? buildFolderShareLink(share) : buildShareLink(share);
+    const link = buildShareLink(share);
     navigator.clipboard?.writeText(link).catch(() => {});
     toast({ title: "Link copied", variant: "success" });
   };
@@ -1492,9 +1483,6 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
             fileKind={publishTarget?.type === "file" ? publishTarget.kind : undefined}
             content={publishContent}
             existingShare={editingShare}
-            folderPath={publishTarget?.type === "folder" ? publishTarget.path : undefined}
-            folderTree={publishTarget?.type === "folder" ? publishTarget.tree : undefined}
-            folderEntries={publishTarget?.type === "folder" ? publishTarget.entries : undefined}
           />
         </Suspense>
       )}
@@ -1602,48 +1590,3 @@ function insertDraftNode(nodes: FileNode[], parentPath: string, draft: FileNode)
   });
 }
 
-/**
- * Phase 10.5 (folder shares) — converts a folder `FileNode` subtree (from
- * `useDecoratedTree`, already in memory — no extra fs read needed for the
- * SHAPE) into `PublishDialog`'s vault-agnostic inputs: a `CheckboxTreeNode`
- * tree keyed by RELPATH (not the full vault path — see `CheckboxTree.tsx`'s
- * doc) and a flat list of every file's relpath + CURRENT buffer content
- * (`useBufferStore.ensureLoaded`, same idempotent read every other call
- * site in this file uses). `PublishDialog` itself never touches `fs/`/
- * `useBufferStore` — this is the one place that boundary gets crossed for
- * the folder-publish flow, mirroring `handleOpenPublish`'s existing
- * single-file `ensureLoaded` call.
- */
-async function readFolderPublishData(root: FileNode): Promise<{ tree: CheckboxTreeNode[]; entries: FolderPublishEntry[] }> {
-  const prefixLen = root.path.length + 1; // strip "<root.path>/"
-
-  function toCheckboxNodes(nodes: FileNode[]): CheckboxTreeNode[] {
-    return nodes.map((n) => ({
-      id: n.path.slice(prefixLen),
-      name: n.name,
-      type: n.type,
-      kind: n.kind,
-      children: n.type === "folder" ? toCheckboxNodes(n.children ?? []) : undefined,
-    }));
-  }
-
-  const filePaths: { relpath: string; vaultPath: string }[] = [];
-  function collectFiles(nodes: FileNode[]): void {
-    for (const n of nodes) {
-      if (n.type === "file") filePaths.push({ relpath: n.path.slice(prefixLen), vaultPath: n.path });
-      else collectFiles(n.children ?? []);
-    }
-  }
-  collectFiles(root.children ?? []);
-
-  const entries: FolderPublishEntry[] = [];
-  // Independent buffer loads — one concurrent batch (react-doctor
-  // async-await-in-loop); entries keep file order via the map.
-  await Promise.all(filePaths.map((fp) => useBufferStore.getState().ensureLoaded(fp.vaultPath)));
-  for (const fp of filePaths) {
-    const buf = useBufferStore.getState().buffers[fp.vaultPath];
-    entries.push({ relpath: fp.relpath, content: buf?.content ?? "" });
-  }
-
-  return { tree: toCheckboxNodes(root.children ?? []), entries };
-}

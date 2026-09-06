@@ -42,7 +42,6 @@ import {
   Eye,
   FileCode,
   GitCompareArrows,
-  Layout,
   Maximize2,
   PanelLeft,
   Search,
@@ -51,6 +50,7 @@ import {
   SquareSplitHorizontal,
 } from "lucide-react";
 import { TitleBar as TitleBarShell } from "./local/TitleBar";
+import { Logo } from "./local/Logo";
 import { DiffStatChip } from "./local/DiffStatChip";
 import { SegmentedControl } from "./local/SegmentedControl";
 import type { DiffLayout, DiffStat, EditorMode } from "../types";
@@ -101,24 +101,7 @@ export function AppTitleBar({
 
   return (
     <TitleBarShell
-      glyph={
-        <span
-          aria-hidden
-          style={{
-            width: 20,
-            height: 20,
-            borderRadius: 5,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background:
-              "linear-gradient(135deg, var(--color-primary), color-mix(in oklab, var(--color-primary) 55%, #7c6cf0))",
-            color: "var(--color-primary-fg)",
-          }}
-        >
-          <Layout size={12} strokeWidth={2.5} />
-        </span>
-      }
+      glyph={<Logo size={20} />}
       title="VSNote"
       breadcrumb={
         breadcrumb ? (

@@ -1,7 +1,7 @@
 {
   "package": "my-you-eye",
   "generated": "auto — do not edit by hand; run `npm run manifest`",
-  "count": 114,
+  "count": 129,
   "components": [
     {
       "name": "Beat",
@@ -28,7 +28,7 @@
       "demos": [
         "Hold between reveals"
       ],
-      "description": "A no-op hold, so a deliberate pause reads as intentional rather than a missing animation."
+      "description": "A no-op hold, so a deliberate pause reads as intentional instead of as a missing animation."
     },
     {
       "name": "Camera",
@@ -137,7 +137,7 @@
         "Formats",
         "Signed & duration"
       ],
-      "description": "Numeric tween that reuses src/lib/format.ts for every formatting mode — never reimplements Intl formatting.",
+      "description": "Numeric tween that reuses src/lib/format.ts for every formatting mode instead of reimplementing Intl formatting.",
       "extends": [
         "Timing"
       ]
@@ -185,7 +185,7 @@
         "Custom cursor node",
         "Click effect variants"
       ],
-      "description": "A fake pointer for simulated UI walkthroughs — eased movement, four shapes, Ripple click feedback.",
+      "description": "A fake pointer for simulated UI walkthroughs, with eased movement, four shapes and Ripple click feedback.",
       "extends": [
         "Timing"
       ]
@@ -306,7 +306,7 @@
         "Cross-fade two elements",
         "Row expanding into a panel"
       ],
-      "description": "Lerps position/size/opacity between two caller-supplied snapshots — a simplified FLIP, not shape morphing.",
+      "description": "Lerps position, size and opacity between two caller-supplied snapshots. It is a simplified FLIP rather than shape morphing.",
       "extends": [
         "Timing"
       ]
@@ -325,7 +325,7 @@
         "Easing vs spring",
         "Seek & scrub"
       ],
-      "description": "The foundation every primitive builds on: useTimeline() / useProgress(), reading from whichever driver is mounted."
+      "description": "The foundation every primitive builds on: useTimeline() and useProgress(), which read from whichever driver is mounted."
     },
     {
       "name": "Pulse",
@@ -362,7 +362,7 @@
         "Loop=3, then settles",
         "Pulse a non-text sibling"
       ],
-      "description": "Looping scale/opacity breathing, driven by frame % period — never CSS animation.",
+      "description": "Looping scale and opacity breathing, driven by frame % period rather than by a CSS animation.",
       "extends": [
         "Timing"
       ]
@@ -408,7 +408,7 @@
         "from variants",
         "asChild (no layout box)"
       ],
-      "description": "Generic entrance animation — fade, directional slide, scale or blur — driven entirely by useProgress().",
+      "description": "Generic entrance animation (fade, directional slide, scale or blur), driven entirely by useProgress().",
       "extends": [
         "Timing"
       ]
@@ -501,7 +501,7 @@
       "demos": [
         "Axis variants"
       ],
-      "description": "Decaying-amplitude oscillation, deterministic via a seeded PRNG — never an unseeded random source.",
+      "description": "Decaying-amplitude oscillation, made deterministic by a seeded PRNG rather than an unseeded random source.",
       "extends": [
         "Timing"
       ]
@@ -579,7 +579,7 @@
         "One node in a diagram",
         "One card in a dashboard"
       ],
-      "description": "Dims everything except a focused rect via a box-shadow cut-out — never backdrop-filter.",
+      "description": "Dims everything except a focused rect with a box-shadow cut-out rather than a backdrop-filter.",
       "extends": [
         "Timing"
       ]
@@ -656,7 +656,7 @@
         "Fade",
         "Roll"
       ],
-      "description": "Cross-fade or roll between two strings without a layout jump — a hidden sizer reserves the space.",
+      "description": "Cross-fade or roll between two strings without a layout jump, because a hidden sizer reserves the space.",
       "extends": [
         "Timing"
       ]
@@ -716,7 +716,7 @@
         "Single token, looping",
         "Multiple tokens, spaced"
       ],
-      "description": "Tokens travelling along an SVG path — the data-flow primitive for architecture diagrams.",
+      "description": "Tokens travel along an SVG path. This is the data-flow primitive for architecture diagrams.",
       "extends": [
         "Timing"
       ]
@@ -804,7 +804,7 @@
       "demos": [
         "Directions & softness"
       ],
-      "description": "Soft-edged mask sweep — a gentler alternative to Wipe's hard clip-path edge, for headings and pull-quotes.",
+      "description": "Soft-edged mask sweep, a gentler alternative to Wipe's hard clip-path edge for headings and pull-quotes.",
       "extends": [
         "Timing"
       ]
@@ -840,7 +840,7 @@
         "Linear — 4 directions",
         "Radial"
       ],
-      "description": "clip-path reveal — linear (hard edge, 4 directions) or radial (circle growing from the direction's edge).",
+      "description": "clip-path reveal, either linear (hard edge, four directions) or radial (a circle that grows from the direction's edge).",
       "extends": [
         "Timing"
       ]
@@ -870,7 +870,7 @@
       "demos": [
         "Click-through presenter"
       ],
-      "description": "Click-through presentation of a Video: → or Space advances, ← reverses, Esc overviews, f fullscreens."
+      "description": "Step-through presentation of a Video: Space or → advances, ← reverses, Esc opens the overview, f fullscreens. Clicking the stage does nothing, so a live scene keeps its own pointer events."
     },
     {
       "name": "SpeakerView",
@@ -915,7 +915,7 @@
       "demos": [
         "Custom controls built from useSteps"
       ],
-      "description": "Headless step-navigation hook — the flattened (scene, step) list across a whole Video."
+      "description": "Headless step-navigation hook that flattens a whole Video into one (scene, step) list."
     },
     {
       "name": "BulletScene",
@@ -954,7 +954,7 @@
         "Bar — playing",
         "Gauge — no steps (single-beat draw-on)"
       ],
-      "description": "Wraps whichever chart ChartSpec.type selects, driving its progress prop step by step."
+      "description": "Wraps whichever chart ChartSpec.type selects and drives its progress prop step by step."
     },
     {
       "name": "CodeDiff",
@@ -1073,7 +1073,7 @@
         "Pinned mid-stagger (frame 10/90)",
         "Pinned at rest (frame 90/90)"
       ],
-      "description": "End card — title, subtitle, links and a closing call to action, staggering in as one beat."
+      "description": "End card with a title, subtitle, links and a closing call to action, all staggered in as one beat."
     },
     {
       "name": "SceneRenderer",
@@ -1093,7 +1093,7 @@
         "Bullets",
         "Diagram, chart, stat"
       ],
-      "description": "The single switch(scene.kind) consumers never touch. All eleven SceneKinds render for real — there is no placeholder branch."
+      "description": "The single switch(scene.kind) that consumers never touch. All eleven SceneKinds render for real; the switch has no placeholder branch."
     },
     {
       "name": "SequenceScene",
@@ -1111,7 +1111,7 @@
       "demos": [
         "Playing"
       ],
-      "description": "Wraps SequenceDiagram, one message or note per step. Activation bars are derived, never authored."
+      "description": "Wraps SequenceDiagram with one message or note per step. Activation bars are derived rather than authored."
     },
     {
       "name": "StatScene",
@@ -1129,7 +1129,7 @@
       "demos": [
         "Playing"
       ],
-      "description": "StatGrid with per-tile staggered CountUp, delta arrows and inline Sparklines — one step per tile."
+      "description": "StatGrid with per-tile staggered CountUp, delta arrows and inline Sparklines, one step per tile."
     },
     {
       "name": "TerminalScene",
@@ -1148,10 +1148,11 @@
         "Playing",
         "Pinned mid-typing, entry 1 (frame 12/160)",
         "Pinned on entry 2's spinner (frame 72/160)",
+        "Spinner, animating",
         "Pinned at rest (frame 160/160)",
         "Prompt change (rows + scheme)"
       ],
-      "description": "Wraps Terminal, revealing one entry per step: command types in, spinner holds, output and badge land."
+      "description": "Wraps Terminal and reveals one entry per step: the command types in, the spinner cycles, then output and exit status land."
     },
     {
       "name": "TitleScene",
@@ -1172,7 +1173,7 @@
         "Pinned mid-stagger (frame 12/90)",
         "Pinned at rest (frame 90/90)"
       ],
-      "description": "Opening/chapter card — chapter eyebrow, title and subtitle stagger in together, timed off the scene's own content-derived duration."
+      "description": "Opening or chapter card. The chapter eyebrow, title and subtitle stagger in together, timed off the scene's own content-derived duration."
     },
     {
       "name": "Validation",
@@ -1186,7 +1187,7 @@
         "Deliberately broken video",
         "Valid, minimal video"
       ],
-      "description": "validateVideo(video) run against a deliberately broken Video — every runtime check, made visible."
+      "description": "validateVideo(video) run against a deliberately broken Video, so every runtime check is visible."
     },
     {
       "name": "WalkthroughScene",
@@ -1204,7 +1205,7 @@
       "demos": [
         "Playing"
       ],
-      "description": "DeviceFrame, Cursor and Spotlight over a static screenshot — the alternative to a screen recording."
+      "description": "DeviceFrame, Cursor and Spotlight over a static screenshot, as an alternative to a screen recording."
     },
     {
       "name": "Annotation",
@@ -1264,7 +1265,7 @@
         "Vertical sides (top/bottom)",
         "Progress reveal"
       ],
-      "description": "A callout/leader-line pointing at a target point — for highlighting part of a diagram or screenshot in a video. Leader-line path math (and the arrow marker's angle) come straight from connection-line/geometry.ts; no new path math.",
+      "description": "A callout with a leader line that points at a target, for picking out part of a diagram or screenshot in a video. Its path math and arrow-marker angle come straight from connection-line/geometry.ts.",
       "extends": [
         "Omit<HTMLAttributes<HTMLDivElement>, \"children\">"
       ]
@@ -1361,7 +1362,7 @@
         "Parallel edges (automatic bundling)",
         "Edge states share the same visual language as ConnectionLine"
       ],
-      "description": "One shared <svg> for N edges — path, arrowhead and label rendering reused from ConnectionLine's ConnectionPath, not duplicated. Prefer this over stacking many standalone ConnectionLines for diagrams with lots of edges.",
+      "description": "One shared <svg> for N edges, with path, arrowhead and label rendering reused from ConnectionLine's ConnectionPath. Prefer it over stacking many standalone ConnectionLines when a diagram has a lot of edges.",
       "extends": [
         "Omit<SVGAttributes<SVGSVGElement>, \"id\">"
       ]
@@ -1486,7 +1487,7 @@
       "demos": [
         "Pipeline editor (drag nodes, connect ports, delete selected)"
       ],
-      "description": "A composed pattern combining Canvas, GraphNode, and Edge into a drag-and-drop pipeline editor."
+      "description": "A composed pattern that combines Canvas, GraphNode and Edge into a drag-and-drop pipeline editor."
     },
     {
       "name": "GraphGroup",
@@ -1541,7 +1542,7 @@
         "Architecture boundaries",
         "Label placement"
       ],
-      "description": "A labelled boundary region — VPC, cluster, service boundary — drawn behind the nodes and edges it encloses. Render groups before nodes in JSX: stacking is DOM order, not z-index.",
+      "description": "A labelled boundary region (a VPC, a cluster, a service boundary) drawn behind the nodes and edges it encloses. Render groups before nodes in JSX, because stacking here is DOM order rather than z-index.",
       "variantDefaults": {
         "border": "dashed"
       },
@@ -1699,7 +1700,7 @@
         "Socket shape — all states",
         "Circle vs socket, side by side"
       ],
-      "description": "shape=\"circle\" is a freestanding full disc. shape=\"socket\" is a true half-disc (SVG geometry, not clipping) meant to sit exactly on a node's border — see GraphNode's row ports.",
+      "description": "shape=\"circle\" is a freestanding full disc; shape=\"socket\" is a true half-disc built from SVG geometry rather than by clipping, meant to sit exactly on a node's border. See GraphNode's row ports.",
       "variantDefaults": {
         "side": "in",
         "state": "default"
@@ -1864,7 +1865,7 @@
         "Loading",
         "Empty"
       ],
-      "description": "Shared chart chrome — measurement, axes, gridlines, legend, tooltip layer, empty/loading states. Every chart in this library composes it instead of re-implementing axis code."
+      "description": "Shared chart chrome: measurement, axes, gridlines, legend, tooltip layer and empty/loading states. Every chart in this library composes it instead of re-implementing axis code."
     },
     {
       "name": "Funnel",
@@ -2019,7 +2020,7 @@
         "Empty",
         "Draw-on progress (50%)"
       ],
-      "description": "Matrix on the sequential ramp — latency grids, activity calendars. Cells fade in by rank (lowest value first) as `progress` sweeps 0→1."
+      "description": "Matrix on the sequential ramp, for latency grids and activity calendars. Cells fade in by rank, lowest value first, as `progress` sweeps 0→1."
     },
     {
       "name": "Legend",
@@ -2292,7 +2293,7 @@
         "Empty",
         "Draw-on progress (50%)"
       ],
-      "description": "Inline micro-chart, no axes — feeds StatCard's trend slot. Draws left-to-right as `progress` sweeps 0→1."
+      "description": "Inline micro-chart with no axes, which feeds StatCard's trend slot. It draws left to right as `progress` sweeps 0→1."
     },
     {
       "name": "CellType",
@@ -2372,6 +2373,36 @@
       ]
     },
     {
+      "name": "CheckboxTree",
+      "group": "data",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/checkbox-tree",
+      "variants": {},
+      "props": {
+        "data": {
+          "type": "CheckboxTreeNode[]",
+          "optional": false
+        },
+        "checked": {
+          "type": "ReadonlySet<string>",
+          "optional": false,
+          "doc": "Ids of every currently-included FILE."
+        },
+        "onNodeToggle": {
+          "type": "(node: CheckboxTreeNode, nextChecked: boolean) => void",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Publish-style picker"
+      ],
+      "description": "A controlled tree picker with tri-state folders. Folder checked/unchecked/indeterminate is derived fresh from the checked file set every render — the checked-set owner stays outside.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLUListElement>, \"children\">"
+      ]
+    },
+    {
       "name": "DataList",
       "group": "data",
       "tier": "ui",
@@ -2413,8 +2444,11 @@
         "Alignment",
         "Scrolling"
       ],
-      "description": "A label/value list (definition list) for record-detail views — the non-tabular counterpart to Table/DataTable.",
+      "description": "A label/value list (a definition list) for record-detail views, the non-tabular counterpart to Table and DataTable.",
       "parent": "Table",
+      "variantDefaults": {
+        "striped": "false"
+      },
       "extends": [
         "HTMLAttributes<HTMLDListElement>",
         "VariantProps<typeof dataListVariants>"
@@ -2462,6 +2496,26 @@
           "type": "(row: Record<string, unknown>, index: number) => string | number",
           "optional": true,
           "doc": "Stable React key for a row."
+        },
+        "onRowClick": {
+          "type": "(row: Record<string, unknown>, e: React.MouseEvent<HTMLTableRowElement>) => void",
+          "optional": true,
+          "doc": "Row-level click (open-detail pattern)."
+        },
+        "renderActions": {
+          "type": "(row: Record<string, unknown>) => React.ReactNode",
+          "optional": true,
+          "doc": "Per-row action controls rendered in a trailing cell (#25) — icon buttons, menus."
+        },
+        "actionsHeader": {
+          "type": "string",
+          "optional": true,
+          "doc": "Column header for the actions cell."
+        },
+        "actionsWidth": {
+          "type": "string",
+          "optional": true,
+          "doc": "Width of the trailing actions column under layout=\"fixed\" (any CSS width: \"10%\", \"8rem\")."
         }
       },
       "demos": [
@@ -2469,7 +2523,8 @@
         "Striped",
         "Scrolling + sticky header",
         "Alignment",
-        "Truncation"
+        "Truncation",
+        "Row click & actions"
       ],
       "description": "A composed table pattern that renders columns + rows through CellType, with variant/density options and an optional sticky header.",
       "parent": "Table",
@@ -2502,7 +2557,7 @@
         "Truncation & expand",
         "Sticky header"
       ],
-      "description": "The raw compositional table primitives (Table/TableHeader/TableBody/TableRow/TableHead/TableCell) — DataTable is the data-driven pattern built on top of these for typical use. Reach for Table directly when you need bespoke markup a data-driven API can't express.",
+      "description": "The raw compositional table primitives: Table, TableHeader, TableBody, TableRow, TableHead and TableCell. DataTable is the data-driven pattern built on them for typical use; reach for Table directly when you need markup a data-driven API cannot express.",
       "parent": "Table",
       "variantDefaults": {
         "variant": "default"
@@ -2566,9 +2621,71 @@
         "Vertical — single lane",
         "Vertical — lanes"
       ],
-      "description": "Data-driven horizontal/vertical event sequences with optional lanes — roadmaps, request traces, git history. Events can be instants or spans (`until`). Draws no graph edges.",
+      "description": "Data-driven horizontal or vertical event sequences with optional lanes, for roadmaps, request traces and git history. Events can be instants or spans (`until`), and the component draws no graph edges.",
       "extends": [
         "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "TreeList",
+      "group": "data",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/tree-list",
+      "variants": {
+        "density": [
+          "compact",
+          "normal"
+        ]
+      },
+      "props": {
+        "columns": {
+          "type": "TreeListColumn[]",
+          "optional": false
+        },
+        "nodes": {
+          "type": "TreeListNode[]",
+          "optional": false
+        },
+        "defaultExpandedDepth": {
+          "type": "number",
+          "optional": true
+        },
+        "expandedIds": {
+          "type": "Set<string>",
+          "optional": true
+        },
+        "onExpandedChange": {
+          "type": "(id: string) => void",
+          "optional": true
+        },
+        "selectedId": {
+          "type": "string",
+          "optional": true
+        },
+        "onSelect": {
+          "type": "(node: TreeListNode) => void",
+          "optional": true
+        },
+        "stickyHeader": {
+          "type": "boolean",
+          "optional": true
+        },
+        "replacements": {
+          "type": "UrlReplacement[]",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Vault browser"
+      ],
+      "description": "The tree×table hybrid — rows expand like a tree while carrying typed columns rendered through CellType. Neither DataTable (flat) nor TreeView (label-only) covers this shape.",
+      "variantDefaults": {
+        "density": "normal"
+      },
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"children\" | \"onSelect\">",
+        "VariantProps<typeof treeListVariants>"
       ]
     },
     {
@@ -2616,6 +2733,38 @@
           "type": "string",
           "optional": true,
           "doc": "Merged onto the root `<ul>`."
+        },
+        "selectedId": {
+          "type": "string",
+          "optional": true,
+          "doc": "Controlled selection, decoupled from internal keyboard-focus state. aria-selected reports this; focus stays internal."
+        },
+        "onSelect": {
+          "type": "(node: TreeNode) => void",
+          "optional": true
+        },
+        "renamingId": {
+          "type": "string | null",
+          "optional": true,
+          "doc": "Render this row's label as an inline Input; commit on Enter/blur, cancel on Escape."
+        },
+        "onRenameCommit": {
+          "type": "(node: TreeNode, newName: string) => void",
+          "optional": true
+        },
+        "onRenameCancel": {
+          "type": "() => void",
+          "optional": true
+        },
+        "draggable": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Enable HTML5 drag-and-drop of rows onto folder rows (\"into\" moves)."
+        },
+        "onMove": {
+          "type": "(sourceId: string, targetId: string, mode: \"into\" | \"before\" | \"after\") => void",
+          "optional": true,
+          "doc": "Called after a legal drop (#11)."
         }
       },
       "demos": [
@@ -2624,9 +2773,69 @@
         "Depth-based expand",
         "Controlled expand state",
         "Leading icons (click a row, then use arrow keys)",
-        "Messy nested payload (hover to trace depth guides)"
+        "Messy nested payload (hover to trace depth guides)",
+        "Controlled selection & tones",
+        "Inline rename",
+        "Drag to move"
       ],
-      "description": "A collapsible hierarchical list for nested data, with indent guide lines, controlled expand/collapse, arrow-key navigation, and typed value rendering."
+      "description": "A collapsible hierarchical list for nested data, with indent guide lines, controlled expand/collapse, arrow-key navigation, typed value rendering, and controlled selection with rename and drag hooks."
+    },
+    {
+      "name": "TexturedSurface",
+      "group": "decorators",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/decorators/textured-surface",
+      "variants": {
+        "variant": [
+          "elevated",
+          "surface"
+        ],
+        "radius": [
+          "default",
+          "lg",
+          "none",
+          "sm"
+        ]
+      },
+      "props": {
+        "color": {
+          "type": "string",
+          "optional": true
+        },
+        "texture": {
+          "type": "TextureName",
+          "optional": true
+        },
+        "strength": {
+          "type": "TextureStrength",
+          "optional": true
+        },
+        "layer": {
+          "type": "TextureLayer",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Tuner",
+        "Paper grain",
+        "Frosted glass",
+        "Brushed aluminium",
+        "Paper grain — full matrix",
+        "Frosted glass — full matrix",
+        "Brushed aluminium — full matrix",
+        "Theme-driven",
+        "Nested inline → theme",
+        "Composed"
+      ],
+      "variantDefaults": {
+        "variant": "surface",
+        "radius": "default"
+      },
+      "extends": [
+        "VariantProps<typeof texturedSurfaceVariants>",
+        "Omit<HTMLAttributes<HTMLDivElement>, \"color\">"
+      ]
     },
     {
       "name": "Avatar",
@@ -2792,7 +3001,7 @@
         "focusRange": {
           "type": "[number, number]",
           "optional": true,
-          "doc": "1-based line numbers outside this `[start, end]` range get a reduced opacity (the `opacity-muted` token) instead of full contrast — the \"focus on this range, dim the rest\" treatment a code walkthrough needs."
+          "doc": "1-based line numbers outside this `[start, end]` range get a reduced opacity (the `opacity-focus-dim` token) instead of full contrast — the \"focus on this range, dim the rest\" treatment a code walkthrough needs."
         },
         "lineId": {
           "type": "(lineNumber: number) => string",
@@ -2865,7 +3074,7 @@
         "Window",
         "Phone"
       ],
-      "description": "Browser / window / phone chrome around arbitrary children — for showing UI on screen without a real screen recording.",
+      "description": "Browser, window or phone chrome around arbitrary children, for putting UI on screen without a real screen recording.",
       "variantDefaults": {
         "variant": "browser"
       },
@@ -2918,17 +3127,55 @@
       "demos": [
         "Unified",
         "Unified — word diff",
+        "Unified — word diff, heavily rewritten lines",
         "Split",
         "Split — word diff",
         "Elevated"
       ],
-      "description": "Unified and side-by-side diff views, reusing CodeBlock's tokenizer for syntax color and a token-level LCS for optional word diff.",
+      "description": "Unified and side-by-side diff views. They reuse CodeBlock's tokenizer for syntax color and a token-level LCS for the optional word diff.",
       "variantDefaults": {
         "variant": "default"
       },
       "extends": [
         "HTMLAttributes<HTMLDivElement>",
         "VariantProps<typeof diffBlockVariants>"
+      ]
+    },
+    {
+      "name": "DiffStatChip",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/diff-stat-chip",
+      "variants": {
+        "size": [
+          "md",
+          "sm"
+        ]
+      },
+      "props": {
+        "added": {
+          "type": "number",
+          "optional": false,
+          "doc": "Number of added lines, rendered as \"+N\"."
+        },
+        "removed": {
+          "type": "number",
+          "optional": false,
+          "doc": "Number of removed lines, rendered as \"-N\"."
+        }
+      },
+      "demos": [
+        "Sizes",
+        "In context"
+      ],
+      "description": "Two-tone added/removed line counts for pane headers and status bars. No pill chrome — lighter than a Badge by design.",
+      "variantDefaults": {
+        "size": "sm"
+      },
+      "extends": [
+        "React.HTMLAttributes<HTMLSpanElement>",
+        "VariantProps<typeof diffStatChipVariants>"
       ]
     },
     {
@@ -2962,6 +3209,48 @@
       ],
       "extends": [
         "HTMLAttributes<HTMLDivElement>"
+      ]
+    },
+    {
+      "name": "FileIcon",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/file-icon",
+      "variants": {},
+      "props": {
+        "name": {
+          "type": "string",
+          "optional": true,
+          "doc": "Basename handed to the resolver (e.g. \"notes.md\", \"guides\")."
+        },
+        "folder": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "True renders as a folder (open/closed states); false as a file."
+        },
+        "open": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Folder expanded state; meaningful when `folder` is true."
+        },
+        "size": {
+          "type": "number",
+          "optional": true,
+          "doc": "Square icon size in px (default 16)."
+        },
+        "resolve": {
+          "type": "FileIconResolver",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Neutral defaults",
+        "Custom resolver"
+      ],
+      "description": "File/folder identity icon with a pluggable resolver — the library ships no icon pack; inject your own mapping and fall back to neutral glyphs.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLSpanElement>, \"children\">"
       ]
     },
     {
@@ -3221,13 +3510,14 @@
       "demos": [
         "Prompt glyphs",
         "Title bar",
+        "Exit status & spinner",
         "Variant",
         "Color schemes",
         "Chrome decorator",
         "Fixed height, scrolls as content grows",
         "Prompt segments, changed mid-session"
       ],
-      "description": "Prompt/command/output/exit-code sequences, composing CodeBlock for output bodies. Data-driven via a typed entries array.",
+      "description": "Prompt, command, output and exit-status sequences, driven by a typed entries array. Output renders as plain terminal text, colorized by the shared code tokenizer when an entry names a language.",
       "variantDefaults": {
         "variant": "default",
         "scheme": "default",
@@ -3236,6 +3526,52 @@
       "extends": [
         "HTMLAttributes<HTMLDivElement>",
         "VariantProps<typeof terminalVariants>"
+      ]
+    },
+    {
+      "name": "VirtualList",
+      "group": "display",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/virtual-list",
+      "variants": {},
+      "props": {
+        "items": {
+          "type": "readonly T[]",
+          "optional": false
+        },
+        "rowHeight": {
+          "type": "number",
+          "optional": false,
+          "doc": "Required, never inferred: fixed-height virtualization needs no measurement pass, and the caller reads the value off its own layout tokens so it cannot drift from the real row height."
+        },
+        "overscan": {
+          "type": "number",
+          "optional": true
+        },
+        "renderRow": {
+          "type": "(item: T, index: number) => ReactNode",
+          "optional": false
+        },
+        "getKey": {
+          "type": "(item: T, index: number) => string",
+          "optional": false
+        },
+        "className": {
+          "type": "string",
+          "optional": true
+        },
+        "style": {
+          "type": "CSSProperties",
+          "optional": true
+        }
+      },
+      "demos": [
+        "10,000 rows"
+      ],
+      "description": "Fixed-row-height windowed list on ScrollArea — mounts only the visible window plus overscan, so scrollbar and keyboard model stay honest at any item count.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"children\">"
       ]
     },
     {
@@ -3421,7 +3757,8 @@
           "icon-sm",
           "lg",
           "md",
-          "sm"
+          "sm",
+          "xs"
         ]
       },
       "props": {
@@ -3469,6 +3806,42 @@
       "extends": [
         "React.ComponentPropsWithoutRef<typeof Root>",
         "VariantProps<typeof checkboxVariants>"
+      ]
+    },
+    {
+      "name": "ColorField",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/color-field",
+      "variants": {},
+      "props": {
+        "value": {
+          "type": "string",
+          "optional": false,
+          "doc": "Hex color, e.g. \"#7c3aed\"."
+        },
+        "onChange": {
+          "type": "(hex: string) => void",
+          "optional": false
+        },
+        "presets": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "Quick-pick swatches rendered beside the trigger."
+        },
+        "label": {
+          "type": "string",
+          "optional": true,
+          "doc": "Accessible name for the swatch trigger."
+        }
+      },
+      "demos": [
+        "Accent color"
+      ],
+      "description": "Themed accent-color field — token-styled swatch over the platform picker, validated hex readout, optional preset swatches.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"onChange\" | \"defaultValue\">"
       ]
     },
     {
@@ -3600,13 +3973,25 @@
           "true"
         ]
       },
-      "props": {},
+      "props": {
+        "leading": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Slot rendered inside the field's left edge (icon, unit prefix)."
+        },
+        "trailing": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Slot rendered inside the field's right edge — shortcut hints via Kbd, unit suffixes."
+        }
+      },
       "demos": [
         "Variants",
         "Sizes",
+        "Leading & trailing",
         "States"
       ],
-      "description": "A single-line text field with default and filled variants, two sizes, and an invalid state for validation errors.",
+      "description": "A single-line text field with default and filled variants, two sizes, an invalid state for validation errors, and leading/trailing slots.",
       "variantDefaults": {
         "variant": "default",
         "size": "md"
@@ -3698,6 +4083,53 @@
       ]
     },
     {
+      "name": "SegmentedControl",
+      "group": "inputs",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/segmented-control",
+      "variants": {
+        "size": [
+          "md",
+          "sm",
+          "xs"
+        ]
+      },
+      "props": {
+        "options": {
+          "type": "ReadonlyArray<SegmentedOption<T>>",
+          "optional": false
+        },
+        "value": {
+          "type": "T | undefined",
+          "optional": false
+        },
+        "onValueChange": {
+          "type": "(value: T) => void",
+          "optional": true
+        },
+        "iconOnly": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Hide label text; each label moves into its segment's Tooltip instead."
+        }
+      },
+      "demos": [
+        "Sizes",
+        "Disabled segment",
+        "Icon only",
+        "Controlled"
+      ],
+      "description": "A single-choice segmented toggle built on native radios — a form control, not navigation. Use it instead of Tabs when the choice sets a value rather than switching panels.",
+      "variantDefaults": {
+        "size": "sm"
+      },
+      "extends": [
+        "React.HTMLAttributes<HTMLDivElement>",
+        "VariantProps<typeof segmentedControlVariants>"
+      ]
+    },
+    {
       "name": "Select",
       "group": "inputs",
       "tier": "ui",
@@ -3714,6 +4146,7 @@
       },
       "props": {},
       "demos": [
+        "Icon + label",
         "Sizes",
         "States",
         "No indicator"
@@ -3815,6 +4248,40 @@
       ]
     },
     {
+      "name": "ActivityBar",
+      "group": "navigation",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/activity-bar",
+      "variants": {},
+      "props": {
+        "items": {
+          "type": "ActivityBarItem[]",
+          "optional": false
+        },
+        "onSelect": {
+          "type": "(id: string) => void",
+          "optional": true
+        },
+        "footer": {
+          "type": "ActivityBarItem",
+          "optional": true,
+          "doc": "Bottom-pinned item (Settings-class), same shape, its own handler."
+        },
+        "onFooterSelect": {
+          "type": "(id: string) => void",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Rail with footer item"
+      ],
+      "description": "Vertical icon rail with an active left-edge accent bar and count badges — the activity-bar pattern for app shells, painted from the sidebar token family.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLElement>, \"onSelect\">"
+      ]
+    },
+    {
       "name": "Breadcrumbs",
       "group": "navigation",
       "tier": "ui",
@@ -3840,6 +4307,54 @@
       ]
     },
     {
+      "name": "EditorTabBar",
+      "group": "navigation",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/editor-tab-bar",
+      "variants": {},
+      "props": {
+        "tabs": {
+          "type": "EditorTab[]",
+          "optional": false
+        },
+        "activeId": {
+          "type": "string",
+          "optional": true
+        },
+        "onSelect": {
+          "type": "(id: string) => void",
+          "optional": true
+        },
+        "onClose": {
+          "type": "(id: string) => void",
+          "optional": true
+        },
+        "onMove": {
+          "type": "(draggedId: string, targetId: string) => void",
+          "optional": true,
+          "doc": "Within-bar drag reorder: dragged tab dropped onto targetId."
+        },
+        "dragPayload": {
+          "type": "(tab: EditorTab) => Record<string, unknown>",
+          "optional": true,
+          "doc": "Given a tab, returns the JSON-ready payload written to dataTransfer under \"application/x-tab\" on dragstart, so pane-edge drop zones can dock the dragged document (e.g. { path, paneId, name })."
+        },
+        "actions": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Trailing slot after the tabs (the home for a \"…\" overflow trigger)."
+        }
+      },
+      "demos": [
+        "Open documents"
+      ],
+      "description": "Closeable, draggable document tab strip — distinct from Tabs (content-switching nav). Dirty dots sit beside the close button; preview tabs render italic.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"onSelect\">"
+      ]
+    },
+    {
       "name": "Link",
       "group": "navigation",
       "tier": "ui",
@@ -3849,16 +4364,28 @@
         "variant": [
           "muted",
           "primary"
+        ],
+        "underline": [
+          "false",
+          "true"
         ]
       },
-      "props": {},
+      "props": {
+        "underline": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Underline the label on hover."
+        }
+      },
       "demos": [
         "Variants",
+        "underline={false}",
         "In a sentence"
       ],
-      "description": "A styled <a> — the primitive underneath any real, navigable link (OutroScene's link list, prose, cards).",
+      "description": "A styled <a>, the primitive underneath any real navigable link: OutroScene's link list, prose, cards.",
       "variantDefaults": {
-        "variant": "primary"
+        "variant": "primary",
+        "underline": "true"
       },
       "extends": [
         "AnchorHTMLAttributes<HTMLAnchorElement>",
@@ -3895,6 +4422,42 @@
       ]
     },
     {
+      "name": "StatusBar",
+      "group": "navigation",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/status-bar",
+      "variants": {
+        "tone": [
+          "danger",
+          "default",
+          "primary",
+          "success",
+          "warning"
+        ]
+      },
+      "props": {
+        "left": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "right": {
+          "type": "ReactNode",
+          "optional": true
+        }
+      },
+      "demos": [
+        "Left and right slots"
+      ],
+      "description": "Two-sided app-wide status strip — the light chrome counterpart to Toolbar. Tones map to semantic tokens; segments with something to say carry tooltips.",
+      "variantDefaults": {
+        "tone": "default"
+      },
+      "extends": [
+        "HTMLAttributes<HTMLElement>"
+      ]
+    },
+    {
       "name": "Tabs",
       "group": "navigation",
       "tier": "ui",
@@ -3919,6 +4482,46 @@
       "extends": [
         "React.ComponentPropsWithoutRef<typeof Root>",
         "VariantProps<typeof tabsListVariants>"
+      ]
+    },
+    {
+      "name": "TitleBar",
+      "group": "navigation",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/title-bar",
+      "variants": {},
+      "props": {
+        "title": {
+          "type": "ReactNode",
+          "optional": false
+        },
+        "subtitle": {
+          "type": "ReactNode",
+          "optional": true
+        },
+        "glyph": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "App glyph rendered before the title (logo mark)."
+        },
+        "breadcrumb": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Breadcrumb trail folded INLINE into the left identity cluster — the bar's fixed height never grows to fit it (#12)."
+        },
+        "actions": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Right-aligned action cluster."
+        }
+      },
+      "demos": [
+        "Identity, breadcrumb, actions"
+      ],
+      "description": "Window chrome with a two-zone layout — identity + inline breadcrumb on the left, actions on the right. The light counterpart to Toolbar for top-of-shell bars.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLElement>, \"title\">"
       ]
     },
     {
@@ -3962,6 +4565,19 @@
         "Basic",
         "With groups"
       ]
+    },
+    {
+      "name": "ContextMenu",
+      "group": "overlay",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/context-menu",
+      "variants": {},
+      "props": {},
+      "demos": [
+        "Row menu"
+      ],
+      "description": "Right-click (or long-press) menu at the pointer position — DropdownMenu's sibling with identical styling and keyboard contract."
     },
     {
       "name": "Dialog",
@@ -4022,9 +4638,86 @@
       "variants": {},
       "props": {},
       "demos": [
-        "Default"
+        "Default",
+        "With submenu"
       ],
-      "description": "A click-triggered action menu with labels, separators, destructive items and disabled items."
+      "description": "A click-triggered action menu with labels, separators, destructive items, disabled items and nested submenus."
+    },
+    {
+      "name": "FindWidget",
+      "group": "overlay",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/find-widget",
+      "variants": {},
+      "props": {
+        "query": {
+          "type": "string",
+          "optional": false
+        },
+        "onQueryChange": {
+          "type": "(query: string) => void",
+          "optional": false
+        },
+        "matchCount": {
+          "type": "number",
+          "optional": true,
+          "doc": "Total matches for the current query; omit renders no counter."
+        },
+        "activeMatch": {
+          "type": "number",
+          "optional": true,
+          "doc": "Zero-based active match; rendered as \"activeMatch + 1 of matchCount\"."
+        },
+        "replaceable": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "Render the replace row (gate it off yourself for read-only surfaces)."
+        },
+        "replaceValue": {
+          "type": "string",
+          "optional": true
+        },
+        "onReplaceValueChange": {
+          "type": "(value: string) => void",
+          "optional": true
+        },
+        "options": {
+          "type": "FindOptions",
+          "optional": false
+        },
+        "onOptionsChange": {
+          "type": "(options: FindOptions) => void",
+          "optional": true
+        },
+        "onNext": {
+          "type": "() => void",
+          "optional": true
+        },
+        "onPrevious": {
+          "type": "() => void",
+          "optional": true
+        },
+        "onReplace": {
+          "type": "() => void",
+          "optional": true
+        },
+        "onReplaceAll": {
+          "type": "() => void",
+          "optional": true
+        },
+        "onClose": {
+          "type": "() => void",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Live demo over sample text"
+      ],
+      "description": "Floating find/replace card docking to a container's top-right corner — engine-agnostic and fully controlled; the consumer owns the search state.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLDivElement>, \"onClose\">"
+      ]
     },
     {
       "name": "Popover",
@@ -4120,7 +4813,7 @@
         "Wipe (draggable)",
         "Wipe — progress-driven"
       ],
-      "description": "Before/after — side-by-side two-column or an overlay wipe with a draggable divider. Divider position is controlled/uncontrolled, or driven by an animation-friendly `progress` prop (0→1) without importing src/motion/.",
+      "description": "Before and after, either as two side-by-side columns or as an overlay wipe with a draggable divider. The divider position can be controlled, uncontrolled, or driven by a `progress` prop (0→1) so a scene can animate it without importing src/motion/.",
       "extends": [
         "Omit<HTMLAttributes<HTMLDivElement>, \"onChange\">"
       ]
@@ -4191,7 +4884,7 @@
         "Project tree with git status",
         "Compact density"
       ],
-      "description": "A file/folder tree for \"here's the project structure\" moments in coding videos — a pattern over TreeView, not a fork of it. Shapes FileTreeNode[] into TreeNode[] (icons, a git-status badge, a trailing metadata readout) and renders TreeView.",
+      "description": "A file and folder tree for the \"here's the project structure\" moment in a coding video, built as a pattern over TreeView rather than a fork of it. It shapes FileTreeNode[] into TreeNode[] with icons, a git-status badge and a trailing metadata readout, then renders TreeView.",
       "extends": [
         "Pick<TreeViewProps, \"defaultExpandedDepth\" | \"expandedKeys\" | \"onToggle\" | \"density\" | \"indent\">"
       ]
@@ -4301,10 +4994,97 @@
         "Self-messages, spanning note, error path",
         "Progress reveal"
       ],
-      "description": "UML-style sequence diagram — participant lanes, dashed lifelines, messages as ConnectionLayer edges, activation bars, and notes. Every coordinate is a GRID (16) multiple; message arrows are never hand-drawn <path>s.",
+      "description": "UML-style sequence diagram with participant lanes, dashed lifelines, messages as ConnectionLayer edges, activation bars and notes. Every coordinate is a multiple of GRID (16), and message arrows come from ConnectionLayer rather than from hand-drawn <path>s.",
       "extends": [
         "Omit<HTMLAttributes<HTMLDivElement>, \"children\">"
       ]
+    },
+    {
+      "name": "SidebarContainer",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/sidebar-container",
+      "variants": {},
+      "props": {
+        "label": {
+          "type": "string",
+          "optional": false
+        },
+        "headerActions": {
+          "type": "ReactNode",
+          "optional": true,
+          "doc": "Trailing header icons (new-file, refresh…)."
+        },
+        "width": {
+          "type": "number",
+          "optional": false,
+          "doc": "Controlled width in px — a property of the REGION, not of any one view, so views mounted into the shell share one width (#13)."
+        },
+        "onWidthChange": {
+          "type": "(width: number) => void",
+          "optional": false
+        },
+        "collapsed": {
+          "type": "boolean",
+          "optional": false
+        },
+        "onCollapsedChange": {
+          "type": "(collapsed: boolean) => void",
+          "optional": false
+        },
+        "maxWidth": {
+          "type": "number",
+          "optional": true,
+          "doc": "Resize ceiling."
+        },
+        "children": {
+          "type": "ReactNode",
+          "optional": false
+        }
+      },
+      "demos": [
+        "Width + collapse are the region's"
+      ],
+      "description": "Persistent collapsible/resizable side-panel region — a layout region, not Drawer's transient overlay. The grab edge stays mounted while collapsed and restores by dragging out.",
+      "extends": [
+        "Omit<HTMLAttributes<HTMLElement>, \"children\">"
+      ]
+    },
+    {
+      "name": "SplitPane",
+      "group": "patterns",
+      "tier": "ui",
+      "entry": "my-you-eye",
+      "folder": "ui/split-pane",
+      "variants": {},
+      "props": {
+        "node": {
+          "type": "SplitNode",
+          "optional": false
+        },
+        "renderLeaf": {
+          "type": "(leaf: SplitLeaf) => ReactNode",
+          "optional": false
+        },
+        "onResize": {
+          "type": "(branchId: string, sizes: number[]) => void",
+          "optional": false
+        },
+        "onEqualize": {
+          "type": "(branchId: string) => void",
+          "optional": true
+        },
+        "className": {
+          "type": "string",
+          "optional": true,
+          "doc": "Applied to every BRANCH root (leaves are consumer-rendered)."
+        }
+      },
+      "demos": [
+        "Nested grid"
+      ],
+      "description": "Recursively splittable pane grid with draggable dividers — a branch/direction/sizes tree, not a fixed split. ResizeHandle and DockOverlay export standalone for any single resizable dimension or drop-zone preview."
     },
     {
       "name": "StatCard",
@@ -4381,65 +5161,9 @@
         "Size",
         "positiveIsGood"
       ],
-      "description": "A KPI row as one component — data-driven StatGrid over StatCard, instead of a call-site grid of individually placed StatCards.",
+      "description": "A KPI row as one component: a data-driven StatGrid over StatCard, instead of a call-site grid of individually placed StatCards.",
       "extends": [
         "HTMLAttributes<HTMLDivElement>"
-      ]
-    },
-    {
-      "name": "TexturedSurface",
-      "group": "patterns",
-      "tier": "ui",
-      "entry": "my-you-eye",
-      "folder": "ui/patterns/textured-surface",
-      "variants": {
-        "variant": [
-          "elevated",
-          "surface"
-        ],
-        "radius": [
-          "default",
-          "lg",
-          "none",
-          "sm"
-        ]
-      },
-      "props": {
-        "color": {
-          "type": "string",
-          "optional": true
-        },
-        "texture": {
-          "type": "TextureName",
-          "optional": true
-        },
-        "strength": {
-          "type": "\"subtle\" | \"medium\" | \"strong\"",
-          "optional": true
-        },
-        "layer": {
-          "type": "TextureLayer",
-          "optional": true
-        }
-      },
-      "demos": [
-        "Tuner",
-        "Paper grain",
-        "Frosted glass",
-        "Brushed aluminium",
-        "Paper grain — full matrix",
-        "Frosted glass — full matrix",
-        "Brushed aluminium — full matrix",
-        "Theme-driven",
-        "Composed"
-      ],
-      "variantDefaults": {
-        "variant": "surface",
-        "radius": "default"
-      },
-      "extends": [
-        "VariantProps<typeof texturedSurfaceVariants>",
-        "Omit<HTMLAttributes<HTMLDivElement>, \"color\">"
       ]
     },
     {
@@ -4862,7 +5586,7 @@
             "name": "exitCode",
             "optional": true,
             "type": "number",
-            "description": "Process exit code — renders a badge (0 reads success, non-zero danger)."
+            "description": "Process exit code — renders a plain status line (0 reads success, non-zero danger)."
           },
           {
             "name": "spinner",

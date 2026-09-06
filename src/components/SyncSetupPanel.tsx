@@ -82,8 +82,9 @@ export function SyncSetupPanel() {
       <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: "36rem" }} data-testid="sync-setup-intro">
         <div style={{ fontSize: 15, fontWeight: 700, color: "var(--color-fg)" }}>Sync is off</div>
         <p style={{ fontSize: 13, color: "var(--color-muted)", margin: 0, lineHeight: 1.6 }}>
-          Your notes live only in this browser right now. Sync backs the vault up to a server and keeps a
-          history of every change. Nothing is turned on until you finish this setup.
+          Your notes live only in this browser right now. Sync pushes them to the server's vault folder,
+          which is the durable copy: plain files on disk, backed up like anything else on that machine.
+          Nothing is turned on until you finish this setup.
         </p>
         <Button type="button" size="sm" style={{ alignSelf: "flex-start" }} onClick={() => setStep("destination")} data-testid="sync-setup-begin">
           Set up sync

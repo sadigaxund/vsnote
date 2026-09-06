@@ -10,6 +10,10 @@
          processes as part of the module graph. A hardcoded "/favicon.svg"
          here would 404 under any non-root base. -->
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <!-- Same %BASE_URL% reasoning as the favicon link above: a raw public/
+         asset reference Vite does not rewrite on its own. -->
+    <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon-180.png" />
+    <meta name="theme-color" content="#0e1015" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>VSNote</title>
   </head>

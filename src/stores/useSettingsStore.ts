@@ -229,6 +229,31 @@ interface SettingsState {
   gitSyncOnInterval: boolean;
   gitSyncOnOpenClose: boolean;
   gitSyncOnSave: boolean;
+  /** PLAN-2026-09-05-refresh.md §1 item 2 ("pull on focus") — the fourth,
+   * independently-combinable trigger: attempt a sync when the window/tab
+   * regains focus and the last completed sync is older than
+   * `git/autoSyncPolicy.ts`'s `SYNC_QUIET_WINDOW_MS` (see that module's
+   * `triggerFocus` doc for why it's gated differently from the other three
+   * triggers). Defaults ON the moment setup completes, same as
+   * `gitSyncOnSave`/`gitSyncOnInterval` below — see `setGitSyncSetupComplete`. */
+  gitSyncOnFocus: boolean;
+  /** Item 1 of the same plan section ("owner worried the vault living only
+   * in browser storage is a data-loss risk" — get edits durable on the
+   * server vault sooner, by default). These three flags record whether the
+   * user has EVER explicitly called the matching setter below (from
+   * Settings' toggles) — never surfaced in the UI themselves. They exist
+   * so `setGitSyncSetupComplete(true)` (fired by the setup wizard on
+   * finish, and by the v5 migration below for already-configured sessions)
+   * can default `gitSyncOnSave`/`gitSyncOnInterval`/`gitSyncOnFocus` to ON
+   * WITHOUT ever clobbering a value the user deliberately chose — "unless
+   * the user has already explicitly set them" from the brief. Once a
+   * toggle has been touched once, this default-on behavior never fires for
+   * it again (including across a "Rerun setup" cycle), which is also how
+   * "manual stays possible by turning toggles off" stays true forever
+   * rather than just until the next setup completion. */
+  gitSyncOnSaveTouched: boolean;
+  gitSyncOnIntervalTouched: boolean;
+  gitSyncOnFocusTouched: boolean;
   /** The `N` in "every N minutes" — only consulted while `gitSyncPolicy` is
    * `"interval"`. Clamped to `MIN_SYNC_INTERVAL_MINUTES` (never a
    * zero/negative/fractional timer delay) by `git/autoSyncPolicy.ts`'s
@@ -240,7 +265,13 @@ interface SettingsState {
   /** Round 7 item 52 — Git & Sync shows ONLY the opt-in setup view until
    * this flips true (nothing sync-related is on by default). The v4
    * migration marks it complete for sessions that had already configured
-   * sync (a token, a custom remote, or a non-manual policy). */
+   * sync (a token, a custom remote, or a non-manual policy). PLAN-2026-09-
+   * 05-refresh.md §1 item 1: `setGitSyncSetupComplete(true)` ALSO defaults
+   * `gitSyncOnSave`/`gitSyncOnInterval`/`gitSyncOnFocus` to ON at the same
+   * moment, for any of the three the user hasn't already explicitly set
+   * (see the `*Touched` fields above) — the server vault path only becomes
+   * the durable copy once edits actually reach it, so completing setup
+   * should turn sync on by default rather than leave it manual. */
   gitSyncSetupComplete: boolean;
 
   setTheme: (theme: AppTheme) => void;
@@ -273,6 +304,7 @@ interface SettingsState {
   setGitSyncOnInterval: (on: boolean) => void;
   setGitSyncOnOpenClose: (on: boolean) => void;
   setGitSyncOnSave: (on: boolean) => void;
+  setGitSyncOnFocus: (on: boolean) => void;
   setGitSyncIntervalMinutes: (minutes: number) => void;
   setGitSyncSetupComplete: (complete: boolean) => void;
 }
@@ -311,6 +343,10 @@ export const useSettingsStore = create<SettingsState>()(
       gitSyncOnInterval: false,
       gitSyncOnOpenClose: false,
       gitSyncOnSave: false,
+      gitSyncOnFocus: false,
+      gitSyncOnSaveTouched: false,
+      gitSyncOnIntervalTouched: false,
+      gitSyncOnFocusTouched: false,
       gitSyncIntervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES,
       gitSyncSetupComplete: false,
       setTheme: (theme) => set({ theme }),
@@ -346,11 +382,30 @@ export const useSettingsStore = create<SettingsState>()(
       setGitCommitTemplate: (gitCommitTemplate) => set({ gitCommitTemplate }),
       setGitDeviceName: (gitDeviceName) => set({ gitDeviceName }),
       setShowGitStatusInExplorer: (showGitStatusInExplorer) => set({ showGitStatusInExplorer }),
-      setGitSyncOnInterval: (gitSyncOnInterval) => set({ gitSyncOnInterval }),
+      // Each of these three marks its own `*Touched` flag the moment the
+      // user (or SyncSetupPanel's finish handler, via these same setters —
+      // see its own call sites) sets it explicitly, so a later
+      // `setGitSyncSetupComplete(true)` never overrides a deliberate choice.
+      setGitSyncOnInterval: (gitSyncOnInterval) => set({ gitSyncOnInterval, gitSyncOnIntervalTouched: true }),
       setGitSyncOnOpenClose: (gitSyncOnOpenClose) => set({ gitSyncOnOpenClose }),
-      setGitSyncOnSave: (gitSyncOnSave) => set({ gitSyncOnSave }),
+      setGitSyncOnSave: (gitSyncOnSave) => set({ gitSyncOnSave, gitSyncOnSaveTouched: true }),
+      setGitSyncOnFocus: (gitSyncOnFocus) => set({ gitSyncOnFocus, gitSyncOnFocusTouched: true }),
       setGitSyncIntervalMinutes: (gitSyncIntervalMinutes) => set({ gitSyncIntervalMinutes }),
-      setGitSyncSetupComplete: (gitSyncSetupComplete) => set({ gitSyncSetupComplete }),
+      // PLAN-2026-09-05-refresh.md §1 item 1: completing setup also
+      // defaults on-save/on-interval/on-focus to ON for anything the user
+      // hasn't already explicitly touched (see the `*Touched` fields'
+      // doc) — turning setup OFF (rerun setup) never touches the toggles
+      // at all, only turning it ON can default anything.
+      setGitSyncSetupComplete: (gitSyncSetupComplete) =>
+        set((state) => {
+          if (!gitSyncSetupComplete) return { gitSyncSetupComplete };
+          return {
+            gitSyncSetupComplete,
+            gitSyncOnSave: state.gitSyncOnSaveTouched ? state.gitSyncOnSave : true,
+            gitSyncOnInterval: state.gitSyncOnIntervalTouched ? state.gitSyncOnInterval : true,
+            gitSyncOnFocus: state.gitSyncOnFocusTouched ? state.gitSyncOnFocus : true,
+          };
+        }),
     }),
     {
       // Renamed with the rest of the rebrand (DESIGN-SPEC item 34, user
@@ -398,7 +453,28 @@ export const useSettingsStore = create<SettingsState>()(
       // returning session that had ALREADY configured sync (token, custom
       // remote, or a non-manual policy) is marked complete so the setup
       // view never re-appears over a working configuration.
-      version: 4,
+      //
+      // v5 (PLAN-2026-09-05-refresh.md §1, "the owner is worried the vault
+      // living only in browser IndexedDB is a data-loss risk"): a session
+      // that had ALREADY completed sync setup before this phase (its
+      // post-v4 `gitSyncSetupComplete` is true, whether that was set by a
+      // real user finishing the wizard pre-v5 or by the v4 block just
+      // above running on this exact migration pass) gets `gitSyncOnSave`
+      // and `gitSyncOnInterval` turned on ONCE here, same as a fresh
+      // `setGitSyncSetupComplete(true)` call would default them from now
+      // on (see that setter's doc) — otherwise an existing configured user
+      // would silently stay on manual-only sync forever, which is exactly
+      // the exposure this phase closes. `gitSyncOnFocus` (a brand new
+      // field, item 2) gets the same one-time default for the same reason.
+      // Each is gated on its own `*Touched` flag exactly like the setter
+      // (a pre-v5 session has no such flags at all, so they're
+      // `undefined`/falsy and this always fires for one that qualifies),
+      // and each flag is then marked touched so this can never re-fire or
+      // fight a later deliberate "turn it back off" from the user — a
+      // pre-v5 session that was NOT yet setup-complete is untouched by
+      // this block; `setGitSyncSetupComplete(true)` will default it for
+      // them the normal way whenever they do finish the wizard.
+      version: 5,
       migrate: (persisted, version) => {
         let state = persisted as
           | (Partial<SettingsState> & { gitRemoteUrl?: string; shareBackendUrl?: string; gitSyncPolicy?: string })
@@ -425,6 +501,17 @@ export const useSettingsStore = create<SettingsState>()(
             ),
           };
           delete state.gitSyncPolicy;
+        }
+        if (version < 5 && state?.gitSyncSetupComplete) {
+          state = {
+            ...state,
+            gitSyncOnSave: state.gitSyncOnSaveTouched ? state.gitSyncOnSave : true,
+            gitSyncOnInterval: state.gitSyncOnIntervalTouched ? state.gitSyncOnInterval : true,
+            gitSyncOnFocus: state.gitSyncOnFocusTouched ? state.gitSyncOnFocus : true,
+            gitSyncOnSaveTouched: true,
+            gitSyncOnIntervalTouched: true,
+            gitSyncOnFocusTouched: true,
+          };
         }
         return state;
       },

@@ -16,7 +16,7 @@ the sole visual authority — read it before building UI.
 
 ## Rules for every agent working in this repo
 
-1. **UI components come from `my-you-eye` (npm, v0.4.0+).** Before building ANY UI, read
+1. **UI components come from `my-you-eye` (npm, v2026.8.3+).** Before building ANY UI, read
    `skills/SKILL.md` + `skills/components.json` in this repo (populated by
    `npx my-you-eye init`); until then, `npx my-you-eye list`. Never hand-roll a styled
    button/input/select/table/tree/menu/dialog that the library already provides.

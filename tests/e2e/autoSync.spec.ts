@@ -50,9 +50,12 @@ test("the \"on-save\" auto-sync toggle triggers a real sync run with no manual S
   const tokenInput = page.getByLabel("Personal access token");
   await expect(tokenInput).not.toHaveValue("");
 
-  // Flip on the "After each save" toggle (round 7 item 54: combinable
-  // switches, not an exclusive select).
-  await page.getByTestId("git-sync-on-save").click();
+  // "After each save" is ON by default once sync setup is complete, per the
+  // 2026-09-05 storage decision (docs/PLAN-2026-09-05-refresh.md §1, Option
+  // B: auto-sync on save is the default, not an opt-in). This used to click
+  // the toggle to turn it on; doing that now turns it OFF and the rest of
+  // the test silently proves nothing, so assert the default instead.
+  await expect(page.getByTestId("git-sync-on-save")).toHaveAttribute("data-state", "checked");
 
   // Edit and save a real file — no Commit/Push/Sync click anywhere below.
   await tab(page, DEFAULT_ACTIVE_PATH).click();
@@ -65,10 +68,20 @@ test("the \"on-save\" auto-sync toggle triggers a real sync run with no manual S
 
   // The scaled-down debounce fires, `notifySaveSettled` calls the SAME
   // `syncNow()` pipeline a manual Sync click uses (auto-commit -> fetch ->
-  // bootstrap push into the fresh repo) — proven here by the status bar's
-  // "not synced yet" placeholder being replaced with a real synced label,
-  // and ahead/behind settling at ↑0 ↓0, entirely on its own.
+  // bootstrap push into the fresh repo) — proven here entirely on its own,
+  // with no Commit/Push/Sync click anywhere above.
+  //
+  // The status bar's ahead/behind pair ("↑0 ↓0") was replaced by the
+  // durability indicator in the 2026-09-05 storage change
+  // (docs/PLAN-2026-09-05-refresh.md §1 item 3): a "N unsynced" count and a
+  // "last pushed" label. The push is therefore asserted through the
+  // last-pushed segment losing its "never pushed" placeholder, which is the
+  // same fact the old assertion was after (a push actually reached the
+  // server), stated against the segment that now carries it. Note the
+  // "N unsynced" count is deliberately NOT asserted to reach zero: it
+  // counts uncommitted working-tree changes as well as unpushed commits,
+  // and the demo vault carries untracked files of its own throughout.
   const statusBar = page.getByTestId("app-statusbar");
   await expect(statusBar).not.toContainText("not synced yet", { timeout: 10_000 });
-  await expect(statusBar).toContainText("↑0 ↓0");
+  await expect(statusBar).not.toContainText("never pushed", { timeout: 10_000 });
 });

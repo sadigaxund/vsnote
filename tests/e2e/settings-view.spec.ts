@@ -219,8 +219,8 @@ test.describe("Settings view", () => {
     await page.getByTestId("settings-nav-storage").click();
 
     await expect(page.getByTestId("settings-row-persistence")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Export vault as .zip" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reset demo vault…" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Export vault" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reset demo vault" })).toBeVisible();
   });
 
   test("DESIGN-SPEC Amendments round 3 item 23: compact/default/comfortable density measurably scale real chrome band heights", async ({ page }) => {

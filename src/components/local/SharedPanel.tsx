@@ -28,9 +28,9 @@
  */
 import { useEffect, useState } from "react";
 import { Badge, Button, ConfirmDialog, EmptyState, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Tooltip, useToast } from "my-you-eye";
-import { Copy, FileText, Folder, Pencil, RefreshCcw, RotateCw, Share2, Trash2 } from "lucide-react";
+import { Copy, Pencil, RefreshCcw, RotateCw, Share2, Trash2 } from "lucide-react";
 import { useShareStore } from "../../share/useShareStore";
-import { buildFolderShareLink, buildShareLink } from "../../share/shareLinks";
+import { buildShareLink } from "../../share/shareLinks";
 import type { ShareOut } from "../../share/api";
 
 export interface SharedPanelProps {
@@ -72,7 +72,7 @@ export function SharedPanel({ authenticated, onEditShare }: SharedPanelProps) {
 
   async function handleCopy(share: ShareOut) {
     try {
-      const link = share.kind === "folder" ? buildFolderShareLink(share) : buildShareLink(share);
+      const link = buildShareLink(share);
       await navigator.clipboard.writeText(link);
       toast({ title: "Link copied", variant: "success" });
     } catch {
@@ -108,11 +108,10 @@ export function SharedPanel({ authenticated, onEditShare }: SharedPanelProps) {
           <Table data-testid="shared-table">
             <TableHeader>
               <TableRow>
-                {/* Phase 10.5 — kind (file/folder) is its own leading
-                    column rather than folded into "Source": a folder
-                    share's source_path alone doesn't visually distinguish
-                    it from a deeply-nested file path. */}
-                <TableHead>Kind</TableHead>
+                {/* The former leading "Kind" column is gone with folder
+                    shares (docs/PLAN-2026-09-05-refresh.md §4.4): every
+                    share is a single file now, so the column carried no
+                    information. */}
                 <TableHead>Source</TableHead>
                 <TableHead>Link</TableHead>
                 <TableHead>Mode</TableHead>
@@ -137,13 +136,6 @@ export function SharedPanel({ authenticated, onEditShare }: SharedPanelProps) {
             <TableBody>
               {active.map((share) => (
                 <TableRow key={share.id} data-testid={`shared-row-${share.id}`}>
-                  <TableCell data-testid={`shared-kind-${share.id}`}>
-                    <Tooltip content={share.kind === "folder" ? `Folder (${share.manifest_count ?? 0} files)` : "File"} side="top">
-                      <span style={{ display: "inline-flex", alignItems: "center", color: "var(--color-muted)" }}>
-                        {share.kind === "folder" ? <Folder size={14} /> : <FileText size={14} />}
-                      </span>
-                    </Tooltip>
-                  </TableCell>
                   <TableCell style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{share.source_path}</TableCell>
                   <TableCell style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{share.alias ?? share.slug}</TableCell>
                   <TableCell>

@@ -86,7 +86,7 @@ export interface GitSummary {
   behind: number;
   /** Epoch ms of the last successful sync, or `null` if this vault has
    * never synced with a remote yet — `StatusBar.tsx` formats + ticks this
-   * into "synced Xm ago" / "not synced yet" itself (see `useGitStore`'s
+   * into "last pushed Xm ago" / "never pushed" itself (see `useGitStore`'s
    * doc). */
   lastSyncedAt: number | null;
   /** Which sync operation (if any) is in flight — drives the status bar's

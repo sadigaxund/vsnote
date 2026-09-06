@@ -131,17 +131,16 @@ import { computeExpanded, defaultExpandedFor, flattenTree, VIRTUALIZE_ROW_THRESH
 import type { FileNode } from "../../types";
 
 /** Tooltip text for the share indicator glyph — "link + policy + hits" per
- * roadmap §5.1. Three tiers (round 6 item 9): "own" (this row IS the share
- * root), "inherited" (inside a shared folder), "containing" (an ancestor
- * folder of a shared item — so collapsed trees still reveal where shares
- * live). The muted variants still name the share they point at. */
-type ShareIndicatorTier = "own" | "inherited" | "containing";
+ * roadmap §5.1. Two tiers (round 6 item 9; the folder-share "inherited"
+ * tier is gone with folder shares, §4.4): "own" (this row IS the shared
+ * file) and "containing" (an ancestor folder of a shared file — so
+ * collapsed trees still reveal where shares live). The muted "containing"
+ * variant still names the share it points at. */
+type ShareIndicatorTier = "own" | "containing";
 function shareIndicatorTooltip(share: ExplorerShareRow, tier: ShareIndicatorTier): string {
   const id = share.alias && share.alias.length > 0 ? share.alias : share.slug;
   const access = share.general_access === "link" ? "Anyone with the link" : "Restricted";
-  const kindLabel = share.kind === "folder" ? "folder" : "file";
-  const prefix =
-    tier === "own" ? `Shared ${kindLabel}` : tier === "inherited" ? `Inside a shared folder` : `Contains a shared ${kindLabel}`;
+  const prefix = tier === "own" ? `Shared file` : `Contains a shared file`;
   return `${prefix}: /share/${id} (${access}, ${share.hit_count} hit${share.hit_count === 1 ? "" : "s"})`;
 }
 
@@ -189,8 +188,8 @@ function useTreeRowHeightPx(): number {
 /**
  * Phase 10.5 — the share-record shape `ExplorerTree` needs to render the
  * tree indicator (roadmap §5.1: link glyph right-aligned like the git
- * status letters, muted "inherited" variant on files inside a shared
- * folder, tooltip = link + policy + hits). A local structural type rather
+ * status letters, muted "containing" variant on an ancestor folder of a
+ * shared file, tooltip = link + policy + hits). A local structural type rather
  * than importing `share/api.ts`'s `ShareOut` directly — `App.tsx` passes
  * `ShareOut[]` straight through (it satisfies this shape), but this file
  * stays decoupled from the sharing module's full surface, same reasoning
@@ -235,8 +234,8 @@ export interface ExplorerTreeProps {
   onDelete?: (node: FileNode) => void;
   onCopyPath?: (node: FileNode) => void;
   onMove?: (sourcePath: string, newParentPath: string) => void;
-  /** Phase 10 (sharing), extended Phase 10.5 to folders too — "Publish…"
-   * on a not-yet-shared row (see the row menu below). */
+  /** Phase 10 (sharing) — "Publish…" on a not-yet-shared FILE row (see the
+   * row menu below). Files only: folder shares are gone (§4.4). */
   onPublish?: (node: FileNode) => void;
   /** Phase 10.5 — active shares, for the tree indicator glyph + its
    * context menu (copy link / manage). Omit or pass `[]` for a caller that
@@ -805,12 +804,11 @@ function TreeRowContent({
   const isDropRow = dropTarget?.rowId === node.id;
   const shareIndicator = useMemo(() => computeShareIndicator(shares ?? [], node.id), [shares, node.id]);
   const ownShare = shareIndicator.own[0];
-  const inheritedShare = shareIndicator.inherited[0];
   const containingShare = shareIndicator.containing[0];
-  // Priority: a row that IS a share root shows "own"; inside a shared
-  // folder beats merely containing one deeper down (item 9).
-  const indicatorTier: ShareIndicatorTier | null = ownShare ? "own" : inheritedShare ? "inherited" : containingShare ? "containing" : null;
-  const indicatorShare = ownShare ?? inheritedShare ?? containingShare;
+  // Priority: a row that IS the shared file shows "own"; otherwise it may
+  // merely contain one deeper down (item 9).
+  const indicatorTier: ShareIndicatorTier | null = ownShare ? "own" : containingShare ? "containing" : null;
+  const indicatorShare = ownShare ?? containingShare;
   const [draftName, setDraftName] = useState(node.name);
   // Reset the draft to the current name each time a rename session starts —
   // adjusted during render (React's documented pattern for "state that
@@ -1066,9 +1064,9 @@ function TreeRowContent({
               cursor: "pointer",
               // Right-aligned like the git status letter (DESIGN-SPEC
               // convention this row already follows) — own shares get the
-              // full accent color; inherited (inside a shared folder) and
-              // containing (an ancestor of a shared item, item 9) get the
-              // muted variant per roadmap §5.1.
+              // full accent color; containing (an ancestor folder of a
+              // shared file, item 9) gets the muted variant per roadmap
+              // §5.1.
               color: indicatorTier === "own" ? "var(--color-primary)" : "var(--color-muted)",
               opacity: indicatorTier === "own" ? 1 : 0.7,
               width: 12,
@@ -1150,24 +1148,30 @@ function TreeRowContent({
           <ContextMenuItem onSelect={() => onCopyPath?.(node)}>
             <Copy size={13} /> Copy path
           </ContextMenuItem>
-          <ContextMenuSeparator />
-          {ownShare ? (
+          {/* §4.4 — folder shares are gone; publishing is a files-only
+              action, so this whole section is hidden on folder rows. */}
+          {!isFolder && (
             <>
-              <ContextMenuItem onSelect={() => onCopyShareLink?.(node, ownShare)}>
-                <Link2 size={13} /> Copy link
-              </ContextMenuItem>
-              <ContextMenuItem onSelect={() => onManageShare?.(node, ownShare)}>
-                <Settings2 size={13} /> Manage share…
-              </ContextMenuItem>
-              {/* Round 6 item 7 — revoke without a trip to Settings. */}
-              <ContextMenuItem destructive onSelect={() => onRevokeShare?.(node, ownShare)}>
-                <Trash2 size={13} /> Revoke share…
-              </ContextMenuItem>
+              <ContextMenuSeparator />
+              {ownShare ? (
+                <>
+                  <ContextMenuItem onSelect={() => onCopyShareLink?.(node, ownShare)}>
+                    <Link2 size={13} /> Copy link
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => onManageShare?.(node, ownShare)}>
+                    <Settings2 size={13} /> Manage share…
+                  </ContextMenuItem>
+                  {/* Round 6 item 7 — revoke without a trip to Settings. */}
+                  <ContextMenuItem destructive onSelect={() => onRevokeShare?.(node, ownShare)}>
+                    <Trash2 size={13} /> Revoke share…
+                  </ContextMenuItem>
+                </>
+              ) : (
+                <ContextMenuItem onSelect={() => onPublish?.(node)}>
+                  <Share2 size={13} /> Publish…
+                </ContextMenuItem>
+              )}
             </>
-          ) : (
-            <ContextMenuItem onSelect={() => onPublish?.(node)}>
-              <Share2 size={13} /> Publish…
-            </ContextMenuItem>
           )}
         </ContextMenuContent>
       </ContextMenu>

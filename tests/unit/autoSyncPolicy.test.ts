@@ -71,7 +71,13 @@ async function flush(): Promise<void> {
 }
 
 const OK_GATE: AutoSyncGateState = { syncing: false, authenticated: true, conflict: null };
-const OFF: SyncTriggers = { interval: false, openClose: false, onSave: false, intervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES };
+const OFF: SyncTriggers = {
+  interval: false,
+  openClose: false,
+  onSave: false,
+  onFocus: false,
+  intervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES,
+};
 
 function makeScheduler(opts: {
   clock: FakeClock;
@@ -243,6 +249,57 @@ describe("git/autoSyncPolicy.ts — createAutoSyncScheduler", () => {
   it("triggerOpenClose is a no-op while the openClose toggle is off", () => {
     const { scheduler } = makeScheduler({ clock, triggers: { interval: true, onSave: true }, runSync });
     scheduler.triggerOpenClose();
+    expect(runSync).not.toHaveBeenCalled();
+  });
+
+  it("onFocus: triggerFocus fires when there has been no prior sync yet", async () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { onFocus: true }, runSync });
+    scheduler.triggerFocus();
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("onFocus: triggerFocus is a no-op while the onFocus toggle is off", () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { interval: true, onSave: true, openClose: true }, runSync });
+    scheduler.triggerFocus();
+    expect(runSync).not.toHaveBeenCalled();
+  });
+
+  it("onFocus: a focus event within SYNC_QUIET_WINDOW_MS of the last completed run is a total no-op (nothing queued)", async () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { onFocus: true, openClose: true }, runSync });
+    scheduler.triggerOpenClose(); // completes a run, opens the quiet window
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(1);
+
+    clock.advance(SYNC_QUIET_WINDOW_MS - 1);
+    scheduler.triggerFocus();
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(1); // still just the one run
+
+    // Nothing was queued either — advancing well past the window fires no
+    // follow-up run, unlike triggerOpenClose/notifySaveSettled which would
+    // have left `pending` set.
+    clock.advance(SYNC_QUIET_WINDOW_MS * 5);
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("onFocus: a focus event after the quiet window has elapsed fires a fresh sync", async () => {
+    const { scheduler } = makeScheduler({ clock, triggers: { onFocus: true, openClose: true }, runSync });
+    scheduler.triggerOpenClose();
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(1);
+
+    clock.advance(SYNC_QUIET_WINDOW_MS);
+    scheduler.triggerFocus();
+    await flush();
+    expect(runSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("never fires while a sync is already running (manual click), including onFocus", () => {
+    const busyGate: AutoSyncGateState = { syncing: "sync", authenticated: true, conflict: null };
+    const onFocus = makeScheduler({ clock, triggers: { onFocus: true }, gate: busyGate, runSync });
+    onFocus.scheduler.triggerFocus();
     expect(runSync).not.toHaveBeenCalled();
   });
 

@@ -17,22 +17,23 @@
  * already restores an open Settings tab across a reload for free.
  *
  * Composition only — no new local primitive needed. `Select`/`Slider`/
- * `Switch`/`RadioGroup`/`Input`/`Button`/`DataList`/`Kbd`/`Badge` from the
- * library; the left category nav and the search-filtered row list are
- * plain layout over those (a `<Button variant="ghost"|"secondary">` list,
- * not a new "SettingsNav" component — too thin to warrant one, same
- * reasoning `docs/COMPONENT-BACKLOG.md`'s notes section gives for "solved
- * by composition" gaps). The one visual carry-over from the old modal is
- * the native `<input type="color">` accent swatch (see that file's history
- * in git blame / `docs/COMPONENT-BACKLOG.md`'s `ColorPicker`/`ColorField`
- * row, still `planned`) — still no library `ColorPicker` exists (checked
- * `skills/components.json`), so this stays the pragmatic choice.
+ * `Switch`/`RadioGroup`/`Input`/`Button`/`DataList`/`Kbd`/`Badge`/
+ * `ColorField` from the library; the left category nav and the
+ * search-filtered row list are plain layout over those (a
+ * `<Button variant="ghost"|"secondary">` list, not a new "SettingsNav"
+ * component — too thin to warrant one, same reasoning
+ * `docs/COMPONENT-BACKLOG.md`'s notes section gives for "solved by
+ * composition" gaps). The accent swatch used to be a hand-rolled native
+ * `<input type="color">` (see git history / `docs/COMPONENT-BACKLOG.md`'s
+ * §2.3) — my-you-eye 2026.8.3 shipped `ColorField` (upstream issue #20),
+ * so it's used here instead.
  */
 import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
   Badge,
   Button,
+  ColorField,
   FormField,
   Input,
   Kbd,
@@ -121,6 +122,12 @@ const THEME_LABELS: Record<AppTheme, string> = {
 
 const TAB_SIZES = [2, 4, 8] as const;
 
+/** Quick-pick swatches for the accent `ColorField` (my-you-eye 2026.8.3).
+ * Just the VSNote default teal for now — `useSettingsStore`'s `accent`
+ * initial value — until COMPONENT-BACKLOG.md §2.3's named-preset-tokens
+ * follow-up lands. */
+const ACCENT_PRESETS = ["#27d2c5"];
+
 /** File kinds whose registry entry offers both Rendered and Source — the
  * only ones a "default view mode" choice is meaningful for (a code file has
  * no Rendered mode to default *to*). */
@@ -206,6 +213,8 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const setGitSyncOnOpenClose = useSettingsStore((s) => s.setGitSyncOnOpenClose);
   const gitSyncOnSave = useSettingsStore((s) => s.gitSyncOnSave);
   const setGitSyncOnSave = useSettingsStore((s) => s.setGitSyncOnSave);
+  const gitSyncOnFocus = useSettingsStore((s) => s.gitSyncOnFocus);
+  const setGitSyncOnFocus = useSettingsStore((s) => s.setGitSyncOnFocus);
   const gitSyncSetupComplete = useSettingsStore((s) => s.gitSyncSetupComplete);
   const setGitSyncSetupComplete = useSettingsStore((s) => s.setGitSyncSetupComplete);
   const gitSyncIntervalMinutes = useSettingsStore((s) => s.gitSyncIntervalMinutes);
@@ -402,24 +411,12 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           keywords: "color accent teal primary swatch",
           content: (
             <FormField label="Accent color">
-              <div style={{ display: "flex", alignItems: "center", gap: 8, height: 32 }}>
-                <input
-                  type="color"
-                  aria-label="Accent color"
-                  value={accent}
-                  onChange={(e) => setAccent(e.target.value)}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    padding: 0,
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-ui-sm)",
-                    background: "transparent",
-                    cursor: "pointer",
-                  }}
-                />
-                <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: "var(--color-muted)" }}>{accent}</span>
-              </div>
+              <ColorField
+                label="Accent color"
+                value={accent}
+                onChange={setAccent}
+                presets={ACCENT_PRESETS}
+              />
             </FormField>
           ),
         },
@@ -710,7 +707,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                 <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>
                   {gitRemoteOverrideEnabled && gitRemoteOverrideUrl.trim() !== ""
                     ? `Syncs with ${gitRemoteOverrideUrl.trim()}`
-                    : "Syncs with this VSNote server."}
+                    : "Syncs with this VSNote server. The server's own vault folder is the durable copy of your notes."}
                 </span>
                 <Button
                   type="button"
@@ -1004,9 +1001,18 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     />
                     <span style={{ fontSize: 13, color: "var(--color-fg)" }}>After each save</span>
                   </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                    <Switch
+                      checked={gitSyncOnFocus}
+                      onCheckedChange={setGitSyncOnFocus}
+                      aria-label="Sync when the window regains focus"
+                      data-testid="git-sync-on-focus"
+                    />
+                    <span style={{ fontSize: 13, color: "var(--color-fg)" }}>Sync when the window regains focus</span>
+                  </label>
                 </div>
               </FormField>
-              {(gitSyncOnInterval || gitSyncOnOpenClose || gitSyncOnSave) && (
+              {(gitSyncOnInterval || gitSyncOnOpenClose || gitSyncOnSave || gitSyncOnFocus) && (
                 <span style={{ fontSize: 12, color: "var(--color-muted)" }}>
                   Triggers queue into one sync at a time with a short quiet window between runs.
                 </span>
@@ -1214,7 +1220,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
               {/* FormField is a stretch column — without alignSelf the button
                   goes full width (round 6 item 21: buttons natural width). */}
               <Button type="button" variant="secondary" size="sm" style={{ alignSelf: "flex-start" }} onClick={() => onExportVault?.()}>
-                Export vault as .zip
+                Export vault
               </Button>
             </FormField>
           ),
@@ -1232,7 +1238,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                 content: (
                   <FormField label="Reset demo vault" hint="Wipes the in-browser filesystem and git history, then re-seeds the demo vault. Cannot be undone.">
                     <Button type="button" variant="danger" size="sm" style={{ alignSelf: "flex-start" }} onClick={() => onRequestResetVault?.()}>
-                      Reset demo vault…
+                      Reset demo vault
                     </Button>
                   </FormField>
                 ),

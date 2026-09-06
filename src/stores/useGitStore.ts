@@ -17,13 +17,12 @@
  * `feat/incremental-index` drift previously here (`driftIncrement`,
  * `App.tsx`'s 30s interval, `SYNC_DRIFT_*` in `git/remote.ts`) is gone.
  *
- * `lastSyncedAt` is a raw epoch timestamp, not a pre-formatted "synced Xm
- * ago" string — IMPLEMENTATION-PLAN.md Phase 5's "'synced Xm ago' relative
- * timestamp ticking" needs the label to keep advancing between syncs
- * without a store write every tick; `src/lib/relativeTime.ts`'s
- * `formatSyncedLabel` re-derives the string on demand, and
- * `StatusBar.tsx`'s tick interval is what makes the *displayed* label
- * actually count up.
+ * `lastSyncedAt` is a raw epoch timestamp, not a pre-formatted "last pushed
+ * Xm ago" string — IMPLEMENTATION-PLAN.md Phase 5's "relative timestamp
+ * ticking" needs the label to keep advancing between syncs without a store
+ * write every tick; `src/lib/relativeTime.ts`'s `formatLastPushedLabel`
+ * re-derives the string on demand, and `StatusBar.tsx`'s tick interval is
+ * what makes the *displayed* label actually count up.
  *
  * `syncError` is the one new piece of UI-facing state this phase adds: the
  * message from the most recent failed push/pull/fetch (a real

@@ -19,9 +19,10 @@
  */
 import { useEffect, useState, type FormEvent } from "react";
 import { Alert, Button, Card, CardContent, CardHeader, FormField, Input } from "my-you-eye";
-import { Layout, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useShareStore, LOGIN_UNREACHABLE_MESSAGE } from "../share/useShareStore";
 import { fetchOAuthProviders, oauthStartUrl } from "../share/oauth";
+import { Logo } from "./local/Logo";
 
 export interface LoginGateProps {
   /** Called the instant a login attempt succeeds — `main.tsx` swaps
@@ -30,28 +31,14 @@ export interface LoginGateProps {
   onAuthenticated: () => void;
 }
 
-/** The wordmark glyph — the exact gradient treatment `components/TitleBar.
- * tsx` uses for the title bar's own app-identity glyph, just bigger, so the
- * gate reads as unmistakably the same product as the shell it's standing in
+/** The wordmark: the real VSNote mark (`local/Logo`), same as
+ * `components/TitleBar.tsx`'s app-identity glyph, just bigger, so the gate
+ * reads as unmistakably the same product as the shell it's standing in
  * front of. */
 function Wordmark() {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginBottom: 28 }}>
-      <span
-        aria-hidden
-        style={{
-          width: 44,
-          height: 44,
-          borderRadius: 11,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "linear-gradient(135deg, var(--color-primary), color-mix(in oklab, var(--color-primary) 55%, #7c6cf0))",
-          color: "var(--color-primary-fg)",
-        }}
-      >
-        <Layout size={24} strokeWidth={2.5} />
-      </span>
+      <Logo size={44} />
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 600, color: "var(--color-fg)", letterSpacing: "-0.01em" }}>
         VSNote
       </span>

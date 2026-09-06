@@ -80,9 +80,9 @@ a backlog entry changes materially, update its issue in the same pass):
 
 | Entry | Issue(s) | Issue state |
 |---|---|---|
-| §2.1 DataTable row-actions | #25 | open, addendum posted |
+| §2.1 DataTable row-actions | #25 | shipped in 2026.8.3 (`onRowClick`/`renderActions`/`actionsHeader`/`actionsWidth`) — not yet consumed, see status note |
 | §2.2 ResizeHandle keyboard a11y | #8 (+ cross-ref on #13) | open, addendum posted |
-| §2.3 ColorField OKLCH spec | #20 | open, addendum posted |
+| §2.3 ColorField OKLCH spec | #20 | shipped in 2026.8.3 (`ColorField`/`ColorFieldProps`) — closed, consumed |
 | §2.4 Sidebar token namespace | #27 | open |
 | §2.5 Palette empty states | #32 (live region only) · #28 | open · closed-as-moot |
 | Library-side a11y audit (app counterpart in TODO.md §3.4) | #29 | open |
@@ -103,7 +103,14 @@ a backlog entry changes materially, update its issue in the same pass):
   action, labeled via `aria-label` naming the row ("Actions for <name>").
 - **Design reference:** shadcn's data-table pattern (trailing actions column with
   DropdownMenu trigger) — mine the interaction shape only.
-- **Status:** planned (first needed by SharedPanel row management).
+- **Status:** planned (first needed by SharedPanel row management). **Update
+  2026-09-06 (my-you-eye 0.4.0 → 2026.8.3 upgrade):** upstream #25 shipped —
+  `DataTable` now has `onRowClick(row, e)`, `renderActions(row)`,
+  `actionsHeader`, and `actionsWidth` (confirmed in the installed
+  `node_modules/my-you-eye/dist/index.d.ts`). Not consumed yet: this upgrade
+  was scoped to the dependency bump alone, and the shares/remotes tables it
+  would replace are a separate, later step. This entry stays `planned` until
+  that step lands and wires these props in.
 
 ### 2.2 ResizeHandle keyboard accessibility (PaneGroup / SidebarContainer)
 
@@ -125,7 +132,7 @@ a backlog entry changes materially, update its issue in the same pass):
   `SidebarContainer`; DESIGN-SPEC amendment item 44 records the contract. This also
   closes react-doctor's `interactive-supports-focus` finding from §3.9.
 
-### 2.3 ColorPicker / ColorField — spec frozen, implementation deferred
+### 2.3 ColorPicker / ColorField — resolved 2026-09-06, upstream shipped
 
 - **Gap:** catalog has no `Color*` component (confirmed against full manifest). Settings
   currently uses native `<input type="color">` (issued backlog row: deliberately not
@@ -147,6 +154,18 @@ a backlog entry changes materially, update its issue in the same pass):
   values and the derivation should migrate HSL-lightness math to OKLCH for
   perceptually even adjustments (small, self-contained follow-up in
   `accentContrast.ts`).
+- **Status: resolved 2026-09-06** — upstream #20 shipped in my-you-eye
+  2026.8.3 (`ColorField`/`ColorFieldProps`: `value`, `onChange(hex)`,
+  `presets`, `label`). `src/components/SettingsView.tsx`'s accent-color row
+  now uses it in place of the hand-rolled native `<input type="color">`,
+  keeping the same setting semantics (`useSettingsStore`'s `accent`/
+  `setAccent`) and label copy ("Accent color"), seeded with one preset (the
+  VSNote default teal, `#27d2c5`). The CONTRAST-GATE half of the spec
+  (`lib/accentContrast.ts`) is unchanged by this swap — it derives from
+  whatever hex `ColorField` reports, same as it did from the native input.
+  Remaining follow-up, still open: named-token presets beyond the single
+  default, and the HSL→OKLCH derivation migration in `accentContrast.ts` —
+  neither blocks this closure, both are pre-existing self-contained work.
 
 ### 2.4 Sidebar token namespace
 
@@ -189,3 +208,19 @@ a backlog entry changes materially, update its issue in the same pass):
 
 `Toolbar` xs icon-button density; `Input` trailing kbd-hint slot. Both remain valid
 upstream candidates; no new information from the skill analysis changes their specs.
+
+### 2.7 `Logo` (2026-09-05, logo wiring) — not an upstream candidate
+
+- **Gap:** none of the three prior sites of the "app identity glyph" (title bar,
+  share reader's title bar, login gate wordmark) actually rendered VSNote's own
+  mark — each hand-rolled a generic CSS-gradient square with a `lucide-react`
+  `Layout` icon standing in for it. This isn't a library gap (`my-you-eye` has no
+  way to know this project's brand artwork), so there is nothing to upstream; it's
+  logged here per CLAUDE.md rule 2 for the "missing component protocol" record.
+- **Built:** `src/components/local/Logo.tsx` — inline `<svg>` (props `size`,
+  `mono`, `title`, `className`), transcribing `public/favicon.svg` (default) and
+  `public/logo-mono.svg` (`mono`, `currentColor` strokes) verbatim. Wired into
+  `src/components/TitleBar.tsx`, `src/share/ShareApp.tsx`, and
+  `src/components/LoginGate.tsx`'s `Wordmark`, replacing the gradient chips.
+  Full row (props sketch, exact call sites): `docs/COMPONENT-BACKLOG-Issued_20260821.md`'s
+  `Logo` entry. DESIGN-SPEC Amendments round 10 item 62.

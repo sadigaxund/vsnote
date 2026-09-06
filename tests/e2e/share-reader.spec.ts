@@ -17,44 +17,13 @@
 import { test, expect } from "@playwright/test";
 import { gotoApp } from "./fixtures";
 import { DEMO_OWNER_EMAIL, DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
-import { createFileWithContent, publishFileViaContextMenu, publishFolderViaContextMenu, signInToShareBackend } from "./shareUiHelpers";
+import { createFileWithContent, publishFileViaContextMenu, signInToShareBackend } from "./shareUiHelpers";
 
 test.describe("rebuilt share reader (round 6 items 10-13)", () => {
-  test("shell: titlebar + tree + tabs, no activity/status bar, no Settings", async ({ page, browser }) => {
-    await gotoApp(page);
-    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
-
-    const link = await publishFolderViaContextMenu(page, {
-      treePath: "vault/assets",
-      generalAccess: "link",
-      renderMode: "rendered",
-    });
-    expect(link).toContain("/share/");
-
-    const secondContext = await browser.newContext();
-    const secondPage = await secondContext.newPage();
-    await secondPage.goto(link);
-
-    await expect(secondPage.getByTestId("app-titlebar")).toBeVisible();
-    const tree = secondPage.getByTestId("share-folder-tree");
-    await expect(tree).toBeVisible();
-
-    // Nothing from the main app's chrome exists on this route — a visitor
-    // gets reading (or editing) chrome only, never the vault shell.
-    await expect(secondPage.getByTestId("app-activitybar")).toHaveCount(0);
-    await expect(secondPage.getByTestId("app-statusbar")).toHaveCount(0);
-    await expect(secondPage.getByRole("button", { name: "Settings" })).toHaveCount(0);
-
-    // No tab exists until a file row is clicked.
-    await expect(secondPage.getByRole("tab")).toHaveCount(0);
-    await tree.locator('[data-tree-path="cover.png"]').click();
-    const tab = secondPage.getByRole("tab", { name: "cover.png" });
-    await expect(tab).toBeVisible();
-    await expect(tab).toHaveAttribute("data-tab-path", "cover.png");
-    await expect(secondPage.getByTestId("share-folder-content")).toBeVisible();
-
-    await secondContext.close();
-  });
+  // The former "shell: titlebar + tree + tabs" test published a FOLDER
+  // share; folder shares were removed in the 2026-09-05 refresh
+  // (docs/PLAN-2026-09-05-refresh.md §4.4). The chrome assertions it made
+  // are re-established against a single-file share by the reader rewrite.
 
   test("viewer role: role badge, no save button, Source toggle stays read-only", async ({ page, browser }) => {
     await gotoApp(page);

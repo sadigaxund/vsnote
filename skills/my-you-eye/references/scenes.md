@@ -139,8 +139,9 @@ scene's initial `code`), and warns past ~25 focused lines.
 `entries: TerminalStep[]`, `cwd?`, `user?`, `host?`, `title?` (defaults to
 `cwd`), `prompt?: "$" | ">" | "#" | "❯"`. `TerminalStep`: `command?` (omit
 for an output-only entry — a banner, a log tail), `output?`, `language?`,
-`exitCode?` (renders a badge — 0 reads success, non-zero danger),
-`spinner?` (label shown before `output` lands).
+`exitCode?` (renders a plain status line — `✓ exit 0` success, `✗ exit N` danger),
+`spinner?` (in-progress line: an animated braille glyph + label, cycled
+frame-deterministically by the scene).
 
 #### `kind: "diagram"` and `kind: "sequence"`
 See **`references/diagrams.md`** — this is the highest-authoring-risk part
@@ -237,8 +238,12 @@ function PlayerEmbed(props: { video: Video; className?: string; controls?: boole
 function SceneRenderer(props: { scene: Scene }): JSX.Element; // the single Scene -> frame switch; you never write this switch yourself
 ```
 
-- **`Presenter`** — click / `→` / `Space` advances a step, `←` reverses,
-  `Esc` opens an overview grid, `f` toggles fullscreen. It's built entirely
+- **`Presenter`** — `→` / `Space` advances a step, `←` reverses,
+  `Esc` opens an overview grid, `f` toggles fullscreen; the Prev/Next
+  buttons in the chrome bar do the same. Clicking the stage does **not**
+  advance: a live scene owns its own pointer events (dragging a
+  `DiagramScene` canvas, grabbing a `Comparison` divider), and a
+  click-anywhere handler ate every one of those gestures. It's built entirely
   on `useSteps` — if you want your own chrome instead of Presenter's, use
   `useSteps` directly (it's headless: `steps`, `scenes`, `index`, `current`,
   `isFirst`/`isLast`, `next()`/`prev()`/`goTo()`/`goToScene()`).

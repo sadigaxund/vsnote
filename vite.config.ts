@@ -284,7 +284,7 @@ export default defineConfig({
       // reload (the new SW had installed/activated in the background, but
       // nothing ever told the page to reload onto it).
       injectRegister: false,
-      includeAssets: ["favicon.svg", "icons.svg"],
+      includeAssets: ["favicon.svg", "icons.svg", "logo-mono.svg", "apple-touch-icon-180.png"],
       // `base`/`scope` (the plugin's own top-level options, distinct from
       // the `manifest.scope` web-manifest field below) already default to
       // vite's resolved `base` per vite-plugin-pwa's own docs — passed

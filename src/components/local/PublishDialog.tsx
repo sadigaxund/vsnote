@@ -54,16 +54,13 @@ import {
   Switch,
   useToast,
 } from "my-you-eye";
-import { Check, Copy, FileCode, Folder, Globe2, Loader2, Lock, X } from "lucide-react";
+import { Check, Copy, FileCode, Globe2, Loader2, Lock, X } from "lucide-react";
 import { SegmentedControl } from "./SegmentedControl";
-import { CheckboxTree, type CheckboxTreeNode } from "./CheckboxTree";
-import { useShareStore, type FolderPublishEntry } from "../../share/useShareStore";
+import { useShareStore } from "../../share/useShareStore";
 import { fetchOAuthProviders, oauthStartUrl } from "../../share/oauth";
 import { validateAlias } from "../../share/alias";
-import { buildFolderShareLink, buildShareLink } from "../../share/shareLinks";
-import { defaultIncludedSet, flattenFolderTree, includedSetFromManifest, relpathsUnderFolder } from "../../share/folderManifest";
-import { createApiToken, getShareManifest } from "../../share/api";
-import { rememberShareExclusions } from "../../share/autoRepublish";
+import { buildShareLink } from "../../share/shareLinks";
+import { createApiToken } from "../../share/api";
 import type { AuthMode, GeneralAccess, GrantIn, GrantRole, RenderMode, ShareOut } from "../../share/api";
 import type { FileKind } from "../../types";
 
@@ -83,18 +80,6 @@ export interface PublishDialogProps {
   /** Edit-policy mode: re-open for an existing share instead of publishing
    * a new one. */
   existingShare?: ShareOut;
-  /** Phase 10.5 (folder shares, roadmap §5.1) — set all three together to
-   * enter folder-publish mode: `folderPath` is the subtree root's vault
-   * path (becomes `source_path`), `folderTree` is the CheckboxTree source
-   * (`App.tsx` already read this from `useFsStore`), `folderEntries` is
-   * the flat file list with CONTENT already read (this dialog stays
-   * vault-agnostic — same guarantee as the single-file `content` prop
-   * above; it only ever sees plain strings its caller already read).
-   * Present alongside `existingShare` (a folder share), this also enables
-   * "Update share" — republishing the CURRENT subtree to the same slug. */
-  folderPath?: string;
-  folderTree?: CheckboxTreeNode[];
-  folderEntries?: FolderPublishEntry[];
 }
 
 /** Round 7 item 57 — delivery is its own axis, decoupled from role and
@@ -121,38 +106,21 @@ function epochSecondsToDateInput(epoch: number | null | undefined): string {
 }
 
 /**
- * The dialog's FOUR concrete modes as one closed union (TODO §6.2, from
+ * The dialog's TWO concrete modes as one closed union (TODO §6.2, from
  * vercel-labs composition-patterns' `architecture-avoid-boolean-props` +
- * `patterns-explicit-variants`): instead of two independent booleans
- * (`editMode`, `isFolder`) whose 4 combinations must all be handled and
- * whose impossible members can't be represented, every caller-visible
- * decision switches on this discriminated kind. Derived ONCE from props;
- * `null` means "mounted without a usable target" (a closing-transition
- * frame) and renders an inert shell.
+ * `patterns-explicit-variants`): every caller-visible decision switches on
+ * this discriminated kind. Derived ONCE from props; `null` means "mounted
+ * without a usable target" (a closing-transition frame) and renders an
+ * inert shell. Folder shares are gone entirely (§4.4) — this dialog is
+ * files-only now; a later worker rebuilds it from scratch, so this is kept
+ * to the minimum shape that still compiles and passes its e2e specs.
  */
-export type PublishMode =
-  | { kind: "publish-file"; filePath: string; content: string }
-  | { kind: "publish-folder"; folderPath: string; folderTree: CheckboxTreeNode[]; folderEntries: FolderPublishEntry[] }
-  | { kind: "edit-file"; share: ShareOut }
-  | { kind: "edit-folder"; share: ShareOut; folderPath: string; folderTree: CheckboxTreeNode[]; folderEntries: FolderPublishEntry[] };
+export type PublishMode = { kind: "publish-file"; filePath: string; content: string } | { kind: "edit-file"; share: ShareOut };
 
-export function derivePublishMode(props: {
-  filePath?: string;
-  content?: string;
-  existingShare?: ShareOut;
-  folderPath?: string;
-  folderTree?: CheckboxTreeNode[];
-  folderEntries?: FolderPublishEntry[];
-}): PublishMode | null {
-  const { filePath, content, existingShare, folderPath, folderTree, folderEntries } = props;
-  const hasFolder = !!folderPath && !!folderTree && !!folderEntries;
+export function derivePublishMode(props: { filePath?: string; content?: string; existingShare?: ShareOut }): PublishMode | null {
+  const { filePath, content, existingShare } = props;
   if (existingShare) {
-    return hasFolder
-      ? { kind: "edit-folder", share: existingShare, folderPath: folderPath!, folderTree: folderTree!, folderEntries: folderEntries! }
-      : { kind: "edit-file", share: existingShare };
-  }
-  if (hasFolder) {
-    return { kind: "publish-folder", folderPath: folderPath!, folderTree: folderTree!, folderEntries: folderEntries! };
+    return { kind: "edit-file", share: existingShare };
   }
   if (filePath && content !== undefined) {
     return { kind: "publish-file", filePath, content };
@@ -164,21 +132,10 @@ export function derivePublishMode(props: {
  * booleans with a total map the compiler forces to stay exhaustive. */
 export const MODE_CHROME: Record<PublishMode["kind"], { title: string; verb: string }> = {
   "publish-file": { title: "Publish", verb: "Publish" },
-  "publish-folder": { title: "Publish folder", verb: "Publish" },
   "edit-file": { title: "Edit share", verb: "Save" },
-  "edit-folder": { title: "Edit share", verb: "Update share" },
 };
 
-export function PublishDialog({
-  open,
-  onOpenChange,
-  filePath,
-  content,
-  existingShare,
-  folderPath,
-  folderTree,
-  folderEntries,
-}: PublishDialogProps) {
+export function PublishDialog({ open, onOpenChange, filePath, content, existingShare }: PublishDialogProps) {
   const { toast } = useToast();
   const reachability = useShareStore((s) => s.reachability);
   const authenticated = useShareStore((s) => s.authenticated);
@@ -186,64 +143,13 @@ export function PublishDialog({
   const loginError = useShareStore((s) => s.loginError);
   const login = useShareStore((s) => s.login);
   const publish = useShareStore((s) => s.publish);
-  const publishFolder = useShareStore((s) => s.publishFolder);
-  const updateFolderManifest = useShareStore((s) => s.updateFolderManifest);
   const updateShare = useShareStore((s) => s.updateShare);
 
-  // TODO §6.2 — the four concrete modes, derived once (see PublishMode).
-  // `isFolderKind`/`isEditKind` are computed VIEWS over this closed union
-  // for layout gates; they are no longer the state encoding itself, so the
-  // impossible combinations simply cannot be constructed.
-  const mode = derivePublishMode({ existingShare, filePath, content, folderPath, folderTree, folderEntries });
-  const isFolderKind = mode?.kind === "publish-folder" || mode?.kind === "edit-folder";
-  const isEditKind = mode?.kind === "edit-file" || mode?.kind === "edit-folder";
-
-  // Phase 10.5 — the checkbox tree's flat validation list + included set.
-  // `allEntries` is derived straight from the prop (stable per mount, same
-  // "remounts fresh on every open" reasoning as every other piece of state
-  // in this component — see the block comment above). `included` starts
-  // as "everything checked" for a fresh publish; for "Manage share…" on an
-  // EXISTING folder share it's refetched from the server's current
-  // manifest (a genuine async load, hence the one real effect below —
-  // unlike the render-time-adjustment pattern used elsewhere in this
-  // codebase for synchronous prop-derived resets).
-  const allEntries = useMemo(() => (folderTree ? flattenFolderTree(folderTree) : []), [folderTree]);
-  const [included, setIncluded] = useState<Set<string>>(() => defaultIncludedSet(allEntries));
-  const [manifestLoading, setManifestLoading] = useState(isFolderKind && isEditKind);
-
-  useEffect(() => {
-    if (mode?.kind !== "edit-folder") return;
-    const shareId = mode.share.id;
-    let cancelled = false;
-    getShareManifest(shareId)
-      .then((manifest) => {
-        if (cancelled) return;
-        setIncluded(includedSetFromManifest(manifest.entries.map((e) => e.relpath)));
-      })
-      .catch(() => {
-        // Backend hiccup — fall back to "everything checked" rather than
-        // blocking the dialog; the owner can still exclude manually.
-      })
-      .finally(() => {
-        if (!cancelled) setManifestLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per mount, same reasoning as every other "fresh instance per open" state in this file.
-  }, []);
-
-  function handleToggle(node: CheckboxTreeNode, next: boolean) {
-    const affected = node.type === "file" ? [node.id] : relpathsUnderFolder(allEntries, node.id);
-    setIncluded((prev) => {
-      const nextSet = new Set(prev);
-      for (const relpath of affected) {
-        if (next) nextSet.add(relpath);
-        else nextSet.delete(relpath);
-      }
-      return nextSet;
-    });
-  }
+  // TODO §6.2 — the two concrete modes, derived once (see PublishMode).
+  // `isEditKind` is a computed VIEW over this closed union for layout
+  // gates; it is no longer the state encoding itself.
+  const mode = derivePublishMode({ existingShare, filePath, content });
+  const isEditKind = mode?.kind === "edit-file";
 
   // Prefilled directly from props at MOUNT time, not reset via an effect —
   // both call sites (`App.tsx`'s "publish a new share" instance,
@@ -300,8 +206,6 @@ export function PublishDialog({
 
   const aliasCheck = useMemo(() => validateAlias(alias), [alias]);
   const filename = filePath ? filePath.slice(filePath.lastIndexOf("/") + 1) : "";
-  const folderName = folderPath ? folderPath.slice(folderPath.lastIndexOf("/") + 1) : "";
-  const includedCount = included.size;
 
   const offline = reachability === "offline";
   const canSubmit =
@@ -312,7 +216,6 @@ export function PublishDialog({
     // Item 5 — an opted-in expiry must actually have a date; "on but blank"
     // would silently save as never-expires while the UI said otherwise.
     (!expiryEnabled || expiresLocal.length > 0) &&
-    (!isFolderKind || (!manifestLoading && includedCount > 0)) &&
     !submitting;
 
   async function handleLogin() {
@@ -334,7 +237,7 @@ export function PublishDialog({
     setGeneratingToken(true);
     setTokenError(null);
     try {
-      const created = await createApiToken(`share ${alias.trim() || filename || folderName || "link"}`, "read");
+      const created = await createApiToken(`share ${alias.trim() || filename || "link"}`, "read");
       setGeneratedToken(created.token);
     } catch (err) {
       setTokenError(err instanceof Error ? err.message : "Could not create a token.");
@@ -375,55 +278,7 @@ export function PublishDialog({
       };
 
       if (!mode) throw new Error("Nothing to publish.");
-      // Folder kinds carry their included-subtree; computed once here so
-      // every branch below reads one shape.
-      const includedEntries =
-        mode.kind === "publish-folder" || mode.kind === "edit-folder"
-          ? mode.folderEntries.filter((e) => included.has(e.relpath))
-          : [];
       switch (mode.kind) {
-        case "edit-folder": {
-          const existingShare = mode.share;
-          // Policy fields (access/expiry/password/alias/mode) via the same
-          // PATCH every share type uses, THEN "Update share" — republish
-          // the CURRENT subtree to the same slug (roadmap §5.1).
-          await updateShare(existingShare.id, policyPatch);
-          const updated = await updateFolderManifest(existingShare.id, includedEntries);
-          // Round 7 item 58 — remember what was deliberately UNCHECKED so
-          // auto-republish can add new files without resurrecting these.
-          rememberShareExclusions(
-            updated.id,
-            mode.folderEntries.map((e) => e.relpath).filter((r) => !included.has(r)),
-          );
-          setResult(updated);
-          toast({ title: "Share updated", description: `Republished ${includedEntries.length} file(s).`, variant: "success" });
-          break;
-        }
-        case "publish-folder": {
-          const share = await publishFolder(
-            {
-              sourcePath: mode.folderPath,
-              filename: folderName,
-              content: "",
-              renderMode,
-              generalAccess,
-              authMode,
-              password: authMode === "password" ? password : undefined,
-              alias: alias.trim(),
-              expiresAt: expiryEnabled ? dateInputToEpochSeconds(expiresLocal) : undefined,
-              grants,
-              linkRole,
-            },
-            includedEntries,
-          );
-          rememberShareExclusions(
-            share.id,
-            mode.folderEntries.map((e) => e.relpath).filter((r) => !included.has(r)),
-          ); // item 58, as above
-          setResult(share);
-          toast({ title: "Published", description: `${folderName} (${includedEntries.length} files) is now shared.`, variant: "success" });
-          break;
-        }
         case "edit-file": {
           const updated = await updateShare(mode.share.id, policyPatch);
           setResult(updated);
@@ -455,7 +310,7 @@ export function PublishDialog({
     }
   }
 
-  const link = result ? (result.kind === "folder" ? buildFolderShareLink(result) : buildShareLink(result)) : null;
+  const link = result ? buildShareLink(result) : null;
 
   async function handleCopy() {
     if (!link) return;
@@ -473,17 +328,14 @@ export function PublishDialog({
       <DialogContent size="md" data-testid="publish-dialog">
         <DialogHeader>
           <DialogTitle style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isFolderKind && <Folder size={16} aria-hidden />}
             {mode ? MODE_CHROME[mode.kind].title : "Publish"}
           </DialogTitle>
           <DialogDescription>
-            {mode?.kind === "edit-file" || mode?.kind === "edit-folder"
+            {mode?.kind === "edit-file"
               ? mode.share.source_path
-              : mode?.kind === "publish-folder"
-                ? `Share "${folderName}" (a folder) with a link.`
-                : filePath
-                  ? `Share "${filePath.split("/").pop()}" with a link.`
-                  : ""}
+              : filePath
+                ? `Share "${filePath.split("/").pop()}" with a link.`
+                : ""}
           </DialogDescription>
         </DialogHeader>
 
@@ -613,33 +465,6 @@ export function PublishDialog({
                 options={DELIVERY_OPTIONS}
               />
             </FormField>
-
-            {isFolderKind && (
-              <FormField
-                label="Files"
-                hint={
-                  manifestLoading
-                    ? "Loading the current manifest…"
-                    : `${includedCount} of ${allEntries.length} file(s) included. Unchecked entries are left out of the share entirely.`
-                }
-              >
-                <div
-                  style={{
-                    maxHeight: 220,
-                    overflow: "auto",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-ui-sm)",
-                    padding: 4,
-                  }}
-                >
-                  {allEntries.length === 0 ? (
-                    <p style={{ fontSize: 12.5, color: "var(--color-muted)", padding: 8, margin: 0 }}>This folder is empty.</p>
-                  ) : (
-                    <CheckboxTree data={folderTree ?? []} checked={included} onToggle={handleToggle} />
-                  )}
-                </div>
-              </FormField>
-            )}
 
             <div style={{ display: "flex", gap: 12 }}>
               <div style={{ flex: 1 }}>
@@ -874,11 +699,6 @@ export function PublishDialog({
               </div>
             </FormField>
             <div style={{ display: "flex", gap: 6 }}>
-              {result.kind === "folder" && (
-                <Badge variant="neutral" tone="soft">
-                  {result.manifest_count ?? 0} file{result.manifest_count === 1 ? "" : "s"}
-                </Badge>
-              )}
               <Badge variant="neutral" tone="soft">
                 {result.render_mode === "rendered" ? "Viewer page" : "Raw file"}
               </Badge>

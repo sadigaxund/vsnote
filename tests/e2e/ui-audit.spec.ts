@@ -64,10 +64,6 @@ function contrast(rgb1: [number, number, number], rgb2: [number, number, number]
   const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1];
   return (hi + 0.05) / (lo + 0.05);
 }
-function parseColor(css: string): [number, number, number] | null {
-  const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(css);
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
-}
 
 test("UI audit: reflow, text-spacing, contrast, vision-deficiency evidence", async ({ page }, testInfo) => {
   mkdirSync(AUDIT_DIR, { recursive: true });
@@ -127,8 +123,6 @@ test("UI audit: reflow, text-spacing, contrast, vision-deficiency evidence", asy
 
   // ---- 3. Token-pair contrast ---------------------------------------
   const pairs = await page.evaluate(() => {
-    const cs = getComputedStyle(document.documentElement);
-    const read = (n: string, fb: string) => cs.getPropertyValue(n).trim() || fb;
     const resolveToRgb = (token: string, fallback: string): [number, number, number] | null => {
       // Resolve through a probe element so var() chains + color-mix work.
       const probe = document.createElement("span");

@@ -24,11 +24,23 @@
  * independently-combinable toggles (all off = manual). Every enabled
  * trigger funnels into ONE coalescing queue (`requestSync` below): at most
  * one sync runs at a time, and a completed run opens a quiet window during
- * which further triggers merge into a single pending follow-up run. */
+ * which further triggers merge into a single pending follow-up run.
+ *
+ * PLAN-2026-09-05-refresh.md §1 item 2 ("pull on focus") adds a FOURTH,
+ * independently-combinable toggle: `onFocus`. Unlike the other three, its
+ * own trigger method (`triggerFocus` below) does NOT unconditionally feed
+ * `requestSync` — a user alt-tabbing back and forth would otherwise queue a
+ * pending follow-up run on every single focus event via the coalescing
+ * queue's own quiet-window merge. Instead it checks the SAME
+ * `SYNC_QUIET_WINDOW_MS` this module already uses for post-run coalescing
+ * against `lastCompletedAt` and is a total no-op (not even a queued
+ * pending) when the last run finished more recently than that — "the last
+ * sync is older than the quiet window" from the brief. */
 export interface SyncTriggers {
   interval: boolean;
   openClose: boolean;
   onSave: boolean;
+  onFocus: boolean;
   intervalMinutes: number;
 }
 
@@ -148,6 +160,16 @@ export interface AutoSyncScheduler {
    * IMMEDIATE sync attempt (still gated by `isAutoSyncAllowed`); a no-op
    * for every other policy. */
   triggerOpenClose: () => void;
+  /** "on-focus" policy hook (PLAN-2026-09-05-refresh.md §1 item 2) — call
+   * whenever the window/tab regains focus (`visibilitychange` -> visible,
+   * and the `focus` event, so both a tab switch and an OS-level app switch
+   * are covered). A no-op when the `onFocus` toggle is off. Unlike
+   * `triggerOpenClose`, this does NOT always feed the coalescing queue: if
+   * the scheduler's last completed run finished less than
+   * `SYNC_QUIET_WINDOW_MS` ago, this is a total no-op (nothing queued
+   * either) so repeated alt-tabbing can never build up a pending run —
+   * see this module's doc. */
+  triggerFocus: () => void;
 }
 
 /** Builds a scheduler instance. Stateful (owns its own pending timer
@@ -265,6 +287,11 @@ export function createAutoSyncScheduler(deps: AutoSyncSchedulerDeps): AutoSyncSc
     },
     triggerOpenClose: () => {
       if (!deps.getPolicy().openClose) return;
+      requestSync();
+    },
+    triggerFocus: () => {
+      if (!deps.getPolicy().onFocus) return;
+      if (nowFn() - lastCompletedAt < SYNC_QUIET_WINDOW_MS) return;
       requestSync();
     },
   };

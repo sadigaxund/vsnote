@@ -200,7 +200,11 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
     // Commit clears the message box on success (SourceControlPanel.tsx).
     await expect(page.getByLabel("Commit message")).toHaveValue("");
 
-    await page.getByRole("button", { name: "Push" }).click();
+    // Scoped to the Source Control header: the status bar's durability
+    // segment (docs/PLAN-2026-09-05-refresh.md §1 item 3) renders a
+    // "never pushed" / "last pushed ..." button whose accessible name also
+    // contains "pushed", so an unscoped by-role lookup is ambiguous.
+    await page.getByTestId("sidebar-header").getByRole("button", { name: "Push" }).click();
     // A real, explicit success signal (SourceControlPanel.tsx's push
     // toast) — NOT just "no failure toast" (which would pass vacuously if
     // the push silently never ran) and NOT just "↑0 ↓0" in the status bar
@@ -263,7 +267,7 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
     await page.getByLabel("Commit message").fill(`baseline ${runId}`);
     await page.getByRole("button", { name: "Commit" }).click();
     await expect(page.getByLabel("Commit message")).toHaveValue("");
-    await page.getByRole("button", { name: "Push" }).click();
+    await page.getByTestId("sidebar-header").getByRole("button", { name: "Push" }).click();
     await expect(page.getByText("Pushed to remote", { exact: true })).toBeVisible();
 
     const workDir = mkdtempSync(path.join(tmpdir(), "vsnote-git-merge-e2e-"));
@@ -294,7 +298,11 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
       await page.getByRole("dialog").getByRole("button", { name: "Sync now" }).click();
       await expect(page.getByText("Synced with remote", { exact: true })).toBeVisible();
       await expect(page.getByTestId("conflict-resolver")).toHaveCount(0);
-      await expect(page.getByTestId("app-statusbar")).toContainText("↑0 ↓0");
+      // The ahead/behind pair was replaced by the durability indicator in
+      // the 2026-09-05 storage change: "up to date" is the zero-unsynced
+      // label, and losing "never pushed" confirms the push really left.
+      await expect(page.getByTestId("app-statusbar")).toContainText("up to date");
+      await expect(page.getByTestId("app-statusbar")).not.toContainText("never pushed");
 
       // --- Backup ref genuinely exists — structural, not hopeful. ---
       const backupRefs = await page.evaluate(() =>
@@ -341,7 +349,7 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
     await page.getByLabel("Commit message").fill(`baseline ${runId}`);
     await page.getByRole("button", { name: "Commit" }).click();
     await expect(page.getByLabel("Commit message")).toHaveValue("");
-    await page.getByRole("button", { name: "Push" }).click();
+    await page.getByTestId("sidebar-header").getByRole("button", { name: "Push" }).click();
     await expect(page.getByText("Pushed to remote", { exact: true })).toBeVisible();
 
     const workDir = mkdtempSync(path.join(tmpdir(), "vsnote-git-conflict-e2e-"));
@@ -388,7 +396,11 @@ test.describe("Real git sync (Phase 11, roadmap §5.2 — fast-forward/push, dis
       await resolver.getByRole("button", { name: "Take theirs" }).click();
       await resolver.getByTestId("conflict-resolve-push").click();
       await expect(resolver).toHaveCount(0);
-      await expect(page.getByTestId("app-statusbar")).toContainText("↑0 ↓0");
+      // The ahead/behind pair was replaced by the durability indicator in
+      // the 2026-09-05 storage change: "up to date" is the zero-unsynced
+      // label, and losing "never pushed" confirms the push really left.
+      await expect(page.getByTestId("app-statusbar")).toContainText("up to date");
+      await expect(page.getByTestId("app-statusbar")).not.toContainText("never pushed");
 
       // --- Backup ref genuinely exists. ---
       const backupRefs = await page.evaluate(() =>

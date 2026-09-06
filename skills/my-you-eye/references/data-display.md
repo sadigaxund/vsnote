@@ -67,7 +67,7 @@ interface CodeBlockProps extends HTMLAttributes<HTMLPreElement> {
   highlightColor?: CodeBlockHighlightGroup["color"];
   highlightGroups?: CodeBlockHighlightGroup[];   // multi-color; takes precedence over highlightLines
   highlightRanges?: HighlightRangeDef[];         // substring highlights, 0-indexed char positions
-  focusRange?: [number, number];                 // 1-based; lines outside dim to opacity-muted
+  focusRange?: [number, number];                 // 1-based; lines outside dim to opacity-focus-dim
   lineId?: (lineNumber: number) => string;        // per-line element id, for Camera/Annotation targeting
 }
 ```
@@ -86,10 +86,10 @@ type TerminalPromptGlyph = "$" | ">" | "#" | "❯";
 
 interface TerminalEntry {
   command?: string;   // omit for an output-only entry (banner, log tail)
-  output?: string;    // rendered via CodeBlock
+  output?: string;    // plain terminal lines, colorized when `language` is set
   language?: string;
-  exitCode?: number;  // badge: 0 = success, non-zero = danger
-  spinner?: string;   // in-progress line
+  exitCode?: number;  // status line: "✓ exit 0" success, "✗ exit N" danger — plain text, no badge
+  spinner?: string;   // in-progress line: braille glyph + label (glyph via spinnerGlyph, default "⠋")
   // Per-entry prompt-chrome overrides. Each PERSISTS to every following
   // entry until overridden again (real-shell semantics), falling back to
   // the Terminal-level prop until first set.
@@ -108,7 +108,9 @@ interface TerminalProps {
 }
 ```
 
-Composes `CodeBlock` for output bodies — never re-tokenizes.
+Output bodies are plain terminal lines in the terminal's own mono style: no
+border, no header, no nested scroll region. They reuse CodeBlock's tokenizer
+(and only its tokenizer) for color when the entry names a `language`.
 
 `rows` is a **fixed** height, not a maximum: the entries body is exactly
 `rows` lines tall from the first frame on (measured from the real rendered
@@ -214,9 +216,31 @@ interface DataListProps {
 ```
 
 `TreeView` renders a `CellType type="tree"`-shaped nested payload with
-expand/collapse, depth guides, and a per-item `trailing` slot; `FileTree`
-(patterns group) is `TreeView` + file-type icons + git-status badges, no
-new tree logic of its own.
+expand/collapse, depth guides, controlled selection (`selectedId`/`onSelect`),
+inline rename (`renamingId`), and drag moves (`draggable` + `onMove` with
+"into"/"before"/"after" modes); `FileTree` (patterns group) is `TreeView` +
+file-type icons + git-status badges, no new tree logic of its own.
+
+### Virtualizing very large trees (>~200 visible rows)
+
+Nested `role="group"` DOM disappears when rows are windowed, so depth and
+position must move onto the rows themselves. The recipe:
+
+1. Flatten the tree against the expanded set into
+   `{ node, depth, hasChildren, siblingCount, siblingIndex }` rows (same walk
+   TreeView does internally).
+2. Render through `VirtualList` with `rowHeight` matching the row token
+   (24px normal / 16px compact — read it off `--spacing-tree-row(-compact)`,
+   not hardcoded).
+3. Each row renders `role="treeitem"` with
+   `aria-level={depth + 1}`, `aria-setsize={siblingCount}`,
+   `aria-posinset={siblingIndex + 1}` — this is the a11y fallback that
+   replaces the nesting.
+4. Keyboard navigation becomes flat-list Up/Down over visible rows;
+   ArrowRight/Left still toggle the focused row's expansion.
+
+`VirtualList`'s `computeVirtualWindow` is exported pure, so the flattening +
+windowing decisions are unit-testable without a DOM.
 
 ## `Timeline`
 
