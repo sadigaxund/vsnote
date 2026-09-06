@@ -321,7 +321,15 @@ export default defineConfig({
         // App shell + every hashed build asset — offline boot needs the JS/
         // CSS/HTML the shell renders with, not vault content (that already
         // lives in IndexedDB via lightning-fs, outside the SW's remit).
-        globPatterns: ["**/*.{js,css,html,svg,png,ico,woff2}"],
+        // `wasm` added for Phase M3: `scriptIsolate.worker.ts` imports
+        // wasmoon's `glue.wasm` as a `?url` asset (see that file's doc
+        // comment for why — avoiding wasmoon's unpkg-CDN default is the
+        // whole point of bundling it at all) specifically so Lua execution
+        // keeps working in a genuinely offline/PWA-cached session; without
+        // this glob that one asset would be built but never precached, so
+        // an offline "Run scripts" would fail on the very first `import()`
+        // of the worker chunk trying to fetch it.
+        globPatterns: ["**/*.{js,css,html,svg,png,ico,woff2,wasm}"],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,

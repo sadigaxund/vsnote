@@ -1965,6 +1965,204 @@ those live in `render.tsx`, which this module deliberately does not
 import), and the container-close scan tracks fenced code but not
 4-space-indented code.
 
+## Phase M3 — script isolate, grants, value persistence (docs/PLAN-2026-09-05-refresh.md §6)
+
+Worker 1 of 3 for M3 (bundles + scripts, L2/L3 of `docs/temp-plan-add-extension.md`).
+This slice is the non-UI foundation only: a terminatable Worker running
+`@markii/lua`, a persisted `GrantStore`, tier-enforced capability
+construction, and per-note value persistence. Worker 2 builds `.mkz`
+bundles (`@markii/bundle`) and pack settings on top; worker 3 builds every
+piece of UI (the grant-prompt dialog, a "Run scripts" action, a Packs
+settings category) and the e2e coverage. **Rendering stays side-effect
+free**: nothing under `src/markii/host/` is reachable from a render path —
+`runScripts()` is the one explicit entry point, called only on a real user
+action or a scheduled trigger, never on note open.
+
+### Two folders, one boundary
+
+- `src/markii/host/` — platform-agnostic orchestration. May import
+  `@markii/*` and plain TypeScript; must never import a browser global,
+  `src/fs/*`, or an app-shell store. `types.ts` defines four Ports
+  (`ScriptIsolate`, `GrantStore` + `GrantPrompt`, `NetProvider` — re-exported
+  from `@markii/lua` rather than redefined — and `FileBackend`, a shape
+  worker 2's bundle-backed implementation will satisfy). `watchdog.ts`,
+  `capabilities.ts`, `grantClosure.ts`, `valuePersistence.ts`, and
+  `runScripts.ts` are the orchestration built against those Ports.
+- `src/markii/platform/browser/` — the first (and, for this app, only)
+  concrete adapter: a Web Worker running `@markii/lua`, `window.fetch`, and
+  the lightning-fs vault. A future Electron or VS Code host would add a
+  sibling `platform/` folder implementing the same four Ports with zero
+  changes to `host/`.
+
+This mirrors the split `docs/temp-plan-add-extension.md` sketched before M1/
+M2 existed, adapted to what M1 (the static renderer) and M2 (the CM6
+live-preview grammar) actually built: neither of those pipelines executes
+anything, and M3 does not change that — `runScripts()` is additive, called
+from wherever worker 3 wires the "Run scripts" action, never from
+`render.tsx` or `directiveLezer/`.
+
+### The kill switch: two independent layers, on purpose
+
+`@markii/lua`'s own `runScript` already enforces in-VM `limits`
+(instruction count, a wall-clock `lua_sethook` count hook, a memory cap —
+see that package's `limits.ts`), and its own doc comment is explicit that
+this is "best-effort, not airtight": the hook only fires *between* Lua VM
+instructions, so it structurally cannot observe a hang that happens while
+Lua is *suspended* — a `net.get` promise that never resolves is exactly
+that shape. `@markii/lua`'s docs name the host's own terminatable isolate as
+"the real guarantee" for that gap.
+
+This app's second, independent layer is `src/markii/host/watchdog.ts`:
+`createWatchdogIsolate({ timeoutMs, createRunner })` races an arbitrary
+`TerminableRunner` (anything with `run()`/`terminate()`) against a plain
+`setTimeout`, and on overrun calls `terminate()`, drops the dead runner, and
+resolves with a `kind: 'limit'` `ExecuteResult` — the same closed
+vocabulary `@markii/runtime`'s `normalizeFailureKind` understands, so a
+watchdog kill renders identically to any other resource-limit failure.
+Deliberately platform-agnostic (no `Worker`, no `postMessage`): this is what
+lets `tests/unit/markiiWatchdog.test.ts` prove "a runner that never resolves
+is terminated and rejected within the timeout" against a fake runner, with
+no browser dependency at all. `timeoutMs` defaults to 10s in the browser
+adapter, comfortably above `@markii/lua`'s own 5s default wall-clock limit,
+so the in-VM hook gets first crack at ordinary compute-bound runaway
+scripts and the external watchdog exists purely to catch what that hook
+cannot (a hung host-side capability call, or any other way a worker could
+simply never reply).
+
+"Recreate lazily, never deadlock a queue": `@markii/runtime`'s
+`runDocumentScripts` calls its `ScriptExecutor` sequentially, always
+awaiting one script before starting the next, so a `ScriptIsolate` never
+has more than one in-flight `run()`. After a watchdog termination, the next
+`run()` call lazily builds a brand-new runner (a brand-new `Worker`, in the
+browser adapter) rather than ever reusing the terminated one.
+
+### The first Web Worker in this repo
+
+`src/markii/platform/browser/scriptIsolate.worker.ts` is the only place in
+this codebase's browser platform that calls `@markii/lua`'s
+`createLuaExecutor` — scripts never run on the main thread, full stop.
+`src/markii/platform/browser/scriptIsolate.ts` (main thread) spawns it via
+the now-established pattern for any future worker in this repo:
+
+```ts
+new Worker(new URL("./scriptIsolate.worker.ts", import.meta.url), { type: "module" })
+```
+
+The two sides speak a small typed protocol (`workerProtocol.ts`): a
+`run`/`run-result` pair per script execution, and a `net-call`/
+`net-call-result` pair for the `net` capability's RPC bridge —
+`@markii/lua`'s `NetProvider` is a pair of async functions, which cannot
+cross `postMessage` (functions are not structured-cloneable), so the
+worker's own `NetProvider` implementation posts a `net-call` for every
+`net.get`/`net.post`/`net.patch` a script makes and awaits the main
+thread's reply, which the main thread produces via the REAL
+`createBrowserNetProvider()` (`netProvider.ts`, `window.fetch`-backed).
+`cache`/`bundle` capability wiring is explicitly out of scope for this
+slice (`types.ts`'s `FileBackend` doc note) — worker 2 extends this same
+RPC pattern once `.mkz` bundles exist.
+
+### The wasm asset: bundled, not fetched from unpkg (offline, CLAUDE.md rule 3)
+
+`@markii/lua` -> `runScript` -> `createEmptyLuaEngine` forwards a `wasmUri`
+straight to wasmoon's `LuaFactory`. Verified by reading
+`node_modules/wasmoon/dist/index.js`'s `LuaFactory` constructor directly:
+left `undefined` in a browser (or Worker) context, it defaults to
+`https://unpkg.com/wasmoon@<version>/dist/glue.wasm` fetched over the
+network at runtime — a third-party CDN dependency that would break both
+"usable with backend down" (unrelated to the backend, but still a network
+dependency) and a genuinely offline PWA-cached session outright.
+
+The fix: `scriptIsolate.worker.ts` imports `wasmoon/dist/glue.wasm?url` (the
+same Vite `?url`-asset convention `materialIconLoader.ts` already
+establishes for SVGs) and passes the resulting same-origin URL as
+`wasmUri`. `vite.config.ts`'s PWA `globPatterns` gained `wasm` in this same
+change so the asset is precached for offline use, not merely bundled for
+online use. **Verified against a real build and a real browser**, not just
+read from source: `npm run build` was inspected and confirmed the `.wasm`
+file is emitted as a hashed asset under `dist/assets/`; separately, a
+throwaway Vite-dev-served page ran `createBrowserScriptIsolate({tier:
+"manual"}).run({code: "return 6 * 7", tier: "manual"})` inside a real
+Chromium (Playwright), which returned `{ok:true,value:42}`, and the page's
+network log showed `glue.wasm` requested from `127.0.0.1` (the dev server
+itself) with zero requests to `unpkg.com`. The throwaway probe files were
+deleted after verification; they are not part of this change.
+
+### Persistence: a second logical folder, not a second IndexedDB dependency
+
+`@markii/runtime`'s `createValueStore` is explicitly in-memory only.
+Following `src/fs/drafts.ts`'s established precedent (a second logical
+folder, `/.drafts`, on the SAME lightning-fs instance, chosen there over "a
+second IndexedDB wrapper dependency"): M3 adds `/.markii/`, with
+`/.markii/values/<encodeURIComponent(displayPath)>.json` (one JSON file per
+note, whole-file rewrite on every save — no debounce, since a `runScripts`
+call is already an explicit, infrequent event, unlike drafts' per-keystroke
+one) and a single `/.markii/grants.json` holding every grant this vault has
+recorded, keyed by grant key (few enough, and small enough, that one
+file's read/parse beats a directory listing plus N reads for `GrantStore.
+list()`).
+
+Both are split into a pure half and a real-fs half
+(`src/markii/platform/browser/fileOps.ts`'s `FileOps` interface,
+implemented for real only in `lightningFsOps.ts`) specifically so
+`tests/unit/markiiValuePersistence.test.ts`/`markiiGrantStore.test.ts` can
+exercise the actual read/write/JSON-degradation logic against a fake
+in-memory `FileOps`, honoring `tests/unit/fsIsolation.test.ts`'s ratchet
+that forbids any new unit test file from transitively importing
+`src/fs/client.ts` (a second lightning-fs consumer alongside
+`drafts.test.ts` was found to hang the whole suite on CI).
+
+`src/markii/host/valuePersistence.ts` owns the platform-agnostic
+hydrate/degrade rule this bytes-level layer feeds: on hydrate, every
+persisted `'fresh'` value is downgraded to `'stale'` (`'error'` entries are
+left alone) — "rendering is pure; running is an event" means opening a note
+must never claim a value is fresh before anything has run *this session*.
+
+### Tier enforcement: derived from the trigger, and enforced twice
+
+`src/markii/host/capabilities.ts::buildCapabilityConfig` re-derives the
+tier from the `RunTrigger` itself via `@markii/runtime`'s `tierForTrigger`
+(never trusts a passed-in tier), and for `'auto'`/`'scheduled'` never even
+*constructs* a net config with `post`-capable hosts — regardless of what a
+manual grant for the same note might contain. `@markii/lua`'s own
+`runScript` already refuses an effectful op under `tier: 'auto'`; this
+module is a second, independent reason the same failure mode cannot occur,
+matching the belt-and-suspenders discipline `@markii/lua` itself uses
+throughout. `src/markii/host/runScripts.ts` compounds this: a non-manual
+trigger never even calls `GrantStore.get`/`GrantPrompt` — no prompt, no
+grant lookup, nothing that could surprise a user who merely opened a note
+or hit a scheduled refresh.
+
+`GrantStore` (persisted via the folder above) is keyed by
+`@markii/runtime`'s `computeGrantKey` over the note's script closure — a
+SHA-256 hash, so editing a script invalidates its grant by construction.
+Worker 1's `buildGrantClosure` (`grantClosure.ts`) populates only the
+`scripts` section of that closure today (no bundle/vault/pack module
+resolution exists yet); a `src=` long-script reference's *content*
+therefore does not yet participate in the hash, only its path — see
+finding 1 in the M3 worker-1 handoff for the fix once worker 2's bundle
+loader can resolve `src=`/`require` targets to source text.
+
+### API surface for workers 2 and 3
+
+- `runScripts(path, text, trigger, deps): Promise<RunSummary>`
+  (`host/runScripts.ts`) — the one entry point. `deps.isolateFactory`,
+  `deps.grantStore`, `deps.grantPrompt` (defaults to a deny-everything
+  prompt), `deps.netProvider`, `deps.loadPersistedValues`/
+  `savePersistedValues`, `deps.loadSource`.
+- `GrantStore` (`host/types.ts`): `get(key)`, `set(record)`, `revoke(key)`,
+  `listByPath(path)`, `list()`. Worker 3's Packs/Grants settings panel
+  calls `list()`/`listByPath()` to render rows and `revoke(key)` on a row's
+  revoke action.
+- `GrantPrompt = (request: GrantPromptRequest) => Promise<GrantDecision>`
+  — worker 3 wires a my-you-eye `Dialog` to this exact shape.
+  `GrantPromptRequest` carries `{ path, grantKey, scripts }`;
+  `GrantDecision` is `{ granted: true, permissions } | { granted: false }`.
+- `createBrowserScriptIsolate(config, options?)` (`platform/browser/
+  scriptIsolate.ts`) and `createBrowserGrantStore()`/
+  `createBrowserNetProvider()`/`loadPersistedValues`/`savePersistedValues`
+  (`platform/browser/index.ts`) — the real adapters `runScripts`'s `deps`
+  are built from in the app.
+
 ## Deviations
 
 Real friction points found while building against the actual `my-you-eye@0.4.0` npm
