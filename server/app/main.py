@@ -68,6 +68,7 @@ later):
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -108,7 +109,18 @@ def _ensure_added_columns(engine) -> None:
     module doc). Idempotent, additive-only, one entry per released column."""
     from sqlalchemy import inspect, text
 
-    added = {"shares": [("link_role", "VARCHAR(9) NOT NULL DEFAULT 'viewer'")]}
+    # §5 / DESIGN-SPEC round 10 items 66-67 — `show_title`/`back_link` are
+    # additive columns on the ALREADY-EXISTING `shares` table, so they need
+    # this same DDL step; `ShareToken` (§4.2) does NOT — it's a brand new
+    # TABLE, and `Base.metadata.create_all(engine)` above already creates
+    # any missing table on its own, no DDL needed for that one.
+    added = {
+        "shares": [
+            ("link_role", "VARCHAR(9) NOT NULL DEFAULT 'viewer'"),
+            ("show_title", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("back_link", "VARCHAR(64)"),
+        ]
+    }
     inspector = inspect(engine)
     with engine.begin() as conn:
         for table, columns in added.items():

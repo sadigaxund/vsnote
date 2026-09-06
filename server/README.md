@@ -360,6 +360,48 @@ refuses to attempt a push at all once it detects local/remote have diverged —
 see `docs/ARCHITECTURE.md`'s "Real sync (Phase 11)" section for the exact
 policy and how it's surfaced in the UI.
 
+## Durable storage
+
+PLAN-2026-09-05-refresh.md §1 ("get the vault out of browser storage"): the
+browser's copy of the vault (lightning-fs over IndexedDB) is not durable on
+its own — clearing site data, a browser reinstall, or storage eviction under
+disk pressure can lose it. `VSNOTE_VAULT_PATH` is what makes an edit
+durable: once it's pushed (or auto-synced) to the server, it lands as a
+plaintext commit in a real git working tree on the host's disk, independent
+of any one browser or device. The client now nudges this along by default
+(finishing Settings → Git & Sync's setup wizard turns on "after each save"
+and "every N minutes" auto-sync, plus a sync attempt whenever the window
+regains focus) so edits reach this copy promptly instead of sitting
+unsynced in a tab — see `docs/ARCHITECTURE.md`'s "Storage durability model"
+section for the full picture, and "Server-mounted vault" below for how
+`VSNOTE_VAULT_PATH` itself works.
+
+**Set `VSNOTE_VAULT_PATH` in production.** Left unset, the vault is still
+just the ordinary bare repo under `VSNOTE_GIT_ROOT` — real git history, but
+not a plain working tree you can read/back up directly with a file-level
+tool. Set it to make the vault a real directory tree instead.
+
+**Bind-mount a host path (not just a named volume)** so backups can reach it
+with ordinary file tools:
+
+```yaml
+    environment:
+      VSNOTE_VAULT_PATH: /data/vault
+    volumes:
+      - /srv/vsnote-vault:/data/vault   # host path, not a Docker-managed volume
+```
+
+**Back it up like any other directory of files**: it is plaintext on disk
+(never encrypted at rest, by design — CLAUDE.md's data model), so `rsync`,
+`restic`, `borg`, a nightly `tar`, or a filesystem snapshot all work with no
+VSNote-specific tooling. Because it is ALSO a real git working tree, a
+backup taken mid-write is still safe to restore from: the server always
+commits pending disk edits before serving the next git request (see "Disk
+edits and pushes never clobber each other" below), so `.git` on disk is
+never left mid-write by anything this server does. Snapshot on whatever
+cadence matches how much rework you're willing to lose; there is no
+built-in backup scheduler here.
+
 ## Server-mounted vault (Phase 17 Milestone A)
 
 `docker-compose.yml` mounts a vault at `/data/vault` by DEFAULT, so a plain
@@ -551,18 +593,29 @@ cookies, constant-time compares).
 content-negotiates:
 
 - **Default (no special `Accept`)**: raw bytes of the pinned blob.
-  `Content-Type: text/plain; charset=utf-8` **always**, regardless of the
-  share's `render_mode` or the original file's extension —
-  `X-Content-Type-Options: nosniff`, a locked-down
-  `Content-Security-Policy`, `Content-Disposition: inline`. This is true
-  for BOTH `render_mode="raw"` and `render_mode="rendered"` shares —
-  `render_mode` is metadata the client uses to decide how to *display* the
-  content, not something this endpoint enforces on the wire format. The one
-  exception (Phase 10.5a, roadmap §5.4): a real browser navigation
-  (`Accept: text/html`) instead gets the built SPA's `index.html` — for a
-  `render_mode="rendered"` file share, ANY folder share, AND every DENIED
-  request (bogus/revoked/expired/restricted/password-required/unresolvable
-  relpath — see "Every deny reason is the SAME 404" below: this is a
+  `Content-Type` is decided by SNIFFING the blob's bytes — never
+  `Blob.media_type_hint` (client-declared, untrusted), never derived from
+  `source_path`'s extension alone — and is always exactly one of two
+  values: `text/plain; charset=utf-8` for content that decodes as UTF-8
+  with no embedded NUL in its first 8KB, or `application/octet-stream` for
+  anything else (a known-binary extension on `source_path` can push an
+  otherwise-clean sniff toward binary, as a secondary signal only — never
+  the other way, and never toward any third value). `text/html` is
+  structurally unreachable on this path, by construction (`§4.1`,
+  `docs/PLAN-2026-09-05-refresh.md`). Also set: `X-Content-Type-Options:
+  nosniff`, a locked-down `Content-Security-Policy`, and
+  `Content-Disposition: inline; filename="<basename>"` — `<basename>` is
+  the sanitized basename of `source_path` (control characters, quotes, and
+  any path separator stripped; falls back to the share's slug if that
+  sanitizes to empty). Add `?download=1` to the URL to get `attachment`
+  instead of `inline`. This is true for BOTH `render_mode="raw"` and
+  `render_mode="rendered"` shares — `render_mode` is metadata the client
+  uses to decide how to *display* the content, not something this endpoint
+  enforces on the wire format. The one exception (Phase 10.5a, roadmap
+  §5.4): a real browser navigation (`Accept: text/html`) instead gets the
+  built SPA's `index.html` — for a `render_mode="rendered"` file share AND
+  every DENIED request (bogus/revoked/expired/restricted/password-required
+  — see "Every deny reason is the SAME 404" below: this is a
   navigation-level widening of that section, not an exception to it, since
   the shell bytes returned are identical across every one of those reasons
   and carry no information about which one applied). The SPA then
@@ -574,7 +627,9 @@ content-negotiates:
   contract (see `app/schemas.py`) — `slug`, `alias`, `source_path`,
   `render_mode`, `media_type_hint`, `blob_id`, `size`, `live`, `content`
   (UTF-8 text, or base64 with `content_encoding: "base64"` for non-UTF-8
-  blobs), `created_at`, `last_access_at`, `hit_count`. `X-Content-Type-
+  blobs), `created_at`, `last_access_at`, `hit_count`, plus (§5,
+  `docs/PLAN-2026-09-05-refresh.md`) **`links`** and **`back_link`** — see
+  "Dynamic link map and back link" below for both. `X-Content-Type-
   Options: nosniff` is set here too; the server never inlines share content
   into an HTML document itself.
 
@@ -590,74 +645,147 @@ valid path to the same JSON — `share/ShareApp.tsx` uses the root route's own
 either way).
 
 **`hit_count`/`last_access_at` counting (DESIGN-SPEC Amendments round 7 item
-59).** The HTML shell response above is NEVER the counted point, for either
-a file or a folder share — it's an unreliable signal to count on, since a
-dev/preview proxy's navigation bypass, or a PWA service worker caching the
-shell, both mean this backend can legitimately never see that particular
-request at all (an earlier version of this fix tried counting the shell
-via a referer check and broke exactly this way: with nothing but the SPA's
-own always-self-referring content re-fetch ever reaching the server, hits
-stayed at 0 forever). Instead:
-
-- The bare `/share/{identifier}` ROOT route (file or folder) counts
-  UNCONDITIONALLY on every content-bearing response it returns — raw
-  bytes, the file's JSON, or the folder's root listing — self-referer or
-  not. A reload is legitimately another open, so there's no dedup here at
-  all; this is also what makes the proxy/SW case above work, since the
-  content re-fetch alone is enough to count.
-- RELPATH-addressed folder GETs (`/share/{identifier}/{relpath}`, i.e. a
-  subdirectory listing or a file inside the folder) DO dedup:
-  `app/routers/share_public.py::_is_share_followup_request` skips the
-  increment when the request's `Referer` already points back at this same
-  share's own `/share/{identifier}...` page (default browser `fetch()`
-  behavior, no client cooperation needed) — that's `share/ShareApp.tsx`
-  browsing further inside an already-open share, not a new hit. A direct
-  deep-link fetch with no such referer (a script, curl, a link from
-  elsewhere) still counts.
-- The CORS-enabled `/api/share/{identifier}/content[...]` twins follow the
-  same root-vs-relpath split.
+59).** The HTML shell response above is NEVER the counted point — it's an
+unreliable signal to count on, since a dev/preview proxy's navigation
+bypass, or a PWA service worker caching the shell, both mean this backend
+can legitimately never see that particular request at all (an earlier
+version of this fix tried counting the shell via a referer check and broke
+exactly this way: with nothing but the SPA's own always-self-referring
+content re-fetch ever reaching the server, hits stayed at 0 forever).
+Instead, the bare `/share/{identifier}` route (and its CORS-enabled
+`/api/share/{identifier}/content` twin) counts UNCONDITIONALLY on every
+content-bearing response it returns — raw bytes or the JSON content — self-
+referer or not. A reload is legitimately another open, so there's no dedup
+here at all; this is also what makes the proxy/SW case above work, since
+the content re-fetch alone is enough to count.
 
 The Shared panel's "Hits" column header says what counts, in a tooltip.
+
+**Reserved aliases and expiry (§4.5, `docs/PLAN-2026-09-05-refresh.md`).**
+`POST /api/shares` and `PATCH /api/shares/{id}` both reject an alias that
+matches, case-insensitively, `api`, `share`, `git`, or `assets` (every real
+top-level route prefix this server mounts, plus the SPA's static-asset
+directory) with a `422`; a colliding alias (against another share's alias
+OR slug) is a clean `409`, not a raw `IntegrityError` `500`. `expires_at` is
+always epoch seconds (timezone-free by construction) and is treated as
+expired only once it's more than 60 seconds in the past
+(`policy.EXPIRY_SKEW_SECONDS`) — a small grace window for clock drift, not
+a timezone workaround.
+
+**Auth matrix enforced server-side (§4.6).** `auth_mode="password"` on a
+`render_mode="raw"` share is rejected at `POST /api/shares` and `PATCH
+/api/shares/{id}` with a `422` — there's no UI surface to type a password
+against a raw byte stream. Rendered shares may use any of
+`none`/`password`/`token`; `general_access="restricted"` (sign-in) is
+orthogonal to all three and unaffected by this rule.
 
 `POST /share/{identifier}/auth` — `{"password": "..."}` → `200 {"ok": true}`
 + sets a signed, `HttpOnly`/`Secure`/`SameSite=Lax` session cookie scoped to
 `Path=/share/{slug}` on success. Wrong password AND a nonexistent slug both
-return the identical `404 {"detail": "Not found"}`.
+return the identical `404 {"detail": "Not found"}`; this route is also the
+one `VSNOTE_RATE_LIMIT_SHARE_AUTH`-throttled endpoint (default `5/minute`)
+— exhausting it returns `429` for a real share and a nonexistent one alike
+(keyed by caller IP, not by slug), so throttling never leaks whether a slug
+names a real record.
 
 `PUT /share/{identifier}` — editor role only. Body is the raw new content;
 creates a new content-addressed blob and repoints the share at it. Same
-gate, same opaque denial shape for anyone who isn't an editor. 404s
-unconditionally for a folder share (`kind=="folder"`) — public editor
-write-back for folders isn't built yet, see `docs/ARCHITECTURE.md`'s
-"Folder shares (Phase 10.5)" section.
+gate, same opaque denial shape for anyone who isn't an editor.
 
-### Folder shares (Phase 10.5, roadmap §5.1)
+### Per-share bearer tokens (§4.2, `docs/PLAN-2026-09-05-refresh.md`)
 
-`GET /share/{identifier}/{relpath:path}` resolves a path inside a
-`kind=="folder"` share's snapshot manifest — a file (raw/JSON, same
-content-negotiation as above) or a directory (always JSON, a plain
-listing). `GET /share/{identifier}` on a folder share is always the
-subtree ROOT listing, never a specific file. Both twinned under
-`/api/share/{identifier}/content[/relpath]` for the CORS-enabled route.
-Resolution is an EXACT string match against that share's manifest rows
-(`(share_id, relpath)`) — no filesystem access, no path normalization, no
-join — so `..`, an absolute path, an encoded/double-encoded traversal
-string, a backslash variant, an excluded entry, and a relpath from a
-DIFFERENT share all fail for the identical reason ("no row matched") and
-all produce the exact same uniform 404 as every other deny state above.
-Full design + the resolution matrix that proves this: `app/routers/
-share_public.py`'s module docstring, `app/models.py`'s `ShareManifestEntry`
-docstring, `tests/test_folder_shares.py`, and `docs/ARCHITECTURE.md`'s
-"Folder shares (Phase 10.5)" section.
+`auth_mode="token"` visitor credentials are now scoped to exactly ONE
+share, never the owner's account-wide `ApiToken`s. Owner-side (behind the
+app auth gate, `share-admin` scope, same "share you don't own 404s
+uniformly" contract as every other `/api/shares/{id}/...` route):
+
+- `POST /api/shares/{id}/tokens` — `{"label": "optional label"}` → `201`
+  with the PLAINTEXT token, returned exactly once:
+  ```json
+  {"id": 1, "prefix": "vsn_AbCdEfGh", "label": "curl script", "token": "vsn_...", "created_at": 1234.5}
+  ```
+- `GET /api/shares/{id}/tokens` — lists `{id, prefix, label, created_at,
+  last_used_at, revoked_at}` for every token minted on that share; the
+  secret and its hash are never returned.
+- `DELETE /api/shares/{id}/tokens/{token_id}` — revokes one token
+  immediately. Rotation is mint-new then revoke-old (two calls) rather
+  than a dedicated `/rotate` endpoint — there's no atomicity requirement
+  here, and a brief overlap where both tokens work is strictly safer than
+  a gap where neither does.
+
+Using the token as a visitor:
+
+```
+curl -H 'Authorization: Bearer vsn_AbCdEfGh...' https://<host>/share/<slug>
+```
+
+A revoked or unknown token denies with the exact same uniform `404` as
+every other deny reason. The owner's own account-wide `/api/auth/tokens`
+keep working for the owner's `/api/*` calls exactly as before — they are
+explicitly NOT accepted as visitor credentials for any share, token-mode
+or otherwise.
+
+### Dynamic link map and back link (§5, `docs/PLAN-2026-09-05-refresh.md`)
+
+A rendered share's JSON content response (`ShareContentOut`) carries two
+extra fields, both computed fresh on every fetch with zero filesystem
+access (see `app/linkmap.py`'s module docstring for the full argument):
+
+- **`links`**: `{written-link-target: share-url-path}` — every relative
+  markdown link in the content that resolves, by vault-relative path, to
+  one of the OWNER's other active (not revoked, not expired,
+  `render_mode="rendered"`) shares. Keyed by the link exactly as written
+  (e.g. `"./part-2.md"`), so the client can do a literal string rewrite.
+  An unresolvable link (points at a file that isn't shared, or is shared
+  by someone else) is simply absent — no placeholder, no error. Sharing a
+  new post makes existing links to it resolve on the NEXT fetch, no
+  republish; revoking a share breaks links to it just as immediately.
+  Password/token/restricted targets ARE included — the link is a
+  capability URL that still enforces its own policy when followed.
+- **`back_link`**: `{"href": "/share/<id>", "label": "..."}` or `null`.
+  Present only when the share's `back_link` field (a slug/alias string,
+  set at publish/patch time — see below) points at a share that's still
+  live (not revoked, not expired); `label` is that target's first H1 or
+  its `source_path` basename. A stale `back_link` (target renamed,
+  revoked, deleted) silently produces `null` rather than an error.
+
+`show_title` and `back_link` are both plain fields on `ShareCreateIn` /
+`SharePatchIn` / `ShareOut` now — `show_title: bool` (default `false`) and
+`back_link: Optional[str]` (a slug or alias, default unset; `PATCH` with
+`back_link: ""` clears it, omitting the field leaves it unchanged).
+
+**`show_title` and the shell's `<title>`/OG meta — read this before
+building the reader page.** A share route's SPA-shell HTML gains a
+`<title>` and a couple of `og:*` meta tags ONLY when ALL THREE hold: (a)
+`show_title` is `true` on that share, (b) `auth_mode` is `"none"`, and (c)
+the request actually resolved (not a deny). In EVERY other case — the
+toggle off, any password/token auth mode even with the toggle on, and
+every single deny reason — the shell bytes are BYTE-IDENTICAL to a share
+with the toggle off, which is itself byte-identical to a 404. This is not
+a client concern to reimplement: it's a server-only behavior that exists
+specifically so turning "Show title" on can never become a way to probe
+whether a protected link exists. The title text is the share's first H1,
+falling back to the basename of `source_path`, HTML-escaped before being
+spliced into the shell.
+
+**Folder shares were removed entirely, 2026-09-05**
+(`docs/PLAN-2026-09-05-refresh.md` §4.4) — sharing is single-file only
+again. Any request shaped like the old folder route
+(`/share/{identifier}/<anything>`, any method) now denies uniformly, the
+same as every other deny reason (`app/routers/share_public.py`'s
+`share_subpath_removed`) — never a distinct "route not found" shape, never
+reachable at all. See `docs/ARCHITECTURE.md`'s "Folder shares (Phase
+10.5) — SUPERSEDED" section for the full history. There is deliberately no
+migration for databases that predate the removal.
 
 ### Every deny reason is the SAME 404 — read this before building the share page
 
 **Phase 10.5a scoping note**: this section describes the JSON contract — every
 claim below holds exactly as written for `Accept: application/json` (or no
 `Accept` header at all). A real BROWSER NAVIGATION (`Accept: text/html`) to
-`GET /share/{id}[/{relpath}]` gets the built SPA's `index.html` instead, for
-every deny reason listed below AND for a successful rendered-mode/folder
-share alike — see "Public share contract" above's first bullet and
+`GET /share/{id}` gets the built SPA's `index.html` instead, for
+every deny reason listed below AND for a successful rendered-mode share
+alike — see "Public share contract" above's first bullet and
 `docs/ARCHITECTURE.md`'s "Single-origin deployment (Phase 10.5a)" section for
 why that's a widening of this section's own uniformity guarantee (one MORE
 class collapsed into the identical shell), not an exception to it. The SPA

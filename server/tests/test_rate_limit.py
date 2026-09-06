@@ -20,7 +20,7 @@ def test_share_auth_endpoint_rate_limited(make_app, make_settings):
     db.close()
     owner_client.post("/api/auth/login", json={"username": "owner", "password": "pw1234567"})
 
-    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
+    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw", render_mode="rendered")
 
     anon = TestClient(app)
     r1 = anon.post(f"/share/{share['slug']}/auth", json={"password": "wrong"})

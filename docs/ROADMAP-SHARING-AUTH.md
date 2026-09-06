@@ -27,6 +27,15 @@ overrides earlier sections where they touch the same topic.
   default, with an opt-in "live" toggle that tracks the working file. Default
   snapshot = no accidental leaking of later edits.
 
+> **AMENDED 2026-09-05** (§4.2, `docs/PLAN-2026-09-05-refresh.md`): `Show title`
+> is an explicit, OPT-IN publication of the document's title — off by
+> default per share. Turning it on for a `none`-auth share deliberately
+> exposes that share's H1 (or filename) in the page's `<title>`/OG meta; it
+> changes nothing for a password/token/restricted share (title injection is
+> gated on `auth_mode == "none"` too — see `docs/ARCHITECTURE.md`'s "Per-
+> share tokens, the dynamic link map, and conditional title/OG meta"
+> section for the exact three-condition guard and the test that pins it).
+
 ### Security posture (fortified — non-negotiable)
 - Server never serves vault paths; it serves share records (slug → blob/commit ref +
   policy) from its own store. Path traversal is structurally impossible: no
@@ -60,6 +69,20 @@ overrides earlier sections where they touch the same topic.
   - (later) Cloudflare Access service tokens for machine-to-machine.
 - Sessions: short-lived signed session cookie after any successful share auth,
   scoped to that slug only (`Path=/share/<slug>`).
+
+> **AMENDED 2026-09-05** (§4.2, `docs/PLAN-2026-09-05-refresh.md`): "bearer
+> token (for scripts/curl)" above originally meant ANY of the owner's
+> account-wide API tokens — a real gap, since one leaked script token then
+> unlocked every token-mode share AND the owner's own `/api/*` automation.
+> Bearer tokens are now PER-SHARE (`models.ShareToken`, minted/listed/
+> revoked at `/api/shares/{id}/tokens`, owner-only, `share-admin` scope):
+> a token minted for one share authenticates ONLY that share. The owner's
+> account-wide API tokens (`ApiToken`) keep working for the owner's own
+> `/api/*` calls exactly as before — they are explicitly, and now
+> structurally, NOT visitor credentials for any share. See
+> `docs/ARCHITECTURE.md`'s sharing section and `server/README.md`'s
+> "Public share contract" for the `curl -H 'Authorization: Bearer ...'`
+> shape this produces.
 
 ## 3. Backend stack
 
@@ -115,6 +138,14 @@ templates, saved searches, quick capture / web clipper. Do not build.
 ## 5. Amendments 2026-08-15 (evening) — user decisions round 2
 
 ### 5.1 Folder ("group") shares — approved
+
+> **SUPERSEDED 2026-09-05.** Folder shares were removed entirely per
+> `docs/PLAN-2026-09-05-refresh.md` §4.4 — sharing is single-file only again.
+> The decision below (and everything under it) is kept as HISTORY, not
+> current policy; see `docs/ARCHITECTURE.md`'s "Folder shares (Phase
+> 10.5) — SUPERSEDED, removed 2026-09-05" section for what was removed and
+> why. There is deliberately no data migration.
+
 - Publishing a **folder** creates ONE share with ONE opaque slug:
   `/share/<slug>/` is the subtree root, and files resolve at their vault-relative
   paths beneath it (`/share/<slug>/notes/queue.md`). NEVER expose real vault

@@ -29,17 +29,16 @@ the client team.
 
 --- Phase 10.5a: single-origin SPA serving, roadmap §5.4 --------------------
 
-A real browser navigation (`Accept: text/html`) to `GET /share/{id}` or
-`GET /share/{id}/{relpath}` gets the built SPA's `index.html` instead of this
-route's raw/JSON response — for EVERY outcome: a successful rendered-mode
-file share, ANY folder share (success), AND every deny reason (bogus slug,
-revoked, expired, restricted, password-required-with-no-session, an
-unresolvable relpath — see `_deny_response`'s doc for why widening this to
-cover denials too, rather than keeping denials JSON-only, is what makes
+A real browser navigation (`Accept: text/html`) to `GET /share/{id}` gets
+the built SPA's `index.html` instead of this route's raw/JSON response —
+for EVERY outcome: a successful rendered-mode file share, AND every deny
+reason (bogus slug, revoked, expired, restricted, password-required-with-
+no-session — see `_deny_response`'s doc for why widening this to cover
+denials too, rather than keeping denials JSON-only, is what makes
 password-protected/private links actually usable through a cold browser
 navigation, and why it makes the navigation-level oracle STRICTLY narrower,
 not wider). The ONE exception, non-negotiable: a successful RAW-mode file
-share always returns `text/plain` unconditionally, browser or not, per
+share always returns raw bytes unconditionally, browser or not, per
 roadmap §1's "a raw share must never execute" — `_wants_html` is checked
 there but the branch is gated on `render_mode == "raw"` failing, not on
 `Accept`. A non-browser caller that never sends `Accept: text/html` (no
@@ -47,48 +46,43 @@ header, `Accept: application/json`, curl's plain `*/*`) is completely
 unaffected either way — same raw/JSON responses as before this phase,
 including the byte-identical uniform 404 for every deny reason.
 
---- Phase 10.5: folder ("group") shares, roadmap §5.1 -----------------------
+--- §4.4: folder shares removed (2026-09-05) --------------------------------
 
-A `kind=="folder"` Share has no single `blob_id`; its content is a snapshot
-manifest (`models.ShareManifestEntry` rows, one per INCLUDED file, keyed by
-`(share_id, relpath)`). `GET /share/{identifier}/{relpath:path}` (added
-below, `build_folder_router`) resolves a path inside that manifest with ONE
-exact-string-match DB query — `_manifest_entry()` — no normalization
-(`os.path`/`pathlib`), no filesystem access, no path joining of any kind.
-That is the entire security argument for why traversal is structurally
-impossible rather than merely sanitized against: `..`, an absolute path
-(`/etc/passwd`), a URL-encoded or double-encoded traversal string, a
-backslash variant, and a relpath that's real but belongs to a DIFFERENT
-share's manifest all fail for the exact same reason an unknown or excluded
-path does — no row in `share_manifest_entries` has that `(share_id,
-relpath)` pair — and therefore all fall through to the identical
-`policy.not_found_response()` every other deny reason in this module uses.
-See `models.ShareManifestEntry`'s docstring and `docs/ARCHITECTURE.md`'s
-"Folder shares" section for the full writeup, and
-`tests/test_folder_shares.py` for the resolution matrix this claim is tested
-against (extended into `test_policy_gate.py`'s existing equivalence-matrix
-tests too, so the new routes are covered by the same single-fingerprint
-assertion as every Phase 9 deny state).
+This module used to also serve `kind=="folder"` shares — a whole subtree
+snapshot resolved by exact-match manifest lookup, with its own listing/
+directory routes and a public editor write-back for files inside the tree.
+That entire feature was removed 2026-09-05 (docs/PLAN-2026-09-05-refresh.md
+§4.4; see docs/ARCHITECTURE.md's superseded "Folder shares (Phase 10.5)"
+section for the full history and docs/ROADMAP-SHARING-AUTH.md §5.1's
+SUPERSEDED marker). Every share is a single pinned blob again — there is no
+`{relpath:path}` route on `/share/{identifier}` anymore, and a request
+shaped like one (`/share/<slug>/anything`) simply doesn't match any route
+this module registers, which FastAPI 404s on its own terms (still never
+distinguishable from a policy-gate deny at the JSON layer — see
+`tests/test_folder_shares_removed.py`). There is deliberately no migration
+for databases that predate the removal.
 
-Directory listings (`_listing_for_prefix`) are the one place this module
-does more than an exact match — enumerating a share's manifest rows that
-share a path prefix, to build a plain listing (roadmap: "no README
-special-casing... folder URLs show a plain listing", "must not inline user
-content into HTML server-side"). This still never leaves the manifest: the
-query is `WHERE share_id = ?`, so it can only ever enumerate rows that
-already belong to the share the caller was granted access to — an unknown
-or excluded prefix (no matching rows) returns `None`, same as an unknown
-file, same uniform 404.
+--- §4.1: raw = bytes -------------------------------------------------------
+
+A raw share's Content-Type is decided by SNIFFING THE BLOB, never by
+`Blob.media_type_hint` (client-declared, untrusted — see that field's
+docstring) and never by deriving anything from the file's extension alone.
+The allowed output set is EXACTLY two values: `text/plain; charset=utf-8`
+for content that decodes as UTF-8 with no embedded NUL, and
+`application/octet-stream` for anything else. No other Content-Type is ever
+emitted here, in particular never `text/html` or any other ACTIVE type —
+see `_raw_content_type` below and `tests/test_raw_mode.py`.
 """
 
 from __future__ import annotations
 
 import base64
-from pathlib import Path
 import hashlib
+import html as html_escape
+import re
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from urllib.parse import urlsplit
+from pathlib import Path
+from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -99,24 +93,100 @@ from .. import models, policy, schemas, security
 from ..audit import write_audit_event
 from ..auth import AuthDeps
 from ..config import Settings
+from ..linkmap import compute_link_map, resolve_back_link, title_for
 from ..runtime_settings import get_max_blob_bytes
 from ..vaultcommit import commit_share_edit
 
-# Module-level constant, used UNCONDITIONALLY for the raw response — it is
-# structurally impossible for this endpoint to emit text/html because this
-# is the only Content-Type value any raw-mode code path ever passes to
-# Response(). See tests/test_raw_mode.py::test_raw_never_html_even_for_html_payload.
-RAW_CONTENT_TYPE = "text/plain; charset=utf-8"
+# --- §4.1: raw content-type sniffing ----------------------------------------
+#
+# The allowed output set for a raw response's Content-Type is EXACTLY these
+# two values — nothing else is ever passed to Response() on this path. Text
+# stays text/plain (browsers/curl/scripts can read it inline); anything that
+# looks binary gets application/octet-stream so a browser downloads it
+# instead of trying to render it. `media_type_hint` is NEVER consulted here
+# (see models.Blob's docstring) — the extension of `source_path` is checked
+# only as a SECONDARY signal that can push an ambiguous sniff toward
+# "binary", never toward "text", and never toward any THIRD value.
+RAW_TEXT_CONTENT_TYPE = "text/plain; charset=utf-8"
+RAW_BINARY_CONTENT_TYPE = "application/octet-stream"
+
+_SNIFF_WINDOW_BYTES = 8192
+
+# Extensions that are unambiguously binary formats even when their bytes
+# happen to be valid UTF-8 by coincidence (rare, but not impossible for
+# small/degenerate files) — a secondary signal only, see the module
+# docstring above.
+_BINARY_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".avif",
+    ".pdf", ".zip", ".gz", ".tar", ".7z", ".rar",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".mp3", ".mp4", ".mov", ".webm", ".wav", ".ogg",
+    ".exe", ".dll", ".so", ".bin", ".wasm",
+}
+
+
+def _raw_content_type(content: bytes, source_path: str) -> str:
+    """Sniff `content` to decide the raw response's Content-Type. A NUL
+    byte in the first `_SNIFF_WINDOW_BYTES` bytes, or a failed strict
+    UTF-8 decode of the whole blob, means binary; a known binary extension
+    on `source_path` forces binary even for a sniff that came back clean
+    (defense in depth against a coincidentally-valid-UTF-8 binary file) —
+    but nothing here can ever push the result the OTHER way, toward text or
+    toward any value outside the two-member allowed set above."""
+    if b"\x00" in content[:_SNIFF_WINDOW_BYTES]:
+        return RAW_BINARY_CONTENT_TYPE
+    try:
+        content.decode("utf-8")
+    except UnicodeDecodeError:
+        return RAW_BINARY_CONTENT_TYPE
+    ext = Path(source_path).suffix.lower()
+    if ext in _BINARY_EXTENSIONS:
+        return RAW_BINARY_CONTENT_TYPE
+    return RAW_TEXT_CONTENT_TYPE
+
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _sanitize_filename(source_path: str, fallback: str) -> str:
+    """The basename of `source_path`, with control characters, quotes, and
+    any path separator stripped — it must never contain a slash (that's
+    what makes it safe to drop straight into a `Content-Disposition`
+    header's quoted-string). Falls back to `fallback` (the share's slug)
+    when the result sanitizes to empty (e.g. `source_path` was itself just
+    `"/"` or entirely control characters)."""
+    basename = source_path.replace("\\", "/").rsplit("/", 1)[-1]
+    basename = _CONTROL_CHARS_RE.sub("", basename).replace('"', "").strip()
+    basename = basename.replace("/", "")
+    return basename or fallback
+
+
+def _content_disposition(source_path: str, slug: str, *, download: bool) -> str:
+    """RFC 6266 `Content-Disposition` value — `inline` by default,
+    `attachment` when `?download=1` is present (see `_wants_download`).
+    The filename is quoted with backslash/quote escaped per the RFC, on top
+    of `_sanitize_filename`'s own stripping."""
+    filename = _sanitize_filename(source_path, slug)
+    escaped = filename.replace("\\", "\\\\").replace('"', '\\"')
+    disposition = "attachment" if download else "inline"
+    return f'{disposition}; filename="{escaped}"'
+
 
 RAW_SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; sandbox",
-    "Content-Disposition": "inline",
 }
 
 JSON_SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
 }
+
+
+def _raw_response(share: "models.Share", blob: "models.Blob", *, download: bool) -> Response:
+    content_type = _raw_content_type(blob.content, share.source_path)
+    headers = dict(RAW_SECURITY_HEADERS)
+    headers["Content-Disposition"] = _content_disposition(share.source_path, share.slug, download=download)
+    return Response(content=blob.content, media_type=content_type, headers=headers)
 
 
 def _wants_json(request: Request) -> bool:
@@ -130,32 +200,68 @@ def _wants_html(request: Request) -> bool:
     built SPA's `index.html` instead of this route's normal raw/JSON
     response. Deliberately NOT "absence of `application/json`": a plain
     curl/script with no `Accept` header at all must keep getting the
-    documented default (raw bytes for a file, the JSON listing for a
-    folder — see `server/README.md`'s "Public share contract") exactly as
-    before this phase. Only an explicit `text/html` preference is treated
-    as "this is a page load, hand back the app shell.\""""
+    documented default (raw bytes — see `server/README.md`'s "Public share
+    contract") exactly as before this phase. Only an explicit `text/html`
+    preference is treated as "this is a page load, hand back the app
+    shell.\""""
     accept = request.headers.get("accept", "")
     return "text/html" in accept
 
 
-def _spa_shell_response(request: Request) -> Optional[Response]:
+def _wants_download(request: Request) -> bool:
+    return request.query_params.get("download") == "1"
+
+
+def _inject_meta_title(html: bytes, title: str) -> bytes:
+    """Splice an escaped `<title>` + a couple of OG tags in right before
+    `</head>` (case-insensitive search, case-preserving splice). `title` is
+    ATTACKER-INFLUENCED (it comes from the share's own markdown content, see
+    `_shell_meta_title_for` below) so it is HTML-escaped here, unconditionally,
+    before it ever touches the response body. If no `</head>` is found (a
+    malformed or unexpected shell), the shell is returned byte-for-byte
+    unchanged rather than guessing where else to splice — never crash, never
+    silently corrupt the shell."""
+    idx = html.lower().find(b"</head>")
+    if idx == -1:
+        return html
+    escaped = html_escape.escape(title, quote=True)
+    tags = (
+        f"<title>{escaped}</title>"
+        f'<meta property="og:title" content="{escaped}">'
+        f'<meta property="og:type" content="article">'
+    ).encode("utf-8")
+    return html[:idx] + tags + html[idx:]
+
+
+def _spa_shell_response(request: Request, *, meta_title: Optional[str] = None) -> Optional[Response]:
     """Single-origin refactor (Phase 10.5a, roadmap §5.4): FastAPI is now
     also the SPA's own web server (`main.py`'s `app.state.spa_index_html`),
-    so a real browser navigating to `/share/<slug>[/<relpath>]` needs to
-    land on the app shell (which then re-fetches this exact same content
-    via `share/ShareApp.tsx`'s own `Accept: application/json` request), not
-    the raw bytes / JSON this route serves to non-browser callers.
+    so a real browser navigating to `/share/<slug>` needs to land on the
+    app shell (which then re-fetches this exact same content via
+    `share/ShareApp.tsx`'s own `Accept: application/json` request), not the
+    raw bytes / JSON this route serves to non-browser callers.
 
-    Called from BOTH the success path (`get_share`/`get_share_path`/
-    `_render_folder_resolution`, for a rendered-mode file share or ANY
-    folder share) AND the deny path (`_deny_response` below, for EVERY
-    deny reason — bogus slug, revoked, expired, password-required-with-no-
-    session, wrong role, unresolvable relpath). Content-independent: the
-    exact same `app.state.spa_index_html` bytes are returned in every case,
-    with no slug/policy/error detail ever baked into it — see
-    `_deny_response`'s doc for why serving this UNCONDITIONALLY for
-    `Accept: text/html` is what actually closes the existence oracle for
-    navigation, rather than reopening one.
+    Called from BOTH the success path (`get_share`, for a rendered-mode
+    file share) AND the deny path (`_deny_response` below, for EVERY deny
+    reason — bogus slug, revoked, expired, password-required-with-no-
+    session, wrong role). Content-independent: the exact same
+    `app.state.spa_index_html` bytes are returned in every case, with no
+    slug/policy/error detail ever baked into it — see `_deny_response`'s
+    doc for why serving this UNCONDITIONALLY for `Accept: text/html` is
+    what actually closes the existence oracle for navigation, rather than
+    reopening one.
+
+    `meta_title` is the ONE exception to "content-independent", and it is
+    deliberately an opt-in keyword only the SUCCESS path in `get_share` ever
+    passes (see that call site's `_shell_meta_title_for` guard for the exact
+    three-condition rule — show_title on, auth_mode none, access already
+    resolved). `_deny_response` NEVER passes it, on purpose: a deny means
+    access did NOT resolve, so there is no share to safely name here even if
+    its `show_title`/`auth_mode` happened to qualify — passing `meta_title`
+    on any deny path would reopen exactly the existence oracle this function
+    exists to keep closed. When `meta_title` is `None` (the default, and the
+    only value the deny path ever uses), the returned bytes are BYTE-
+    IDENTICAL to before this parameter existed.
 
     Returns `None` (never raises) when the SPA hasn't been built yet
     (`app.state.spa_index_html` unset — `main.py` logs this at startup) so
@@ -169,49 +275,61 @@ def _spa_shell_response(request: Request) -> Optional[Response]:
         path = getattr(request.app.state, "spa_index_path", None)
         if path is None:
             return None
-        return Response(content=Path(path).read_bytes(), media_type="text/html; charset=utf-8", headers={"X-Content-Type-Options": "nosniff"})
+        html = Path(path).read_bytes()
+    if meta_title is not None:
+        html = _inject_meta_title(html, meta_title)
     return Response(content=html, media_type="text/html; charset=utf-8", headers={"X-Content-Type-Options": "nosniff"})
 
 
+def _shell_meta_title_for(share: "models.Share", blob: "models.Blob") -> str:
+    """The title text for `_inject_meta_title` — first H1 of the share's
+    markdown, falling back to the basename of `source_path` (same rule
+    `app/linkmap.py::title_for` uses for a back link's label, reused here
+    verbatim). Escaping happens in `_inject_meta_title`, not here — this
+    returns plain text only."""
+    try:
+        markdown = blob.content.decode("utf-8")
+    except UnicodeDecodeError:
+        markdown = None
+    return title_for(share, markdown)
+
+
 def _deny_response(request: Request, exc: "Optional[policy.PolicyDenied]") -> Response:
-    """The single place every deny reason on `GET /share/{id}[/{relpath}]`
-    becomes an HTTP response (bogus/malformed slug, revoked, expired,
-    restricted-no-identity, wrong role, password-required-with-no-session,
-    an unresolvable folder relpath — literally every branch that used to
-    call `policy.denial_response(exc)`/`policy.not_found_response()`
-    directly). Two possible outcomes, chosen ONLY by `Accept`, never by the
-    deny reason itself:
+    """The single place every deny reason on `GET /share/{id}` becomes an
+    HTTP response (bogus/malformed slug, revoked, expired,
+    restricted-no-identity, wrong role, password-required-with-no-session
+    — literally every branch that used to call
+    `policy.denial_response(exc)`/`policy.not_found_response()` directly).
+    Two possible outcomes, chosen ONLY by `Accept`, never by the deny
+    reason itself:
 
     - A real browser navigation (`_wants_html`, and NOT also asking for
       JSON) gets the SPA shell — UNCONDITIONALLY, the identical bytes for
       every single deny reason, exactly the same bytes a SUCCESSFUL
-      rendered-mode/folder share's navigation gets too (`_spa_shell_
-      response` above). This is a deliberate widening from this phase's
-      original, more conservative design (deny always JSON, no exceptions)
-      — caught in review: that design made password-protected/revoked/
-      expired/bogus links literally unusable in the single-origin
-      deployment, since a cold browser navigation could never reach the
-      SPA's own password-prompt UI at all (`ShareApp.tsx`'s "unavailable,
-      or it requires a password" state — see that file's doc — never gets
-      a chance to mount). Serving the shell here instead makes navigation
+      rendered-mode share's navigation gets too (`_spa_shell_response`
+      above). This is a deliberate widening from this phase's original,
+      more conservative design (deny always JSON, no exceptions) — caught
+      in review: that design made password-protected/revoked/expired/
+      bogus links literally unusable in the single-origin deployment,
+      since a cold browser navigation could never reach the SPA's own
+      password-prompt UI at all (`ShareApp.tsx`'s "unavailable, or it
+      requires a password" state — see that file's doc — never gets a
+      chance to mount). Serving the shell here instead makes navigation
       STRICTLY MORE private, not less: previously a plain
       `curl -H 'Accept: text/html'` could distinguish "real, accessible,
-      rendered/folder share" (200 HTML) from "anything denied" (404 JSON)
-      from "real raw-mode share" (200 text/plain) — three classes. Now
-      every deny reason AND every rendered/folder success collapse into
-      ONE identical 200-HTML class; only a successful RAW-mode share still
-      stands apart (200 text/plain — see `get_share`'s own doc for why
-      that one case is excluded, non-negotiably, on its own terms).
+      rendered share" (200 HTML) from "anything denied" (404 JSON) from
+      "real raw-mode share" (200 raw bytes) — three classes. Now every
+      deny reason AND every rendered success collapse into ONE identical
+      200-HTML class; only a successful RAW-mode share still stands apart
+      (200 raw bytes — see `get_share`'s own doc for why that one case is
+      excluded, non-negotiably, on its own terms).
     - Every other request (no `Accept` at all — the documented default —
       or an explicit `Accept: application/json`) gets the byte-identical
       JSON `404 {"detail":"Not found"}`, UNCHANGED from before this
       widening: `tests/test_policy_gate.py`'s equivalence-matrix tests
       (httpx's default carries no `Accept` header at all) exercise exactly
       this branch and are completely unaffected by the change above.
-
-    `exc=None` covers the "access already granted, but this specific
-    relpath/kind doesn't resolve" family (unresolvable folder relpath, a
-    file share hit with a sub-path) — same treatment, no distinct shape."""
+    """
     if _wants_html(request) and not _wants_json(request):
         shell = _spa_shell_response(request)
         if shell is not None:
@@ -239,8 +357,15 @@ def _decode_content(blob: "models.Blob") -> Tuple[str, str]:
         return base64.b64encode(blob.content).decode("ascii"), "base64"
 
 
-def _content_payload(share: "models.Share", blob: "models.Blob", role: Optional[str] = None) -> dict:
+def _content_payload(db: Session, share: "models.Share", blob: "models.Blob", role: Optional[str] = None) -> dict:
     content, encoding = _decode_content(blob)
+    # §5 — the link map and back link are computed fresh on every fetch,
+    # straight off the current DB rows (see app/linkmap.py's module
+    # docstring): no republish needed for a sibling share to start/stop
+    # resolving, and both are harmless no-ops for a raw share or plain text
+    # (a link map over content with no markdown-link syntax is just {}).
+    links = compute_link_map(db, share, content) if encoding == "utf-8" else {}
+    resolved_back = resolve_back_link(db, share)
     out = schemas.ShareContentOut(
         slug=share.slug,
         role=role,
@@ -256,166 +381,12 @@ def _content_payload(share: "models.Share", blob: "models.Blob", role: Optional[
         created_at=share.created_at,
         last_access_at=share.last_access_at,
         hit_count=share.hit_count,
+        links=links,
+        back_link=schemas.ShareBackLinkOut(href=resolved_back.href, label=resolved_back.label)
+        if resolved_back
+        else None,
     )
     return out.model_dump()
-
-
-def _manifest_entry(db: Session, share_id: int, relpath: str) -> Optional["models.ShareManifestEntry"]:
-    """THE security boundary for folder-share content resolution — see this
-    module's header doc. One exact-match query, nothing else."""
-    return (
-        db.query(models.ShareManifestEntry)
-        .filter(models.ShareManifestEntry.share_id == share_id, models.ShareManifestEntry.relpath == relpath)
-        .one_or_none()
-    )
-
-
-def _listing_for_prefix(db: Session, share_id: int, prefix: str) -> Optional[List[Dict[str, Any]]]:
-    """Directory listing for `prefix` (`""` = subtree root), computed purely
-    from this share's own manifest rows. `None` means `prefix` isn't the
-    root and doesn't match anything in the manifest — the caller 404s that
-    exactly like an unknown file (see this module's header doc)."""
-    rows = db.query(models.ShareManifestEntry).filter(models.ShareManifestEntry.share_id == share_id).all()
-    norm_prefix = "" if prefix == "" else prefix.rstrip("/") + "/"
-    matched = [r for r in rows if r.relpath.startswith(norm_prefix)]
-    if prefix != "" and not matched:
-        return None
-
-    children: Dict[str, Dict[str, Any]] = {}
-    for r in matched:
-        rest = r.relpath[len(norm_prefix) :]
-        if not rest:
-            continue
-        if "/" in rest:
-            name = rest.split("/", 1)[0]
-            children.setdefault(name, {"name": name, "kind": "dir", "relpath": f"{norm_prefix}{name}"})
-        else:
-            children[rest] = {
-                "name": rest,
-                "kind": "file",
-                "relpath": r.relpath,
-                "size": r.size,
-                "media_type_hint": r.media_type_hint,
-            }
-    return sorted(children.values(), key=lambda e: (e["kind"] != "dir", e["name"].lower()))
-
-
-def _listing_payload(share: "models.Share", prefix: str, entries: List[Dict[str, Any]], role: Optional[str] = None) -> dict:
-    out = schemas.ShareListingOut(
-        slug=share.slug,
-        role=role,
-        alias=share.alias,
-        prefix=prefix,
-        entries=[schemas.ShareListingEntryOut(**e) for e in entries],
-        created_at=share.created_at,
-        last_access_at=share.last_access_at,
-        hit_count=share.hit_count,
-    )
-    return out.model_dump()
-
-
-def _folder_file_content_payload(
-    share: "models.Share", entry: "models.ShareManifestEntry", blob: "models.Blob", role: Optional[str] = None
-) -> dict:
-    content, encoding = _decode_content(blob)
-    out = schemas.ShareContentOut(
-        slug=share.slug,
-        role=role,
-        alias=share.alias,
-        source_path=entry.relpath,
-        render_mode=share.render_mode.value,
-        media_type_hint=entry.media_type_hint,
-        blob_id=entry.blob_id,
-        size=entry.size,
-        live=False,
-        content=content,
-        content_encoding=encoding,  # type: ignore[arg-type]
-        created_at=share.created_at,
-        last_access_at=share.last_access_at,
-        hit_count=share.hit_count,
-    )
-    return out.model_dump()
-
-
-FolderResolution = Union[Tuple[str, "models.ShareManifestEntry"], Tuple[str, List[Dict[str, Any]]], None]
-
-
-def _resolve_folder_path(db: Session, share: "models.Share", relpath: str) -> FolderResolution:
-    """Returns `("file", entry)`, `("dir", entries)`, or `None` (not found —
-    caller 404s). `relpath` is used EXACTLY as received — see this module's
-    header doc for why that's the whole security property."""
-    entry = _manifest_entry(db, share.id, relpath)
-    if entry is not None:
-        return ("file", entry)
-    listing = _listing_for_prefix(db, share.id, relpath)
-    if listing is not None:
-        return ("dir", listing)
-    return None
-
-
-def _render_folder_resolution(
-    resolution: FolderResolution,
-    share: "models.Share",
-    db: Session,
-    request: Request,
-    prefix: str,
-    role: Optional[str] = None,
-    *,
-    on_content: Optional[Callable[[], None]] = None,
-) -> Optional[Response]:
-    """Turns a non-None `_resolve_folder_path` result into the actual HTTP
-    Response (raw bytes / JSON content / JSON listing, content-negotiated
-    the same way the file-share route is). Returns None for the `None`
-    (not-found) case so callers fall through to the uniform 404.
-
-    `on_content` (item 59) is called exactly once, right before returning
-    any response that ISN'T the HTML shell below — the caller's hook for
-    recording a hit. Never called for the shell branch: the shell is
-    unreliable as a counting point (a dev/preview proxy's navigation
-    bypass, or a PWA service worker caching it, both mean this server can
-    legitimately never see that particular request at all — see
-    `_is_share_followup_request`'s doc), so counting is anchored entirely
-    to the responses this function knows it actually served."""
-    if resolution is None:
-        return None
-    # Single-origin refactor (Phase 10.5a) — a real browser navigation into
-    # ANY part of a folder share (root listing, a subdirectory, or an
-    # individual file) needs the SPA's slim tree+content reader page
-    # (roadmap §5.1), not this route's raw/JSON response — that page then
-    # re-fetches this exact URL itself via `Accept: application/json`. Only
-    # applies once access is already granted (see `_spa_shell_response`'s
-    # doc) and only when the SPA has actually been built; otherwise this is
-    # a no-op and every existing non-browser caller (curl, the documented
-    # API contract, this file's own test suite) sees byte-identical
-    # behavior to before this phase.
-    if not _wants_json(request) and _wants_html(request):
-        shell = _spa_shell_response(request)
-        if shell is not None:
-            return shell
-    kind, payload = resolution
-    if kind == "file":
-        entry = payload
-        blob = db.get(models.Blob, entry.blob_id)
-        if _wants_json(request):
-            if on_content is not None:
-                on_content()
-            return JSONResponse(
-                status_code=200,
-                content=_folder_file_content_payload(share, entry, blob, role),
-                headers=dict(JSON_SECURITY_HEADERS),
-            )
-        if on_content is not None:
-            on_content()
-        return Response(content=blob.content, media_type=RAW_CONTENT_TYPE, headers=dict(RAW_SECURITY_HEADERS))
-    # "dir" — always JSON; there is no raw-bytes representation of a listing
-    # (roadmap §5.1: never inline content into HTML server-side).
-    if on_content is not None:
-        on_content()
-    return JSONResponse(
-        status_code=200,
-        content=_listing_payload(share, prefix, payload, role),
-        headers=dict(JSON_SECURITY_HEADERS),
-    )
 
 
 def _resolve_get(
@@ -441,76 +412,17 @@ def _resolve_get(
     )
 
 
-def _is_share_followup_request(request: Request, identifier: str) -> bool:
-    """DESIGN-SPEC Amendments round 7 item 59's dedup mechanism — used
-    ONLY for RELPATH-addressed folder requests (`get_share_path`,
-    `get_share_content_path`), never for the bare `/share/{identifier}`
-    root route. (An earlier version of this fix tried to reuse the same
-    referer check to also skip the root route's HTML-shell request, on the
-    theory that the shell is what a real navigation hits first — but a
-    dev/preview proxy's navigation bypass, or a PWA service worker caching
-    the shell, means the backend can legitimately never see that shell
-    request at all. When that happens the SPA's own content re-fetch is
-    the ONLY request reaching this server, and it always self-refers —
-    dedupe on referer at the root route and hits go 0 -> 0 forever. Fixed
-    by never trying to identify "the shell request" this way at all; see
-    `_render_folder_resolution`'s `on_content` and `get_share`'s inline
-    file-share branch for how the root route now counts unconditionally on
-    every content-bearing response instead.)
-
-    What's left for THIS helper: once a folder share's root page is
-    already open, a visitor browsing further inside it (another file, a
-    subfolder) fires more requests — `share/ShareApp.tsx`'s
-    `buildShareTree` listing every subdirectory, or opening another file
-    in the tree — all to `/share/{identifier}/{relpath}`, all same-origin
-    JS running on the page this server already served, so the browser
-    attaches a `Referer` pointing back at that same `/share/{identifier}`
-    prefix (default `fetch()` referrer behavior, no client cooperation
-    needed). Those in-page follow-ups are skipped; a relpath request
-    WITHOUT that self-referer — a direct deep-link script/curl hit that
-    never touched this share's own page at all — still counts. Same host
-    AND matching path prefix are both required so a same-path coincidence
-    on a different origin (only reachable via the CORS-enabled
-    `/api/share/.../content` routes, which real third-party origins call)
-    can't suppress a legitimate cross-origin hit."""
-    referer = request.headers.get("referer")
-    if not referer:
-        return False
-    try:
-        parsed = urlsplit(referer)
-    except ValueError:
-        return False
-    if parsed.hostname != request.url.hostname:
-        return False
-    prefix = f"/share/{identifier}"
-    return parsed.path == prefix or parsed.path.startswith(prefix + "/")
-
-
 def _record_access(db: Session, share: "models.Share", access: policy.ShareAccess, request: Request) -> None:
     """The one place `hit_count`/`last_access_at` are ever incremented.
     Unconditional — every call site is already responsible for only
-    calling this on a content-bearing response (never the HTML shell) and,
-    for relpath-addressed folder requests, only via `_record_relpath_access`
-    below. A reload/re-fetch of the SAME content-bearing URL is legitimately
-    another hit (item 59: "a reload is legitimately another open"), so
-    there is no dedup at this level — see `_is_share_followup_request`'s
-    doc for exactly which requests DO get deduped and why."""
+    calling this on a content-bearing response (never the HTML shell). A
+    reload/re-fetch of the SAME content-bearing URL is legitimately another
+    hit (DESIGN-SPEC round 7 item 59: "a reload is legitimately another
+    open"), so there is no dedup at this level."""
     share.hit_count += 1
     share.last_access_at = time.time()
     db.commit()
     write_audit_event(db, "share.access", slug=share.slug, principal=access.principal, request=request)
-
-
-def _record_relpath_access(
-    db: Session, share: "models.Share", access: policy.ShareAccess, request: Request, identifier: str
-) -> None:
-    """The relpath-addressed twin of `_record_access` — folder subtree GETs
-    only (`get_share_path`/`get_share_content_path`), never the root route.
-    Skips the increment for an in-page follow-up fetch; see
-    `_is_share_followup_request`'s doc."""
-    if _is_share_followup_request(request, identifier):
-        return
-    _record_access(db, share, access, request)
 
 
 def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, auth_deps: AuthDeps) -> APIRouter:
@@ -527,42 +439,16 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             return _deny_response(request, exc)
 
         share = access.share
-
-        if share.kind == models.ShareKind.folder:
-            # Folder root — always the subtree listing (roadmap §5.1: "no
-            # README special-casing... folder URLs show a plain listing"),
-            # never a specific file's raw bytes. Resolution is never None
-            # for the root prefix (empty manifests still list as "no
-            # entries"), but the check is kept for symmetry with
-            # get_share_path below.
-            resolution = _resolve_folder_path(db, share, "")
-            if resolution is None:
-                return _deny_response(request, None)
-            # Item 59 — the folder ROOT counts unconditionally on every
-            # content-bearing (non-shell) response, no referer dedup: see
-            # `_render_folder_resolution`'s `on_content` doc for why the
-            # shell can't be the counting point, and
-            # `_is_share_followup_request`'s doc for why relpath-addressed
-            # sub-fetches (below, in `get_share_path`) are the only place
-            # that dedup still applies.
-            resp = _render_folder_resolution(
-                resolution, share, db, request, "", access.role,
-                on_content=lambda: _record_access(db, share, access, request),
-            )
-            return resp if resp is not None else _deny_response(request, None)
-
         blob = db.get(models.Blob, share.blob_id)
 
-        # Item 59 — same "count the content-bearing response, never the
-        # shell" rule as the folder branch above, inlined here since a
-        # file share's raw/JSON/shell decision isn't behind
-        # `_render_folder_resolution`. `_record_access` fires exactly once,
-        # right before whichever content response actually gets returned.
+        # Item 59 — count the content-bearing response, never the shell.
+        # `_record_access` fires exactly once, right before whichever
+        # content response actually gets returned.
         if _wants_json(request):
             _record_access(db, share, access, request)
             return JSONResponse(
                 status_code=200,
-                content=_content_payload(share, blob, access.role),
+                content=_content_payload(db, share, blob, access.role),
                 headers=dict(JSON_SECURITY_HEADERS),
             )
 
@@ -570,53 +456,30 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         # to a RENDERED-mode file share needs the SPA's fullscreen rendered
         # view (roadmap §1), which re-fetches this exact content itself via
         # JSON. RAW-mode shares NEVER take this branch, full stop — they
-        # keep returning `text/plain` unconditionally regardless of Accept,
+        # keep returning raw bytes unconditionally regardless of Accept,
         # exactly as before (roadmap §1: "never text/html — a raw share
-        # must never execute"; see `tests/test_raw_mode.py::
-        # test_raw_never_html_even_for_html_payload_with_script_tag`).
+        # must never execute"; see `tests/test_raw_mode.py`).
         # NOT counted: this branch's own return is the shell, not content.
         if share.render_mode == models.RenderMode.rendered and _wants_html(request):
-            shell = _spa_shell_response(request)
+            # DESIGN-SPEC round 10 item 67 — the ONLY place a share's title
+            # ever gets baked into the shell HTML, and ONLY when every one
+            # of these three conditions holds. Reaching this line already
+            # means access resolved successfully (we're past the
+            # PolicyDenied try/except above) — that's condition (c). The
+            # other two are checked explicitly, right here, so the "byte-
+            # identical to today" guarantee for every other case is visible
+            # in one place rather than scattered across branches:
+            meta_title = (
+                _shell_meta_title_for(share, blob)
+                if share.show_title and share.auth_mode == models.AuthMode.none
+                else None
+            )
+            shell = _spa_shell_response(request, meta_title=meta_title)
             if shell is not None:
                 return shell
 
         _record_access(db, share, access, request)
-        return Response(content=blob.content, media_type=RAW_CONTENT_TYPE, headers=dict(RAW_SECURITY_HEADERS))
-
-    @router.get("/share/{identifier}/{relpath:path}")
-    @limiter.limit(settings.rate_limit_share)
-    def get_share_path(identifier: str, relpath: str, request: Request, db: Session = Depends(get_db)):
-        """Folder-share subtree resolution (roadmap §5.1) — see this
-        module's header doc for the exact-match security argument. `GET
-        .../auth` (the one other 2-segment route on this identifier) is a
-        POST-only literal route registered separately, so it never reaches
-        here for its own method; a stray GET to `.../auth` legitimately
-        falls through to manifest resolution for a file literally named
-        "auth", same as any other relpath — nothing structurally special
-        about that string."""
-        try:
-            access = _resolve_get(identifier, request, db, secret_key=secret_key, auth_deps=auth_deps)
-        except policy.PolicyDenied as exc:
-            return _deny_response(request, exc)
-
-        share = access.share
-        if share.kind != models.ShareKind.folder:
-            # File shares have no sub-paths — same uniform 404 as any other
-            # deny, not a distinct "wrong kind" shape.
-            return _deny_response(request, None)
-
-        resolution = _resolve_folder_path(db, share, relpath)
-        if resolution is None:
-            return _deny_response(request, None)
-        # Item 59 — relpath-addressed (subdir listing / a file within the
-        # folder): dedup via `_record_relpath_access` so in-page browsing
-        # of an already-open share doesn't multi-count, but a direct
-        # deep-link fetch (no self-referer) still does.
-        resp = _render_folder_resolution(
-            resolution, share, db, request, relpath, access.role,
-            on_content=lambda: _record_relpath_access(db, share, access, request, identifier),
-        )
-        return resp if resp is not None else _deny_response(request, None)
+        return _raw_response(share, blob, download=_wants_download(request))
 
     @router.post("/share/{identifier}/auth")
     @limiter.limit(settings.rate_limit_share_auth)
@@ -631,7 +494,13 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         # alike" (roadmap §1) — the exact same uniform-404 policy.py now
         # applies everywhere, implemented directly here since this endpoint
         # doesn't otherwise share resolve_share's auth-mode branching (a
-        # password submission isn't a GET/PUT).
+        # password submission isn't a GET/PUT). This is also the ONE route
+        # `settings.rate_limit_share_auth` throttles specifically (see
+        # server/README.md and tests/test_policy_gate.py's throttling
+        # test) — the 429 slowapi emits when exhausted is identical for a
+        # real share and a nonexistent one (keyed by caller IP, not by
+        # slug), so exhausting it never tells an attacker anything about
+        # whether the slug names a real record.
         if not security.validate_slug_format(identifier):
             write_audit_event(db, "auth.failure", slug=identifier, reason="malformed_slug", request=request)
             return policy.not_found_response()
@@ -641,7 +510,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         invalid = (
             share is None
             or share.revoked_at is not None
-            or (share.expires_at is not None and share.expires_at < now)
+            or policy.is_expired(share.expires_at, now)
             or share.auth_mode != models.AuthMode.password
             or not share.password_hash
         )
@@ -700,14 +569,6 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         except policy.PolicyDenied as exc:
             return policy.denial_response(exc)
 
-        if access.share.kind == models.ShareKind.folder:
-            # Editor write-back for folder shares is out of Phase 10.5 scope
-            # (roadmap §5.1 only specifies "Update share" via the owner-only
-            # `PUT /api/shares/{id}/manifest`, not a public per-subtree PUT)
-            # — same uniform 404 as any other deny, not a distinct
-            # "unsupported" shape.
-            return policy.not_found_response()
-
         body = await request.body()
         # DESIGN-SPEC item 40: DB-backed admin setting, not the config
         # value directly — see routers/shares.py::create_blob's identical
@@ -729,54 +590,24 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         )
         return {"ok": True, "blob_id": digest, "vault_committed": committed}
 
-    @router.put("/share/{identifier}/{relpath:path}")
+    @router.api_route("/share/{identifier}/{rest:path}", methods=["GET", "HEAD", "PUT", "PATCH"])
     @limiter.limit(settings.rate_limit_share)
-    async def put_share_path(identifier: str, relpath: str, request: Request, db: Session = Depends(get_db)):
-        """Round 6 item 12 — editor write-back for a FILE inside a folder
-        share. Same policy gate (`PUT` requires the editor role), same
-        exact-match manifest resolution as the GET twin: a relpath the
-        manifest doesn't contain is the uniform 404, never a create."""
-        ctx = auth_deps.get_optional_auth_context(request=request, db=db)
-        session_cookie = request.cookies.get(_share_session_cookie_name(identifier))
-        bearer = _extract_bearer(request)
-        try:
-            access = policy.resolve_share(
-                db,
-                identifier,
-                "PUT",
-                secret_key=secret_key,
-                session_cookie=session_cookie,
-                bearer_token=bearer,
-                principal=ctx.principal if ctx else None,
-                request=request,
-            )
-        except policy.PolicyDenied as exc:
-            return policy.denial_response(exc)
-
-        share = access.share
-        if share.kind != models.ShareKind.folder:
-            return policy.not_found_response()
-        entry = _manifest_entry(db, share.id, relpath)
-        if entry is None:
-            return policy.not_found_response()
-
-        body = await request.body()
-        if len(body) > get_max_blob_bytes(db):
-            raise HTTPException(status_code=413, detail="Blob exceeds maximum size")
-
-        digest = hashlib.sha256(body).hexdigest()
-        if db.get(models.Blob, digest) is None:
-            db.add(models.Blob(id=digest, content=body, size=len(body), media_type_hint=entry.media_type_hint))
-        entry.blob_id = digest
-        entry.size = len(body)
-        db.commit()
-        committed = commit_share_edit(
-            settings, f"{share.source_path}/{relpath}", body, access.principal
-        )
-        write_audit_event(
-            db, "share.access", slug=share.slug, principal=access.principal, reason="editor_put", request=request
-        )
-        return {"ok": True, "blob_id": digest, "vault_committed": committed}
+    def share_subpath_removed(identifier: str, rest: str, request: Request, db: Session = Depends(get_db)):
+        """§4.4 — folder shares (and their `/share/{id}/{relpath}` routes)
+        were removed entirely; every share is now a single pinned blob
+        reachable only at the bare `/share/{identifier}` route above. A
+        request shaped like the old folder route (ANY extra path segment
+        after the identifier, for ANY of these methods) is just one more
+        deny reason — uniform with every other one, never a distinct
+        "route not found" shape, and never routed to the generic SPA
+        catch-all in `main.py` (which doesn't apply the same JSON-vs-HTML
+        negotiation `_deny_response` does). `identifier`/`rest` themselves
+        are never looked at — even a real, live slug 404s here, exactly
+        like the Phase 10.5 "file share has no sub-paths" deny reason
+        did."""
+        if request.method in ("GET", "HEAD"):
+            return _deny_response(request, None)
+        return policy.not_found_response()
 
     return router
 
@@ -799,78 +630,23 @@ def build_content_router(get_db, limiter: Limiter, settings: Settings, secret_ke
             return policy.denial_response(exc)
 
         share = access.share
-
+        blob = db.get(models.Blob, share.blob_id)
         # Item 59 — this whole route is the CORS twin of the ROOT app
         # route: always JSON, no shell branch ever exists here, so every
-        # response is content-bearing and counts unconditionally (no
-        # referer dedup) exactly like `get_share`'s root route.
-        if share.kind == models.ShareKind.folder:
-            resolution = _resolve_folder_path(db, share, "")
-            if resolution is None:
-                return policy.not_found_response()
-            _record_access(db, share, access, request)
-            # Always JSON on this route (it's the CORS-enabled JSON twin) —
-            # reuse the same listing/file payload shaping as the root app's
-            # `{relpath:path}` route.
-            kind, payload = resolution
-            if kind == "file":
-                blob = db.get(models.Blob, payload.blob_id)
-                return JSONResponse(
-                    status_code=200,
-                    content=_folder_file_content_payload(share, payload, blob, access.role),
-                    headers=dict(JSON_SECURITY_HEADERS),
-                )
-            return JSONResponse(
-                status_code=200,
-                content=_listing_payload(share, "", payload, access.role),
-                headers=dict(JSON_SECURITY_HEADERS),
-            )
-
-        blob = db.get(models.Blob, share.blob_id)
+        # response is content-bearing and counts unconditionally.
         _record_access(db, share, access, request)
         return JSONResponse(
             status_code=200,
-            content=_content_payload(share, blob, access.role),
+            content=_content_payload(db, share, blob, access.role),
             headers=dict(JSON_SECURITY_HEADERS),
         )
 
-    @router.get("/share/{identifier}/content/{relpath:path}")
+    @router.api_route("/share/{identifier}/content/{rest:path}", methods=["GET", "HEAD"])
     @limiter.limit(settings.rate_limit_share)
-    def get_share_content_path(identifier: str, relpath: str, request: Request, db: Session = Depends(get_db)):
-        """The CORS-enabled twin of the root app's `GET
-        /share/{identifier}/{relpath:path}` — same policy gate, same
-        manifest resolution, always JSON (this route exists purely for the
-        SPA's cross-origin `fetch(..., {credentials:"include"})`, which
-        needs `Access-Control-Allow-Origin` back; raw bytes make no sense
-        here since the visitor reader page always wants structured JSON)."""
-        try:
-            access = _resolve_get(identifier, request, db, secret_key=secret_key, auth_deps=auth_deps)
-        except policy.PolicyDenied as exc:
-            return policy.denial_response(exc)
-
-        share = access.share
-        if share.kind != models.ShareKind.folder:
-            return policy.not_found_response()
-
-        resolution = _resolve_folder_path(db, share, relpath)
-        if resolution is None:
-            return policy.not_found_response()
-        # Item 59 — relpath-addressed, same dedup as the root app's
-        # `get_share_path` twin.
-        _record_relpath_access(db, share, access, request, identifier)
-
-        kind, payload = resolution
-        if kind == "file":
-            blob = db.get(models.Blob, payload.blob_id)
-            return JSONResponse(
-                status_code=200,
-                content=_folder_file_content_payload(share, payload, blob, access.role),
-                headers=dict(JSON_SECURITY_HEADERS),
-            )
-        return JSONResponse(
-            status_code=200,
-            content=_listing_payload(share, relpath, payload, access.role),
-            headers=dict(JSON_SECURITY_HEADERS),
-        )
+    def share_content_subpath_removed(identifier: str, rest: str, request: Request, db: Session = Depends(get_db)):
+        """The CORS-enabled twin of `share_subpath_removed` above — §4.4,
+        folder shares removed. Always the plain JSON uniform 404, this
+        route never serves the HTML shell."""
+        return policy.not_found_response()
 
     return router

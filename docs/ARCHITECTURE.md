@@ -343,129 +343,202 @@ CURRENT working-tree content for a `live: true` share — both `GET` handlers in
 doesn't render one; snapshot-by-default (the backend's actual behavior) is exactly what
 the roadmap specs as the safe default anyway.
 
-## Folder shares (Phase 10.5)
+**Server-side audit, 2026-09-05 (`docs/PLAN-2026-09-05-refresh.md` §4.1/4.5/4.6).**
+Four hardening passes on the existing Phase 9/10 backend, none of which
+change the policy gate's shape:
 
-Extends the Phase 9/10 sharing feature to whole subtrees per
-`docs/ROADMAP-SHARING-AUTH.md` §5.1, without touching the Phase 9 policy gate's
-shape (`policy.py::resolve_share` is unmodified — every folder-share route still
-calls it first, unchanged). Full request/response shapes are in the new routes'
-docstrings (`server/app/routers/share_public.py`'s module doc walks the whole
-design); this section is the "how it's built" summary.
+- **Raw = bytes.** A raw share's `Content-Type` is decided by SNIFFING the
+  stored blob (a NUL byte in the first 8KB, or a failed strict UTF-8 decode,
+  means binary), with the extension on `source_path` as a SECONDARY signal
+  that can only push an ambiguous sniff toward binary, never toward text and
+  never toward any third value — `Blob.media_type_hint` (client-declared) is
+  never consulted. The allowed output set is EXACTLY `text/plain;
+  charset=utf-8` or `application/octet-stream`; `text/html` is structurally
+  unreachable. `Content-Disposition` is `inline; filename="<basename>"` by
+  default, `attachment; filename="<basename>"` on `?download=1` — the
+  filename is the sanitized basename of `source_path` (control characters,
+  quotes, and any path separator stripped; falls back to the share's slug
+  if that sanitizes to empty). See `routers/share_public.py`'s module
+  docstring and `tests/test_raw_mode.py`.
+- **Reserved aliases.** `security.RESERVED_ALIASES` (`api`, `share`, `git`,
+  `assets` — every real top-level route prefix `main.py` mounts, plus the
+  SPA's static-asset directory) is checked case-insensitively by
+  `security.alias_error()`, the single function both `POST /api/shares` and
+  `PATCH /api/shares/{id}` call, so the list can't drift between the two
+  call sites. Alias uniqueness is enforced by an explicit pre-check
+  (`routers/shares.py::_check_alias_available`, matching against BOTH
+  `shares.alias` and `shares.slug` — an alias must never collide with an
+  existing slug either) that returns a clean `409`, with the DB's own
+  unique constraints as a race-condition backstop (still caught as
+  `IntegrityError` -> `409`, never a raw `500`).
+- **Expiry skew.** `policy.EXPIRY_SKEW_SECONDS = 60` and `policy.is_expired()`
+  are the one place "is this share expired" is computed (used by both
+  `resolve_share` and the password-auth endpoint) — `expires_at` is
+  `time.time()`'s epoch seconds, which are timezone-free by definition, so
+  the skew tolerance exists purely to absorb trivial clock drift at the
+  boundary, not to paper over a timezone bug that doesn't exist.
+- **Auth matrix enforced server-side.** Raw shares may only use `auth_mode`
+  `none` or `token` — there's no UI surface to type a password against a
+  raw byte stream. Rendered shares may use any of `none`/`password`/`token`;
+  `general_access="restricted"` (sign-in) is orthogonal to all three.
+  `routers/shares.py::_check_auth_matches_render_mode` is the one place both
+  create and patch enforce this, checked against the FULL resulting state
+  (not just the fields present in one PATCH) so a rejected patch never
+  partially applies. This is an OWNER-facing validation error (a
+  descriptive `422`) — the uniform-404 rule below applies only to the
+  public gate, never to this API.
 
-**Data model** (`server/app/models.py`): `Share.kind` (`ShareKind.file` |
-`.folder`, default `file`) and `Share.blob_id` is now nullable — `None` for a
-folder share, whose content lives entirely in the new `ShareManifestEntry` table
-(`share_id`, `relpath`, `blob_id`, `size`, `media_type_hint`, unique on
-`(share_id, relpath)`). A file EXCLUDED by the owner in the Publish dialog's
-checkbox tree simply never gets a row — "absent, not hidden" (roadmap §5.1) is
-literal: there is no exclusion flag anywhere, only presence/absence in this
-table.
+### Per-share tokens, the dynamic link map, and conditional title/OG meta (§4.2, §5 — 2026-09-05)
 
-**Manifest resolution is an exact-match DB query, not a sanitized filesystem
-join — this is the actual security argument, not a description of one.**
-`share_public.py::_manifest_entry(db, share_id, relpath)` is `WHERE share_id = ?
-AND relpath = ?`, full stop — no `os.path`/`pathlib` normalization, no join
-against any real directory, no filesystem access of any kind (the server has
-never read a vault path — see the "Data model" note under "Backend (v2)"
-above — and this doesn't change that). Every attack the phase brief calls out
-(`..` traversal, an absolute path, URL-encoded/double-encoded variants, a
-backslash variant, a relpath that's real but belongs to a DIFFERENT share, an
-excluded entry, a plain unknown path) fails for the exact same reason: no row in
-`share_manifest_entries` has that `(share_id, relpath)` pair, so every one of
-them falls through to `policy.not_found_response()` — the SAME uniform 404 every
-other Phase 9 deny reason produces, not a second, merely-similar-looking 404.
-Directory LISTINGS (`_listing_for_prefix`) are the one place resolution does
-more than an exact match — it enumerates this share's own manifest rows that
-share a path prefix to build a plain listing — but the query is still scoped to
-`WHERE share_id = ?`, so it can only ever enumerate rows already inside the
-share the caller was granted access to; an unknown/excluded prefix (no matching
-rows) returns `None`, 404ing exactly like an unknown file. `_apply_manifest`
-(owner-side, `routers/shares.py`) additionally rejects a relpath containing an
-empty/`.`/`..` segment or a backslash at WRITE time — belt-and-suspenders
-hygiene (keeps the table free of garbage a legitimate client would never send),
-explicitly NOT the security boundary itself (a stored `"../x"` relpath would
-still only ever be reachable by a request for the literal string `"../x"`,
-which resolves nothing outside the manifest either way).
+Three server-only additions on top of the audit above, all landed the same
+day (`docs/PLAN-2026-09-05-refresh.md` §4.2 and §5).
 
-**Routes** (`share_public.py`): `GET /share/{id}` on a folder share now returns
-the subtree ROOT listing (never a specific file — roadmap §5.1's "no README
-special-casing" is literal: there is no code path that treats any relpath as a
-landing page). `GET /share/{id}/{relpath:path}` resolves a relpath to either a
-file (raw `text/plain`+nosniff by default, `ShareContentOut` JSON on `Accept:
-application/json` — identical content-negotiation to a file share) or a
-directory (always JSON `ShareListingOut`, since a listing has no meaningful raw-
-bytes form). Both twinned under `/api/share/{id}/content[/relpath]`, mounted
-under `/api` (no CORS there either as of Phase 10.5a — see "Single-origin
-deployment"). `PUT /share/{id}` on a
-folder share 404s (uniform, not a distinct error) — public editor write-back for
-folders is out of this phase's scope, same "documented flow only" posture Phase
-10's file-share write-back already has.
+**Per-share bearer tokens.** `auth_mode="token"` used to accept ANY of the
+owner's account-wide `ApiToken` rows as a visitor credential — one leaked
+script token (minted for git automation, say) unlocked every token-mode
+share AND the owner API itself. A new table, `ShareToken` (`models.py`),
+scopes a bearer credential to exactly one `share_id`; `policy.py`'s token
+branch now queries ONLY `ShareToken` rows for the share being resolved,
+never `ApiToken`. Owner-side CRUD lives at `POST/GET /api/shares/{id}
+/tokens` and `DELETE /api/shares/{id}/tokens/{token_id}`
+(`routers/shares.py`), all under `share-admin` scope and all 404ing
+uniformly for a share the caller doesn't own (same posture as every other
+`/api/shares/{id}/...` route). The plaintext secret is returned exactly
+once, at mint time; only its SHA-256 hash and a display prefix are ever
+stored. Rotation is mint-new-then-revoke-old rather than a dedicated
+endpoint — there's no server-side reason it needs to be atomic, and a
+brief window where BOTH tokens work is strictly safer than one where
+NEITHER does. Owner account API tokens keep working for the owner's own
+`/api/*` automation exactly as before — the split is the whole point, see
+`policy.py`'s token branch for the comment explaining why the hash-equality
+DB lookup itself isn't a timing oracle (an indexed equality lookup, not a
+byte-by-byte secret comparison).
 
-**Owner API** (`routers/shares.py`): `POST /api/shares` gains `kind` and
-`manifest: ManifestEntryIn[]` (each `{relpath, blob_id}` — blobs are POSTed to
-`/api/blobs` first, exactly like a file share; the server never reads a vault
-path to build a manifest). `PUT /api/shares/{id}/manifest` wholesale-replaces the
-manifest at the SAME slug ("Update share" — roadmap §5.1); `GET
-/api/shares/{id}/manifest` (owner-only) is the current manifest, used to prefill
-the checkbox tree's excluded state when re-opening an existing folder share's
-Publish dialog.
+**Dynamic link map.** `app/linkmap.py` is what turns a set of ordinary
+single-file shares into a "blog": every rendered share's content response
+now carries a `links` map (written-link-target -> target share's URL path),
+computed fresh on every fetch by matching the OWNER's other active
+(`render_mode="rendered"`, not revoked, not expired) shares' `source_path`
+strings against the current share's markdown links, resolved lexically
+relative to the current share's directory. This is PURE STRING
+MANIPULATION — no `os.path.realpath`, no `Path.resolve()`, nothing that
+touches a filesystem — see that module's docstring for the full argument
+and for the explicit decision to INCLUDE password/token/restricted shares
+in the map (the link is a capability URL that still enforces its own policy
+on click; excluding them would silently break an owner's own blog links).
+No republish is ever needed for a link to start or stop resolving: sharing
+a new post makes existing links to it work immediately, and revoking a
+share breaks links to it immediately, both because the map is recomputed
+from current rows on every request rather than baked in at publish time.
 
-**Testing.** `server/tests/test_folder_shares.py` is the manifest
-path-resolution matrix (in-manifest hit, excluded, unknown, `..`, absolute,
-URL-/double-encoded, backslash, another share's relpath) plus ordinary
-resolution (root/subdir listing, raw/JSON file content, "Update share").
-`test_policy_gate.py`'s existing `_build_deny_states`/equivalence-matrix tests
-are EXTENDED (not duplicated) with the same folder-share deny states, so the
-new routes are covered by the SAME single-fingerprint assertion that already
-guards every Phase 9 deny path — a regression that reintroduced a second
-response class on a folder route fails the exact same test a Phase 9 regression
-would. One genuine wire-level subtlety surfaced writing this matrix: a LITERAL,
-non-percent-encoded `..` segment never survives client-side URL construction in
-any RFC-3986-conformant HTTP client (confirmed: `httpx.URL(path="/share/x/../y")`
-normalizes to `/share/y` before a request is even built, same as a real
-browser's `URL()`/`fetch()`), so `test_folder_shares.py::test_dotdot_traversal_404`
-asserts the resolution FUNCTION directly rejects a literal `".."` relpath rather
-than routing an unsendable request through a `TestClient`; the percent-encoded
-and double-encoded variants (which DO survive client-side construction) exercise
-the real route end-to-end and are the tests that matter for the actual wire-level
-attack surface.
+**`show_title` / `back_link` (round 10 items 66-67).** Two per-share,
+off-by-default opt-ins (`Share.show_title: bool`, `Share.back_link:
+Optional[str]`, the latter a slug-or-alias string, not a foreign key, so a
+renamed/revoked/deleted target degrades to "the back link silently stops
+rendering" rather than ever erroring). `back_link` resolution
+(`linkmap.py::resolve_back_link`) mirrors the link map's own drop-silently
+posture. `show_title` is security-sensitive: it lets the server inject a
+`<title>` + a couple of OG meta tags into the SPA shell's `<head>` for a
+share route, which is the ONE way this codebase now serves content-
+dependent bytes on `GET /share/{id}` for a browser navigation — everywhere
+else, roadmap §1's uniform-404/uniform-shell contract means the shell is
+content-independent by construction (see `test_spa_navigation.py`'s
+byte-identity assertions). The guard, in `routers/share_public.py`'s
+`get_share`, injects a title ONLY when ALL THREE hold:
 
-**Client** (`src/share/`): `folderManifest.ts` (pure) flattens a vault subtree
-into flat `{relpath}` entries and shapes the checkbox tree's included/excluded
-state into the manifest payload — "excluded" is computed as "not in this array,"
-never a separate flag threaded through to the request. `shareIndicators.ts`
-(pure) computes the Explorer tree's own-vs-inherited indicator state from the
-owner's share list, comparing plain `FileNode.path` strings (own = exact match
-on `source_path`; inherited = `path.startsWith(source_path + "/")` for a folder
-share) — no server round-trip needed for the glyph itself. `PublishDialog.tsx`'s
-folder mode composes the new local `CheckboxTree` (see `docs/COMPONENT-BACKLOG.md`)
-over a subtree `App.tsx` already read from the vault (`readFolderPublishData`) —
-the dialog itself still never touches `fs/`/`useBufferStore` directly, same
-vault-agnostic boundary as the single-file flow. `ShareApp.tsx`'s folder-browsing
-mode (`FolderShareView`) is a slim tree-left/content-right split, built to
-degrade EXACTLY to the pre-Phase-10.5 single-file layout for an ordinary file
-share (`load()` distinguishes the two purely from response shape — a folder
-share's root ALWAYS returns a listing, a file share's root ALWAYS returns
-content — no new field needed, see that file's doc for the full account) — every
-existing `tests/e2e/share-{password,publish-revoke,sandbox,backend-down}.spec.ts`
-assertion about the single-file DOM shape still holds unchanged.
-`tests/e2e/share-folder.spec.ts` is this phase's exit-criterion spec: publish a
-folder → browse the tree in a second browser context → an excluded file 404s
-(the identical generic unavailable state, never a distinct message) → revoke →
-the whole subtree 404s, plus the Explorer indicator (both variants) and the
-Shared registry's folder-kind row.
+```python
+meta_title = (
+    _shell_meta_title_for(share, blob)
+    if share.show_title and share.auth_mode == models.AuthMode.none
+    else None
+)
+```
 
-**Known simplification, stated plainly.** The Explorer tree's "inherited" glyph
-marks the WHOLE subtree of a folder share uniformly — it does not currently
-re-fetch that share's manifest to grey out files the owner separately excluded
-at publish time (a file excluded from the share still shows the muted
-"inside a shared folder" glyph in the Explorer, even though it doesn't actually
-resolve for a visitor). Fixing this exactly would mean either caching every
-visible folder share's manifest client-side or a bulk "what's included"
-endpoint — neither exists yet. Not a security issue (the server-side exclusion
-is real and enforced; this is purely an owner-facing indicator's precision), but
-worth fixing before folder shares with meaningfully large exclusion lists become
-common.
+(the third condition — access actually resolved — holds implicitly at this
+point in the function: it's past the `PolicyDenied` try/except, so a deny
+never reaches this line at all). In every other case — `show_title` off,
+any password/token auth mode even with `show_title` on, and every deny
+reason — `_spa_shell_response` is called with `meta_title=None` and returns
+byte-for-byte the same shell as before this feature existed; the deny path
+(`_deny_response`) never passes `meta_title` at all, structurally, so a
+deny can never leak a title regardless of the target share's settings. The
+title text is the first H1 of the share's markdown, falling back to the
+basename of `source_path`, and is HTML-escaped before splicing (it is
+attacker-influenced content going into a `<head>`). `test_spa_navigation.py
+::test_show_title_auth_none_granted_injects_escaped_title_and_og_tags` (the
+positive case) and `::test_show_title_with_password_mode_stays_byte_
+identical_to_deny_shell` (the negative case — a real, live, show-title-on
+share with password auth must still be indistinguishable from a deny) are
+the two tests that guard this contract; they extend the same file's
+pre-existing `test_html_navigation_gets_shell_for_every_deny_reason_and_
+success_alike` byte-identity matrix rather than replacing it.
+
+## Folder shares (Phase 10.5) — SUPERSEDED, removed 2026-09-05
+
+**This entire feature was removed** by `docs/PLAN-2026-09-05-refresh.md` §4.4
+(DESIGN-SPEC Amendments round 10, items 64-65) — "folder shares follow the
+folder" (item 58) is superseded: sharing is single-file only again, matching
+the original Phase 9/10 shape. What follows is kept as HISTORY (what existed,
+why it was built the way it was) — none of it describes current behavior.
+
+**What was removed:** the `ShareKind` enum and `Share.kind` column
+(`Share.blob_id` is NOT NULL again), the `ShareManifestEntry` model/table,
+every folder route in `routers/shares.py` (`GET`/`PUT
+/api/shares/{id}/manifest`) and `routers/share_public.py` (`GET`/`PUT
+/share/{id}/{relpath:path}`, `GET /api/share/{id}/content/{relpath:path}`),
+the folder schemas in `schemas.py` (`ManifestEntryIn/Out`, `ShareListingOut`,
+`EntryOut`, `kind`/`manifest` fields), and and, on the client, `share/folderManifest.ts`,
+`share/autoRepublish.ts` (item 58's debounced manifest republish had no
+subject left), `components/local/CheckboxTree.tsx` (its only consumer was the
+folder-publish picker; retired in `docs/COMPONENT-BACKLOG-Issued_20260821.md`),
+`shareLinks.ts`'s `buildFolderShareLink`, `sharePolicy.ts`'s
+`shareFolderCreatePayload`, `useShareStore`'s `publishFolder`/
+`updateFolderManifest`/`getFolderManifest`, `api.ts`'s manifest and folder-path
+functions, `ShareApp.tsx`'s folder tree pane and `/share/<slug>/<relpath>` deep
+links, and the "inherited" (inside-a-shared-folder) Explorer glyph variant in
+`shareIndicators.ts`.
+
+A stale `/share/<slug>/<relpath>` bookmark is deliberately NOT redirected to
+the parent slug's share: `main.tsx`'s route regex now captures the whole
+remainder as the identifier, which fails the backend's slug format check and
+comes back as the same uniform 404 every other deny reason produces. Serving
+the parent share for a deep link that no longer means anything would hand a
+visitor content they were never linked to.
+
+**Why removed, not just deprecated:** the roadmap's "blog" use case (§5 of
+`docs/PLAN-2026-09-05-refresh.md`) turned out not to need a folder share at
+all — a dynamic link map between INDIVIDUAL file shares gives the same
+cross-linked-notes experience without a second content-addressing shape,
+a manifest table, or a parallel security argument to maintain. Keeping
+folder shares around as unused-but-supported surface area was assessed as
+pure liability once nothing in the roadmap needed them.
+
+**No migration for existing data, by decision.** The models simply no longer
+describe folder shares. A SQLite file that predates the removal keeps a
+`shares.kind` column and a `share_manifest_entries` table that nothing maps
+or reads, and no startup code inspects, revokes, or rewrites anything on
+its behalf. This is a deliberate refusal to carry backwards-compatibility
+machinery for a feature that was removed rather than deprecated; a stale
+database is an operator concern, not a code path to maintain forever.
+
+`server/tests/test_folder_shares_removed.py` covers the removed routes (`/share/<slug>/anything` now returns the
+same uniform 404 as any other deny — see `routers/share_public.py`'s
+`share_subpath_removed` catch-all, added specifically so a folder-shaped URL
+denies through the same `_deny_response` path as everything else rather than
+falling through to the generic SPA catch-all in `main.py`).
+
+**Original design, for history.** Extended the Phase 9/10 sharing feature to
+whole subtrees per `docs/ROADMAP-SHARING-AUTH.md` §5.1 (now marked
+SUPERSEDED there too), without touching the Phase 9 policy gate's shape
+(`policy.py::resolve_share` was never folder-aware — every folder-share
+route called it first, then branched afterward). Manifest resolution was an
+EXACT-MATCH DB query (`WHERE share_id = ? AND relpath = ?`), never a
+filesystem join — the whole security argument was that `..`, an absolute
+path, an encoded/double-encoded/backslash traversal variant, an excluded
+entry, and a relpath from a different share all failed for the identical
+reason ("no row matched"), collapsing into the same uniform 404 as every
+other Phase 9 deny state. `server/tests/test_folder_shares.py` (now deleted;
+see git history) was the resolution matrix that proved it.
 
 ## Real sync (Phase 11)
 
@@ -915,16 +988,55 @@ answer for unreachable. Nothing is written to Cache Storage by that route.
 The vault does NOT seed behind the gate: `App.tsx` mounts only after the
 gate clears, so a visitor who never signs in performs zero vault writes.
 
-**Auto-sync policies.** Settings → Git & Sync offers manual (default),
-every N minutes, on open and close, and debounced on save. Every policy
-calls the SAME `useGitStore.syncNow()` → `src/git/sync.ts::runSync` pipeline
-a manual sync uses (fetch → fast-forward → push → clean auto-merge with
+**Auto-sync policies.** Settings → Git & Sync offers four independently-
+combinable triggers, all off meaning fully manual: every N minutes, on app
+open and close, debounced on save, and on window focus. Every trigger calls
+the SAME `useGitStore.syncNow()` → `src/git/sync.ts::runSync` pipeline a
+manual sync uses (fetch → fast-forward → push → clean auto-merge with
 backup refs → resolver only for true conflicts). There is no second sync
 path, nothing force-pushes, and a run that pauses on a true conflict stays
 paused instead of retrying in a loop. Scheduling lives in a pure module
 (`src/git/autoSyncPolicy.ts`) with injected timer functions, so specs drive
 it with a fake clock instead of sleeping; runs are suppressed while a sync
-is in flight, while signed out, and while a conflict is unresolved.
+is in flight, while signed out, and while a conflict is unresolved. The
+focus trigger has its own gate on top of that (only fires if the last
+completed run is older than the coalescing queue's quiet window), so
+repeated tab-switching can't build up a backlog of pending runs the way the
+other three triggers deliberately can.
+
+## Storage durability model (PLAN-2026-09-05-refresh.md §1)
+
+The owner's stated worry: a vault living only in the browser's IndexedDB
+clone is a data-loss risk (cleared site data, a browser reinstall, storage
+eviction under disk pressure). The fix keeps CLAUDE.md rule 3's local-first/
+offline contract intact — the browser copy is still the ONLY thing the app
+reads from and writes to while editing — and instead makes the ALREADY-
+EXISTING server copy (`VSNOTE_VAULT_PATH`, "Server-mounted vault" above)
+the thing edits reach quickly and by default:
+
+- **Defaults changed, not architecture.** Finishing Settings → Git & Sync's
+  setup wizard (`gitSyncSetupComplete` flipping true) now also defaults
+  "after each save" and "every N minutes" auto-sync to ON, for anyone who
+  hasn't explicitly chosen otherwise (`useSettingsStore.ts`'s
+  `setGitSyncSetupComplete`/`*Touched` fields) — a v5 persist migration
+  applies the same one-time default to sessions that had already completed
+  setup before this shipped. Manual-only sync stays fully available; every
+  toggle can still be turned off.
+- **A fourth trigger, "on focus".** `git/autoSyncPolicy.ts`'s `triggerFocus`
+  (wired from `App.tsx`'s `visibilitychange`-to-visible and `window`
+  `focus` listeners) attempts a sync whenever the window/tab regains focus
+  and configured sync is stale (older than the coalescing queue's quiet
+  window) — the moment most likely to matter is "I just switched devices",
+  which is exactly when a stale local copy is most likely to lag behind.
+- **The status bar tells the truth about what isn't durable yet.**
+  `StatusBar.tsx`'s sync segment shows "N unsynced" (derived from
+  `useGitStore`'s existing `ahead`/`changedCount`/`untracked` fields — no
+  second status computation) and "last pushed Xm ago"
+  (`lib/relativeTime.ts::formatLastPushedLabel`), with a tooltip stating
+  plainly that edits are durable once pushed to the server vault.
+- **Nothing here changes what "durable" means server-side** — see
+  server/README.md's "Durable storage" section for `VSNOTE_VAULT_PATH`
+  itself, bind-mounting a host path, and backup advice.
 
 ## Explorer virtualization (Phase 17 Milestone D)
 
@@ -1001,29 +1113,31 @@ mount:
    client-side route besides `/share/*`, which never reaches this handler at all —
    see point 2 — so literally everything else, including `/` itself, is meant to
    land on the app shell).
-2. `routers/share_public.py`'s existing GET handlers (`get_share`/`get_share_path`)
+2. `routers/share_public.py`'s existing GET handlers (`get_share`)
    gained a new branch, gated on a new `_wants_html()` check (`"text/html" in
    Accept` — deliberately NOT "absence of `application/json`", so a plain
    curl/script with no `Accept` header at all keeps getting the exact
-   pre-Phase-10.5a documented default: raw bytes for a file, JSON listing for a
-   folder). Two sub-cases, both funneled through this check:
+   pre-Phase-10.5a documented default: raw bytes. Two sub-cases, both funneled
+   through this check (§4.4 note: folder shares, mentioned throughout this
+   section's original write-up below, were removed entirely 2026-09-05 — see
+   the "Folder shares (Phase 10.5) — SUPERSEDED" section; the shell mechanism
+   itself is unchanged, it just has one fewer success case to cover now):
    - **Success** (`policy.resolve_share` granted access): a `render_mode="rendered"`
-     file share or ANY folder share, wanting HTML, gets `app.state.spa_index_html`
+     file share, wanting HTML, gets `app.state.spa_index_html`
      (`_spa_shell_response()`) instead of the raw/JSON response — the SPA then
      mounts and re-fetches the identical URL itself with `Accept:
      application/json`, taking the unchanged JSON branch. RAW-mode file shares are
      excluded from this branch entirely (checked on `render_mode`, not `Accept`) —
      they always return `text/plain`, browser or not, preserving roadmap §1's "a
      raw share must never execute" absolutely, with no exception.
-   - **Denial** (`policy.PolicyDenied`, or an "access granted but this relpath/kind
-     doesn't resolve" case): ALSO gets the identical shell for `Accept: text/html`
+   - **Denial** (`policy.PolicyDenied`): ALSO gets the identical shell for `Accept: text/html`
      — see the paragraph below for why this widening (not part of this phase's
      original design) is required and is a strict privacy IMPROVEMENT, not a
      weakening.
 
 **Every deny reason gets the shell for HTML navigation too — `_deny_response()`,
 replacing the old direct `policy.denial_response()`/`policy.not_found_response()`
-calls in `get_share`/`get_share_path` only (not `put_share`, not the `/api/share/
+calls in `get_share` only (not `put_share`, not the `/api/share/
 .../content` twin routes — neither is ever browser-navigated).** This phase's
 original design kept denials JSON-only regardless of `Accept`, reasoning that
 serving the shell for a bogus slug would "hand the app shell to unauthenticated
@@ -1036,13 +1150,13 @@ a password" UI — the SPA was never loaded at all, so its whole password-prompt
 contract (`server/README.md`'s "Every deny reason is the SAME 404" section) could
 never execute. Worse, the original design was ITSELF a (smaller, HTML-Accept-only)
 oracle: a plain `curl -H 'Accept: text/html'` could already distinguish "real,
-accessible, rendered/folder share" (200 HTML) from "denied for any reason" (404
+accessible, rendered share" (200 HTML) from "denied for any reason" (404
 JSON) from "real raw-mode share" (200 text/plain) — three classes reachable
 without ever sending `Accept: application/json`. `_deny_response()` fixes both:
-`GET /share/<bogus-slug>` (or revoked, expired, password-required, wrong role,
-unresolvable relpath — EVERY deny reason, uniformly) with `Accept: text/html` now
-returns the exact same `app.state.spa_index_html` bytes a SUCCESSFUL rendered-mode/
-folder share's navigation gets — content-independent, no slug/policy/error detail
+`GET /share/<bogus-slug>` (or revoked, expired, password-required, wrong role —
+EVERY deny reason, uniformly) with `Accept: text/html` now
+returns the exact same `app.state.spa_index_html` bytes a SUCCESSFUL rendered-mode
+share's navigation gets — content-independent, no slug/policy/error detail
 baked in — collapsing what used to be three navigation-visible classes into ONE
 (a successful RAW-mode share is the sole remaining exception, on its own separate,
 non-negotiable terms). The actual authorization decision — and the byte-identical

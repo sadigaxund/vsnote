@@ -27,21 +27,13 @@ from ..config import Settings
 from ..runtime_settings import get_max_blob_bytes
 
 
-def _manifest_count(db: Session, share: "models.Share") -> Optional[int]:
-    if share.kind != models.ShareKind.folder:
-        return None
-    return db.query(models.ShareManifestEntry).filter(models.ShareManifestEntry.share_id == share.id).count()
-
-
 def _share_out(db: Session, share: "models.Share") -> schemas.ShareOut:
     return schemas.ShareOut(
         id=share.id,
         slug=share.slug,
         alias=share.alias,
         source_path=share.source_path,
-        kind=share.kind.value if hasattr(share.kind, "value") else str(share.kind),
         blob_id=share.blob_id,
-        manifest_count=_manifest_count(db, share),
         live=share.live,
         render_mode=share.render_mode.value,
         general_access=share.general_access.value,
@@ -53,6 +45,8 @@ def _share_out(db: Session, share: "models.Share") -> schemas.ShareOut:
         last_access_at=share.last_access_at,
         hit_count=share.hit_count,
         link_role=share.link_role.value if hasattr(share.link_role, "value") else str(share.link_role or "viewer"),
+        show_title=share.show_title,
+        back_link=share.back_link,
         grants=[
             schemas.GrantOut(principal=g.principal, role=g.role.value if hasattr(g.role, "value") else str(g.role))
             for g in db.query(models.ShareGrant)
@@ -70,56 +64,45 @@ def _generate_unique_slug(db: Session) -> str:
     return slug
 
 
-def _validate_relpath(relpath: str) -> Optional[str]:
-    """Belt-and-suspenders hygiene at WRITE time only — not itself the
-    security boundary (that's the exact-match manifest lookup at READ time,
-    see models.ShareManifestEntry's docstring: an entry containing "../x"
-    would still be harmless to store, since it could only ever be reached by
-    a request for the literal string "../x", which resolves nothing outside
-    the manifest either). Rejecting obviously-malformed relpaths here just
-    keeps the manifest table from accumulating garbage a legitimate client
-    would never send. Returns an error message, or None if valid."""
-    if not relpath or relpath.strip() == "":
-        return "relpath must not be empty"
-    if relpath.startswith("/"):
-        return "relpath must not be absolute"
-    if "\\" in relpath:
-        return "relpath must not contain a backslash"
-    segments = relpath.split("/")
-    if any(seg in ("", ".", "..") for seg in segments):
-        return "relpath must not contain empty/./.. segments"
-    return None
-
-
-def _apply_manifest(db: Session, share: "models.Share", entries: list) -> None:
-    """Wholesale-replace `share`'s manifest rows. Every entry's `blob_id`
-    must already exist (client POSTs blobs first, same as a file share) —
-    404s otherwise. Raises HTTPException(422) for a malformed relpath."""
-    seen = set()
-    for entry in entries:
-        err = _validate_relpath(entry.relpath)
-        if err:
-            raise HTTPException(status_code=422, detail=err)
-        if entry.relpath in seen:
-            raise HTTPException(status_code=422, detail=f"duplicate relpath: {entry.relpath}")
-        seen.add(entry.relpath)
-        blob = db.get(models.Blob, entry.blob_id)
-        if blob is None:
-            raise HTTPException(status_code=404, detail=f"Unknown blob_id for {entry.relpath} — POST /api/blobs first")
-
-    db.query(models.ShareManifestEntry).filter(models.ShareManifestEntry.share_id == share.id).delete()
-    for entry in entries:
-        blob = db.get(models.Blob, entry.blob_id)
-        db.add(
-            models.ShareManifestEntry(
-                share_id=share.id,
-                relpath=entry.relpath,
-                blob_id=entry.blob_id,
-                size=blob.size,
-                media_type_hint=blob.media_type_hint,
-            )
+def _check_auth_matches_render_mode(render_mode: str, auth_mode: str) -> None:
+    """§4.6 auth matrix, enforced server-side (not just in the publish
+    dialog): raw shares may only use `auth_mode` `none` or `token` — there
+    is no UI surface to type a password against a raw byte stream, and a
+    password challenge on a raw response would mean either serving an HTML
+    challenge page (breaking "raw = bytes, never text/html") or silently
+    ignoring the password. Rendered shares may use any of
+    none/password/token; `general_access="restricted"` (sign-in) is
+    orthogonal to all three and unaffected by this check. This is the ONE
+    place both create_share and patch_share enforce the rule, so it can't
+    drift between the two paths. This is an OWNER-facing validation error
+    (a descriptive 422), not a visitor-facing deny — the uniform-404 rule
+    in policy.py applies only to the public gate, never to this API."""
+    if render_mode == "raw" and auth_mode == "password":
+        raise HTTPException(
+            status_code=422,
+            detail="Password protection isn't available for raw shares. Use no auth or a token instead.",
         )
-    db.commit()
+
+
+def _check_alias_available(db: Session, alias: str, *, exclude_share_id: Optional[int] = None) -> None:
+    """§4.5 — explicit pre-check so a colliding alias returns a clean 4xx
+    instead of a 500 IntegrityError. An alias must never collide with
+    either an existing alias OR an existing slug (both columns share the
+    same identifier namespace at the public gate — `policy.lookup_share`
+    matches either). The DB's own unique constraints on `shares.alias` and
+    `shares.slug` remain as the belt-and-suspenders backstop for the race
+    between this check and the commit (still caught below as an
+    IntegrityError -> 409)."""
+    err = security.alias_error(alias)
+    if err:
+        raise HTTPException(status_code=422, detail=err)
+    query = db.query(models.Share).filter(
+        (models.Share.alias == alias) | (models.Share.slug == alias)
+    )
+    if exclude_share_id is not None:
+        query = query.filter(models.Share.id != exclude_share_id)
+    if query.first() is not None:
+        raise HTTPException(status_code=409, detail="alias already in use")
 
 
 def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, auth_deps: AuthDeps) -> APIRouter:
@@ -153,33 +136,16 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         ctx: AuthContext = Depends(auth_deps.require_scope({"share-admin"})),
         db: Session = Depends(get_db),
     ):
-        is_folder = payload.kind == "folder"
+        if not payload.blob_id:
+            raise HTTPException(status_code=422, detail="blob_id is required")
+        if db.get(models.Blob, payload.blob_id) is None:
+            raise HTTPException(status_code=404, detail="Unknown blob_id — POST /api/blobs first")
 
-        if is_folder:
-            if not payload.manifest:
-                raise HTTPException(status_code=422, detail="manifest must be non-empty for a folder share")
-        else:
-            if not payload.blob_id:
-                raise HTTPException(status_code=422, detail="blob_id is required for a file share")
-            if db.get(models.Blob, payload.blob_id) is None:
-                raise HTTPException(status_code=404, detail="Unknown blob_id — POST /api/blobs first")
-
-        if payload.alias is not None and not security.validate_slug_format(payload.alias):
-            raise HTTPException(status_code=422, detail="alias must match the slug format")
+        if payload.alias is not None:
+            _check_alias_available(db, payload.alias)
         if payload.auth_mode == "password" and not payload.password:
             raise HTTPException(status_code=422, detail="password is required when auth_mode is 'password'")
-
-        # Validate every manifest relpath BEFORE creating the share row, so a
-        # malformed entry never leaves a half-published folder share behind.
-        if is_folder:
-            for entry in payload.manifest:
-                err = _validate_relpath(entry.relpath)
-                if err:
-                    raise HTTPException(status_code=422, detail=err)
-                if db.get(models.Blob, entry.blob_id) is None:
-                    raise HTTPException(
-                        status_code=404, detail=f"Unknown blob_id for {entry.relpath} — POST /api/blobs first"
-                    )
+        _check_auth_matches_render_mode(payload.render_mode, payload.auth_mode)
 
         share = models.Share(
             slug=_generate_unique_slug(db),
@@ -187,8 +153,9 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             owner_id=ctx.user.id,
             source_path=payload.source_path,
             link_role=models.GrantRole(payload.link_role),
-            kind=models.ShareKind.folder if is_folder else models.ShareKind.file,
-            blob_id=None if is_folder else payload.blob_id,
+            show_title=payload.show_title,
+            back_link=payload.back_link or None,
+            blob_id=payload.blob_id,
             live=payload.live,
             render_mode=models.RenderMode(payload.render_mode),
             general_access=models.GeneralAccess(payload.general_access),
@@ -204,60 +171,11 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             raise HTTPException(status_code=409, detail="alias already in use")
         db.refresh(share)
 
-        if is_folder:
-            _apply_manifest(db, share, payload.manifest)
-
         for grant in payload.grants:
             db.add(models.ShareGrant(share_id=share.id, principal=grant.principal, role=models.GrantRole(grant.role)))
         db.commit()
 
         write_audit_event(db, "share.publish", slug=share.slug, principal=ctx.principal, request=request)
-        return _share_out(db, share)
-
-    @router.get("/shares/{share_id}/manifest", response_model=schemas.ShareManifestOut)
-    def get_share_manifest(
-        share_id: int,
-        ctx: AuthContext = Depends(auth_deps.require_scope({"read", "write", "share-admin"})),
-        db: Session = Depends(get_db),
-    ):
-        share = db.get(models.Share, share_id)
-        if share is None or share.owner_id != ctx.user.id:
-            raise HTTPException(status_code=404, detail="Not found")
-        rows = (
-            db.query(models.ShareManifestEntry)
-            .filter(models.ShareManifestEntry.share_id == share.id)
-            .order_by(models.ShareManifestEntry.relpath)
-            .all()
-        )
-        return schemas.ShareManifestOut(
-            entries=[
-                schemas.ManifestEntryOut(relpath=r.relpath, blob_id=r.blob_id, size=r.size, media_type_hint=r.media_type_hint)
-                for r in rows
-            ]
-        )
-
-    @router.put("/shares/{share_id}/manifest", response_model=schemas.ShareOut)
-    def update_share_manifest(
-        share_id: int,
-        payload: schemas.ManifestUpdateIn,
-        request: Request,
-        ctx: AuthContext = Depends(auth_deps.require_scope({"share-admin"})),
-        db: Session = Depends(get_db),
-    ):
-        """"Update share" for a folder share (roadmap §5.1) — republishes the
-        subtree to the SAME slug by wholesale-replacing the manifest. The
-        slug/alias/policy fields are untouched (use PATCH for those)."""
-        share = db.get(models.Share, share_id)
-        if share is None or share.owner_id != ctx.user.id:
-            raise HTTPException(status_code=404, detail="Not found")
-        if share.kind != models.ShareKind.folder:
-            raise HTTPException(status_code=400, detail="Only folder shares have a manifest")
-        if not payload.manifest:
-            raise HTTPException(status_code=422, detail="manifest must be non-empty")
-
-        _apply_manifest(db, share, payload.manifest)
-        db.refresh(share)
-        write_audit_event(db, "share.publish", slug=share.slug, principal=ctx.principal, reason="manifest_update", request=request)
         return _share_out(db, share)
 
     @router.get("/shares", response_model=List[schemas.ShareOut])
@@ -285,9 +203,15 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         if share is None or share.owner_id != ctx.user.id:
             raise HTTPException(status_code=404, detail="Not found")
 
+        # Validate the FULL resulting state before mutating anything, so a
+        # rejected patch never partially applies.
+        if payload.alias:
+            _check_alias_available(db, payload.alias, exclude_share_id=share.id)
+        final_render_mode = payload.render_mode if payload.render_mode is not None else share.render_mode.value
+        final_auth_mode = payload.auth_mode if payload.auth_mode is not None else share.auth_mode.value
+        _check_auth_matches_render_mode(final_render_mode, final_auth_mode)
+
         if payload.alias is not None:
-            if payload.alias and not security.validate_slug_format(payload.alias):
-                raise HTTPException(status_code=422, detail="alias must match the slug format")
             share.alias = payload.alias or None
         if payload.clear_expiry:
             share.expires_at = None
@@ -309,6 +233,10 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             share.live = payload.live
         if payload.link_role is not None:
             share.link_role = models.GrantRole(payload.link_role)
+        if payload.show_title is not None:
+            share.show_title = payload.show_title
+        if payload.back_link is not None:
+            share.back_link = payload.back_link or None
         # Round 7 item 60 — grants are a wholesale replacement (None means
         # untouched, [] means remove everyone), mirroring the manifest's
         # replace semantics rather than inventing per-row endpoints.
@@ -370,6 +298,96 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         share.revoked_at = time.time()
         db.commit()
         write_audit_event(db, "share.revoke", slug=share.slug, principal=ctx.principal, request=request)
+        return {"ok": True}
+
+    # --- §4.2: per-share bearer tokens (owner-only, share-admin scope) ----
+    #
+    # Mirrors auth.py's `/tokens` endpoints (mint/list/revoke) but scoped to
+    # ONE share's `ShareToken` rows instead of the owner's account-wide
+    # `ApiToken` table. `_owned_share` below is the single place that keeps
+    # the "a share the caller does not own 404s uniformly" contract from
+    # drifting across the three routes (same shape as every other
+    # `/shares/{id}` owner-scoped route above — 404, never 403, so a
+    # caller can't distinguish "not yours" from "doesn't exist").
+    #
+    # Rotation is mint-new + revoke-old (two existing calls) rather than a
+    # dedicated `/rotate` endpoint: there is no server-side reason a
+    # rotation needs to be atomic (the old token keeps working, harmlessly,
+    # for the moment between the two calls — that's strictly SAFER than a
+    # window where neither token works), and the publish dialog already
+    # needs the plain mint response to show the new plaintext once, so a
+    # combined endpoint would just be these same two calls glued together
+    # for no real benefit.
+    def _owned_share(db: Session, share_id: int, ctx: AuthContext) -> models.Share:
+        share = db.get(models.Share, share_id)
+        if share is None or share.owner_id != ctx.user.id:
+            raise HTTPException(status_code=404, detail="Not found")
+        return share
+
+    @router.post("/shares/{share_id}/tokens", response_model=schemas.ShareTokenCreateOut, status_code=201)
+    def create_share_token(
+        share_id: int,
+        payload: schemas.ShareTokenCreateIn,
+        request: Request,
+        ctx: AuthContext = Depends(auth_deps.require_scope({"share-admin"})),
+        db: Session = Depends(get_db),
+    ):
+        share = _owned_share(db, share_id, ctx)
+        plaintext = security.generate_api_token()
+        row = models.ShareToken(
+            share_id=share.id,
+            token_hash=security.hash_token(plaintext),
+            prefix=plaintext[:12],
+            label=payload.label,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        write_audit_event(db, "share_token.create", slug=share.slug, principal=ctx.principal, request=request)
+        return schemas.ShareTokenCreateOut(
+            id=row.id, prefix=row.prefix, label=row.label, token=plaintext, created_at=row.created_at
+        )
+
+    @router.get("/shares/{share_id}/tokens", response_model=List[schemas.ShareTokenOut])
+    def list_share_tokens(
+        share_id: int,
+        ctx: AuthContext = Depends(auth_deps.require_scope({"share-admin"})),
+        db: Session = Depends(get_db),
+    ):
+        share = _owned_share(db, share_id, ctx)
+        rows = (
+            db.query(models.ShareToken)
+            .filter(models.ShareToken.share_id == share.id)
+            .order_by(models.ShareToken.id)
+            .all()
+        )
+        return [
+            schemas.ShareTokenOut(
+                id=r.id,
+                prefix=r.prefix,
+                label=r.label,
+                created_at=r.created_at,
+                last_used_at=r.last_used_at,
+                revoked_at=r.revoked_at,
+            )
+            for r in rows
+        ]
+
+    @router.delete("/shares/{share_id}/tokens/{token_id}")
+    def revoke_share_token(
+        share_id: int,
+        token_id: int,
+        request: Request,
+        ctx: AuthContext = Depends(auth_deps.require_scope({"share-admin"})),
+        db: Session = Depends(get_db),
+    ):
+        share = _owned_share(db, share_id, ctx)
+        row = db.get(models.ShareToken, token_id)
+        if row is None or row.share_id != share.id:
+            raise HTTPException(status_code=404, detail="Not found")
+        row.revoked_at = time.time()
+        db.commit()
+        write_audit_event(db, "share_token.revoke", slug=share.slug, principal=ctx.principal, request=request)
         return {"ok": True}
 
     return router

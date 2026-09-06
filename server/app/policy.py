@@ -81,6 +81,25 @@ NOT_FOUND_BODY = {"detail": "Not found"}
 WRITE_METHODS = {"PUT", "PATCH"}
 READ_METHODS = {"GET", "HEAD"}
 
+# §4.5 — `Share.expires_at` is `time.time()`'s epoch seconds: since epoch
+# seconds are timezone-free by definition, there is no local-time bug to
+# have here regardless of the server's or any client's timezone. A small
+# skew tolerance avoids a share flickering expired/valid across a request
+# that lands exactly at the boundary, or across trivial clock drift between
+# processes (the app server and whatever set `expires_at` need not be the
+# exact same clock tick).
+EXPIRY_SKEW_SECONDS = 60
+
+
+def is_expired(expires_at: Optional[float], now: Optional[float] = None) -> bool:
+    """The ONE place "is this share expired" is computed — used by both
+    `resolve_share` below and `routers/share_public.py`'s password-auth
+    endpoint (which doesn't otherwise go through `resolve_share`), so the
+    skew tolerance can't drift between the two call sites."""
+    if expires_at is None:
+        return False
+    return expires_at + EXPIRY_SKEW_SECONDS < (now if now is not None else time.time())
+
 
 class PolicyDenied(Exception):
     """Raised by every deny branch in resolve_share(). `reason` is
@@ -184,7 +203,7 @@ def resolve_share(
         raise PolicyDenied("revoked")
 
     # 4. Expired.
-    if share.expires_at is not None and share.expires_at < time.time():
+    if is_expired(share.expires_at):
         write_audit_event(db, "policy.deny", slug=share.slug, reason="expired", request=request)
         raise PolicyDenied("expired")
 
@@ -196,20 +215,45 @@ def resolve_share(
             write_audit_event(db, "policy.deny", slug=share.slug, reason="password_required", request=request)
             raise PolicyDenied("password_required")
     elif share.auth_mode == models.AuthMode.token:
+        # §4.2 — visitor credentials for `auth_mode="token"` are looked up
+        # ONLY in `ShareToken`, scoped to THIS share (`share_id ==
+        # share.id`), never in `ApiToken` (the OWNER's account-wide API
+        # token table, used elsewhere in this codebase — routers/shares.py,
+        # auth.py's `require_scope` — for the OWNER's OWN automation under
+        # scope "share-admin"/"write"/"read"). Before this table existed,
+        # this branch queried `ApiToken` directly, so ANY of the owner's
+        # account tokens (minted for, say, git automation) doubled as a
+        # visitor credential for EVERY token-mode share AND the owner API
+        # itself — a single leaked script token unlocked everything. That
+        # is now structurally impossible: an `ApiToken`'s hash is simply
+        # never compared against here.
+        #
+        # Why the hash equality lookup itself is not a timing oracle: this
+        # is a `WHERE token_hash = :hash` query against an INDEXED column,
+        # not a byte-by-byte secret comparison loop — SQLite (like any
+        # indexed-equality lookup) doesn't leak "how many leading bytes of
+        # the hash matched" through timing, because it's not comparing byte
+        # prefixes at all, it's comparing (or index-seeking on) a fixed-
+        # width value. Nothing here shortcuts on a partial match. The only
+        # place a "did the secret match" comparison happens in the classic
+        # early-exit sense is `security.constant_time_eq`/`hmac.compare_digest`,
+        # used elsewhere in this module for the share-session cookie binding
+        # (see `has_valid_share_session`) — there's no equivalent risk here
+        # because SHA-256 hex digests are compared as opaque fixed-length
+        # values via an index, never char-by-char in application code.
         if not bearer_token:
             write_audit_event(db, "policy.deny", slug=share.slug, reason="token_required", request=request)
             raise PolicyDenied("token_required")
         token_row = (
-            db.query(models.ApiToken)
-            .filter(models.ApiToken.token_hash == security.hash_token(bearer_token))
+            db.query(models.ShareToken)
+            .filter(
+                models.ShareToken.share_id == share.id,
+                models.ShareToken.token_hash == security.hash_token(bearer_token),
+            )
             .one_or_none()
         )
         now = time.time()
-        if (
-            token_row is None
-            or token_row.revoked_at is not None
-            or (token_row.expires_at is not None and token_row.expires_at < now)
-        ):
+        if token_row is None or token_row.revoked_at is not None:
             write_audit_event(db, "policy.deny", slug=share.slug, reason="invalid_token", request=request)
             raise PolicyDenied("invalid_token")
         token_row.last_used_at = now

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -66,6 +66,35 @@ class TokenOut(BaseModel):
     expires_at: Optional[float] = None
 
 
+# --- Share tokens (§4.2 — per-share visitor credentials, NOT ApiToken) -----
+
+
+class ShareTokenCreateIn(BaseModel):
+    label: Optional[str] = Field(default=None, max_length=255)
+
+
+class ShareTokenCreateOut(BaseModel):
+    """Mint response — the ONLY time the plaintext token is ever returned.
+    See `models.ShareToken`'s docstring."""
+
+    id: int
+    prefix: str
+    label: Optional[str] = None
+    token: str  # plaintext — never again
+    created_at: float
+
+
+class ShareTokenOut(BaseModel):
+    """List response — never the secret, never even a hash."""
+
+    id: int
+    prefix: str
+    label: Optional[str] = None
+    created_at: float
+    last_used_at: Optional[float] = None
+    revoked_at: Optional[float] = None
+
+
 # --- Blobs -------------------------------------------------------------
 
 
@@ -93,25 +122,11 @@ class GrantOut(BaseModel):
     role: str
 
 
-class ManifestEntryIn(BaseModel):
-    """One INCLUDED file in a folder share's snapshot manifest (roadmap
-    §5.1). `relpath` is vault-relative display text ONLY — never used for a
-    filesystem lookup (see models.ShareManifestEntry's docstring); `blob_id`
-    must already exist (client POSTs the blob to `/api/blobs` first, exactly
-    like a file share)."""
-
-    relpath: str
-    blob_id: str
-
-
 class ShareCreateIn(BaseModel):
     source_path: str
-    kind: Literal["file", "folder"] = "file"
-    # Required when kind=="file", ignored when kind=="folder" (folder
-    # content lives entirely in `manifest` below).
+    # §4.4 — folder shares removed entirely; every share pins exactly one
+    # blob. `blob_id` is always required now (see routers/shares.py).
     blob_id: Optional[str] = None
-    # Required (non-empty) when kind=="folder", ignored when kind=="file".
-    manifest: List[ManifestEntryIn] = Field(default_factory=list)
     live: bool = False
     render_mode: Literal["raw", "rendered"] = "raw"
     general_access: Literal["restricted", "link"] = "restricted"
@@ -124,15 +139,10 @@ class ShareCreateIn(BaseModel):
     # ignored (stored but never consulted) while general_access is
     # "restricted".
     link_role: Literal["viewer", "editor"] = "viewer"
-
-
-class ManifestUpdateIn(BaseModel):
-    """`PUT /api/shares/{id}/manifest` — "Update share" for a folder share
-    (roadmap §5.1: "Update share republishes the subtree to the SAME
-    slug."). Wholesale-replaces the manifest; the slug/alias/policy are
-    untouched."""
-
-    manifest: List[ManifestEntryIn]
+    # §5 / DESIGN-SPEC round 10 items 66-67 — both off/unset by default. See
+    # models.Share's docstring for the security posture on `show_title`.
+    show_title: bool = False
+    back_link: Optional[str] = None
 
 
 class SharePatchIn(BaseModel):
@@ -158,6 +168,12 @@ class SharePatchIn(BaseModel):
     # replacement (None = leave grants untouched; [] = remove them all).
     link_role: Optional[Literal["viewer", "editor"]] = None
     grants: Optional[List[GrantIn]] = None
+    # §5 / DESIGN-SPEC round 10 items 66-67. `back_link`: pass "" to clear
+    # (same sentinel-free pattern as `link_role` — there's no ambiguous
+    # "unset vs empty" distinction to worry about here since an empty
+    # string is never a valid slug/alias anyway).
+    show_title: Optional[bool] = None
+    back_link: Optional[str] = None
 
 
 class ShareOut(BaseModel):
@@ -165,11 +181,7 @@ class ShareOut(BaseModel):
     slug: str
     alias: Optional[str] = None
     source_path: str
-    kind: Literal["file", "folder"] = "file"
     blob_id: Optional[str] = None
-    # Folder shares only — number of INCLUDED files in the current manifest.
-    # None for file shares.
-    manifest_count: Optional[int] = None
     live: bool
     render_mode: str
     general_access: str
@@ -183,6 +195,9 @@ class ShareOut(BaseModel):
     # Round 7 items 57/60.
     link_role: str = "viewer"
     grants: List[GrantOut] = Field(default_factory=list)
+    # §5 / DESIGN-SPEC round 10 items 66-67.
+    show_title: bool = False
+    back_link: Optional[str] = None
 
 
 # --- Public share endpoints ---------------------------------------------
@@ -190,6 +205,14 @@ class ShareOut(BaseModel):
 
 class SharePasswordAuthIn(BaseModel):
     password: str
+
+
+class ShareBackLinkOut(BaseModel):
+    """One line of navigation — see `app/linkmap.py::resolve_back_link`'s
+    docstring for the resolution and drop-silently-if-gone contract."""
+
+    href: str
+    label: str
 
 
 class ShareContentOut(BaseModel):
@@ -213,57 +236,12 @@ class ShareContentOut(BaseModel):
     created_at: float
     last_access_at: Optional[float] = None
     hit_count: int
-
-
-# --- Public folder-share endpoints (Phase 10.5, roadmap §5.1) --------------
-
-
-class ShareListingEntryOut(BaseModel):
-    """One row of a folder share's directory listing — either a file
-    (resolved from a `ShareManifestEntry`) or a `dir` entry synthesized
-    purely from the set of relpaths that share a prefix (no real directory
-    row exists; see `routers/share_public.py::_listing_for_prefix`)."""
-
-    name: str
-    kind: Literal["file", "dir"]
-    # relpath is the value the visitor's next request should target
-    # (`GET /share/{id}/{relpath}`) — set for both files and dirs.
-    relpath: str
-    size: Optional[int] = None
-    media_type_hint: Optional[str] = None
-
-
-class ShareListingOut(BaseModel):
-    """`GET /share/{id}` (folder root) or `GET /share/{id}/{relpath}` when
-    `relpath` names a directory prefix rather than a file — a plain listing,
-    never an inlined-into-HTML render (roadmap §5.1: "no README special-
-    casing", "must not inline user content into HTML server-side")."""
-
-    slug: str
-    # Same as ShareContentOut.role — the caller's resolved role.
-    role: Optional[str] = None
-    alias: Optional[str] = None
-    kind: Literal["folder"] = "folder"
-    prefix: str
-    entries: List[ShareListingEntryOut]
-    created_at: float
-    last_access_at: Optional[float] = None
-    hit_count: int
-
-
-class ManifestEntryOut(BaseModel):
-    relpath: str
-    blob_id: str
-    size: int
-    media_type_hint: Optional[str] = None
-
-
-class ShareManifestOut(BaseModel):
-    """`GET /api/shares/{id}/manifest` — owner-only, used by the Publish
-    dialog's "Edit policy…" flow on a folder share to prefill the checkbox
-    tree's excluded state (an entry NOT in this list is excluded)."""
-
-    entries: List[ManifestEntryOut]
+    # §5 — dynamic link map (vault-relative link target, exactly as written
+    # in the markdown -> the target share's URL path) and the resolved
+    # back-link line. See `app/linkmap.py` for how both are computed with
+    # zero filesystem access.
+    links: Dict[str, str] = Field(default_factory=dict)
+    back_link: Optional[ShareBackLinkOut] = None
 
 
 # --- Admin runtime settings (DESIGN-SPEC Amendments round 5, item 40) -----

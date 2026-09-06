@@ -1,8 +1,8 @@
 """Phase 10.5a widening (roadmap §5.4, `app/routers/share_public.py`'s
 `_deny_response`/`_spa_shell_response`): a real browser navigation
-(`Accept: text/html`) to `GET /share/{id}[/{relpath}]` must get the built
-SPA's shell for EVERY deny reason as well as a successful rendered-mode/
-folder share — never the JSON 404, never anything content-dependent. The
+(`Accept: text/html`) to `GET /share/{id}` must get the built SPA's shell
+for EVERY deny reason as well as a successful rendered-mode share — never
+the JSON 404, never anything content-dependent. The
 `Accept: application/json` (and no-`Accept`-header) path must be completely
 unaffected: the byte-identical uniform 404 for every deny reason, and the
 real content for a success, exactly as `test_policy_gate.py`'s own
@@ -23,19 +23,22 @@ from __future__ import annotations
 
 import time
 
-from conftest import publish_folder_share, publish_share, random_wellformed_slug
+from conftest import publish_share, random_wellformed_slug
 
 NOT_FOUND = {"detail": "Not found"}
-FAKE_SHELL = b"<!doctype html><html><body>fake spa shell for test_spa_navigation.py</body></html>"
+# A real <head></head> is needed so this file's show_title tests below can
+# exercise `_inject_meta_title`'s splice point — every OTHER test in this
+# file still just compares full-body equality against this same constant,
+# so adding the (empty) head changes nothing about their behavior.
+FAKE_SHELL = b"<!doctype html><html><head></head><body>fake spa shell for test_spa_navigation.py</body></html>"
 HTML_ACCEPT = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
 JSON_ACCEPT = {"Accept": "application/json"}
 
 
 def _build_html_nav_states(owner_client, anon_client) -> dict:
     """Every deny reason (matching `test_policy_gate.py::_build_deny_states`'
-    coverage) PLUS a successful rendered-mode file share and a successful
-    folder share — all fetched with `Accept: text/html`, i.e. as a real
-    browser navigation would."""
+    coverage) PLUS a successful rendered-mode file share — all fetched with
+    `Accept: text/html`, i.e. as a real browser navigation would."""
     states = {}
 
     states["malformed"] = anon_client.get("/share/bad slug!!", headers=HTML_ACCEPT)
@@ -56,17 +59,17 @@ def _build_html_nav_states(owner_client, anon_client) -> dict:
     )
     states["restricted_no_identity"] = anon_client.get(f"/share/{restricted_share['slug']}", headers=HTML_ACCEPT)
 
-    password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
+    password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw", render_mode="rendered")
     states["password_required"] = anon_client.get(f"/share/{password_share['slug']}", headers=HTML_ACCEPT)
 
-    folder_share = publish_folder_share(owner_client, files={"a.md": b"file a"})
-    states["folder_unknown_relpath"] = anon_client.get(f"/share/{folder_share['slug']}/nope.md", headers=HTML_ACCEPT)
+    # §4.4 — folder shares removed; a folder-shaped URL is now just one
+    # more deny reason (`share_subpath_removed`), covered the same way.
+    live_share = publish_share(owner_client, general_access="link", auth_mode="none")
+    states["folder_shaped_url_removed"] = anon_client.get(f"/share/{live_share['slug']}/nope.md", headers=HTML_ACCEPT)
 
-    # --- Successes: rendered-mode file share + folder share -----------------
+    # --- Success: rendered-mode file share -----------------------------
     rendered_share = publish_share(owner_client, render_mode="rendered", general_access="link", auth_mode="none")
     states["rendered_success"] = anon_client.get(f"/share/{rendered_share['slug']}", headers=HTML_ACCEPT)
-
-    states["folder_success"] = anon_client.get(f"/share/{folder_share['slug']}", headers=HTML_ACCEPT)
 
     return states
 
@@ -95,7 +98,7 @@ def test_html_navigation_json_and_default_accept_are_completely_unaffected(app, 
 
     revoked_share = publish_share(owner_client)
     owner_client.delete(f"/api/shares/{revoked_share['id']}")
-    password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
+    password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw", render_mode="rendered")
     rendered_share = publish_share(owner_client, render_mode="rendered", general_access="link", auth_mode="none")
 
     for headers in (None, JSON_ACCEPT):
@@ -125,6 +128,54 @@ def test_raw_mode_success_never_takes_the_html_shell_branch(app, owner_client, a
     assert r.status_code == 200
     assert r.headers["content-type"] == "text/plain; charset=utf-8"
     assert r.content != FAKE_SHELL
+
+
+def test_show_title_auth_none_granted_injects_escaped_title_and_og_tags(app, owner_client, anon_client):
+    """DESIGN-SPEC round 10 item 67 — the ONLY case that may deviate from
+    the byte-identical shell: `show_title=True` AND `auth_mode="none"` AND
+    access actually resolved. The H1 is HTML-escaped (attacker-influenced
+    text going into a <head>)."""
+    app.state.spa_index_html = FAKE_SHELL
+
+    share = publish_share(
+        owner_client,
+        content=b'# <script>alert(1)</script> & "Quoted" Title\n\nBody.\n',
+        render_mode="rendered",
+        general_access="link",
+        auth_mode="none",
+        show_title=True,
+    )
+    r = anon_client.get(f"/share/{share['slug']}", headers=HTML_ACCEPT)
+    assert r.status_code == 200
+    assert r.content != FAKE_SHELL
+    assert b"<script>alert(1)</script>" not in r.content
+    assert b"&lt;script&gt;alert(1)&lt;/script&gt;" in r.content
+    assert b"<title>" in r.content
+    assert b'property="og:title"' in r.content
+
+
+def test_show_title_with_password_mode_stays_byte_identical_to_deny_shell(app, owner_client, anon_client):
+    """The negative case: `show_title=True` but `auth_mode="password"` — a
+    real, live, show-title-enabled share must STILL produce the exact same
+    shell bytes as every deny reason, no title, no OG tags, no hint the
+    share even has a title at all."""
+    app.state.spa_index_html = FAKE_SHELL
+
+    share = publish_share(
+        owner_client,
+        content=b"# Secret Title\n\nBody.\n",
+        render_mode="rendered",
+        general_access="link",
+        auth_mode="password",
+        password="s3cret-pw",
+        show_title=True,
+    )
+    # No session cookie — this is a live share, but from a bare GET it must
+    # be indistinguishable from every other deny reason (policy.py's
+    # uniform-404 contract, widened to the HTML shell by this file).
+    r = anon_client.get(f"/share/{share['slug']}", headers=HTML_ACCEPT)
+    assert r.status_code == 200
+    assert r.content == FAKE_SHELL
 
 
 def test_html_navigation_falls_back_to_json_deny_when_spa_not_built(app, anon_client):

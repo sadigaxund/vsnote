@@ -444,7 +444,7 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
     `GET /api/app-config` (`login_required`/`password_login`/`cf_access`). When a
     REACHABLE backend answers `login_required: true` and the caller has no session
     (`whoami().authenticated === false`), the shell never mounts — a login screen
-    renders instead: the VSNote wordmark (the title bar's own gradient glyph, larger),
+    renders instead: the VSNote wordmark (the title bar's own `Logo` mark, larger),
     a `Card` with username/password `Input`s and a `Button` (library components only,
     same dark near-black + teal/cyan accent surface as the shell), a one-row `Alert`
     on a wrong-credentials failure, and a distinct "Working offline" `Alert` state when
@@ -645,3 +645,102 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     seed with the sync error surfaced — never a broken half-state. Answers
     "start over from what's on the server" without reset-then-reconfigure-
     then-pull by hand.
+
+## Amendments round 10 — 2026-09-05 (logo wiring)
+
+62. **Real mark, not a placeholder chip.** The VSNote mark is a document
+    sheet with a folded top-right corner (the markdown/file glyph) wrapped
+    by VS Code's ribbon shape (two angled teal bands meeting at the right
+    edge) on near-black, single-color (`currentColor`) variant for
+    monochrome contexts. Master artwork: `public/favicon.svg` (512
+    viewBox, full color) and `public/logo-mono.svg` (stroke geometry).
+    `src/components/local/Logo.tsx` transcribes both verbatim as inline
+    SVG (`size`/`mono`/`title` props) and is now the ONLY place the mark's
+    path data lives outside the two master files. This replaces every
+    prior instance of the generic CSS-gradient square + `lucide-react`
+    `Layout` icon placeholder ("logo chip") that stood in for the mark in
+    `components/TitleBar.tsx`, `share/ShareApp.tsx`, and
+    `components/LoginGate.tsx`'s wordmark — none of those ever actually
+    drew VSNote's own mark.
+63. **Icon generation rasterizes the master SVG.** `scripts/generate-pwa-
+    icons.mjs` no longer procedurally draws a "stacked notes" glyph with a
+    hand-rolled PNG encoder; it rasterizes `public/favicon.svg` via the
+    already-installed Playwright Chromium (`npm run icons`, still fully
+    offline, output PNGs checked into `public/` same as before) at each
+    manifest size, centered on the `#0e1015` chrome background. Non-
+    maskable icons (`pwa-192x192.png`, `pwa-512x512.png`,
+    `apple-touch-icon-180.png`) render the mark at ~76% of the canvas;
+    the maskable icon (`pwa-maskable-512x512.png`) shrinks it to ~62% to
+    stay inside the OS mask's ~80% safe zone, background bleeding edge to
+    edge. `index.html` gained the matching `apple-touch-icon` link and a
+    `theme-color` meta.
+64. **Folder shares removed — SUPERSEDES item 58.** Item 58 ("folder
+    shares follow the folder") is superseded: sharing is single-file only
+    again (`docs/PLAN-2026-09-05-refresh.md` §4.4). The `ShareKind` enum,
+    `Share.kind` column, `ShareManifestEntry` table, every folder route
+    (owner-side manifest CRUD and the public `/share/{id}/{relpath}`
+    family), and the folder-browsing client UI are gone. There is
+    deliberately NO migration and no compatibility path for databases that
+    predate the removal. See `docs/ARCHITECTURE.md`'s "Folder shares
+    (Phase 10.5) — SUPERSEDED" section and
+    `docs/ROADMAP-SHARING-AUTH.md`'s §5.1 marker for the full history.
+65. **Raw sharing hardened, not regressed — item 57's byte-sharing clause
+    preserved.** Item 57 required that "raw byte sharing must not regress";
+    this round's server-side work (`docs/PLAN-2026-09-05-refresh.md` §4.1)
+    is exactly that guarantee made explicit and testable: a raw share's
+    `Content-Type` is decided by sniffing the blob's bytes (never the
+    client-declared `media_type_hint`, never derived from an extension
+    alone) and is always one of exactly two values, `text/plain;
+    charset=utf-8` or `application/octet-stream` — `text/html` remains
+    structurally unreachable. `Content-Disposition` gained a real,
+    sanitized `filename` (the basename of the share's source path, or the
+    slug if that sanitizes to empty) and a `?download=1` toggle between
+    `inline` and `attachment`. `nosniff` and the locked-down
+    `Content-Security-Policy` are unchanged. Also landed in this pass: a
+    reserved-word list for aliases (`api`, `share`, `git`, `assets`), an
+    explicit 60-second expiry skew tolerance (`expires_at` stays a
+    timezone-free epoch value), and server-side enforcement of the auth
+    matrix (raw: none/token only; rendered: none/password/token, restricted
+    sign-in orthogonal to all three) so a hand-crafted request can't reach
+    a state the publish dialog never offers.
+66. **Per-share bearer tokens — supersedes item 61's "bearer token"
+    shorthand.** `auth_mode="token"` used to accept any of the owner's
+    account-wide API tokens, so one leaked script token unlocked every
+    token-mode share plus the owner API. Tokens are now minted per share
+    (`POST /api/shares/{id}/tokens`, plaintext returned exactly once),
+    listed (prefix/label/timestamps only, never the secret), and revoked
+    individually; a token only ever authenticates the ONE share it was
+    minted for. Rotation is mint-new-then-revoke-old, not a dedicated
+    endpoint. The owner's account-wide API tokens keep working for the
+    owner's own `/api/*` automation, unchanged — they are explicitly not a
+    visitor credential for any share anymore.
+67. **Dynamic link map — "blog" needs no new share type.** A rendered
+    share's content response now carries a `links` map: every relative
+    markdown link that resolves, by vault path, to one of the owner's
+    OTHER active rendered shares gets rewritten client-side to that
+    share's `/share/<id>` URL. Computed fresh on every fetch from stored
+    `source_path` strings only — no filesystem access, ever — so sharing a
+    new post makes existing links to it resolve immediately, and revoking
+    a share breaks links to it immediately, with no republish step either
+    way. Password/token/restricted targets are included in the map by
+    design: the link is a capability URL that still enforces its own
+    policy on click.
+68. **`Show title` and `Back link` — two off-by-default, per-share
+    opt-ins.** `Show title` publishes the document's H1 (or filename) into
+    the share page's `<title>` and OG meta tags — but ONLY for a `none`-
+    auth share where access actually resolved; every password/token share,
+    and every deny reason, keeps the exact same content-independent shell
+    as before this feature existed, so turning the toggle on can never
+    become a way to probe whether a protected link exists. `Back link`
+    points one plain navigation line at another of the owner's shares
+    (typically a blog's index); if that target is later revoked, expired,
+    or renamed away, the line simply stops appearing rather than erroring
+    or dangling.
+69. **Publish dialog and Shared view surfaces for 66-68 — not built this
+    pass.** This round's items 66-68 are server-only
+    (`docs/PLAN-2026-09-05-refresh.md` §4.2 and all of §5); the publish
+    dialog's token mint/rotate UI, the reader's link-rewriting, and the
+    `Show title`/`Back link` toggles are client work for a later pass (the
+    plan's step 5, "Public reader rewrite + dynamic link map"). Nothing
+    here changes today's rendered `<title>` (there isn't one) or Publish
+    dialog fields.

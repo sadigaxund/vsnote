@@ -198,3 +198,122 @@ def test_patch_clear_expiry_and_source_path(owner_client):
     blank = owner_client.patch(f"/api/shares/{share['id']}", json={"source_path": "   "})
     assert blank.status_code == 200
     assert blank.json()["source_path"] == "vault/renamed/new-home.md"
+
+
+# --- §4.5: reserved aliases + uniqueness pre-check --------------------------
+
+
+def test_reserved_alias_rejected_on_create(owner_client):
+    for reserved in ("api", "share", "git", "assets", "API", "Share"):
+        r = owner_client.post(
+            "/api/shares",
+            json={
+                "source_path": "notes/x.md",
+                "blob_id": owner_client.post(
+                    "/api/blobs", files={"file": ("note.md", b"hi", "text/markdown")}
+                ).json()["id"],
+                "render_mode": "raw",
+                "general_access": "link",
+                "auth_mode": "none",
+                "alias": reserved,
+            },
+        )
+        assert r.status_code == 422, f"{reserved!r} should be rejected"
+
+
+def test_reserved_alias_rejected_on_patch(owner_client):
+    share = publish_share(owner_client)
+    r = owner_client.patch(f"/api/shares/{share['id']}", json={"alias": "git"})
+    assert r.status_code == 422
+
+
+def test_alias_cannot_collide_with_another_shares_alias(owner_client):
+    first = publish_share(owner_client, alias="taken-alias")
+    assert first["alias"] == "taken-alias"
+    second = publish_share(owner_client)
+    r = owner_client.patch(f"/api/shares/{second['id']}", json={"alias": "taken-alias"})
+    assert r.status_code == 409
+
+
+def test_alias_cannot_collide_with_an_existing_slug(owner_client):
+    existing = publish_share(owner_client)
+    other = publish_share(owner_client)
+    r = owner_client.patch(f"/api/shares/{other['id']}", json={"alias": existing["slug"]})
+    assert r.status_code == 409
+
+
+def test_create_share_alias_collision_is_clean_409_not_500(owner_client):
+    first = publish_share(owner_client, alias="my-nice-alias")
+    files = {"file": ("note.md", b"hi", "text/markdown")}
+    blob_id = owner_client.post("/api/blobs", files=files).json()["id"]
+    r = owner_client.post(
+        "/api/shares",
+        json={
+            "source_path": "notes/y.md",
+            "blob_id": blob_id,
+            "render_mode": "raw",
+            "general_access": "link",
+            "auth_mode": "none",
+            "alias": "my-nice-alias",
+        },
+    )
+    assert r.status_code == 409
+
+
+# --- §4.6: auth matrix enforced server-side ---------------------------------
+
+
+def test_raw_with_password_rejected_on_create(owner_client):
+    files = {"file": ("note.md", b"hi", "text/markdown")}
+    blob_id = owner_client.post("/api/blobs", files=files).json()["id"]
+    r = owner_client.post(
+        "/api/shares",
+        json={
+            "source_path": "notes/x.md",
+            "blob_id": blob_id,
+            "render_mode": "raw",
+            "general_access": "link",
+            "auth_mode": "password",
+            "password": "s3cret-pw",
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_raw_with_token_is_allowed(owner_client):
+    share = publish_share(owner_client, render_mode="raw", auth_mode="token")
+    assert share["auth_mode"] == "token"
+
+
+def test_patch_to_raw_with_existing_password_auth_rejected(owner_client):
+    """A rendered+password share PATCHed to render_mode="raw" while
+    auth_mode stays "password" (unset in the patch) must still be caught —
+    the check runs against the FULL resulting state, not just the fields
+    present in this one request."""
+    share = publish_share(
+        owner_client, render_mode="rendered", auth_mode="password", password="s3cret-pw"
+    )
+    r = owner_client.patch(f"/api/shares/{share['id']}", json={"render_mode": "raw"})
+    assert r.status_code == 422
+
+
+def test_patch_to_password_while_raw_rejected(owner_client):
+    share = publish_share(owner_client, render_mode="raw", auth_mode="none")
+    r = owner_client.patch(f"/api/shares/{share['id']}", json={"auth_mode": "password", "password": "s3cret-pw"})
+    assert r.status_code == 422
+
+
+def test_patch_auth_matrix_rejection_does_not_partially_apply(owner_client):
+    """A rejected patch must leave the share entirely unchanged — no
+    partial application of the alias/expiry/etc. fields bundled in the
+    same request."""
+    share = publish_share(owner_client, render_mode="raw", auth_mode="none")
+    r = owner_client.patch(
+        f"/api/shares/{share['id']}",
+        json={"auth_mode": "password", "password": "s3cret-pw", "alias": "should-not-stick"},
+    )
+    assert r.status_code == 422
+    listed = owner_client.get("/api/shares").json()
+    row = next(s for s in listed if s["id"] == share["id"])
+    assert row["alias"] is None
+    assert row["auth_mode"] == "none"

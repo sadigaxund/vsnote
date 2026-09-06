@@ -25,18 +25,6 @@ class RenderMode(str, enum.Enum):
     rendered = "rendered"
 
 
-class ShareKind(str, enum.Enum):
-    """Phase 10.5 (roadmap §5.1). `file` is the original Phase 9/10 shape
-    (one share = one pinned blob at `Share.blob_id`). `folder` shares pin a
-    whole subtree snapshot instead: `Share.blob_id` is NULL and the content
-    lives in `ShareManifestEntry` rows (one per INCLUDED file, keyed by
-    `(share_id, relpath)`). See that model's docstring for why manifest
-    lookup is the entire security boundary for folder shares."""
-
-    file = "file"
-    folder = "folder"
-
-
 class GeneralAccess(str, enum.Enum):
     restricted = "restricted"
     link = "link"
@@ -120,13 +108,12 @@ class Share(Base):
     # snapshot; there is no code path anywhere that opens a file by this
     # string. Keep it that way — see policy.py's module docstring.
     source_path: Mapped[str] = mapped_column(String(1024))
-    kind: Mapped[ShareKind] = mapped_column(_enum_col(ShareKind), default=ShareKind.file)
-    # NULL for kind=="folder" — a folder share has no single "the" blob, its
-    # content lives entirely in ShareManifestEntry rows. Every read path
-    # branches on `share.kind` BEFORE ever touching `blob_id` (see
-    # routers/share_public.py) so this is never dereferenced null for a
-    # folder share.
-    blob_id: Mapped[Optional[str]] = mapped_column(ForeignKey("blobs.id"), nullable=True)
+    # §4.4 — folder shares (Phase 10.5) were removed entirely 2026-09-05;
+    # every share is a single pinned blob again. See
+    # docs/ARCHITECTURE.md's "Folder shares (Phase 10.5) — superseded"
+    # section for the history. There is no compatibility path for a
+    # database that predates the removal, by decision.
+    blob_id: Mapped[str] = mapped_column(ForeignKey("blobs.id"))
     live: Mapped[bool] = mapped_column(Boolean, default=False)
     render_mode: Mapped[RenderMode] = mapped_column(_enum_col(RenderMode))
     general_access: Mapped[GeneralAccess] = mapped_column(_enum_col(GeneralAccess))
@@ -143,40 +130,26 @@ class Share(Base):
     # Existing pre-round-7 databases get this column added at startup by
     # `main.py`'s ensure-columns step (create_all never alters tables).
     link_role: Mapped[GrantRole] = mapped_column(_enum_col(GrantRole), default=GrantRole.viewer)
-
-
-class ShareManifestEntry(Base):
-    """A single INCLUDED file inside a `kind=="folder"` Share's pinned
-    snapshot. `relpath` is the vault-relative path exactly as it appeared
-    under the published subtree root (e.g. `"notes/queue.md"`) — display
-    AND the entire lookup key, never a filesystem path. `(share_id,
-    relpath)` is unique, and this table is the ONLY place a folder share's
-    content is resolved from: `routers/share_public.py`'s manifest
-    resolution does one exact-match query, `WHERE share_id = ? AND relpath
-    = ?`, against these rows — no normalization, no `os.path`/`pathlib`
-    join, no filesystem access. An excluded file (the owner unchecked it in
-    the publish dialog's checkbox tree) simply never gets a row here; a
-    request for its relpath is therefore indistinguishable, at the DB
-    layer, from a request for a relpath that never existed at all, `..`
-    traversal, an absolute path, or a relpath that belongs to a DIFFERENT
-    share's manifest (excluded by the `share_id` half of the WHERE clause)
-    — every one of those is just "no row matched", which resolves to the
-    exact same uniform 404 as every other policy-gate deny (see policy.py's
-    module docstring; ARCHITECTURE.md's "Folder shares" section walks
-    through why this makes traversal structurally impossible rather than
-    merely sanitized-against).
-    """
-
-    __tablename__ = "share_manifest_entries"
-    __table_args__ = (UniqueConstraint("share_id", "relpath", name="uq_share_manifest_relpath"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    share_id: Mapped[int] = mapped_column(ForeignKey("shares.id"), index=True)
-    relpath: Mapped[str] = mapped_column(String(1024), index=True)
-    blob_id: Mapped[str] = mapped_column(ForeignKey("blobs.id"))
-    size: Mapped[int] = mapped_column(Integer)
-    media_type_hint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    # §5 / DESIGN-SPEC round 10 item 66 — opt-in, per-share, both OFF by
+    # default. `show_title`: the owner deliberately publishes this share's
+    # document title (H1 / basename) into the SPA shell's <title>/OG meta —
+    # see routers/share_public.py's `_shell_meta_for` for the exact
+    # three-condition guard that keeps this from becoming an existence
+    # oracle on every other share. `back_link`: the slug or alias of
+    # another share this one points back to (typically a blog's index),
+    # resolved at content-fetch time the same way a link-map target is
+    # (see app/linkmap.py) — never a raw vault path, never a DB foreign
+    # key (the target may be revoked, renamed, or gone; resolution simply
+    # omits the back link then, see share_public.py::_resolve_back_link).
+    # Existing databases get these two columns added at startup by
+    # `main.py`'s ensure-columns step, same as `link_role` above.
+    # `server_default="0"` (in addition to the ORM-level `default=False`):
+    # a NOT NULL boolean column needs a DB-level default too, so a raw SQL
+    # INSERT that lists its own explicit column set defaults rather than
+    # failing NOT NULL — `default=` alone only fires for inserts that go
+    # through the SQLAlchemy ORM.
+    show_title: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    back_link: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
 
 class ShareGrant(Base):
@@ -192,6 +165,37 @@ class ShareGrant(Base):
     principal: Mapped[str] = mapped_column(String(255), index=True)
     role: Mapped[GrantRole] = mapped_column(_enum_col(GrantRole))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class ShareToken(Base):
+    """§4.2 — a PER-SHARE bearer credential for `auth_mode="token"`. This
+    table is brand new (created by `Base.metadata.create_all` — no
+    `_ensure_added_columns` DDL needed, see main.py's module docstring for
+    why a new table never needs one). Deliberately NOT `ApiToken`: before
+    this table existed, `policy.resolve_share`'s token branch accepted ANY
+    of the OWNER's account-wide API tokens as a visitor credential, so one
+    leaked script token (minted for, say, git automation) unlocked every
+    token-mode share AND the owner API itself. A `ShareToken` row is scoped
+    to exactly one `share_id` and grants nothing else — see
+    `routers/shares.py`'s `/shares/{id}/tokens` endpoints (mint/list/revoke,
+    share-admin scope, owner-only) and `policy.py`'s token branch (looks up
+    ONLY rows where `share_id == share.id`, never `ApiToken`).
+
+    `token_hash` is the SHA-256 hex of the plaintext secret, same scheme as
+    `ApiToken.token_hash` — the plaintext itself is NEVER stored and is
+    returned to the caller exactly once, at mint time (routers/shares.py's
+    create-token response)."""
+
+    __tablename__ = "share_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    share_id: Mapped[int] = mapped_column(ForeignKey("shares.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    prefix: Mapped[str] = mapped_column(String(16))
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    last_used_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    revoked_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
 
 class RuntimeSettings(Base):

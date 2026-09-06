@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from app import models
 from app.routers import oauth as oauth_module
+from conftest import publish_share
 
 STATE_COOKIE = "vsnote_oauth_state"
 
@@ -94,6 +95,43 @@ def test_state_mismatch_rejected_without_session(oauth_app):
     assert "login-error" in callback.headers["location"]
     who = c.get("/api/auth/whoami").json()
     assert who["authenticated"] is False
+
+
+def test_restricted_share_oauth_round_trip(oauth_app):
+    """§4.5 — a restricted share denies an anonymous visitor with the
+    uniform 404, and grants a principal who signed in via OAuth (not just
+    the app's own password/session login already covered in
+    test_policy_gate.py)."""
+    owner_client = TestClient(oauth_app)
+    db = oauth_app.state.SessionLocal()
+    from app import security
+
+    db.add(models.User(username="owner", password_hash=security.hash_password("pw1234567"), email="owner@example.com"))
+    db.commit()
+    db.close()
+    owner_client.post("/api/auth/login", json={"username": "owner", "password": "pw1234567"})
+
+    share = publish_share(
+        owner_client,
+        general_access="restricted",
+        auth_mode="none",
+        grants=[{"principal": "person@example.com", "role": "viewer"}],
+    )
+
+    # A genuinely anonymous visitor: uniform 404, no existence leak.
+    anon = TestClient(oauth_app)
+    denied = anon.get(f"/share/{share['slug']}")
+    assert denied.status_code == 404
+    assert denied.json() == {"detail": "Not found"}
+
+    # The OAuth-authenticated principal on the grant list gets in.
+    oauth_visitor = TestClient(oauth_app)
+    _start_and_callback(oauth_visitor)
+    who = oauth_visitor.get("/api/auth/whoami").json()
+    assert who["email"] == "person@example.com"
+
+    granted = oauth_visitor.get(f"/share/{share['slug']}")
+    assert granted.status_code == 200
 
 
 def test_open_redirect_forced_root_relative(oauth_app):

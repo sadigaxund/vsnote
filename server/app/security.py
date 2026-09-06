@@ -44,6 +44,29 @@ def validate_slug_format(identifier: str) -> bool:
     return bool(SLUG_RE.match(identifier))
 
 
+# §4.5 — words that are real top-level route prefixes in this app
+# (server/app/main.py's mounts: `/api`, `/share`, `/git`; plus `/assets`,
+# the SPA's static-asset directory served by the catch-all route). An
+# alias that collided with one of these would make `/share/<alias>`
+# ambiguous with `/<alias>/...` at the browser-navigation layer (both are
+# real top-level paths this server serves). Checked case-insensitively at
+# BOTH create and patch time (`routers/shares.py`) via `alias_error` below
+# — a single source of truth so the two call sites can't drift apart.
+RESERVED_ALIASES = frozenset({"api", "share", "git", "assets"})
+
+
+def alias_error(alias: str) -> Optional[str]:
+    """Returns a clean, owner-facing error string for an invalid alias, or
+    `None` if the alias is acceptable on format/reserved-word grounds alone
+    (uniqueness against existing slugs/aliases is a separate DB-backed
+    check — see `routers/shares.py`)."""
+    if not validate_slug_format(alias):
+        return "alias must match the slug format"
+    if alias.lower() in RESERVED_ALIASES:
+        return "alias is a reserved word and can't be used"
+    return None
+
+
 # --- Passwords -----------------------------------------------------------
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 
-from conftest import OWNER_EMAIL, publish_folder_share, publish_share, random_wellformed_slug
+from conftest import OWNER_EMAIL, publish_share, random_wellformed_slug
 
 NOT_FOUND = {"detail": "Not found"}
 
@@ -114,7 +114,7 @@ def test_editor_put_200(owner_client):
 
 
 def test_password_wrong_404(owner_client):
-    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
+    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw", render_mode="rendered")
     r = owner_client.post(f"/share/{share['slug']}/auth", json={"password": "definitely-wrong"})
     assert r.status_code == 404
     assert r.json() == NOT_FOUND
@@ -126,14 +126,14 @@ def test_password_get_without_session_is_404(owner_client):
     # with no session, from every other deny reason (including "doesn't
     # exist at all"). The client's only recourse is to always offer a
     # password field on 404 and blindly POST it to .../auth.
-    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
+    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw", render_mode="rendered")
     r = owner_client.get(f"/share/{share['slug']}")
     assert r.status_code == 404
     assert r.json() == NOT_FOUND
 
 
 def test_password_right_sets_cookie_then_get_200(anon_client, owner_client):
-    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
+    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw", render_mode="rendered")
 
     r = anon_client.post(f"/share/{share['slug']}/auth", json={"password": "s3cret-pw"})
     assert r.status_code == 200, r.text
@@ -159,8 +159,12 @@ def test_token_mode_invalid_token_404(owner_client):
 
 
 def test_token_mode_revoked_token_rejected(owner_client, anon_client):
+    """§4.2 — the visitor credential here is a PER-SHARE `ShareToken`, minted
+    via `/api/shares/{id}/tokens`, never the owner's account-wide
+    `ApiToken` (see test_owner_api_token_does_not_authenticate_a_share
+    below for that split's other half)."""
     share = publish_share(owner_client, auth_mode="token")
-    tr = owner_client.post("/api/auth/tokens", json={"name": "script", "scope": "read"})
+    tr = owner_client.post(f"/api/shares/{share['id']}/tokens", json={"label": "script"})
     assert tr.status_code == 201, tr.text
     plaintext = tr.json()["token"]
     token_id = tr.json()["id"]
@@ -169,7 +173,7 @@ def test_token_mode_revoked_token_rejected(owner_client, anon_client):
     r = anon_client.get(f"/share/{share['slug']}", headers={"Authorization": f"Bearer {plaintext}"})
     assert r.status_code == 200
 
-    revoke = owner_client.delete(f"/api/auth/tokens/{token_id}")
+    revoke = owner_client.delete(f"/api/shares/{share['id']}/tokens/{token_id}")
     assert revoke.status_code == 200
 
     r2 = anon_client.get(f"/share/{share['slug']}", headers={"Authorization": f"Bearer {plaintext}"})
@@ -177,11 +181,96 @@ def test_token_mode_revoked_token_rejected(owner_client, anon_client):
     assert r2.json() == NOT_FOUND
 
 
+def test_share_token_mints_secret_once(owner_client):
+    share = publish_share(owner_client, auth_mode="token")
+    r = owner_client.post(f"/api/shares/{share['id']}/tokens", json={"label": "curl script"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["token"].startswith("vsn_")
+    assert "token" not in {k for k in body if k != "token"}  # sanity: field exists exactly once
+
+    listing = owner_client.get(f"/api/shares/{share['id']}/tokens")
+    assert listing.status_code == 200
+    rows = listing.json()
+    assert len(rows) == 1
+    assert "token" not in rows[0]
+    assert "token_hash" not in rows[0]
+    assert rows[0]["prefix"] == body["prefix"]
+
+
+def test_share_token_does_not_authenticate_a_different_token_share(owner_client, anon_client):
+    share_a = publish_share(owner_client, auth_mode="token")
+    share_b = publish_share(owner_client, auth_mode="token")
+    tr = owner_client.post(f"/api/shares/{share_a['id']}/tokens", json={})
+    plaintext = tr.json()["token"]
+
+    ok = anon_client.get(f"/share/{share_a['slug']}", headers={"Authorization": f"Bearer {plaintext}"})
+    assert ok.status_code == 200
+
+    denied = anon_client.get(f"/share/{share_b['slug']}", headers={"Authorization": f"Bearer {plaintext}"})
+    assert denied.status_code == 404
+    assert denied.json() == NOT_FOUND
+
+
+def test_owner_api_token_does_not_authenticate_a_share(owner_client, anon_client):
+    """§4.2's whole point: an owner's account-wide `ApiToken` (minted via
+    `/api/auth/tokens`, scope share-admin — full owner rights over the
+    owner API) must NOT double as a visitor credential for any share,
+    token-mode or otherwise."""
+    share = publish_share(owner_client, auth_mode="token")
+    tr = owner_client.post("/api/auth/tokens", json={"name": "script", "scope": "share-admin"})
+    assert tr.status_code == 201, tr.text
+    plaintext = tr.json()["token"]
+
+    r = anon_client.get(f"/share/{share['slug']}", headers={"Authorization": f"Bearer {plaintext}"})
+    assert r.status_code == 404
+    assert r.json() == NOT_FOUND
+
+
+def test_share_token_last_used_at_advances(owner_client, anon_client):
+    share = publish_share(owner_client, auth_mode="token")
+    tr = owner_client.post(f"/api/shares/{share['id']}/tokens", json={})
+    plaintext = tr.json()["token"]
+
+    before = owner_client.get(f"/api/shares/{share['id']}/tokens").json()[0]
+    assert before["last_used_at"] is None
+
+    r = anon_client.get(f"/share/{share['slug']}", headers={"Authorization": f"Bearer {plaintext}"})
+    assert r.status_code == 200
+
+    after = owner_client.get(f"/api/shares/{share['id']}/tokens").json()[0]
+    assert after["last_used_at"] is not None
+
+
+def test_share_tokens_endpoints_404_for_nonexistent_share(owner_client):
+    """Mirrors every other `/api/shares/{id}/...` owner-scoped route's
+    contract: an id that names no row 404s, never a 403 or 422 that would
+    confirm anything about it."""
+    r = owner_client.post("/api/shares/999999/tokens", json={})
+    assert r.status_code == 404
+    r2 = owner_client.get("/api/shares/999999/tokens")
+    assert r2.status_code == 404
+    r3 = owner_client.delete("/api/shares/999999/tokens/1")
+    assert r3.status_code == 404
+
+
+def test_token_mode_share_denies_a_revoked_share_token_even_with_no_session(owner_client, anon_client):
+    share = publish_share(owner_client, auth_mode="token")
+    tr = owner_client.post(f"/api/shares/{share['id']}/tokens", json={})
+    plaintext = tr.json()["token"]
+    token_id = tr.json()["id"]
+    owner_client.delete(f"/api/shares/{share['id']}/tokens/{token_id}")
+
+    r = anon_client.get(f"/share/{share['slug']}", headers={"Authorization": f"Bearer {plaintext}"})
+    assert r.status_code == 404
+    assert r.json() == NOT_FOUND
+
+
 def test_no_existence_oracle_on_auth_endpoint(owner_client, anon_client):
     """POST .../auth: wrong password on a real share vs. a nonexistent slug
     must also be indistinguishable (both plain 404s here — no other shape
     at all on this endpoint, by design)."""
-    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
+    share = publish_share(owner_client, auth_mode="password", password="s3cret-pw", render_mode="rendered")
 
     wrong_pw_resp = anon_client.post(f"/share/{share['slug']}/auth", json={"password": "nope"})
     fake_resp = anon_client.post(f"/share/{random_wellformed_slug()}/auth", json={"password": "nope"})
@@ -245,33 +334,17 @@ def _build_deny_states(owner_client, anon_client):
         f"/share/{token_share['slug']}", headers={"Authorization": "Bearer not-a-real-token"}
     )
 
-    password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
+    password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw", render_mode="rendered")
     states["password_required"] = anon_client.get(f"/share/{password_share['slug']}")
 
-    # --- Phase 10.5: folder-share manifest-resolution deny states --------
-    # Every one of these is a DIFFERENT reason a folder-share GET should be
-    # denied (roadmap §5.1's "Paths not in the manifest → the same
-    # indistinguishable 404 as a missing slug") — they must fold into the
-    # exact same single fingerprint as every Phase 9 deny state above, not
-    # form a second class of their own. See test_folder_shares.py's own
-    # (more exhaustive) resolution matrix for the full account of each.
-    folder_share = publish_folder_share(owner_client, files={"a.md": b"file a", "sub/b.md": b"file b"})
-    publish_folder_share(owner_client, files={"only-in-other.md": b"x"})  # gives "other_shares_relpath" a real relpath
-    states["folder_unknown_relpath"] = anon_client.get(f"/share/{folder_share['slug']}/nope.md")
-    states["folder_excluded_entry"] = anon_client.get(f"/share/{folder_share['slug']}/excluded.md")
-    states["folder_absolute_path"] = anon_client.get(f"/share/{folder_share['slug']}//etc/passwd")
-    states["folder_url_encoded_traversal"] = anon_client.get(f"/share/{folder_share['slug']}/%2e%2e%2fetc%2fpasswd")
-    states["folder_double_encoded_traversal"] = anon_client.get(
-        f"/share/{folder_share['slug']}/%252e%252e%252fetc%252fpasswd"
-    )
-    states["folder_backslash_variant"] = anon_client.get(f"/share/{folder_share['slug']}/..%5c..%5cetc%5cpasswd")
-    states["folder_other_shares_relpath"] = anon_client.get(f"/share/{folder_share['slug']}/only-in-other.md")
-    # A file share has no manifest at all — a relpath GET against a LIVE,
-    # otherwise-accessible file share is yet another deny reason (the
-    # policy gate itself grants access; it's the kind-mismatch branch in
-    # get_share_path that denies) that must fold into the same fingerprint.
+    # §4.4 — folder shares (and their `/share/{id}/{relpath}` routes) were
+    # removed entirely; `share_public.py::share_subpath_removed` catches
+    # any request shaped like the old folder route and denies it uniformly
+    # — never a distinct "route not found" shape. See
+    # test_share_public.py::test_folder_shaped_url_is_uniform_404 for a
+    # dedicated, non-matrix assertion of this specific case.
     live_file_share = publish_share(owner_client, general_access="link", auth_mode="none")
-    states["file_share_relpath_unsupported"] = anon_client.get(f"/share/{live_file_share['slug']}/whatever")
+    states["folder_shaped_url_removed"] = anon_client.get(f"/share/{live_file_share['slug']}/whatever")
 
     return states
 
@@ -313,30 +386,13 @@ def test_deny_state_equivalence_matrix_content_route(owner_client, anon_client):
     )
     states["restricted_no_identity"] = anon_client.get(f"/api/share/{restricted_share['slug']}/content")
 
-    password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw")
+    password_share = publish_share(owner_client, auth_mode="password", password="s3cret-pw", render_mode="rendered")
     states["password_required"] = anon_client.get(f"/api/share/{password_share['slug']}/content")
 
-    # Phase 10.5 — the CORS-enabled twins of the folder-share manifest deny
-    # states above, via GET /api/share/{id}/content/{relpath}.
-    folder_share = publish_folder_share(owner_client, files={"a.md": b"file a"})
-    publish_folder_share(owner_client, files={"only-in-other.md": b"x"})
-    states["folder_unknown_relpath"] = anon_client.get(f"/api/share/{folder_share['slug']}/content/nope.md")
-    states["folder_excluded_entry"] = anon_client.get(f"/api/share/{folder_share['slug']}/content/excluded.md")
-    states["folder_absolute_path"] = anon_client.get(f"/api/share/{folder_share['slug']}/content//etc/passwd")
-    states["folder_url_encoded_traversal"] = anon_client.get(
-        f"/api/share/{folder_share['slug']}/content/%2e%2e%2fetc%2fpasswd"
-    )
-    states["folder_double_encoded_traversal"] = anon_client.get(
-        f"/api/share/{folder_share['slug']}/content/%252e%252e%252fetc%252fpasswd"
-    )
-    states["folder_backslash_variant"] = anon_client.get(
-        f"/api/share/{folder_share['slug']}/content/..%5c..%5cetc%5cpasswd"
-    )
-    states["folder_other_shares_relpath"] = anon_client.get(
-        f"/api/share/{folder_share['slug']}/content/only-in-other.md"
-    )
+    # §4.4 — the CORS-enabled twin of the folder-shaped-URL deny state
+    # above, via GET /api/share/{id}/content/{rest}.
     live_file_share = publish_share(owner_client, general_access="link", auth_mode="none")
-    states["file_share_relpath_unsupported"] = anon_client.get(f"/api/share/{live_file_share['slug']}/content/whatever")
+    states["folder_shaped_url_removed"] = anon_client.get(f"/api/share/{live_file_share['slug']}/content/whatever")
 
     fingerprints = {name: _fingerprint(resp) for name, resp in states.items()}
     distinct = set(fingerprints.values())
