@@ -1048,4 +1048,41 @@ forms inside `.mk.md` files.
     widget. This is permanent while VSNote has no real component sandbox,
     not a temporary gap — see `docs/ARCHITECTURE.md`'s Phase M3 (worker 2)
     section for the full reasoning and what it costs.
+94. **A grant prompt shows exactly what a note's scripts are asking for,
+    and denies by default.** Running a `.mk.md` note's scripts for the
+    first time (or after any script edit) opens a dialog naming the note,
+    every script by name, the network hosts a best-effort source scan
+    found (split into "read" and "sends data", each independently
+    toggleable), and a bundle-write toggle when a script calls
+    `bundle.write`. Dismissing the dialog any way other than "Allow"
+    (Escape, clicking outside, "Deny") denies every capability. The dialog
+    states plainly that its decision is remembered for the exact script
+    content only, and that editing any script asks again.
+95. **A visible "Run scripts" action for `.mk.md`.** A play-icon button
+    appears in a pane's own editor header (visible whenever more than one
+    pane is open) whenever that pane's focused file is `.mk.md`, with a
+    mirror entry in the tab's `...` overflow menu (the one reliably-visible
+    entry point with a single pane open, since a lone pane's own header
+    doesn't render — the title bar carries that cluster instead, and does
+    NOT get a Run scripts copy: a per-document action does not belong next
+    to the app's global chrome). Clicking either one runs the note's
+    scripts manually, shows a spinner (or a disabled state) while running,
+    and reports the outcome via a toast: every script that ran, and for
+    any failure, its real reason (a script error, a denied capability, a
+    manual-only action attempted automatically, or the run being stopped
+    for taking too long), never a bare "failed."
+96. **A note's script-produced values appear in Rendered mode.** A
+    `:value[name]` directive in a `.mk.md` note shows the value a prior
+    "Run scripts" click actually produced (persisted per note, read back
+    on open and after every run), never executes anything to show it.
+    Opening a note, or switching between Rendered and Source, never runs a
+    script; only the explicit "Run scripts" action (item 95) does.
+97. **Settings gained a Packs category.** Between Sharing and Storage:
+    installed packs (enable a `.mkp` file, disable, re-enable, remove,
+    with the real reason for a collision or a bad archive), and every
+    script permission this vault has granted (grouped by note,
+    individually revocable). No "run scripts automatically" control ships
+    yet — there is no scheduler that would ever call `runScripts` with a
+    non-manual trigger, so a switch for it would change no behavior; see
+    `docs/ARCHITECTURE.md`'s Phase M3 worker-3 section.
 

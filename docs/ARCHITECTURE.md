@@ -2418,6 +2418,350 @@ nothing for that section to hold.
   and `enabledPacks` (`readonly EnabledPack[]`) — both optional, both
   additive to worker 1's existing deps.
 
+## Phase M3, worker 3 — grant dialog, "Run scripts", Packs settings, values in Rendered mode (docs/PLAN-2026-09-05-refresh.md §6)
+
+Worker 3 of 3 for M3 — the UI layer, built entirely on workers 1/2's API
+surface above with no changes to `src/markii/host/` or `src/markii/
+platform/browser/`. `src/stores/useMarkiiStore.ts` is the one new
+app-shell store: it owns the `PackStore`/`GrantStore` instances, the
+`GrantPrompt` bridge (an async callback resolved by a mounted dialog), and
+per-path run state (`running`, the last `RunSummary`, and a `runVersions`
+bump counter Rendered mode watches). This is also the first thing that
+makes `src/markii/` reachable from application code at all — before this
+change nothing imported it, so it was entirely tree-shaken out of the
+production bundle.
+
+### The grant prompt: `GrantPromptDialog`
+
+`src/components/local/GrantPromptDialog.tsx`, wired as `runScripts`'s
+`deps.grantPrompt` (replacing `DEFAULT_DENY_PROMPT`) via `useMarkiiStore
+.requestGrantDecision`/`resolveGrantPrompt`. Deny is structurally the only
+thing a dismissed dialog can produce: `Dialog`'s `onOpenChange(false)` — the
+one path Escape, a backdrop click, AND the explicit "Deny" button all
+funnel through — is the only place `resolve({granted:false})` is called
+from anything other than the explicit "Allow" button.
+
+`GrantPromptRequest` (`host/types.ts`) carries only `{path, grantKey,
+scripts}` — a script never DECLARES the hosts it intends to reach, so
+there is nothing to read a requested-hosts list off directly.
+`src/components/local/grantPromptLogic.ts`'s `scanScriptRequests` recovers
+a best-effort list with the SAME lightweight-regex-over-source discipline
+`host/packs.ts`'s `referencedPackNamespaces` already uses for `require`
+targets: `net.fetch_json`/`net.get` calls become read ("get") host toggles
+(default ON — the script already, visibly, tries to reach them; ticking
+one off is how a user declines just that host while still running the
+rest), `net.post`/`net.patch` calls become effectful ("post") host toggles
+(same default), and a `bundle.write(` call surfaces a bundle-write toggle
+(default OFF regardless — writing to a note's own bundle is treated as
+more sensitive than a network host the script already visibly names). A
+dynamically-built URL (`net.fetch_json(base .. path)`) is invisible to this
+scan — the dialog then shows no detected host for that call, which is
+honest (nothing here claims completeness) rather than silently wrong; the
+actual enforcement (`host/capabilities.ts`) only ever trusts what the user
+explicitly ticked, never this scan's output. The dialog's copy states
+plainly that a decision is remembered for the exact script content only,
+and that editing any script asks again — the content-hash grant-key
+invalidation `host/runScripts.ts` already enforces, made visible instead of
+surprising.
+
+### "Run scripts": one component, two mount points (not three)
+
+`src/components/local/RunScriptsButton.tsx` is the one component behind
+every "Run scripts" affordance, so progress/outcome reporting is identical
+regardless of which one starts a run: `EditorHeader.tsx` (a pane's own
+header — the plan's "editor header" ask, visible whenever more than one
+pane is open) and `local/OverflowMenu.tsx`'s `OverflowMenuItems` (a mirror
+entry in the tab bar `…` menu, matching repo convention for document
+actions — the one reliably-visible entry point with a single pane open,
+since a lone pane's own header does not render at all in that layout). An
+earlier draft ALSO mounted a copy in `components/TitleBar.tsx` (the
+single-pane header cluster); caught in review and removed — a per-document
+action does not belong in the global title bar next to app-level chrome
+(zen, sidebar, command palette, settings), and with both mounted a
+single-pane session showed two icon buttons for the SAME document at the
+same time, reading as two different features rather than one.
+`TitleBar.tsx`/`AppTitleBar` no longer takes a `kind`/`path` prop at all —
+it has no reason to know the focused tab's file kind.
+
+Both surviving mount points gate on `kind === "mkmd"` and read/act on the
+SAME `useMarkiiStore` run state. Activating either calls
+`useMarkiiStore.runNote(path, content, "manual")`, shows a spinner (the
+header button) or a disabled state (the menu item) for the run's duration
+(bounded by the isolate's own 10s watchdog — a run can never wedge the UI
+indefinitely), and reports the outcome via a toast: every script's name on
+success, and for a failure, its real `FailureKind` (mapped to a plain-
+language reason — "the script ran too long and was stopped" for `limit`,
+etc.) and message, never a bare "failed." The toast-reporting logic itself
+(`runScriptsLogic.ts`'s `runMkMdScriptsWithToast`) is a THIRD extracted
+module, not because a third UI surface needed it, but because
+`RunScriptsButton.tsx` exporting both a component and that function
+tripped `react-refresh/only-export-components` — the same fix
+`publishDialogLogic.ts`/`grantPromptLogic.ts` already established: split
+non-component exports into a sibling logic file rather than suppress the
+rule.
+
+### Values actually reach the rendered output — the seam exists, and is wired
+
+Investigated first, per the brief: `@markii/react`'s `renderMark(text,
+registry, store?, vault?, options?)` and `renderMarkNode(node, registry,
+store?, vault?, options?)` already accept an optional `ValueStore` as their
+third positional argument, and `:value[name]` is built directly into that
+render path (`ValueDirective`, resolved via `resolveStorePath` against
+whatever `store` was passed) — NOT a registry entry a host could route
+around. This is a real, first-class seam, not something this app had to
+invent: both `src/markdown/render.tsx` (new `RenderMarkdownOptions
+.valueStore`, threaded to its own `renderMarkNode` call) and
+`src/markdown/directiveLezer/decorations.ts` (new `valueStore` parameter on
+`markiiLivePreviewDecorations`, threaded to every `renderMark`/
+`renderMarkNode` call the block/inline widgets make) now accept and forward
+one.
+
+`src/editor/LivePreviewEditor.tsx` is what actually builds one for the
+app's own `.mk.md` Rendered mode: on mount, and again every time
+`useMarkiiStore`'s `runVersions[path]` bumps (a manual run just finished)
+or the enabled-packs set changes, it calls `loadPersistedValues(path)`
+(worker 1's browser adapter — a plain read of whatever was last persisted)
++ `hydrateValueStore` (worker 1's host layer — downgrades every `'fresh'`
+entry to `'stale'` on hydrate, per "rendering is pure; running is an
+event"), then reconfigures the decorations `Extension` via the SAME
+`Compartment` mechanism this file already used for its initial language/
+decorations load. Nothing under this reload path calls `runScripts`, ever
+— it is a read, exactly like every other `loadPersistedValues` call in this
+codebase.
+
+**Evidence values reach the screen**: `tests/e2e/markii-scripts.spec.ts`'s
+"granting runs the script and the produced value becomes visible" case
+writes a `` ```lua {name=answer}\nreturn 42\n``` `` block plus a
+`:value[answer]` directive, runs it via the "Run scripts" button, grants
+the prompt, and asserts the Rendered-mode live-preview widget's text
+contains `42` — a value `runScripts` wrote to `/.markii/values/...json`
+this session, read back by `LivePreviewEditor` with no script execution in
+between.
+
+One deliberate simplification, documented rather than silently accepted:
+`renderBlockDirectiveHtml`/`renderInlineDirectiveHtml` in `decorations.ts`
+skip their per-source-text memoization cache entirely whenever a
+`valueStore` is supplied, rather than inventing a version-keyed cache key.
+A `ValueStore` is a mutable object whose CONTENTS can change between two
+calls with the identical source string (a run just produced a new value
+for the same `:value[name]` directive) with no cheap way for this file to
+detect that from the source text alone; recompute here only happens when
+the whole decorations extension is reconfigured (a real run finished, or
+packs changed) — never on every keystroke/cursor move — so paying the
+render cost fresh each time is the simpler, correct trade.
+
+`render.tsx`'s `valueStore` option is wired for completeness (any future
+caller — e.g. a `.mk.md` print/export pass) but nothing in this app's own
+UI currently passes one there: print/export and the public share reader
+render markdown text with no notion of "this session's local script runs"
+(a shared/printed document has no browser-local `/.markii/` vault to read
+from), so there is no live caller for it yet. Recorded as a scope note, not
+a gap — the option exists and is tested (`tests/unit/markdownRender.test
+.ts`-adjacent coverage would be the natural home if a caller appears).
+
+### Packs settings category
+
+`src/components/settings/Packs.tsx`, added to `SettingsView.tsx`'s
+`categories` array between Sharing and Storage. Two rows:
+
+1. **Installed packs** — enable a `.mkp` from a file picker
+   (`useMarkiiStore.enablePack`), disable/re-enable/remove an existing one.
+   A collision or a load failure surfaces its REAL `PackEnableResult.error
+   .kind`-derived reason (`packsLogic.ts`'s `describePackLoadFailure`),
+   never a generic "failed."
+2. **Script permissions** — every `GrantStore` record (`useMarkiiStore
+   .grants`), grouped by note path, each with a "Revoke" action
+   (`GrantStore.revoke`). A grant's summary line names exactly what it
+   unlocks (read hosts, send hosts, bundle write, or "no network or bundle
+   access").
+
+**No third "run scripts automatically" row.** An earlier draft shipped a
+`useMarkiiStore.autoRunEnabled` switch, persisted to `localStorage`,
+defaulting to false — caught in review and removed: this app has no
+scheduler that ever calls `runScripts({trigger: 'auto'})`, so the switch
+changed no behavior, and a settings toggle that changes nothing must not
+ship. `runScripts.ts`'s tier enforcement (an `auto`/`scheduled` trigger is
+read-only and never prompts, regardless of what a manual grant contains)
+is unaffected and is exactly what a future scheduler needs to build
+against — see this section's own module doc note in `useMarkiiStore.ts`
+for the same record. `usePacksRows` (a hook) is now the file's ONLY
+export; each row's JSX is built by a plain, lowercase, non-component
+render function the hook calls directly — an earlier draft split each row
+into its own exported component (`InstalledPacksRow`/`GrantsRow`), which
+mixed a hook export with component definitions in one file and tripped
+`react-refresh/only-export-components` the same way `RunScriptsButton
+.tsx` did (see above).
+
+`SettingsView.tsx`'s call to `refreshPacks()`/`refreshGrants()` happens
+lazily (each row's own `useEffect`, matching the settings-category
+convention already used elsewhere) — `useMarkiiStore.refreshPacks()` is
+ALSO called once at boot (`App.tsx`) so `.mk.md` completion/hover and
+Rendered-mode pack placeholders see the enabled-packs set even in a
+session that never opens Settings. `setMarkiiDiscoveredPacks` is called
+from inside `refreshPacks` itself, so every consumer (`markiiCompletion
+.ts`, and via `useMarkiiStore.packs`, `LivePreviewEditor.tsx`'s decorations
+reconfigure effect) stays in sync from one place.
+
+### `.mkz` bundles: sibling-path convention, not an Explorer open surface
+
+**What shipped**: `useMarkiiStore.runNote` resolves a note's bundle by a
+fixed naming convention — `siblingBundleDisplayPath`: `vault/notes/x.mk.md`
+-> `vault/notes/x.mkz` — and, on a note's FIRST run in a session, calls
+worker 2's `loadBundleFromVault` against that path (result cached per path,
+including "no such file"). If found, the opened `{storage, manifest}` is
+threaded into that and every subsequent run's `RunScriptsDeps.bundle`, so
+`bundle.read`/`cache.*` capabilities and the bundle-modules half of the
+grant closure are genuinely available to a run with zero additional UI.
+
+**What was cut, and why**: no `.mkz` `FileKind`/`filetypes/registry.ts`
+entry, no Explorer-tree double-click-to-open surface, and no
+`saveBundleToVault` write-back wiring. Building a real `.mkz` open/browse/
+edit surface (a new file kind, a renderer, tab integration, a save path for
+`bundleWrite`-granted runs) is substantial, separate UI work — the M3 plan
+explicitly allows shipping "the read/run path" and saying plainly what was
+cut when full editing is too large to finish well, and this worker made
+that call: a note's bundle-scoped capabilities are reachable and USABLE by
+a run today, but there is no user-facing way to browse a `.mkz`'s contents
+or attach one under a different name than its sibling convention. A future
+pass wanting bundle write support needs `saveBundleToVault` wired
+somewhere `runNote` can reach it post-run — not built here.
+
+### `App-*.js` briefly carried the whole Lua VM — found in review, fixed
+
+Making `src/markii/` reachable from application code for the first time
+(this worker) exposed a real bug that had sat latent in worker 1's code
+since it was written: `platform/browser/scriptIsolate.ts` (the MAIN-thread
+half of the `ScriptIsolate` port — `scriptIsolate.worker.ts` is the only
+place that legitimately runs Lua) had a VALUE import, `import {
+DEFAULT_LIMITS } from "@markii/lua"`, used only to stuff a `limits` field
+into the `RunRequestMessage` it posts to the worker. A value import pulls
+the whole package — and therefore wasmoon, a full WebAssembly Lua VM — into
+whatever chunk contains it; since nothing reached this file before, the
+bug was invisible until this worker's UI wiring made `App-*.js` actually
+import it. Caught in review (not by this worker's own bundle checks, which
+only checked for the STRING, not for which chunk it appeared in) via a
+grep of `dist/assets` for `unpkg.com` naming BOTH `scriptIsolate.worker-
+*.js` (expected, see below) and `App-*.js` (not expected at all — a Lua VM
+in the main-thread bundle is exactly the "means to run Lua on the main
+thread sitting there, kept unused only by convention" shape the "scripts
+never run on the main thread" rule exists to rule out structurally, not by
+convention).
+
+Fixed by deleting the value import and the `limits` field from the posted
+message entirely — `RunRequestMessage.limits` was already `Partial
+<ScriptLimits> | undefined`, and `@markii/lua`'s own `sandbox.ts` merges
+`{ ...DEFAULT_LIMITS, ...options.limits }` internally, so
+`scriptIsolate.worker.ts`'s `createLuaExecutor({ limits: msg.limits, ... })`
+receiving `undefined` already produces the IDENTICAL effective limits the
+explicit `DEFAULT_LIMITS` used to. `platform/browser/scriptIsolate.ts` now
+carries zero value imports from `@markii/lua` (grep-verified across the
+whole file) — only `scriptIsolate.worker.ts` does.
+
+**Re-verified against a real build after the fix**: `grep -rl unpkg.com
+dist/assets` finds the string ONLY inside `scriptIsolate.worker-*.js` — not
+in `App-*.js` or any other non-worker chunk. That one remaining occurrence
+is wasmoon's own bundled `LuaFactory` constructor's `if (!wasmUri) wasmUri
+= 'https://unpkg.com/wasmoon@...'` dead fallback branch (`node_modules/
+wasmoon/dist/index.js`, already read and cited in worker 1's "wasm asset"
+section above) — this app ALWAYS supplies `wasmUri` (the same-origin
+`?url` asset import worker 1 wired), so the branch is genuinely
+unreachable at runtime, confirmed the same way worker 1 verified it (a
+throwaway Playwright probe against a real `createBrowserScriptIsolate` run
+showed `glue.wasm` requested from the dev server with zero `unpkg.com`
+requests). The string literal survives inside the WORKER chunk only
+because Vite's dead-code elimination cannot prove a runtime-value-dependent
+branch unreachable at build time — this worker did not patch or fork
+wasmoon to strip it (a third-party dependency, out of scope, no
+`my-you-eye`/CLAUDE.md rule bears on it), and that one residual occurrence,
+confined to the worker chunk where Lua legitimately runs, is accepted as
+the documented, harmless remainder.
+
+### Numbered upstream findings (this worker)
+
+1. **`@markii/react`'s `store`/`vault` parameters are undocumented outside
+   the `.d.ts` files themselves** — `renderMark`/`renderMarkNode`'s public
+   README does not mention that a `ValueStore` can be passed positionally
+   to make `:value[name]` resolve; this was found only by reading
+   `dist/render.d.ts`/`dist/components/value-directive.d.ts` directly (the
+   same "read the actual package, not just its docs" discipline this repo's
+   Deviations section already models). Worth a README callout upstream —
+   it is the ONE seam that makes a host's script-produced values visible at
+   all, and a host that only reads the top-level README would reasonably
+   conclude no such seam exists.
+2. **No manifest-level declaration of a script's intended network hosts.**
+   `ScriptBlock` (`@markii/core`) carries no `net`/hosts field, so a host's
+   permission-prompt UI has no authoritative list to show a user short of
+   scanning source text (this worker's `grantPromptLogic.ts`, a heuristic
+   with a documented blind spot for dynamically-built URLs). An optional,
+   purely-advisory `net=` fence attribute (parallel to `name=`/`src=`) that
+   a script AUTHOR could declare — never trusted for enforcement, exactly
+   like this scan isn't — would let a prompt show real intent instead of a
+   regex's best guess, and would degrade safely (an absent attribute today
+   already means "nothing to show," same as a fully dynamic URL does now).
+3. **Denied network access is misclassified as a script bug, at the
+   `@markii/lua` level** — found in review via a real repro (deny a grant
+   for a script calling `net.fetch_json`), then confirmed by reading
+   `node_modules/@markii/lua/dist/capabilities.js` directly. `net = net or
+   {}` (and every `net.*` function) is only ever added to the Lua prelude
+   when `netGrants.get.length > 0 || netGrants.post.length > 0` — with
+   ZERO hosts granted, the `net` global is never defined at all, so a
+   script calling `net.fetch_json(...)` fails with Lua's own "attempt to
+   index a nil value (global 'net')" runtime error, which
+   `normalizeFailureKind` correctly (from its own point of view) buckets
+   as `'script-error'` — there is no way for a host to tell "the script
+   has a typo" apart from "the user denied every host" using `FailureKind`
+   alone; the host has to pattern-match the specific Lua error text
+   instead (`runScriptsLogic.ts`'s `describeFailureEntry` now does exactly
+   that). **Checked whether `bundle` has the same defect**: partially.
+   `bundle`'s wiring is entirely conditioned on `config.bundle` (a bundle
+   being open at all) — when a bundle IS open, `bundle = bundle or {}` and
+   `bundle.read`/`bundle.exists` are ALWAYS added to the prelude
+   regardless of grants, and `bundle.write` is ALWAYS wired too (to the
+   real write path under `manual` tier, or to an explicit tier-blocked
+   stub under `auto`) — a bundle-write DENIAL (bundle open, `bundleWrite:
+   false`) correctly throws a typed `capability-denied` failure via
+   `@markii/bundle`'s own `ScriptView.write`, which `capabilities.js`
+   catches and reports cleanly (`recordDenial('denied', ...)` before
+   throwing) — verified by reading `@markii/bundle`'s `script-view.js`
+   directly, not assumed. The IDENTICAL "global is nil" defect DOES exist
+   for the "no bundle is open on this note at all" case, though — calling
+   `bundle.read`/`bundle.write` with no bundle attached fails the same way
+   `net` does, for the same reason (the whole `if (config.bundle)` block
+   is skipped). **Upstream suggestion**: inject a stub `net`/`bundle` table
+   whenever the corresponding host CAPABILITY EXISTS but nothing was
+   granted (rather than omitting the global outright), where every field
+   raises a typed capability error identical to what an ungranted call
+   already raises when the table DOES exist — this would let a host report
+   the true reason without ever having to pattern-match Lua's own runtime
+   error text, which is a `@markii/lua` implementation detail this repo
+   should not have to depend on for correctness.
+
+### Failure copy fixed (review round 2): honest reasons, no internal leaks, no oversized toasts
+
+`src/components/local/runScriptsLogic.ts`'s `describeFailureEntry` is the
+fix for finding 3 above at the UI layer (the underlying `FailureKind`
+stored in `RunSummary`/persisted values stays honestly `'script-error'` —
+this is a presentation fix, not a reclassification of the data model):
+it pattern-matches the closed-form `(global 'net')`/`(global 'bundle')`
+Lua error shapes and reports the true reason ("network access was denied
+for this run" / "this note has no bundle attached") instead of the raw
+message. Independently, `cleanErrorMessage` runs on EVERY failure's
+message regardless of kind: it drops everything from `stack traceback:`
+onward, strips the `[string "..."]:<line>:` chunk-location prefix that is
+where `__smd_user_chunk` (markii's internal chunk-wrapper name,
+`docs/UI-STANDARDS.md`: no internal module names in user-facing copy)
+would otherwise leak, collapses to one line, and caps the length — a
+toast can no longer show a multi-line traceback anywhere near a third of
+the editor's height (found in review via a real screenshot). `my-you-eye`
+'s `ToastData` (`title`/`description`/`variant` only) has no expandable-
+detail affordance to put a fuller technical message behind; per CLAUDE.md
+rule 1 this file does not hand-roll one — the technical detail is simply
+dropped, never shown at all, rather than hidden behind a bespoke
+disclosure widget. `tests/unit/scriptFailureCopy.test.ts` covers both
+fixes directly; `tests/e2e/markii-scripts.spec.ts`'s "denying" test
+asserts the toast text and the absence of `__smd_user_chunk`/`stack
+traceback` end to end.
+
 ## Deviations
 
 Real friction points found while building against the actual `my-you-eye@0.4.0` npm

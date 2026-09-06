@@ -108,6 +108,7 @@ import { Fragment, type ReactElement } from "react";
 import type { Code, Image, Link, Root, RootContent } from "mdast";
 import { isSafeUrl, parse } from "@markii/core";
 import { createRegistry, mergeRegistries, renderMarkNode, type Registry, type ResolveImageSrc } from "@markii/react";
+import type { ValueStore } from "@markii/runtime";
 import { defaultRegistry } from "@markii/react/components";
 import { VSNoteCodeBlock } from "./vsnoteCodeDirective";
 import { CodeTableContext, VSNOTE_CODE_DIRECTIVE_NAME, type CodeTableEntry } from "./vsnoteCodeTable";
@@ -154,6 +155,18 @@ export interface RenderMarkdownOptions {
    * option existed.
    */
   enabledPacks?: readonly PackForRegistry[];
+  /**
+   * A note's already-persisted script values (Phase M3, worker 1's
+   * `loadPersistedValues` + `hydrateValueStore`), consumed by
+   * `:value[name]` directives via `@markii/react`'s built-in
+   * `renderMark`/`renderMarkNode` `store` parameter. Reading a value here
+   * is exactly that — a read — never a script execution: this option
+   * exists so a caller that already loaded a note's cached values (never
+   * this file, which stays side-effect-free and async-free) can make them
+   * visible in the static render. Omitted, `:value[]` degrades to its own
+   * built-in "missing" marker, unchanged from before this option existed.
+   */
+  valueStore?: ValueStore;
 }
 
 const NOT_SHARED_TITLE = "Not shared";
@@ -323,7 +336,7 @@ export function renderMarkdown(text: string, options: RenderMarkdownOptions = {}
     <CodeTableContext.Provider value={codeTable}>
       <div className="mk-doc">
         {root.children.map((node, index) => (
-          <Fragment key={index}>{renderMarkNode(node, registry, undefined, undefined, renderOptions)}</Fragment>
+          <Fragment key={index}>{renderMarkNode(node, registry, options.valueStore, undefined, renderOptions)}</Fragment>
         ))}
       </div>
     </CodeTableContext.Provider>

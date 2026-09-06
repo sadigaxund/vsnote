@@ -40,6 +40,7 @@ import { createAutoSyncScheduler } from "./git/autoSyncPolicy";
 import { buildShareLink } from "./share/shareLinks";
 import type { ExplorerShareRow } from "./components/local/ExplorerTree";
 import type { ShareOut } from "./share/api";
+import { useMarkiiStore } from "./stores/useMarkiiStore";
 import type { FileKind, FileNode } from "./types";
 
 // Phase 5a: CommandPalette / Search are overlay/panel UI a user may never
@@ -64,6 +65,13 @@ const PublishDialog = lazy(() => import("./components/local/PublishDialog").then
 // overlay here.
 const ConflictResolver = lazy(() =>
   import("./components/local/ConflictResolver").then((m) => ({ default: m.ConflictResolver })),
+);
+// Phase M3 (worker 3) — the real `GrantPrompt` UI, mounted unconditionally
+// like `ConflictResolver` above: it must be ready to catch a grant request
+// from ANY pane's "Run scripts" action, not just the focused one, so it
+// can't be gated on which file happens to be open.
+const GrantPromptDialog = lazy(() =>
+  import("./components/local/GrantPromptDialog").then((m) => ({ default: m.GrantPromptDialog })),
 );
 
 /** How often "Sync"'s background fetch runs (roadmap §5.2: "~60s while the
@@ -350,6 +358,11 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     (async () => {
       await ensureSeeded();
       await Promise.all([useFsStore.getState().refresh(), useGitStore.getState().refresh()]);
+      // Phase M3 (worker 3): load the pack registry once at boot so
+      // `.mk.md` completion/hover, Rendered-mode pack placeholders, and
+      // the Packs settings category all see the same enabled-packs set
+      // from the start, not just after Settings happens to be opened.
+      void useMarkiiStore.getState().refreshPacks();
 
       const tabsState = useTabsStore.getState();
       const leaf = findLeaf(tabsState.tree, tabsState.activePaneId);
@@ -1510,6 +1523,14 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
           that field, not by anything in this component's own state. */}
       <Suspense fallback={null}>
         <ConflictResolver />
+      </Suspense>
+
+      {/* Phase M3 (worker 3) — mounted unconditionally, same reasoning as
+          `ConflictResolver` above: it reads `useMarkiiStore`'s
+          `pendingGrantRequest` itself and renders nothing when there is
+          none. */}
+      <Suspense fallback={null}>
+        <GrantPromptDialog />
       </Suspense>
 
       <ConfirmDialog

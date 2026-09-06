@@ -96,6 +96,7 @@
  */
 import { useEffect, useMemo, useRef } from "react";
 import type { CSSProperties } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { EditorView, ViewPlugin, type PluginValue } from "@codemirror/view";
 import { Compartment, Prec, type Extension } from "@codemirror/state";
 import { LanguageDescription } from "@codemirror/language";
@@ -116,6 +117,10 @@ import {
   DEFAULT_EDITOR_FONT_SIZE,
   RENDERED_CONTENT_WIDTH_FULL,
 } from "../stores/useSettingsStore";
+import { useMarkiiStore, selectEnabledPacks } from "../stores/useMarkiiStore";
+import { loadPersistedValues } from "../markii/platform/browser";
+import { hydrateValueStore } from "../markii/host/valuePersistence";
+import type { EnabledPack } from "../markii/host/packs";
 import type { CursorPos } from "./CodeMirrorEditor";
 
 /** Matches the pre-swap `RENDERED_BASE_FONT_SIZE` (17px prose baseline) —
@@ -192,10 +197,19 @@ async function loadMkMdLanguage(): Promise<Extension> {
   );
 }
 
-/** `.mk.md`'s directive live-preview decorations — see `decorations.ts`'s own doc. Dynamically imported so plain `.md` never loads it. */
-async function loadMkMdDecorations(): Promise<Extension[]> {
+/**
+ * `.mk.md`'s directive live-preview decorations — see `decorations.ts`'s
+ * own doc. Dynamically imported so plain `.md` never loads it.
+ *
+ * `enabledPacks` (worker 2) and `valueStore` (worker 3) are threaded
+ * through unchanged to `markiiLivePreviewDecorations` — see that
+ * function's own doc for both. `valueStore` is built by THIS component
+ * (below) from `loadPersistedValues` + `hydrateValueStore`, a pure read
+ * of a previous run's cached values; nothing here ever calls `runScripts`.
+ */
+async function loadMkMdDecorations(enabledPacks: readonly EnabledPack[], valueStore: ReturnType<typeof hydrateValueStore> | undefined): Promise<Extension[]> {
   const { markiiLivePreviewDecorations } = await import("../markdown/directiveLezer/decorations");
-  return markiiLivePreviewDecorations();
+  return markiiLivePreviewDecorations(enabledPacks, valueStore);
 }
 
 export interface LivePreviewEditorProps {
@@ -340,18 +354,47 @@ export function LivePreviewEditor({
       const view = viewRef.current;
       if (!view) return;
       view.dispatch({ effects: mkMdLanguageCompartmentRef.current.reconfigure(language) });
-      loadMkMdDecorations().then((decorations) => {
-        if (cancelled) return;
-        const stillView = viewRef.current;
-        if (!stillView) return;
-        stillView.dispatch({ effects: mkMdDecorationsCompartmentRef.current.reconfigure(decorations) });
-      });
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above: `path` is fixed for this mount.
   }, []);
+
+  // `.mk.md` directive decorations, threaded with the currently ENABLED
+  // packs and this note's already-persisted script values (Phase M3,
+  // worker 3 — see `loadMkMdDecorations`'s own doc). Runs once at mount
+  // (alongside the language effect above — a fresh mount always has no
+  // syntax tree yet either way, so there is no ordering hazard between
+  // the two on FIRST load) and again every time `runVersion` bumps (a
+  // manual run just finished for this exact path, `useMarkiiStore
+  // .runNote`) or the enabled-packs set changes — never on any other
+  // render, and never as a side effect of anything but a real run/pack
+  // change, per this file's and `runScripts.ts`'s "rendering is pure"
+  // rule.
+  const runVersion = useMarkiiStore((s) => s.runVersions[path] ?? 0);
+  const enabledPacks = useMarkiiStore(useShallow(selectEnabledPacks));
+  useEffect(() => {
+    if (!isMkMdPath(path)) return;
+    let cancelled = false;
+    (async () => {
+      const persisted = await loadPersistedValues(path).catch(() => undefined);
+      if (cancelled) return;
+      const valueStore = hydrateValueStore(persisted);
+      const decorations = await loadMkMdDecorations(enabledPacks, valueStore);
+      if (cancelled) return;
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ effects: mkMdDecorationsCompartmentRef.current.reconfigure(decorations) });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // `path` is fixed for this mount (see the comment above); `runVersion`
+    // and `enabledPacks` are the two things that legitimately change under
+    // a live instance and must re-trigger this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runVersion, enabledPacks]);
 
   useEffect(() => {
     const view = viewRef.current;

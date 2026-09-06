@@ -20,7 +20,8 @@ import { Breadcrumbs } from "my-you-eye";
 import { AlignJustify, Columns2, Eye, FileCode, GitCompareArrows } from "lucide-react";
 import { DiffStatChip } from "./local/DiffStatChip";
 import { SegmentedControl } from "./local/SegmentedControl";
-import type { DiffLayout, DiffStat, EditorMode } from "../types";
+import { RunScriptsButton } from "./local/RunScriptsButton";
+import type { DiffLayout, DiffStat, EditorMode, FileKind } from "../types";
 
 export interface EditorHeaderProps {
   /** This pane's own id. (Round 6 item 16 moved the `⋯` overflow menu this
@@ -29,6 +30,10 @@ export interface EditorHeaderProps {
    * mode toggle only.) */
   paneId: string;
   breadcrumb: string[];
+  /** This pane's active file kind/path — only used to gate/target the
+   * Markii "Run scripts" action (Phase M3), `kind === "mkmd"` only. */
+  kind?: FileKind;
+  path?: string;
   diff: DiffStat;
   mode: EditorMode;
   onModeChange?: (mode: EditorMode) => void;
@@ -49,6 +54,8 @@ export interface EditorHeaderProps {
 
 export function EditorHeader({
   breadcrumb,
+  kind,
+  path,
   diff,
   mode,
   onModeChange,
@@ -76,6 +83,7 @@ export function EditorHeader({
         style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}
       />
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {kind === "mkmd" && <RunScriptsButton path={path} kind={kind} variant="icon" />}
         {(diff.added > 0 || diff.removed > 0) && (
           <DiffStatChip added={diff.added} removed={diff.removed} />
         )}

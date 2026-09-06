@@ -6,6 +6,29 @@
  * whole thing in `src/markii/host/watchdog.ts`'s platform-agnostic wall-clock
  * kill switch.
  *
+ * ## This file must never hold a VALUE import from `@markii/lua`
+ *
+ * This module is loaded by the MAIN thread (`WorkerRunner` runs here;
+ * `scriptIsolate.worker.ts` is the only place that actually runs Lua). A
+ * value import from `@markii/lua` here (as opposed to a `import type`)
+ * would pull the whole package — and therefore wasmoon, a full WebAssembly
+ * Lua VM — into the main-thread bundle, which is both a real bundle-size
+ * regression (this repo goes out of its way to code-split the markdown/
+ * scripting pipeline out of the cold-boot path) and, more importantly, puts
+ * the MEANS to run Lua on the main thread somewhere reachable, which is
+ * exactly what "scripts never run on the main thread" means to prevent —
+ * only convention would keep it unused. Concretely: `run()` below used to
+ * send `limits: DEFAULT_LIMITS` (a value import) in every `RunRequestMessage`;
+ * it now sends no `limits` field at all, and `scriptIsolate.worker.ts`'s
+ * `createLuaExecutor` call receives `undefined` for it — `@markii/lua`'s own
+ * `sandbox.ts` internally merges `{ ...DEFAULT_LIMITS, ...options.limits }`,
+ * so an absent `limits` already produces the identical effective limits.
+ * Verified against a real build: `grep -rl unpkg.com dist/assets` finds the
+ * string ONLY inside `scriptIsolate.worker-*.js` (wasmoon's own dead
+ * `if (!wasmUri)` fallback branch — unreachable here since this app always
+ * supplies `wasmUri`, see `scriptIsolate.worker.ts`'s own doc) — no longer
+ * in `App-*.js` or any other non-worker chunk.
+ *
  * ## Two layers of limits, and why both exist
  *
  * `@markii/lua`'s own `limits` option (default: 100M instructions, 5000ms
@@ -48,7 +71,6 @@
  * `@markii/lua`.
  */
 import type { ExecuteResult, ExecutionTier } from "@markii/runtime";
-import { DEFAULT_LIMITS } from "@markii/lua";
 import type { CapabilityConfig } from "../../host/capabilities";
 import { createWatchdogIsolate, type TerminableRunner } from "../../host/watchdog";
 import type { DocViewSnapshot, ScriptIsolate } from "../../host/types";
@@ -264,7 +286,14 @@ class WorkerRunner implements TerminableRunner {
         hasBundle: Boolean(this.config.bundle),
         hasCache: Boolean(this.config.cache),
         packModules: this.config.packModules ?? {},
-        limits: DEFAULT_LIMITS,
+        // No `limits` field is sent at all (worker-only responsibility now
+        // — see this file's own header for why the main thread must never
+        // hold a value import from `@markii/lua`/wasmoon): `msg.limits`
+        // arrives as `undefined` in `scriptIsolate.worker.ts`, and
+        // `createLuaExecutor` -> `@markii/lua`'s own sandbox internally
+        // merges `{ ...DEFAULT_LIMITS, ...options.limits }`, so an
+        // `undefined` `options.limits` already yields the exact same
+        // effective limits this used to send explicitly.
       };
       worker.postMessage(message);
     });

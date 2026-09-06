@@ -316,6 +316,8 @@ export function EditorPane({
           {multiPane && activeTab?.kind !== "settings" && activeTab?.kind !== "shared" && (
             <EditorHeader
               paneId={paneId}
+              kind={activeTab?.kind}
+              path={activeTab?.path}
               // DESIGN-SPEC item 41: the vault's display name is a label
               // mapping over the unchanged `vault/...` path, so the FIRST
               // segment is swapped here exactly the way App.tsx does it for

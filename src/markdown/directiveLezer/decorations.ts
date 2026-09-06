@@ -81,6 +81,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parse } from "@markii/core";
 import { createRegistry, renderMark, renderMarkNode, type Registry } from "@markii/react";
 import { defaultRegistry } from "@markii/react/components";
+import type { ValueStore } from "@markii/runtime";
 import "@markii/react/doc.css";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
@@ -118,8 +119,28 @@ function cacheAndReturn(cache: Map<string, string>, source: string, html: string
   return html;
 }
 
-/** Renders a container/leaf directive's raw source (the whole span `renderMark` would parse as one or more top-level block nodes) to a static HTML string, memoized by the exact source text. Never throws — `renderMark` itself never throws (see its own doc), and this function does nothing else that could. */
-function renderBlockDirectiveHtml(cache: Map<string, string>, source: string, registry: Registry): string {
+/**
+ * Renders a container/leaf directive's raw source (the whole span
+ * `renderMark` would parse as one or more top-level block nodes) to a
+ * static HTML string, memoized by the exact source text. Never throws —
+ * `renderMark` itself never throws (see its own doc), and this function
+ * does nothing else that could.
+ *
+ * `valueStore` (Phase M3, worker 3 — a note's previously-persisted script
+ * values, never live-executed here, see this file's own doc and
+ * `runScripts.ts`'s "rendering is pure" rule) deliberately bypasses the
+ * memoization cache: a `ValueStore` is a mutable object whose CONTENTS can
+ * change between two calls with the exact same `source` string (a run
+ * just produced a new value for the SAME `:value[name]` directive), and
+ * this file has no cheap way to detect that from the source text alone.
+ * Recompute is rare in practice — it only happens when the whole
+ * decorations extension is reconfigured after a real run, not on every
+ * cursor move/keystroke — so paying the render cost fresh each time a
+ * value store is present is the simpler, correct choice over inventing a
+ * version-keyed cache.
+ */
+function renderBlockDirectiveHtml(cache: Map<string, string>, source: string, registry: Registry, valueStore: ValueStore | undefined): string {
+  if (valueStore) return renderToStaticMarkup(renderMark(source, registry, valueStore));
   const cached = cache.get(source);
   if (cached !== undefined) return cached;
   return cacheAndReturn(cache, source, renderToStaticMarkup(renderMark(source, registry)));
@@ -142,16 +163,19 @@ function renderBlockDirectiveHtml(cache: Map<string, string>, source: string, re
  * the exact shape expected — belt and braces, not because this has been
  * observed to happen.
  */
-function renderInlineDirectiveHtml(cache: Map<string, string>, source: string, registry: Registry): string {
-  const cached = cache.get(source);
-  if (cached !== undefined) return cached;
+function renderInlineDirectiveHtml(cache: Map<string, string>, source: string, registry: Registry, valueStore: ValueStore | undefined): string {
+  if (!valueStore) {
+    const cached = cache.get(source);
+    if (cached !== undefined) return cached;
+  }
   const root = parse(source);
   const firstChild = root.children[0];
   const directiveNode =
     firstChild && "children" in firstChild && Array.isArray(firstChild.children) ? firstChild.children[0] : undefined;
   const html = renderToStaticMarkup(
-    directiveNode ? renderMarkNode(directiveNode, registry) : renderMark(source, registry),
+    directiveNode ? renderMarkNode(directiveNode, registry, valueStore) : renderMark(source, registry, valueStore),
   );
+  if (valueStore) return html;
   return cacheAndReturn(cache, source, html);
 }
 
@@ -174,14 +198,20 @@ class MkBlockDirectiveWidget extends WidgetType {
     private readonly source: string,
     private readonly cache: Map<string, string>,
     private readonly registry: Registry,
+    private readonly valueStore: ValueStore | undefined,
   ) {
     super();
   }
   eq(other: MkBlockDirectiveWidget): boolean {
+    // A live value store means this widget's rendered HTML can change
+    // between two decoration recomputes even when `source`/`registry`
+    // didn't (see `renderBlockDirectiveHtml`'s doc) — never claim equal
+    // (i.e. never skip a DOM rebuild) whenever either side has one.
+    if (this.valueStore || other.valueStore) return false;
     return other.source === this.source && other.registry === this.registry;
   }
   toDOM(): HTMLElement {
-    return buildWidgetDom("div", renderBlockDirectiveHtml(this.cache, this.source, this.registry), "mk-live-preview-block");
+    return buildWidgetDom("div", renderBlockDirectiveHtml(this.cache, this.source, this.registry, this.valueStore), "mk-live-preview-block");
   }
   ignoreEvent(): boolean {
     return false; // let clicks land normally (e.g. a link inside the rendered directive) rather than swallowing every interaction.
@@ -193,14 +223,16 @@ class MkInlineDirectiveWidget extends WidgetType {
     private readonly source: string,
     private readonly cache: Map<string, string>,
     private readonly registry: Registry,
+    private readonly valueStore: ValueStore | undefined,
   ) {
     super();
   }
   eq(other: MkInlineDirectiveWidget): boolean {
+    if (this.valueStore || other.valueStore) return false;
     return other.source === this.source && other.registry === this.registry;
   }
   toDOM(): HTMLElement {
-    return buildWidgetDom("span", renderInlineDirectiveHtml(this.cache, this.source, this.registry), "mk-live-preview-inline");
+    return buildWidgetDom("span", renderInlineDirectiveHtml(this.cache, this.source, this.registry, this.valueStore), "mk-live-preview-inline");
   }
 }
 
@@ -235,7 +267,7 @@ function cursorTouches(state: EditorState, from: number, to: number): boolean {
   return false;
 }
 
-function buildBlockDecorations(state: EditorState, cache: Map<string, string>, registry: Registry): DecorationSet {
+function buildBlockDecorations(state: EditorState, cache: Map<string, string>, registry: Registry, valueStore: ValueStore | undefined): DecorationSet {
   const decorations: Range<Decoration>[] = [];
   const tree = treeFor(state, state.doc.length);
   const doc = state.doc;
@@ -248,7 +280,7 @@ function buildBlockDecorations(state: EditorState, cache: Map<string, string>, r
       const source = doc.sliceString(from, to);
       decorations.push(
         Decoration.replace({
-          widget: new MkBlockDirectiveWidget(source, cache, registry),
+          widget: new MkBlockDirectiveWidget(source, cache, registry, valueStore),
           block: true,
           inclusive: false,
         }).range(from, to),
@@ -260,7 +292,7 @@ function buildBlockDecorations(state: EditorState, cache: Map<string, string>, r
   return Decoration.set(decorations, true);
 }
 
-function buildInlineDecorations(view: EditorView, cache: Map<string, string>, registry: Registry): DecorationSet {
+function buildInlineDecorations(view: EditorView, cache: Map<string, string>, registry: Registry, valueStore: ValueStore | undefined): DecorationSet {
   const decorations: Range<Decoration>[] = [];
   const state = view.state;
   const doc = state.doc;
@@ -277,7 +309,7 @@ function buildInlineDecorations(view: EditorView, cache: Map<string, string>, re
         const source = doc.sliceString(from, to);
         decorations.push(
           Decoration.replace({
-            widget: new MkInlineDirectiveWidget(source, cache, registry),
+            widget: new MkInlineDirectiveWidget(source, cache, registry, valueStore),
             inclusive: false,
           }).range(from, to),
         );
@@ -312,18 +344,32 @@ const mkLivePreviewTheme = EditorView.baseTheme({
  * caller already has (e.g. from `platform/browser`'s `PackStore.list()`)
  * — see `buildRegistry`'s doc comment above for why this file still takes
  * it as a parameter rather than reaching for app state itself.
+ *
+ * `valueStore` (worker 3, Phase M3) is likewise plain data the caller
+ * already loaded (`LivePreviewEditor.tsx`: `loadPersistedValues` +
+ * `hydrateValueStore`, a pure READ of a previous run's cached values,
+ * never a script execution — see `runScripts.ts`'s "rendering is pure"
+ * rule). Passed straight through to every directive render so a
+ * `:value[name]` directive resolves against it; omitted, `:value[]`
+ * renders its own built-in "missing" marker, unchanged from before this
+ * parameter existed. Because `LivePreviewEditor.tsx` calls this function
+ * again (with a freshly-hydrated store) every time a run finishes for the
+ * open note — reconfiguring the whole decorations `Extension` via its own
+ * `Compartment`, the SAME mechanism it already uses for the initial
+ * language/decorations load — a stale store is never held onto past a
+ * real run.
  */
-export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegistry[] = []): Extension[] {
+export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegistry[] = [], valueStore?: ValueStore): Extension[] {
   const cache = new Map<string, string>();
   const registry = buildRegistry(enabledPacks);
 
   const blockField = StateField.define<DecorationSet>({
     create(state) {
-      return buildBlockDecorations(state, cache, registry);
+      return buildBlockDecorations(state, cache, registry, valueStore);
     },
     update(value, tr) {
       if (!tr.docChanged && tr.startState.selection.eq(tr.state.selection)) return value;
-      return buildBlockDecorations(tr.state, cache, registry);
+      return buildBlockDecorations(tr.state, cache, registry, valueStore);
     },
     provide: (field) => EditorView.decorations.from(field),
   });
@@ -332,11 +378,11 @@ export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegis
     class {
       decorations: DecorationSet;
       constructor(view: EditorView) {
-        this.decorations = buildInlineDecorations(view, cache, registry);
+        this.decorations = buildInlineDecorations(view, cache, registry, valueStore);
       }
       update(update: ViewUpdate): void {
         if (update.docChanged || update.viewportChanged || update.selectionSet) {
-          this.decorations = buildInlineDecorations(update.view, cache, registry);
+          this.decorations = buildInlineDecorations(update.view, cache, registry, valueStore);
         }
       }
     },

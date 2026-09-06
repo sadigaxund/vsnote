@@ -45,13 +45,15 @@
  * file's doc + docs/COMPONENT-BACKLOG.md). The hosting `DropdownMenu`
  * root/trigger/content belong to the tab bar.
  */
-import { Bold, Code, FileDown, Italic, Link2, Minus, SquareCode, Strikethrough, Table2 } from "lucide-react";
-import { DropdownMenuItem, DropdownMenuSeparator } from "my-you-eye";
+import { Bold, Code, FileDown, Italic, Link2, Minus, Play, SquareCode, Strikethrough, Table2 } from "lucide-react";
+import { DropdownMenuItem, DropdownMenuSeparator, useToast } from "my-you-eye";
 import { DropdownSubmenu, DropdownSubmenuContent, DropdownSubmenuTrigger } from "./DropdownSubmenu";
 import { applyFormatAction, applyInsertAction, type FormatActionId, type InsertActionId } from "../../editor/formatActions";
 import { getActiveEditorView } from "../../editor/activeView";
 import { exportMarkdownAsPdf } from "../../lib/printExport";
 import { useBufferStore } from "../../stores/useBufferStore";
+import { useMarkiiStore } from "../../stores/useMarkiiStore";
+import { runMkMdScriptsWithToast } from "./runScriptsLogic";
 import type { EditorMode, FileKind } from "../../types";
 
 export interface OverflowMenuItemsProps {
@@ -86,6 +88,15 @@ const INSERT_ITEMS: { id: InsertActionId; label: string; icon: typeof Table2 }[]
 export function OverflowMenuItems({ paneId, kind, mode, path, missing }: OverflowMenuItemsProps) {
   const canFormatInsert = kind === "md" && (mode === "rendered" || mode === "source") && !missing;
   const canExportPdf = kind === "md" && !missing;
+  const { toast } = useToast();
+  const running = useMarkiiStore((s) => (path ? (s.runningPaths[path] ?? false) : false));
+  const canRunScripts = kind === "mkmd" && !missing && !!path;
+
+  function handleRunScripts(): void {
+    if (!path) return;
+    const content = useBufferStore.getState().buffers[path]?.content ?? "";
+    void runMkMdScriptsWithToast(path, content, toast);
+  }
 
   function handleFormat(id: FormatActionId): void {
     const view = getActiveEditorView(paneId);
@@ -146,6 +157,12 @@ export function OverflowMenuItems({ paneId, kind, mode, path, missing }: Overflo
           <FileDown size={14} aria-hidden />
           <span style={{ marginLeft: 8 }}>Export as PDF</span>
         </DropdownMenuItem>
+        {kind === "mkmd" && (
+          <DropdownMenuItem disabled={!canRunScripts || running} onSelect={handleRunScripts} data-testid="overflow-menu-run-scripts">
+            <Play size={14} aria-hidden />
+            <span style={{ marginLeft: 8 }}>Run scripts</span>
+          </DropdownMenuItem>
+        )}
     </>
   );
 }

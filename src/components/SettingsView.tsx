@@ -34,6 +34,7 @@ import {
   GitBranch,
   HardDrive,
   Keyboard as KeyboardIcon,
+  Package,
   Palette,
   Search as SearchIcon,
   Share2,
@@ -45,6 +46,7 @@ import { useRenderedRows } from "./settings/Rendered";
 import { useGitRows } from "./settings/Git";
 import { useSharingRows } from "./settings/Sharing";
 import { useStorageRows } from "./settings/Storage";
+import { usePacksRows } from "./settings/Packs";
 import { useKeyboardRows } from "./settings/Keyboard";
 import { rowMatches, type SettingsCategory } from "./settings/types";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
@@ -85,6 +87,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
     { id: "rendered-view", label: "Rendered view", icon: <Eye size={15} />, rows: useRenderedRows() },
     { id: "git-sync", label: "Git & Sync", icon: <GitBranch size={15} />, rows: useGitRows() },
     { id: "sharing", label: "Sharing", icon: <Share2 size={15} />, rows: useSharingRows() },
+    { id: "packs", label: "Packs", icon: <Package size={15} />, rows: usePacksRows() },
     {
       id: "storage",
       label: "Storage",
