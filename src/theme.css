@@ -563,3 +563,394 @@
 .tok-invalid {
   color: var(--color-danger);
 }
+
+/* ---- Public share reader (docs/PLAN-2026-09-05-refresh.md §4.3 + §5) ----
+   `share/ShareApp.tsx` never imports the app's `useSettingsStore` and
+   `main.tsx` never runs `applyDomSettings` on the share boot branch (see
+   both files' docs), so this route carries NO `data-theme`/`.dark` at all
+   from the app's own persisted setting — it follows the VISITOR's system
+   `prefers-color-scheme` on its own, scoping every token this route reads
+   (`--mk-*`, plus the small `--color-*`/`--syntax-*`/`--app-*` subset the
+   reader/CodeBlock/renderMarkdown actually consume) under this class. Light
+   is the default (no historical light palette exists elsewhere in this
+   app — these are new, chosen to read well as body text); dark reasserts
+   the exact VSNote-default hex from the blocks above so a dark-system
+   visitor sees the same palette as the rest of the app. Same specificity as
+   `.dark`/`:root[data-theme=...]` above but declared LATER, so this wins
+   the cascade regardless of the static `<html class="dark">` in
+   index.html. */
+.share-reader {
+  --mk-bg: #f7f8fa;
+  --mk-raised: #ffffff;
+  --mk-fg: #1c1f26;
+  --mk-surface: #ffffff;
+  --mk-surface-strong: #eef0f2;
+  --mk-border: #dde1e6;
+  --mk-muted: #64707c;
+  --mk-faint: #9aa4ad;
+  --mk-accent: #0f8f86;
+  --mk-on-accent: #ffffff;
+  --mk-info: #0f8f86;
+  --mk-success: #2f9e44;
+  --mk-warning: #a06400;
+  --mk-danger: #c92a2a;
+  --mk-limit: #64707c;
+  --mk-width-fit: fit-content;
+  --mk-width-narrow: 32rem;
+  --mk-width-wide: 56rem;
+  --mk-width-full: 100%;
+
+  --color-bg: var(--mk-bg);
+  --color-fg: var(--mk-fg);
+  --color-muted: var(--mk-muted);
+  --color-border: var(--mk-border);
+  --color-surface: var(--mk-surface);
+  --color-surface-hover: var(--mk-surface-strong);
+  --color-surface-active: var(--mk-surface-strong);
+  --color-surface-elevated: var(--mk-raised);
+  --color-surface-opaque: var(--mk-surface);
+  --color-primary: var(--mk-accent);
+  --color-primary-fg: var(--mk-on-accent);
+  --color-ring: var(--mk-accent);
+  --color-secondary: var(--mk-surface-strong);
+  --color-secondary-fg: var(--mk-fg);
+  --color-success: var(--mk-success);
+  --color-success-fg: #ffffff;
+  --color-warning: var(--mk-warning);
+  --color-warning-fg: #ffffff;
+  --color-danger: var(--mk-danger);
+  --color-danger-fg: #ffffff;
+  --color-code-bg: var(--mk-bg);
+  --color-code-fg: #0a6e66;
+  --color-code-muted: var(--mk-muted);
+  --app-editor-bg: var(--mk-bg);
+  --app-chrome-bg: var(--mk-bg);
+  --markdown-code-color: #0a6e66;
+  --syntax-keyword: #0f8f86;
+  --syntax-function: #0f8f86;
+  --syntax-type: #a06400;
+  --syntax-number: #a06400;
+  --syntax-variable: #1c1f26;
+  --syntax-punctuation: #1c1f26;
+  --syntax-operator: #0a6e66;
+  --syntax-string: #0a6e66;
+  --syntax-comment: #64707c;
+
+  color-scheme: light;
+  display: block;
+  min-height: 100dvh;
+  background: var(--mk-bg);
+  color: var(--mk-fg);
+  font-family: var(--font-sans);
+}
+
+@media (prefers-color-scheme: dark) {
+  .share-reader {
+    --mk-bg: #101318;
+    --mk-raised: #1c1f26;
+    --mk-fg: #d8dfe6;
+    --mk-surface: #15171c;
+    --mk-surface-strong: #1c1f26;
+    --mk-border: #23262d;
+    --mk-muted: #848a92;
+    --mk-faint: #4a4f57;
+    --mk-accent: #27d2c5;
+    --mk-on-accent: #04201c;
+    --mk-info: #27d2c5;
+    --mk-success: #3fb950;
+    --mk-warning: #e3b341;
+    --mk-danger: #f85149;
+    --mk-limit: #848a92;
+
+    --color-bg: var(--mk-bg);
+    --color-fg: var(--mk-fg);
+    --color-muted: var(--mk-muted);
+    --color-border: var(--mk-border);
+    --color-surface: var(--mk-surface);
+    --color-surface-hover: var(--mk-surface-strong);
+    --color-surface-active: var(--mk-surface-strong);
+    --color-surface-elevated: var(--mk-raised);
+    --color-surface-opaque: var(--mk-surface);
+    --color-primary: var(--mk-accent);
+    --color-primary-fg: var(--mk-on-accent);
+    --color-ring: var(--mk-accent);
+    --color-secondary: var(--mk-surface-strong);
+    --color-secondary-fg: var(--mk-fg);
+    --color-success: var(--mk-success);
+    --color-success-fg: #04170a;
+    --color-warning: var(--mk-warning);
+    --color-warning-fg: #1c1200;
+    --color-danger: var(--mk-danger);
+    --color-danger-fg: #1a0605;
+    --color-code-bg: var(--mk-bg);
+    --color-code-fg: #a8d578;
+    --color-code-muted: var(--mk-muted);
+    --app-editor-bg: var(--mk-bg);
+    --app-chrome-bg: var(--mk-bg);
+    --markdown-code-color: #a8d578;
+    --syntax-keyword: #27d2c5;
+    --syntax-function: #27d2c5;
+    --syntax-type: #eab444;
+    --syntax-number: #eab444;
+    --syntax-variable: #d8dfe6;
+    --syntax-punctuation: #d8dfe6;
+    --syntax-operator: #a8d578;
+    --syntax-string: #a8d578;
+    --syntax-comment: #848a92;
+
+    color-scheme: dark;
+  }
+}
+
+/* Pre-content states (loading/unreachable/password) — centered, full
+   viewport, safe-area-aware on notched phones. */
+.share-reader__center {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+  text-align: center;
+}
+
+.share-reader__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 32px 28px;
+  border: 1px solid var(--mk-border);
+  border-radius: 10px;
+  background: var(--mk-raised);
+  max-width: 360px;
+  width: 100%;
+}
+
+/* The full-color mark's page shape (`#e8f6f4`, a pale mint) is drawn to
+   read on the app's own dark chrome (`TitleBar`/`LoginGate`) — it all but
+   disappears on this card's light-scheme white surface. A small, always-
+   dark chip behind it (matching the exact backdrop the mark's colors were
+   sampled against, `--app-chrome-bg`'s dark hex) restores that same
+   contrast in both of the reader's own schemes, without redrawing the
+   artwork or introducing a second logo variant. */
+.share-reader__logo-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: 8px;
+  background: #0e1015;
+}
+
+.share-reader__oauth {
+  font-size: 13px;
+  color: var(--mk-accent);
+  text-decoration: none;
+}
+.share-reader__oauth:hover {
+  text-decoration: underline;
+}
+
+/* The reading page itself — DESIGN-SPEC "reading comfort beats density":
+   a ~70-character measure, generous line height/vertical rhythm, centered
+   column with real margins on wide screens, safe-area-aware padding on
+   phones. `--wide` (the HTML-share case) opts the sandboxed iframe out of
+   the measure constraint — it fills the viewport like the app's own local
+   HTML Rendered mode always has. */
+.share-reader__page {
+  box-sizing: border-box;
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: max(48px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(64px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+  line-height: 1.7;
+}
+.share-reader__page--wide {
+  max-width: none;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.share-reader__page--wide .share-reader__backlink {
+  margin: 12px 20px;
+}
+
+/* A shared code/text file reads as a document too — a raised, bordered
+   panel with its filename, rather than bare highlighted text floating on
+   the page background. `<CodeBlock>` keeps its own flush background
+   inside this panel (theme.css's `.mk-static-codeblock`, unchanged). */
+.share-reader__code-panel {
+  border: 1px solid var(--mk-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--mk-raised);
+}
+.share-reader__code-filename {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--mk-border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--mk-muted);
+}
+
+.share-reader__backlink {
+  display: block;
+  margin: 0 0 20px;
+  color: var(--mk-muted);
+  text-decoration: none;
+  font-size: 14px;
+}
+.share-reader__backlink:hover {
+  color: var(--mk-accent);
+}
+
+@media (max-width: 640px) {
+  .share-reader__page {
+    padding-top: max(28px, env(safe-area-inset-top));
+    padding-bottom: max(40px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ---- `.mk-doc` prose typography ----
+   `@markii/react/doc.css` styles only its OWN directive components
+   (`.mk-callout`, `.mk-card`, `.mk-table`, …) — it has no rules at all for
+   plain markdown output (h1-h6/p/ul/ol/blockquote/a/code/table), by design
+   (confirmed against the shipped stylesheet). Every other renderer of this
+   markup in the app gets its typography from CM6's own live-preview
+   decorations instead (DESIGN-SPEC's "Rendered markdown typography"
+   section) — `renderMarkdown`'s static output has no CM6 involved, so this
+   is that same typography, translated to plain CSS, for `.mk-doc` itself.
+   Scoped to `.mk-doc` everywhere the renderer is used (the share reader
+   today; print/export and `.mk.md` Rendered mode inherit it too), reading
+   off the same `--mk-*`/`--markdown-*` tokens the rest of this file already
+   derives per theme/scheme. */
+.mk-doc {
+  color: var(--mk-fg);
+  font-size: 16px;
+}
+.mk-doc h1,
+.mk-doc h2,
+.mk-doc h3,
+.mk-doc h4,
+.mk-doc h5,
+.mk-doc h6 {
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.6em 0 0.6em;
+}
+.mk-doc h1:first-child,
+.mk-doc h2:first-child {
+  margin-top: 0;
+}
+.mk-doc h1 {
+  font-size: 2em;
+  color: var(--mk-fg);
+}
+.mk-doc h2 {
+  font-size: 1.5em;
+  color: var(--mk-accent);
+}
+.mk-doc h3 {
+  font-size: 1.2em;
+}
+.mk-doc h4,
+.mk-doc h5,
+.mk-doc h6 {
+  font-size: 1em;
+  color: var(--mk-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mk-doc p {
+  margin: 0 0 1em;
+}
+.mk-doc strong {
+  font-weight: 700;
+  color: var(--mk-fg);
+}
+.mk-doc a[href] {
+  color: var(--mk-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* Tailwind's preflight (`my-you-eye`'s own base layer) resets
+   `list-style: none` on every `ul`/`ol` app-wide — the app never needed to
+   undo that because the ONLY other list-rendering surface, CM6's
+   live-preview, draws its own bullet/number widgets rather than using real
+   `<li>` markers. This renderer emits real `<ul>/<ol>/<li>` elements, so
+   `.mk-doc` restores native markers explicitly rather than depending on a
+   browser default that Tailwind has already reset out from under it. */
+.mk-doc ul,
+.mk-doc ol {
+  margin: 0 0 1em;
+  padding-left: 1.4em;
+}
+.mk-doc ul {
+  list-style: disc outside;
+}
+.mk-doc ul ul {
+  list-style-type: circle;
+}
+.mk-doc ul ul ul {
+  list-style-type: square;
+}
+.mk-doc ol {
+  list-style: decimal outside;
+}
+.mk-doc li {
+  margin: 0.25em 0;
+  display: list-item;
+}
+/* Task-list items (a checkbox as the item's first child) get no bullet —
+   the checkbox itself is the marker. */
+.mk-doc li:has(> input[type="checkbox"]) {
+  list-style: none;
+}
+.mk-doc li > ul,
+.mk-doc li > ol {
+  margin: 0.25em 0;
+}
+.mk-doc blockquote {
+  margin: 0 0 1em;
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 3px solid var(--mk-accent);
+  color: var(--mk-muted);
+  font-style: italic;
+}
+.mk-doc code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--markdown-code-color, var(--mk-accent));
+  background: none;
+  border: none;
+  padding: 0;
+}
+.mk-doc hr {
+  border: none;
+  border-top: 1px solid var(--mk-border);
+  margin: 2em 0;
+}
+.mk-doc table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 1em;
+  font-size: 0.95em;
+}
+.mk-doc th,
+.mk-doc td {
+  border: 1px solid var(--mk-border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.mk-doc th {
+  background: var(--mk-surface-strong);
+  font-weight: 600;
+}
+.mk-doc img {
+  max-width: 100%;
+  border-radius: 4px;
+}

@@ -1,66 +1,68 @@
 /**
- * ShareApp — the `/share/<slug>[/<relpath>]` reader, rebuilt for round 6
- * item 10 to REUSE the main shell's own components instead of the old
- * divergent slim page: the local `TitleBar` shell, `ExplorerTree` (in its
- * `readOnly` mode), `EditorTabBar`, and `EditorHeader`'s breadcrumb + mode
- * cluster, all on the app's normal theme tokens (the old page forced a
- * white canvas under dark-theme selection colors — the root cause of the
- * reported "viewer mode selection" breakage, item 13: selecting text
- * painted dark-on-dark selection rectangles onto a white background,
- * i.e. invisibly). What is deliberately ABSENT: the activity bar, status
- * bar, command palette, settings, git, sharing controls — a visitor gets
- * reading (and, with the editor role, editing) chrome only.
+ * ShareApp — the `/share/<slug>` public reader (docs/PLAN-2026-09-05-
+ * refresh.md §4.3 + the client half of §5), rebuilt CHROME-LESS: no
+ * TitleBar, no tabs, no tree, no Rendered/Source toggle, no role badge, no
+ * activity/status bar. A visitor gets the document and nothing else — this
+ * route is a static reading page, not a shrunken copy of the app shell.
  *
- * Hard requirements carried over from the previous implementation
- * (`docs/ROADMAP-SHARING-AUTH.md` §1/§5.1 — still binding):
+ * Read-only by definition (docs/ROADMAP-SHARING-AUTH.md §1 / §4.3: "Editor
+ * role (write-back) is dropped from the public reader"). The server still
+ * implements `PUT /share/{id}` and resolves an "editor" role for the
+ * owner's own future sync tooling (see docs/ARCHITECTURE.md's "Sharing
+ * (Phase 10)" section, "Editor-role write-back" paragraph) — this file
+ * simply never calls it and never renders anything that would let a
+ * visitor type into the document.
+ *
+ * Hard requirements carried over, still binding:
  *
  * 1. **No VAULT access.** This route's chunk never imports `fs/`, `git/`,
- *    `stores/useFsStore`, `stores/useBufferStore`, `stores/useTabsStore`,
- *    or `stores/useGitStore` — nothing that opens the vault's IndexedDB.
- *    `ExplorerTree`'s pure helpers were extracted to `lib/fileTree.ts` for
- *    exactly this reason. (Round 6 relaxation, deliberate: reusing shell
- *    components means `useSettingsStore` — plain localStorage settings —
- *    may now load here; `main.tsx`'s `applyDomSettings` already themed
- *    this route from that same store before this change. Settings are the
- *    visitor's own browser state, not the vault.)
+ *    or any `stores/use*Store` module — nothing that opens the vault's
+ *    IndexedDB or reads the visitor's local app settings. `main.tsx`'s
+ *    boot-time route split (dynamic `import()`, share branch vs. app
+ *    branch) is the actual mechanism behind this guarantee, not a promise
+ *    kept by convention — see that file's doc.
  * 2. **The no-existence-oracle contract** (`server/README.md`): every deny
- *    is the same generic state, keyed ONLY off `err.status === 404` —
- *    never off a response detail. Unreachable (non-404) gets its own
- *    distinct state.
+ *    is the same generic state, keyed ONLY off `err.status === 404` — never
+ *    off a response detail. Unreachable (non-404) gets its own distinct
+ *    state. The password field POSTs unconditionally; nothing here ever
+ *    branches on response body/message content.
  * 3. **Rendered-mode sandbox**: HTML renders only inside
  *    `renderers/HtmlPreview.tsx`'s `sandbox=""` iframe; markdown through
- *    the real live-preview pipeline (no raw-HTML widget exists there).
+ *    `markdown/render.tsx`'s static pipeline (raw HTML dropped, URLs
+ *    sanitized — no live-preview CodeMirror instance on this route at all).
+ * 4. **Its own light/dark**, independent of the app's `useSettingsStore`
+ *    (never imported here): the `.share-reader` class in `src/theme.css`
+ *    maps the markii `--mk-*`/`--color-*` tokens directly off
+ *    `prefers-color-scheme`, ignoring `data-theme`/`.dark` entirely — see
+ *    that file's "Public share reader" block.
  *
- * Roles (items 11/12): the JSON payloads carry the caller's resolved
- * `role`. A viewer gets selectable text and a Rendered/Source toggle,
- * everything read-only. An editor edits through the SAME live-preview /
- * source editors the app uses; ⌘S or the Save button PUTs the content
- * back (`share/api.ts::putShareContent`), which the server re-gates and
- * lands both on the share's blob and, best-effort, as a commit in the
- * owner's bare sync repo (`server/app/vaultcommit.py`).
+ * §5 additions: the content response's `links` map (vault-relative link
+ * target -> target share's URL) is forwarded straight to `renderMarkdown`,
+ * which rewrites resolvable links and degrades unresolved relative `.md`
+ * links to muted "Not shared" text; `back_link`, when resolved, renders as
+ * one plain text line above the document; `document.title` is set from the
+ * document's first H1 after a successful load (client-side only — the
+ * server's own `show_title` meta injection is a separate, narrower
+ * mechanism, untouched by this file).
  */
-import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Lock } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Alert, Button, EmptyState, Input } from "my-you-eye";
-import { TitleBar as TitleBarShell } from "../components/local/TitleBar";
+// `@markii/react/doc.css` — the 19 `--mk-*` tokens `.mk-doc` and its
+// children (headings/paragraph/table/callout typography) are all styled
+// from (see `src/theme.css`'s "Public share reader" block and
+// `renderers/MarkiiPreview.tsx`'s doc comment: every real markii consumer,
+// this route included, imports this stylesheet itself the first time it
+// actually renders, rather than it living in `markdown/render.tsx` or the
+// app's cold-boot bundle).
+import "@markii/react/doc.css";
 import { Logo } from "../components/local/Logo";
 import { fetchOAuthProviders, oauthStartUrl } from "../share/oauth";
-import { EditorTabBar } from "../components/local/EditorTabBar";
-import { SegmentedControl } from "../components/local/SegmentedControl";
-import { Eye, FileCode } from "lucide-react";
 import { HtmlPreview } from "../renderers/HtmlPreview";
-import { LivePreviewEditor } from "../editor/LivePreviewEditor";
-import { CodeMirrorEditor } from "../editor/CodeMirrorEditor";
-import { fileTypeForOrPlain } from "../filetypes/registry";
+import { renderMarkdown } from "../markdown/render";
+import { CodeBlock } from "../markdown/codeBlock";
 import { inferFileKind } from "../lib/fileTree";
-import {
-  getShareContentSameOrigin,
-  postShareAuth,
-  putShareContent,
-  ShareApiError,
-  type ShareContentOut,
-} from "./api";
-import type { EditorMode, TabItem } from "../types";
+import { getShareContentSameOrigin, postShareAuth, ShareApiError, type ShareContentOut } from "./api";
 
 export interface ShareAppProps {
   /** The `<slug>` (or custom alias) segment of `/share/<slug>` — parsed by
@@ -75,26 +77,20 @@ function baseName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1) || path;
 }
 
-interface OpenShareTab extends TabItem {
-  relpath: string;
+/** First H1 of `markdown`, matching `server/app/linkmap.py::title_for`'s
+ * rule verbatim (so a document's client-set `document.title` and its
+ * server-computed back-link label agree). `null` when there is none. */
+const H1_RE = /^\s{0,3}#\s+(.+?)\s*#*\s*$/m;
+function firstH1(markdown: string): string | null {
+  const m = H1_RE.exec(markdown);
+  return m ? m[1]!.trim() : null;
 }
 
 export function ShareApp({ identifier }: ShareAppProps) {
   const [state, setState] = useState<LoadState>("loading");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  const [role, setRole] = useState<string>("viewer");
-  const [shareLabel, setShareLabel] = useState("");
-
-  const [tabs, setTabs] = useState<OpenShareTab[]>([]);
-  const [activeRelpath, setActiveRelpath] = useState<string | null>(null);
-  // relpath -> server content (immutably updated Map so render reads are
-  // plain state); separate draft map for editor-role edits.
-  const [contents, setContents] = useState<ReadonlyMap<string, ShareContentOut>>(() => new Map());
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [modes, setModes] = useState<Record<string, EditorMode>>({});
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const [content, setContent] = useState<ShareContentOut | null>(null);
   // OAuth capability probe (TODO §8.2): the button only renders when the
   // backend has Google credentials configured.
   const [oauthGoogle, setOauthGoogle] = useState(false);
@@ -102,45 +98,43 @@ export function ShareApp({ identifier }: ShareAppProps) {
     void fetchOAuthProviders().then((p) => setOauthGoogle(p.google));
   }, []);
 
-  const openFileTab = useCallback((relpath: string, content: ShareContentOut) => {
-    setContents((prev) => new Map(prev).set(relpath, content));
-    const name = baseName(content.source_path);
-    setTabs((prev) =>
-      prev.some((t) => t.relpath === relpath)
-        ? prev
-        : [...prev, { id: relpath, path: relpath, name, kind: inferFileKind(name), relpath }],
-    );
-    setActiveRelpath(relpath);
-  }, []);
-
-  const load = useCallback(
-    async () => {
-      setState("loading");
-      try {
-        const data = await getShareContentSameOrigin(identifier);
-        if (data.role) setRole(data.role);
-        setShareLabel((prev) => prev || baseName(data.source_path));
-        openFileTab("", data);
-        setState("content");
-        window.history.replaceState(null, "", `/share/${encodeURIComponent(identifier)}`);
-      } catch (err) {
-        // The ONLY branch allowed on error: 404 vs. didn't-complete. See
-        // the module doc (no-existence-oracle contract).
-        if (err instanceof ShareApiError && err.status === 404) {
-          setState("unavailable");
-        } else {
-          setState("unreachable");
-        }
+  async function load() {
+    setState("loading");
+    try {
+      const data = await getShareContentSameOrigin(identifier);
+      setContent(data);
+      setState("content");
+      window.history.replaceState(null, "", `/share/${encodeURIComponent(identifier)}`);
+    } catch (err) {
+      // The ONLY branch allowed on error: 404 vs. didn't-complete. See the
+      // module doc (no-existence-oracle contract).
+      if (err instanceof ShareApiError && err.status === 404) {
+        setState("unavailable");
+      } else {
+        setState("unreachable");
       }
-    },
-    [identifier, openFileTab],
-  );
+    }
+  }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the synchronous setState("loading") inside load() is intentional (immediate loading state), same reasoning as the pre-rebuild implementation.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the synchronous setState("loading") inside load() is intentional (immediate loading state).
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-time fetch: `load`'s only meaningful dependency is `identifier`.
   }, [identifier]);
+
+  // §5 item 6 — client-side `document.title` from the first H1, for EVERY
+  // rendered share once content loads (not gated on the server's
+  // `show_title` opt-in, which is a separate, narrower mechanism guarding
+  // the SPA-shell meta injection on a cold navigation — this is purely the
+  // already-loaded tab's own title, carries no posture change).
+  useEffect(() => {
+    if (!content) return;
+    const name = baseName(content.source_path);
+    const kind = inferFileKind(name);
+    const isMarkdown = kind === "md" || kind === "mkmd";
+    const heading = isMarkdown && content.content_encoding === "utf-8" ? firstH1(content.content) : null;
+    document.title = heading ?? name;
+  }, [content]);
 
   async function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -162,271 +156,106 @@ export function ShareApp({ identifier }: ShareAppProps) {
     }
   }
 
-  const activeContent = activeRelpath !== null ? (contents.get(activeRelpath) ?? null) : null;
-  const activeName = activeContent ? baseName(activeContent.source_path) : "";
-  const activeKind = activeContent ? inferFileKind(activeName) : undefined;
-  const canRender = activeKind === "md" || activeKind === "html";
-  const activeMode: EditorMode =
-    (activeRelpath !== null ? modes[activeRelpath] : undefined) ?? (canRender ? "rendered" : "source");
-  const isEditor = role === "editor";
-  const activeDraft = activeRelpath !== null ? drafts[activeRelpath] : undefined;
-  const activeDirty = activeDraft !== undefined && activeDraft !== activeContent?.content;
-
-
-  const handleSave = useCallback(async () => {
-    if (!isEditor || activeRelpath === null || !activeDirty || activeDraft === undefined) return;
-    setSaveState("saving");
-    try {
-      await putShareContent(identifier, activeDraft);
-      setContents((prev) => {
-        const existing = prev.get(activeRelpath);
-        return existing ? new Map(prev).set(activeRelpath, { ...existing, content: activeDraft }) : prev;
-      });
-      setDrafts((prev) => {
-        const next = { ...prev };
-        delete next[activeRelpath];
-        return next;
-      });
-      setSaveState("saved");
-    } catch {
-      setSaveState("failed");
-    }
-  }, [isEditor, activeRelpath, activeDirty, activeDraft, identifier]);
-
-  // ⌘S saves for the editor role (and never triggers the browser's own
-  // save dialog for viewers either).
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        void handleSave();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleSave]);
-
   if (state === "loading") {
     return (
-      <ShareShell>
+      <ReaderShell>
         <p style={{ color: "var(--color-muted)" }}>Loading…</p>
-      </ShareShell>
+      </ReaderShell>
     );
   }
 
   if (state === "unreachable") {
     return (
-      <ShareShell>
+      <ReaderShell>
         <Alert variant="warning" size="lg" title="Can't reach the server" icon={<AlertTriangle size={20} aria-hidden />} style={{ maxWidth: 420 }}>
           The sharing backend didn't respond. Try again in a moment.
         </Alert>
-      </ShareShell>
+      </ReaderShell>
     );
   }
 
-  if (state === "unavailable" || tabs.length === 0) {
+  if (state === "unavailable" || !content) {
     return (
-      <ShareShell>
-        {/* The password form is a SIBLING of the EmptyState (not its
-            `action`) so this testid's textContent is exactly the title
-            string — `share-password.spec.ts` requires it byte-identical
-            across a wrong-password resubmit (server/README.md's "same
-            404" contract). */}
-        <EmptyState icon={<Lock size={28} aria-hidden />} title="This link is unavailable, or it requires a password." data-testid="share-unavailable-title" />
-        <form onSubmit={(e) => void handlePasswordSubmit(e)} style={{ display: "flex", gap: 8 }} data-testid="share-password-form">
-          <Input
-            type="password"
-            size="sm"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            aria-label="Share password"
-            data-testid="share-password-input"
-          />
-          <Button type="submit" size="sm" loading={submitting} disabled={password.length === 0} data-testid="share-password-submit">
-            Continue
-          </Button>
-        </form>
-        {oauthGoogle && (
-          <a href={oauthStartUrl(location.pathname)} data-testid="share-oauth-google" className="my-1">
-            Continue with Google
-          </a>
-        )}
-      </ShareShell>
+      <ReaderShell>
+        <div className="share-reader__card">
+          <span className="share-reader__logo-chip">
+            <Logo size={28} title="VSNote" />
+          </span>
+          {/* The password form is a SIBLING of the EmptyState (not its
+              `action`) so this testid's textContent is exactly the title
+              string — `share-password.spec.ts` requires it byte-identical
+              across a wrong-password resubmit (server/README.md's "same
+              404" contract). */}
+          <EmptyState title="This link is unavailable, or it requires a password." data-testid="share-unavailable-title" />
+          <form onSubmit={(e) => void handlePasswordSubmit(e)} style={{ display: "flex", gap: 8 }} data-testid="share-password-form">
+            <Input
+              type="password"
+              size="sm"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              aria-label="Share password"
+              data-testid="share-password-input"
+            />
+            <Button type="submit" size="sm" loading={submitting} disabled={password.length === 0} data-testid="share-password-submit">
+              Continue
+            </Button>
+          </form>
+          {oauthGoogle && (
+            <a href={oauthStartUrl(location.pathname)} className="share-reader__oauth" data-testid="share-oauth-google">
+              Continue with Google
+            </a>
+          )}
+        </div>
+      </ReaderShell>
     );
   }
+
+  return <ReaderPage content={content} />;
+}
+
+/** The loaded document — dispatched by kind, no chrome, no editor. */
+function ReaderPage({ content }: { content: ShareContentOut }) {
+  const name = baseName(content.source_path);
+  const kind = inferFileKind(name);
+  const isMarkdown = kind === "md" || kind === "mkmd";
+  const isBinary = content.content_encoding === "base64";
+  const isHtml = !isBinary && kind === "html";
+  const wide = isHtml; // the sandboxed iframe fills the viewport; everything else reads in a column.
 
   return (
-    <div style={{ height: "100dvh", width: "100vw", display: "flex", flexDirection: "column", background: "var(--app-chrome-bg)", color: "var(--color-fg)" }}>
-      <a href="#share-main" className="skip-link">
-        Skip to content
-      </a>
-      <TitleBarShell
-        glyph={<Logo size={20} />}
-        title="VSNote"
-        subtitle={shareLabel ? `/ ${shareLabel}` : undefined}
-        actions={
-          <span style={{ fontSize: 11.5, color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }} data-testid="share-role-badge">
-            {isEditor ? "Shared with you, can edit" : "Shared with you"}
-          </span>
-        }
-      />
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <main id="share-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--app-editor-bg)" }} data-testid="share-content">
-          <EditorTabBar
-            paneId="share"
-            tabs={tabs}
-            activeId={activeRelpath ?? undefined}
-            onSelect={(id) => setActiveRelpath(id)}
-            onClose={(id) => {
-              // Computed OUTSIDE the updater — react-doctor
-              // no-impure-state-updater: an updater must be a pure
-              // (state) => state function; calling setActiveRelpath from
-              // inside it both side-effects and reads stale render scope.
-              const next = tabs.filter((t) => t.id !== id);
-              setTabs(next);
-              if (activeRelpath === id) setActiveRelpath(next.length > 0 ? next[next.length - 1].relpath : null);
-            }}
-          />
-          {activeContent ? (
-            <>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  height: "var(--app-chrome-paneheader-h)",
-                  padding: "0 12px",
-                  borderBottom: "1px solid var(--app-chrome-border)",
-                  flexShrink: 0,
-                }}
-              >
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--color-muted)" }}>
-                  {activeContent.source_path}
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  {isEditor && (
-                    <>
-                      {saveState === "failed" && (
-                        <span style={{ fontSize: 12, color: "var(--git-deleted)" }} data-testid="share-save-error">
-                          Save failed. Try again.
-                        </span>
-                      )}
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={activeDirty ? "primary" : "secondary"}
-                        disabled={!activeDirty || saveState === "saving"}
-                        onClick={() => void handleSave()}
-                        aria-live="polite"
-                        data-testid="share-save"
-                      >
-                        {saveState === "saving" ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : activeDirty ? "Save" : saveState === "saved" ? "Saved" : "Save"}
-                      </Button>
-                    </>
-                  )}
-                  <SegmentedControl
-                    size="xs"
-                    value={activeMode}
-                    onChange={(m: EditorMode) => activeRelpath !== null && setModes((prev) => ({ ...prev, [activeRelpath]: m }))}
-                    options={[
-                      { value: "rendered", label: "Rendered", icon: <Eye size={11} />, disabled: !canRender },
-                      { value: "source", label: "Source", icon: <FileCode size={11} /> },
-                    ]}
-                  />
-                </div>
-              </div>
-              <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
-                <ShareFileView
-                  key={activeRelpath}
-                  content={activeContent}
-                  draft={activeDraft}
-                  mode={activeMode}
-                  kind={activeKind}
-                  editable={isEditor}
-                  onChange={(value) => {
-                    if (activeRelpath === null) return;
-                    setSaveState("idle");
-                    setDrafts((prev) => ({ ...prev, [activeRelpath]: value }));
-                  }}
-                />
-              </div>
-            </>
-          ) : (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <EmptyState title="Select a file" description="Choose a file from the tree." />
-            </div>
-          )}
-        </main>
-      </div>
+    <div className="share-reader">
+      <main id="share-main" className={wide ? "share-reader__page share-reader__page--wide" : "share-reader__page"}>
+        {content.back_link && (
+          <a href={content.back_link.href} className="share-reader__backlink" data-testid="share-back-link">
+            ← {content.back_link.label}
+          </a>
+        )}
+        {isBinary ? (
+          <EmptyState title="Binary file" description="This file has no text view." />
+        ) : isHtml ? (
+          <HtmlPreview content={content.content} />
+        ) : isMarkdown ? (
+          <div data-testid="share-content">{renderMarkdown(content.content, { links: content.links })}</div>
+        ) : (
+          <div className="share-reader__code-panel" data-testid="share-content">
+            <div className="share-reader__code-filename">{name}</div>
+            <CodeBlock code={content.content} kind={kind} />
+          </div>
+        )}
+      </main>
     </div>
   );
 }
 
-/** The content pane: the app's REAL editors/renderers, keyed by mode/kind.
- * Sandbox note (module doc point 3): HTML only ever renders inside
- * HtmlPreview's sandboxed iframe; markdown through live-preview (no
- * raw-HTML widget). Editing (item 12) reuses the same editors non-readOnly
- * with the draft's content. */
-function ShareFileView({
-  content,
-  draft,
-  mode,
-  kind,
-  editable,
-  onChange,
-}: {
-  content: ShareContentOut;
-  draft: string | undefined;
-  mode: EditorMode;
-  kind: ReturnType<typeof inferFileKind> | undefined;
-  editable: boolean;
-  onChange: (value: string) => void;
-}) {
-  if (content.content_encoding === "base64") {
-    return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <EmptyState title="Binary file" description="This file has no text view." />
-      </div>
-    );
-  }
-  const text = draft ?? content.content;
-  if (mode === "rendered" && kind === "html") {
-    return <HtmlPreview content={text} />;
-  }
-  if (mode === "rendered" && kind === "md") {
-    return <LivePreviewEditor paneId="share" path={content.source_path} content={text} readOnly={!editable} onChange={editable ? onChange : undefined} />;
-  }
+/** Shared wrapper for every pre-content state (loading/unreachable/
+ * password) — same `.share-reader` scoping class as the loaded page, so
+ * these states get the same independent light/dark and Logo-carrying
+ * centered layout instead of a bare unstyled screen. */
+function ReaderShell({ children }: { children: React.ReactNode }) {
   return (
-    <CodeMirrorEditor
-      paneId="share"
-      path={content.source_path}
-      content={text}
-      loadLanguage={fileTypeForOrPlain(kind).loadLanguage}
-      readOnly={!editable}
-      onChange={editable ? onChange : undefined}
-    />
-  );
-}
-
-function ShareShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        height: "100dvh",
-        width: "100vw",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-        background: "var(--app-chrome-bg, #0e1015)",
-        fontFamily: "var(--font-sans, system-ui, sans-serif)",
-        padding: 24,
-        textAlign: "center",
-      }}
-    >
-      {children}
+    <div className="share-reader">
+      <div className="share-reader__center">{children}</div>
     </div>
   );
 }

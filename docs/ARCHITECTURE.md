@@ -191,6 +191,52 @@ Phase 9 backend (`server/`, not touched this phase). Full requirements:
 - `ShareApp.tsx` — the standalone `/share/<slug>` route. See "Routing" and "No vault
   access" below.
 
+**The reader, rewritten chrome-less (docs/PLAN-2026-09-05-refresh.md §4.3 + §5,
+2026-09-06).** `ShareApp.tsx` no longer reuses ANY of the app shell's local
+components (no `TitleBar`, no `ExplorerTree`, no `EditorTabBar`, no
+Rendered/Source `SegmentedControl`, no role badge) — a visitor gets the document
+and nothing else. Dispatch by kind: markdown (`.md`/`.mk.md`) →
+`markdown/render.tsx`'s `renderMarkdown(content, { links })`, the SAME static
+pipeline print/export and `.mk.md` Rendered mode use; code/text → the static
+`markdown/codeBlock.tsx`'s `<CodeBlock>` (no CodeMirror instance on this route at
+all, editor or otherwise); `.html`/`.htm` → `renderers/HtmlPreview.tsx`'s existing
+`sandbox=""` iframe, unchanged; binary → the same "no text view" empty state as
+before. Editor-role write-back is GONE from this route (see "Editor-role
+write-back" below, now superseded) — the reader is read-only by definition, with
+no save button, no draft state, no ⌘S handler. Own light/dark: `main.tsx` skips
+`applyDomSettings`/`useSettingsStore` entirely on the share boot branch, and
+`src/theme.css`'s `.share-reader` class maps the markii `--mk-*` tokens (plus the
+small `--color-*`/`--syntax-*`/`--app-*` subset the reader/CodeBlock/
+`renderMarkdown` consume) straight off `prefers-color-scheme`, declared after
+(same specificity, later wins) the `.dark`/`data-theme` blocks so it overrides the
+static `<html class="dark">` in `index.html` regardless. Typography: a centered
+~72ch column with generous line height and safe-area-aware padding — DESIGN-SPEC's
+one surface where reading comfort beats density; the sandboxed HTML iframe case
+opts out of the measure and fills the viewport instead, matching the app's own
+local HTML Rendered mode. `document.title` is set client-side from the document's
+first H1 (or the filename) after every successful load — independent of, and
+narrower-scoped than, the server's own `show_title` meta injection (see "Per-share
+tokens, the dynamic link map, and conditional title/OG meta" below), which this
+change does not touch.
+
+**"Blog" from linked shares (§5) — visitor experience.** A rendered share's
+content response carries `links` (vault-relative link target -> target share's
+URL, computed server-side by `app/linkmap.py::compute_link_map`) and an optional
+`back_link`. `ShareApp.tsx` forwards `links` straight into `renderMarkdown`'s
+options; the renderer rewrites every resolvable link to a real, clickable
+`/share/<alias-or-slug>` anchor and degrades every unresolved relative `.md` link
+to muted, non-clickable text carrying `title="Not shared"` (see
+`markdown/render.tsx`'s header for the AST-rewrite mechanics). `back_link`, when
+resolved, renders as exactly one plain text line above the document — no panel, no
+breadcrumb bar. Both are recomputed fresh on every content fetch straight off the
+current DB rows, so sharing a new post makes existing links to it resolve
+immediately and revoking a share breaks links to it immediately, in EITHER
+direction, with zero republish step. The resulting experience is deliberately
+IDENTICAL to a single-file share: same chrome-less page, same static renderer,
+browser back button as the only navigation a "blog" needs — there is no
+list/index view, no folder-share revival; an index note with an alias is just
+another ordinary share whose own markdown happens to link to the others.
+
 **UI surfaces**: `components/local/PublishDialog.tsx` (Google/Microsoft-style publish/
 edit-policy dialog — pure composition of `my-you-eye`'s `Dialog`/`FormField`/`Select`/
 `Switch`/`Input`/`Button`/`Badge`/`Alert` plus the existing local `SegmentedControl` for
@@ -232,14 +278,17 @@ against the built `dist/sw.js` and via curl/Playwright against a real `vite prev
 during this phase's manual verification.
 
 **No vault access (`ShareApp.tsx`).** Grep-confirmed, not just documented: this file
-imports nothing from `fs/`, `git/`, or any `stores/use{Fs,Buffer,Tabs,Git,Settings}Store`
-module — only `share/api.ts`'s two relative-URL fetch functions, `renderers/
-HtmlPreview.tsx`, and `editor/LivePreviewEditor.tsx` (read-only). Rendering strategy by
-`render_mode` and extension: `.html`/`.htm` → `HtmlPreview` (existing Phase 4 sandboxed
-iframe, reused verbatim — see "Rendered-mode sandbox" below); anything else → the real
-`LivePreviewEditor`, `readOnly`, same pipeline every local `.md` Rendered view uses. A
-`render_mode: "raw"` share reached here (shouldn't normally happen — see "Two link
-shapes" below) falls back to an inert `<pre>` text block.
+imports nothing from `fs/`, `git/`, `editor/`, or any `stores/use*Store` module
+(including `useSettingsStore` — see "The reader, rewritten chrome-less" above) — only
+`share/api.ts`'s relative-URL fetch functions, `renderers/HtmlPreview.tsx`,
+`markdown/render.tsx`, and `markdown/codeBlock.tsx`. Rendering strategy by content kind
+(inferred from `source_path`'s extension via the same `lib/fileTree.ts::inferFileKind`
+the tree uses): `.html`/`.htm` → `HtmlPreview` (existing Phase 4 sandboxed iframe,
+reused verbatim — see "Rendered-mode sandbox" below); `.md`/`.mk.md` →
+`renderMarkdown`; everything else text-like → `<CodeBlock>`; base64-encoded (binary)
+content → the "no text view" empty state, regardless of kind. No CodeMirror import of
+any kind reaches this route's bundle — not `editor/LivePreviewEditor.tsx`, not
+`editor/CodeMirrorEditor.tsx` — since the reader never edits.
 
 **The no-existence-oracle contract, client-side.** `server/README.md`'s "Every deny
 reason is the SAME 404" section is binding — `ShareApp.tsx` renders exactly ONE generic
@@ -275,22 +324,20 @@ scoped dev/preview proxy standing in for "same origin in production." As of Phas
 just this one path — see "Single-origin deployment" below), because `vite`/`vite
 preview` remain genuinely separate processes from the backend locally.
 
-**Rendered-mode sandbox** (roadmap §1's security bullet, explicitly left to this phase
-since it's client-side): HTML renders ONLY inside `renderers/HtmlPreview.tsx`'s existing
-`sandbox=""` `srcDoc` iframe (built in Phase 4 for the local `.html` Rendered mode,
-reused verbatim — no new sandbox mechanism needed). Markdown's safety is a property of
-the EXISTING live-preview pipeline, not new code: `editor/livepreview/widgets.ts` only
-ever defines `CheckboxWidget`/`LinkWidget`, both building plain DOM via
-`document.createElement` + `textContent` — there is no `HTMLBlock`/`HTMLTag` widget
-anywhere in `editor/livepreview/plugin.ts`, so raw HTML embedded in markdown source
-(`<script>…`, `<img onerror=…>`) is tokenized by `@lezer/markdown` for syntax
-highlighting ONLY and never becomes live DOM, with or without a share involved — CM6
-simply never calls `innerHTML`/`dangerouslySetInnerHTML` on user content anywhere in
-this codebase. Proven, not just reasoned about: `tests/e2e/share-sandbox.spec.ts`
-publishes a real `<script>window.__xss=1</script>` + `<img onerror=…>` payload and
-asserts `window.__xss` stays `undefined` (markdown case) and that the HTML case's
-`<iframe>` carries `sandbox=""` with neither `allow-scripts` nor `allow-same-origin` —
-both assertions would fail immediately if either protection were removed.
+**Rendered-mode sandbox** (roadmap §1's security bullet): HTML renders ONLY inside
+`renderers/HtmlPreview.tsx`'s existing `sandbox=""` `srcDoc` iframe (built in Phase 4
+for the local `.html` Rendered mode, reused verbatim — no new sandbox mechanism
+needed). Markdown's safety is a property of `markdown/render.tsx`'s static pipeline
+(2026-09-06, superseding the live-preview-pipeline argument this paragraph used to
+make): `@markii/core`'s parse step drops raw HTML nodes entirely rather than ever
+turning them into markup, and every URL is run through `isSafeUrl`/`sanitizeUrls`
+before it can reach an `href`/`src` — there is no `dangerouslySetInnerHTML`, no
+`innerHTML`, anywhere in this renderer or its `@markii/react` dependency. Proven, not
+just reasoned about: `tests/e2e/share-sandbox.spec.ts` publishes a real
+`<script>window.__xss=1</script>` + `<img onerror=…>` payload and asserts
+`window.__xss` stays `undefined` (markdown case) and that the HTML case's `<iframe>`
+carries `sandbox=""` with neither `allow-scripts` nor `allow-same-origin` — both
+assertions would fail immediately if either protection were removed.
 
 **Backend reachability is lazy, not boot-eager.** Tried first: an unconditional `GET
 /api/auth/whoami` probe in `App.tsx`'s boot effect (matching the "never blocks first
@@ -303,7 +350,17 @@ a style preference. The probe now fires only from the three real share-entry poi
 sharing causes zero sharing-related network activity, ever, matching CLAUDE.md rule 3's
 "server-optional" spirit more strictly than an eager probe did.
 
-**Editor-role write-back — documented flow only, not built this phase** (per the plan:
+**Editor-role write-back — documented flow only, not built this phase, and now
+explicitly EXCLUDED from `ShareApp.tsx` (2026-09-06, docs/PLAN-2026-09-05-
+refresh.md §4.3: "the reader is read-only by definition").** The public reader
+never renders a save affordance, never holds draft state, and never calls `PUT
+/share/{id}` — that client-side possibility, described below as a Phase 11
+placeholder, is retired from THIS route for good; any future write-back surface
+would be its own, separate, out-of-scope UI, not a mode of the reader. The
+backend endpoint and the role resolution it depends on are untouched (server-side
+roles stay — see `docs/ROADMAP-SHARING-AUTH.md` §1's Editor role, and
+`policy.py`'s role resolution), only the client's use of them changed. The
+original plan text (per the roadmap:
 "PUT creates a git commit in the vault via the client when the owner next syncs... full
 live write-back can wait for sync"). The backend already implements `PUT /share/{id}`
 for editor-role shares (`server/app/routers/share_public.py`): it content-addresses the

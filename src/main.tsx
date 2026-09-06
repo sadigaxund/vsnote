@@ -57,8 +57,21 @@ if (typeof globalThis.Buffer === "undefined") {
 // command palette's "Toggle theme"). See useSettingsStore.ts's
 // `applyDomSettings` doc for why boot still renders this app's own VSNote
 // palette regardless of the persisted value.
-applyDomSettings(useSettingsStore.getState());
-useSettingsStore.subscribe((state) => applyDomSettings(state));
+//
+// Public share reader rewrite (docs/PLAN-2026-09-05-refresh.md §4.3):
+// skipped entirely on the `/share/<slug>` branch below. That route follows
+// the visitor's system `prefers-color-scheme` on its own (`.share-reader`
+// in `src/theme.css`), independent of this app's persisted theme/density —
+// running `applyDomSettings` there would stamp `data-theme`/
+// `data-ui-density` from the visitor's OWN earlier app usage onto a page
+// that has no chrome to theme, defeating that independence.
+const pathname = window.location.pathname;
+const shareMatch = /^\/share\/(.+?)\/?$/.exec(pathname);
+
+if (!shareMatch) {
+  applyDomSettings(useSettingsStore.getState());
+  useSettingsStore.subscribe((state) => applyDomSettings(state));
+}
 
 // Phase 10 (sharing) — minimum-viable routing. This app had NO router
 // before this phase (a single always-mounted `<App/>`); rather than pull in
@@ -99,9 +112,6 @@ useSettingsStore.subscribe((state) => applyDomSettings(state));
 // (`appType: "spa"`), the production build's `vite preview`, and the PWA
 // service worker's `navigateFallback` all fall back to `index.html` for
 // this path; all three were verified directly rather than assumed.
-const pathname = window.location.pathname;
-const shareMatch = /^\/share\/(.+?)\/?$/.exec(pathname);
-
 const root = createRoot(document.getElementById("root")!);
 
 if (shareMatch) {

@@ -47,8 +47,9 @@ test.describe("rendered-mode sandbox", () => {
     const xssFlag = await secondPage.evaluate(() => (window as unknown as { __xss?: number }).__xss);
     expect(xssFlag).toBeUndefined();
 
-    // No live <script>/onerror-primed <img> in the actual DOM — the
-    // payload rendered as inert text (CM6 syntax highlighting), not markup.
+    // No live <script>/onerror-primed <img> in the actual DOM — the static
+    // renderer (`src/markdown/render.tsx`) drops raw HTML entirely rather
+    // than ever turning it into markup.
     await expect(secondPage.locator("script", { hasText: "__xss" })).toHaveCount(0);
     await expect(secondPage.locator("img[onerror]")).toHaveCount(0);
 

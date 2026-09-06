@@ -127,9 +127,14 @@ export async function createFileWithContent(page: Page, parentPath: string, file
 }
 
 /** Revokes a share from the Shared panel (Settings → Sharing → Shared),
- * matched by its slug/alias (the identifier segment of `link`). */
+ * matched by its slug/alias (the identifier segment of `link`). Re-opens
+ * the Settings tab first (`openSettingsTab`) rather than assuming it's
+ * still the active tab — a caller that opened/edited another file since
+ * signing in (e.g. `createFileWithContent`'s `dblclick`) has moved the
+ * active tab away from Settings. */
 export async function revokeShareByLink(page: Page, link: string): Promise<void> {
   const identifier = new URL(link).pathname.split("/").filter(Boolean).pop()!;
+  await openSettingsTab(page);
   await page.getByTestId("settings-nav-sharing").click();
   const row = page.locator('[data-testid^="shared-row-"]', { hasText: identifier });
   await expect(row).toBeVisible();

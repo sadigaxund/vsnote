@@ -14,7 +14,15 @@ overrides earlier sections where they touch the same topic.
 - Two share render modes, chosen at publish time (changeable later):
   - **Raw**: served as `text/plain` (correct charset, `X-Content-Type-Options:
     nosniff`, never `text/html` — a raw share must never execute).
-  - **Rendered**: the app's fullscreen (zen) rendered view, read-only, no shell chrome.
+  - **Rendered**: read-only, no shell chrome. > **AMENDED 2026-09-05/06**
+    (§4.3, `docs/PLAN-2026-09-05-refresh.md`): not the app's own zen/fullscreen
+    view reused in read-only mode — a wholly separate, standalone document
+    page (`src/share/ShareApp.tsx`) that never imports the editor, the vault
+    stores, or the app's theme store. Markdown renders through the static
+    `src/markdown/render.tsx` pipeline (no CodeMirror instance on this
+    route at all); code/text files render through the static
+    `<CodeBlock>`. See `docs/ARCHITECTURE.md`'s "Sharing (Phase 10)"
+    section for the full contract.
 - Publish dialog = Google/Microsoft-style sharing model:
   - General access: `Restricted` (only listed principals) / `Anyone with the link` /
     (later) `Domain` via Cloudflare Access identity.

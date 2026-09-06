@@ -74,6 +74,12 @@ export interface ShareCreateIn {
   grants?: GrantIn[];
   /** Round 7 item 57 — default role for "anyone with the link". */
   link_role?: GrantRole;
+  /** §5 / DESIGN-SPEC round 10 items 66-67 — both off/unset by default.
+   * `show_title` publishes the document's H1 into the page `<title>`/OG
+   * meta (server-gated on `auth_mode === "none"` too); `back_link` is a
+   * slug-or-alias string pointing at another of the owner's shares. */
+  show_title?: boolean;
+  back_link?: string;
 }
 
 export interface SharePatchIn {
@@ -95,6 +101,10 @@ export interface SharePatchIn {
    * replacement (omit = untouched, [] = remove everyone). */
   link_role?: GrantRole;
   grants?: GrantIn[];
+  /** §5 / DESIGN-SPEC round 10 items 66-67. Pass "" for `back_link` to
+   * clear it (no ambiguous unset-vs-empty distinction, same as `link_role`). */
+  show_title?: boolean;
+  back_link?: string;
 }
 
 export interface ShareOut {
@@ -116,13 +126,28 @@ export interface ShareOut {
   /** Round 7 items 57/60. */
   link_role: GrantRole;
   grants: GrantIn[];
+  /** §5 / DESIGN-SPEC round 10 items 66-67. */
+  show_title: boolean;
+  back_link?: string | null;
+}
+
+/** One line of navigation resolved server-side from `Share.back_link` (a
+ * slug-or-alias string, not a foreign key — see
+ * `server/app/linkmap.py::resolve_back_link`'s docstring). `null`/absent
+ * when unset, or when the target is gone/revoked/expired — the client
+ * never needs to know which. */
+export interface ShareBackLinkOut {
+  href: string;
+  label: string;
 }
 
 export interface ShareContentOut {
   slug: string;
   /** Round 6 items 11/12 — the caller's resolved role ("viewer"|"editor")
-   * for THIS request; the reader page gates its editing UI on it. Every
-   * write is still re-gated server-side. */
+   * for THIS request. The public reader is read-only regardless of role
+   * (write-back is an owner-API/future-sync concern, not this route's —
+   * see `src/share/ShareApp.tsx`'s header doc); kept here only because the
+   * server still returns it. */
   role?: string | null;
   alias?: string | null;
   source_path: string;
@@ -136,9 +161,13 @@ export interface ShareContentOut {
   created_at: number;
   last_access_at?: number | null;
   hit_count: number;
-  /** Round 7 items 57/60. */
-  link_role: GrantRole;
-  grants: GrantIn[];
+  /** §5 — vault-relative link target (exactly as written in the markdown)
+   * -> the target share's URL path, computed fresh on every fetch by
+   * `server/app/linkmap.py::compute_link_map`. Forwarded verbatim to
+   * `renderMarkdown`'s `links` option. */
+  links: Record<string, string>;
+  /** §5 — resolved `back_link`, or `null` when unset/gone. */
+  back_link?: ShareBackLinkOut | null;
 }
 
 export interface TokenCreateOut {
@@ -152,6 +181,27 @@ export interface TokenCreateOut {
   token: string;
   created_at: number;
   expires_at?: number | null;
+}
+
+/** Per-share visitor credential (§4.2) — NOT `TokenCreateOut`/`TokenOut`
+ * above, which are the owner's account-wide `ApiToken`s. Mirrors
+ * `server/app/schemas.py`'s `ShareTokenCreateOut`/`ShareTokenOut`: the
+ * plaintext secret is returned exactly once, at mint time. */
+export interface ShareTokenCreateOut {
+  id: number;
+  prefix: string;
+  label?: string | null;
+  token: string;
+  created_at: number;
+}
+
+export interface ShareTokenOut {
+  id: number;
+  prefix: string;
+  label?: string | null;
+  created_at: number;
+  last_used_at?: number | null;
+  revoked_at?: number | null;
 }
 
 export class ShareApiError extends Error {
@@ -352,6 +402,39 @@ export async function putAdminSettings(maxBlobBytes: number): Promise<AdminSetti
   return parseJsonOrThrow<AdminSettingsOut>(res);
 }
 
+/** `POST /api/shares/{id}/tokens` — mints a new per-share bearer token
+ * (§4.2). Owner-only (`share-admin` scope, same as every other
+ * `/api/shares/{id}/...` call in this file), 404-uniform for a share the
+ * caller doesn't own. The plaintext secret is in the response ONLY here —
+ * see `ShareTokenCreateOut`'s doc. */
+export async function createShareToken(shareId: number, label?: string): Promise<ShareTokenCreateOut> {
+  const res = await fetch(`/api/shares/${shareId}/tokens`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label: label ?? null }),
+  });
+  return parseJsonOrThrow<ShareTokenCreateOut>(res);
+}
+
+/** `GET /api/shares/{id}/tokens` — list response, never the secret or even
+ * its hash (`ShareTokenOut`). */
+export async function listShareTokens(shareId: number): Promise<ShareTokenOut[]> {
+  const res = await fetch(`/api/shares/${shareId}/tokens`, { credentials: "include" });
+  return parseJsonOrThrow<ShareTokenOut[]>(res);
+}
+
+/** `DELETE /api/shares/{id}/tokens/{tokenId}` — revokes one per-share
+ * token. Rotation is mint-new-then-revoke-old (two calls), not a dedicated
+ * endpoint — see `server/app/routers/shares.py`'s doc for why. */
+export async function revokeShareToken(shareId: number, tokenId: number): Promise<void> {
+  const res = await fetch(`/api/shares/${shareId}/tokens/${tokenId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  await parseJsonOrThrow(res);
+}
+
 export async function deleteShare(id: number): Promise<void> {
   const res = await fetch(`/api/shares/${id}`, {
     method: "DELETE",
@@ -375,6 +458,17 @@ export async function getShareContentSameOrigin(identifier: string): Promise<Sha
   const res = await fetch(`/share/${encodeURIComponent(identifier)}`, {
     credentials: "include",
     headers: { Accept: "application/json" },
+    // §5: `links`/`back_link` are recomputed fresh on every request, so a
+    // stale HTTP-cached copy of this exact response silently un-does
+    // "revoking a share breaks its links everywhere, immediately" — worse,
+    // the server negotiates this SAME URL's Content-Type on `Accept`, and a
+    // browser's HTTP cache keys purely on URL unless the response carries
+    // `Vary: Accept`; without `no-store` a plain document navigation
+    // (`Accept: text/html`, e.g. the browser's own back button) can be
+    // served this fetch's own cached JSON body instead of the SPA shell.
+    // `no-store` sidesteps both failure modes rather than depending on
+    // response caching headers this client doesn't control.
+    cache: "no-store",
   });
   return parseJsonOrThrow<ShareContentOut>(res);
 }
@@ -387,23 +481,6 @@ export async function getShareContentSameOrigin(identifier: string): Promise<Sha
  * non-404 non-200) rethrows so the caller can show a real error distinct
  * from "wrong password".
  */
-/** Round 6 item 12 — editor write-back for a single-file share
- * (`PUT /share/{id}`). Policy-gated server-side (editor role required;
- * every deny is the uniform 404). */
-export async function putShareContent(identifier: string, content: string): Promise<void> {
-  const res = await fetch(`/share/${encodeURIComponent(identifier)}`, {
-    method: "PUT",
-    credentials: "include",
-    // Accept declared because the response IS JSON ({ok, blob_id, ...}) —
-    // and the dev proxy's navigation heuristic keys on it (vite.config.ts).
-    headers: { "Content-Type": "text/plain; charset=utf-8", Accept: "application/json" },
-    body: content,
-  });
-  if (!res.ok) {
-    throw new ShareApiError(res.status, `Save failed (HTTP ${res.status}).`);
-  }
-}
-
 export async function postShareAuth(identifier: string, password: string): Promise<boolean> {
   const res = await fetch(`/share/${encodeURIComponent(identifier)}/auth`, {
     method: "POST",

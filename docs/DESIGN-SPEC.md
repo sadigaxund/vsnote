@@ -794,3 +794,40 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     image with no resolvable source (e.g. a vault-relative image inside a
     printed page) degrades the same way: text (`Image: <alt or source>`),
     never a broken-image icon.
+74. **Public reader, rewritten chrome-less (§4.3 + §5's client half).**
+    `src/share/ShareApp.tsx` no longer reuses ANY of the app shell's local
+    components (item 69 explicitly deferred this) — no TitleBar, no tabs, no
+    tree, no Rendered/Source toggle, no role badge, no activity/status bar.
+    A visitor gets the document and nothing else, dispatched by kind:
+    markdown through item 70's `renderMarkdown`, code/text through item 73's
+    `<CodeBlock>` (no CodeMirror instance anywhere on this route), `.html`
+    through the existing sandboxed iframe unchanged, binary through the same
+    "no text view" empty state as before. The editor role's write-back
+    (`PUT /share/{id}`) is dropped from this route for good — the reader is
+    read-only by definition, with no save button and no draft state; the
+    server endpoint and role resolution are untouched, only the client's use
+    of them.
+75. **The reader follows system light/dark on its own.** `main.tsx` skips
+    `applyDomSettings`/`useSettingsStore` on the `/share/<slug>` boot branch;
+    `src/theme.css`'s `.share-reader` class maps every `--mk-*` token (plus
+    the `--color-*`/`--syntax-*`/`--app-*` subset the reader/CodeBlock/
+    `renderMarkdown` read) straight off `prefers-color-scheme`, independent
+    of the visitor's own app theme setting and of the static
+    `<html class="dark">` in `index.html`.
+76. **Reading typography, not chrome density.** A centered column with a
+    ~72-character measure, generous line height, and safe-area-aware
+    padding — the one surface in this app where reading comfort wins over
+    density. The sandboxed HTML iframe case is the one exception: it fills
+    the viewport, matching the app's own local HTML Rendered mode, rather
+    than being squeezed into the prose measure.
+77. **"Blog" visitor experience — identical to a single-file share (item 67
+    made visible).** A rendered share's `links` map is forwarded straight
+    into `renderMarkdown`: a resolvable relative link becomes a real,
+    clickable `/share/<alias-or-slug>` anchor; an unresolved one degrades to
+    muted, non-clickable "Not shared" text (item 72). A resolved
+    `back_link` (item 68) renders as exactly one plain text line above the
+    document — no panel, no breadcrumb bar. Both recompute on every fetch,
+    so publishing a new post or revoking one takes effect on the OTHER
+    share's page immediately, no republish. Navigation is the owner's own
+    markdown plus the browser's back button — there is no index/listing
+    view and no folder-share revival.

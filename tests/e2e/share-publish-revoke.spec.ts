@@ -55,10 +55,10 @@ test.describe("publish → view → revoke (exit criterion)", () => {
 
     await secondPage.goto(link);
     await expect(secondPage.getByText("Reading list", { exact: false })).toBeVisible();
-    // Rebuilt reader (round 6 item 10) shows the shell's own TitleBar, but
-    // never the vault-only Explorer sidebar — this route never touches the
-    // vault.
-    await expect(secondPage.getByTestId("app-titlebar")).toBeVisible();
+    // The chrome-less reader (docs/PLAN-2026-09-05-refresh.md §4.3) shows no
+    // app shell at all — no TitleBar, no Explorer sidebar. This route never
+    // touches the vault.
+    await expect(secondPage.getByTestId("app-titlebar")).toHaveCount(0);
     await expect(secondPage.getByTestId("explorer-sidebar")).toHaveCount(0);
 
     // Revoke from the owner's Shared panel.
