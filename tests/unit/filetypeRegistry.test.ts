@@ -69,10 +69,10 @@ describe("filetypes/registry modeAvailabilityFor", () => {
   });
 });
 
-describe("filetypes/registry mkmd entry (docs/PLAN-2026-09-05-refresh.md §6 Phase M1)", () => {
-  it("defaults to rendered, with the markii renderer", () => {
+describe("filetypes/registry mkmd entry (docs/PLAN-2026-09-05-refresh.md §6 Phase M2)", () => {
+  it("defaults to rendered, using the same livepreview renderer as plain .md", () => {
     expect(defaultModeFor("mkmd")).toBe("rendered");
-    expect(fileTypeFor("mkmd")?.renderer).toBe("markii");
+    expect(fileTypeFor("mkmd")?.renderer).toBe("livepreview");
   });
 });
 

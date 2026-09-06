@@ -43,7 +43,7 @@ import type { EditorMode, FileKind } from "../types";
  * component — the renderer's own file lives in `renderers/` (or
  * `editor/LivePreviewEditor` for markdown, which is CM6 itself, not a
  * separate renderer). */
-export type RendererKind = "livepreview" | "html" | "csv" | "json" | "image" | "markii";
+export type RendererKind = "livepreview" | "html" | "csv" | "json" | "image";
 
 export interface FileTypeEntry {
   /** Status-bar language id, e.g. "TS", "MD", "JSON" (DESIGN-SPEC's `Ln 14,
@@ -78,22 +78,29 @@ const REGISTRY: Partial<Record<FileKind, FileTypeEntry>> = {
     supportsDiff: true,
     renderer: "livepreview",
   },
-  // Markii extension (docs/PLAN-2026-09-05-refresh.md §6 Phase M1) — the
-  // `.mk.md` filetype. Source mode reuses the ordinary CM6 markdown
-  // language (the directive grammar is a superset text-wise; Phase M2's
-  // live-preview decorations are the CM6-side extension, not a different
-  // `loadLanguage`). Rendered mode is `renderer: "markii"`
-  // (`renderers/MarkiiPreview.tsx`) instead of `"livepreview"`: a static,
-  // 200ms-debounced render through `src/markdown/render.tsx` — NOT plain
-  // `.md`'s CM6 live-preview engine, which this phase deliberately leaves
-  // untouched (see the file's own module doc).
+  // Markii extension (docs/PLAN-2026-09-05-refresh.md §6). `loadLanguage`
+  // is the ordinary CM6 markdown language PLUS `directiveLezer`'s Lezer
+  // `MarkdownExtension` (Phase M2 deliverable 1) — Source mode and Diff
+  // mode both get real `MkDirectiveContainer`/`MkDirectiveLeaf`/
+  // `MkDirectiveText` syntax nodes this way, at zero extra cost to plain
+  // `.md` (a separate dynamic import, never pulled in for that kind).
+  // Rendered mode is `renderer: "livepreview"` as of Phase M2 — the SAME
+  // `editor/LivePreviewEditor` plain `.md` uses, not the Phase M1 static/
+  // debounced split view (`renderers/MarkiiPreview.tsx`, now unused and
+  // removed): `LivePreviewEditor` itself detects a `.mk.md` path and layers
+  // `directiveLezer`'s decorations extension on top of its own markdown
+  // language via a `Prec.high` override (see that file's own doc for why).
   mkmd: {
     languageId: "MK.MD",
-    loadLanguage: () => import("@codemirror/lang-markdown").then((m) => m.markdown()),
+    loadLanguage: () =>
+      Promise.all([import("@codemirror/lang-markdown"), import("../markdown/directiveLezer/extension")]).then(
+        ([markdownMod, directiveMod]) =>
+          markdownMod.markdown({ extensions: [directiveMod.markiiDirectiveGrammar] }),
+      ),
     baseModes: ["rendered", "source"],
     defaultMode: "rendered",
     supportsDiff: true,
-    renderer: "markii",
+    renderer: "livepreview",
   },
   ts: {
     languageId: "TS",

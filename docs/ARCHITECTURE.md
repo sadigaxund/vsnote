@@ -1653,16 +1653,20 @@ React tree anywhere in the app:
 - `src/lib/printDocument.tsx` (Export as PDF), replacing a ~250-line
   hand-rolled block/inline markdown parser that duplicated `my-you-eye`'s
   own `CodeBlock`/`Table`/`renderInline` primitives.
-- `.mk.md`'s Rendered mode (`src/renderers/MarkiiPreview.tsx`, 200ms
-  debounced), via `filetypes/registry.ts`'s new `mkmd` `FileKind` /
-  `"markii"` `RendererKind`.
+- `.mk.md`'s Rendered mode, ONLY through Phase M1 (superseded by Phase M2's
+  in-editor CM6 live preview — see below; `renderers/MarkiiPreview.tsx`,
+  the 200ms-debounced static split view this bullet used to describe, no
+  longer exists).
 
 Plain `.md` renders through this SAME pipeline, registry included — a
 `:kbd[Ctrl+S]` written in an ordinary `.md` note renders too. That is the
 entire point of the extension per the plan; `.md`'s Rendered mode
 (`editor/LivePreviewEditor`, the live CM6 engine) is unchanged by this
-phase and is a SEPARATE code path from the static renderer — Phase M2 is
-where live-preview directive decorations land inside CM6 itself.
+phase and is a SEPARATE code path from the static renderer. As of Phase M2
+(below), `.mk.md`'s OWN Rendered mode also moved onto that same CM6
+engine — `renderMarkdown` above is no longer used for `.mk.md`'s Rendered
+mode at all, only for the public share reader and print/export, both of
+which render a whole finished document rather than an editable one.
 
 **The link-map contract.** `renderMarkdown`'s `links?: Record<string,
 string>` option is exactly the shape of `ShareContentOut.links`
@@ -1845,6 +1849,114 @@ own instruction not to):
    markii as `@markii/codemirror` if it stabilizes") would have made this
    phase faster and less likely to diverge from the VS Code host's actual
    UX conventions.
+
+### Phase M2 — live-preview directive decorations (docs/PLAN-2026-09-05-refresh.md §6)
+
+**The module: `src/markdown/directiveLezer/`.** Zero VSNote application
+imports — only `@lezer/markdown`, `@codemirror/*`, and `@markii/*` — so it
+could be lifted out verbatim as the two halves of a standalone
+`@markii/codemirror` package (the plan's own aspiration, referenced in
+finding 5 above):
+
+- `grammar.ts` — pure predicates/regexes for markii's three directive
+  forms, copied (not approximated) from `@markii/core`'s own
+  `demoteInvalidTextDirectives` word-start rule (`STARTS_WITH_LETTER`,
+  `IS_WORD_CHARACTER`) and a from-scratch colon-counting scan
+  (`scanForContainerClose`) for container nesting/termination.
+- `extension.ts` — the exported `markiiDirectiveGrammar: MarkdownExtension`,
+  three new node types (`MkDirectiveContainer`, `MkDirectiveLeaf`,
+  `MkDirectiveText`). Container/leaf are block parsers; inline is an
+  `InlineParser`. Deliberately produces SPANS only, not a fully nested
+  tree of a container's interior content — nothing downstream needs that,
+  since `decorations.ts` re-renders a directive's raw text via
+  `@markii/core`'s own parser anyway (see below), and a full composite-
+  block tree would have needed a marker on every content line the way
+  Blockquote/list items get one, which containers don't have.
+- `decorations.ts` — the CM6 side: a `StateField` (block widgets) plus a
+  `ViewPlugin` (inline widgets, scoped to `view.visibleRanges`).
+
+**Integration: `src/editor/LivePreviewEditor.tsx`, gated on
+`path.endsWith(".mk.md")`.** Two problems specific to wiring a brand-new
+Lezer grammar into an ALREADY-RUNNING third-party CM6 component
+(`@atomic-editor/editor`) surfaced only in the real browser, not in
+isolated Node-side testing, and are worth recording precisely since they
+generalize to any consumer of `@atomic-editor/editor`'s `extensions` escape
+hatch, or of `@codemirror/language`'s reconfigure path in general:
+
+1. **Overriding a third-party component's own `markdown()` call.**
+   `@atomic-editor/editor` builds its own `markdown({ base: markdownLanguage,
+   codeLanguages, extensions: highlightMarkdown })` internally with no
+   exposed `Compartment` for a consumer to swap it. CM6's `language` facet
+   resolves to `values[0]` (first by precedence, then by position) — since
+   atomic-editor's own call sits ahead of the consumer `extensions` array
+   in its `EditorState.create`, a same-precedence override placed there
+   loses. Wrapping the override in `Prec.high(...)` fixes it (verified in
+   isolation and in the real integration) without forking or reaching into
+   atomic-editor's internals — the CM6 analogue of CLAUDE.md rule 1's
+   "restyle via the supported seam, never fork," applied to a component
+   library instead of `my-you-eye`.
+2. **A `StateField.create()` that reads the syntax tree in the SAME
+   transaction that installs the new language can see the OLD language's
+   tree.** `@codemirror/language` derives a `Language.state` field from
+   whatever the `language` facet currently resolves to; that derived
+   field is not guaranteed to reflect a just-installed language override
+   until a LATER transaction. Confirmed empirically (not by reading
+   source): a `console.log` inside the field's `create()` printed a plain
+   CommonMark tree (`Document,Paragraph,Paragraph`) for text containing an
+   unambiguous container directive, while a `syntaxTree()` call made from
+   a microtask immediately after the SAME `dispatch()` call returned
+   printed the correct tree with `MkDirectiveContainer` in it. Neither
+   `ensureSyntaxTree(state, to, timeout)` (the documented "force a
+   synchronous parse now" API) nor recomputing on every subsequent
+   transaction fixes this on its own, since the field's very first
+   `create()` call is what's racing. The fix: install the language and the
+   decorations (`StateField`/`ViewPlugin`) via TWO SEPARATE compartments,
+   dispatched in two separate `view.dispatch()` calls — language first,
+   decorations in a follow-up dispatch once the first one returns — so the
+   decorations' `create()` always runs against a state whose language was
+   installed by a PRIOR transaction. `LivePreviewEditor.tsx`'s
+   `mkMdLanguageCompartmentRef`/`mkMdDecorationsCompartmentRef` doc has the
+   full detail. This is not documented anywhere in `@codemirror/language`'s
+   own API docs as a hazard of a from-scratch language swap via
+   reconfigure — worth a note upstream in CodeMirror's own docs, not a
+   markii-specific gap, but recorded here since it's exactly the kind of
+   thing a real `@markii/codemirror` package's integration guide would
+   need to warn integrators about.
+3. **`renderMark`'s bare-document parsing wraps a standalone inline
+   directive in a `<p>`.** `renderMark(source, registry)` always parses
+   `source` as a full document; handing it JUST an inline directive's own
+   text (e.g. `:badge[New]{}`, with nothing around it — exactly what an
+   inline widget needs to render) produces a `paragraph` node wrapping it,
+   which becomes an invalid `<p>` inside the inline `<span>` widget and
+   visibly forced a line break before and after the directive (caught via
+   a Playwright screenshot, not a unit test — see the Phase M2 handoff's
+   "Screenshots" note). Fixed by parsing with `@markii/core`'s `parse`
+   directly and pulling the directive node back out of that synthetic
+   paragraph before handing it to `renderMarkNode` (the node-level render
+   function, not the whole-document one) — `decorations.ts`'s
+   `renderInlineDirectiveHtml`. **Proposal**: a `renderMarkInline(text,
+   registry, ...)` entry point upstream that skips the block-wrapping step
+   for text known to be inline-only content, so a host doesn't have to
+   reimplement "parse and unwrap the paragraph" itself.
+
+**Performance.** The inline `ViewPlugin` walks the syntax tree only across
+`view.visibleRanges`. The block `StateField` has no `EditorView` to ask for
+a viewport, so it walks the whole tree — an O(node count) traversal of an
+ALREADY-incrementally-parsed tree (no re-parse), the same cost
+`@codemirror/merge`'s own gutter markers or code-folding pay for the same
+reason. Both providers share one `Map` cache (per `.mk.md` editor
+instance) from directive source text to rendered HTML, capped at 500
+entries (the same "cap convention" `tests/unit/rendererBigFileCaps.test.ts`
+established for the CSV/JSON renderers), so scrolling past the same
+directive repeatedly, or moving the cursor in and out of one, never
+re-runs `renderMark`/`renderToStaticMarkup` for unchanged source.
+
+**Known scope limits** (DESIGN-SPEC Amendments round 10, item 92): a
+directive's rendered widget uses `@markii/react`'s `defaultRegistry` only
+(no VSNote-specific `vsnote-code` code-highlighting or link-map rewrite —
+those live in `render.tsx`, which this module deliberately does not
+import), and the container-close scan tracks fenced code but not
+4-space-indented code.
 
 ## Deviations
 

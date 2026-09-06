@@ -50,15 +50,59 @@
  * handler and calls `openSearchPanel` on the registered view — that opens
  * the panel this view was configured with, i.e. atomic-editor's — instead
  * of Source/Diff mode's React `FindWidget`. Documented in ARCHITECTURE.md.
+ *
+ * ---- `.mk.md` live preview (Phase M2, docs/PLAN-2026-09-05-refresh.md §6) ----
+ * Markii directive live-preview decorations
+ * (`markdown/directiveLezer/decorations.ts`) plug into THIS component,
+ * gated on `path.endsWith(".mk.md")` — the only VSNote-specific fact this
+ * file adds to `directiveLezer`'s otherwise app-state-free extension pair.
+ * Two things are needed for `.mk.md`, both applied only when that check
+ * passes:
+ *
+ * 1. The decorations `ViewPlugin` itself (`markiiLivePreviewDecorations()`)
+ *    — an ordinary member of the `extraExtensions` array below, no
+ *    different from `CaptureView`/`EscapeClosesPanel`.
+ * 2. A markdown LANGUAGE that actually contains `MkDirectiveContainer`/
+ *    `MkDirectiveLeaf`/`MkDirectiveText` nodes for those decorations to
+ *    find — atomic-editor builds its own `markdown({ base: markdownLanguage,
+ *    codeLanguages, extensions: highlightMarkdown })` internally (see
+ *    `@atomic-editor/editor`'s `AtomicCodeMirrorEditor.js`, MIT, and this
+ *    file's `mkMdLanguageOverride` below, adapted from that exact call so
+ *    `.mk.md` keeps every one of atomic-editor's own features — GFM,
+ *    tables, task lists, its inline image/table widgets, fenced-code
+ *    grammars — and gains `directiveLezer`'s grammar on top) with no
+ *    Compartment exposed for a consumer to reconfigure. CM6's `language`
+ *    facet resolves to its FIRST value by source order/precedence
+ *    (`@codemirror/language`'s `combine(languages) { return languages[0]
+ *    ?? null }`), and atomic-editor's own `markdown(...)` call is placed
+ *    ahead of `...extensions` (the consumer escape hatch) in its own
+ *    `EditorState.create` — so a same-precedence override placed in
+ *    `extraExtensions` would lose. Wrapping this file's override in
+ *    `Prec.high(...)` makes it win instead, without needing to fork or
+ *    reach into atomic-editor's internals (CLAUDE.md rule 1's spirit,
+ *    applied to a CM6 package instead of a `my-you-eye` component): every
+ *    other atomic-editor extension (`tables`, `inlinePreview`,
+ *    `imageBlocks`) reads whatever language facet value wins at query
+ *    time, so they keep working against the overridden tree unchanged.
+ *
+ * Both are loaded via a dynamic `import()` (this file's
+ * `loadMkMdLivePreviewExtensions`) behind a `Compartment` this component
+ * owns itself, reconfigured once the import resolves — the same
+ * "Compartment + dynamic loader" pattern `editor/CodeMirrorEditor.tsx`
+ * already uses for `.mk.md` Source mode's completion/hover bundle
+ * (`loadExtraExtensions`), so plain `.md` never pays for
+ * `directiveLezer`'s chunk (or a second markdown-language chunk) at all —
+ * only a `.mk.md` tab's first mount does.
  */
 import { useEffect, useMemo, useRef } from "react";
 import type { CSSProperties } from "react";
 import { EditorView, ViewPlugin, type PluginValue } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
+import { Compartment, Prec, type Extension } from "@codemirror/state";
 import { LanguageDescription } from "@codemirror/language";
 import { closeSearchPanel } from "@codemirror/search";
 import {
   AtomicCodeMirrorEditor,
+  highlightMarkdown,
   type AtomicCodeMirrorEditorHandle,
 } from "@atomic-editor/editor";
 import "@atomic-editor/editor/styles.css";
@@ -124,6 +168,36 @@ const codeLanguages = [
   }),
 ];
 
+/** True for a `.mk.md` file (case-sensitive, matching `useFsStore.inferFileKind`'s own double-extension check) — the only place this component decides "is this the Markii extension's filetype". */
+function isMkMdPath(path: string): boolean {
+  return path.endsWith(".mk.md");
+}
+
+/**
+ * `.mk.md`'s overridden markdown language — atomic-editor's own GFM/
+ * highlight setup (see this file's module doc) plus `directiveLezer`'s
+ * grammar. Dynamically imported so plain `.md` never loads it.
+ */
+async function loadMkMdLanguage(): Promise<Extension> {
+  const [{ markdown, markdownLanguage }, { markiiDirectiveGrammar }] = await Promise.all([
+    import("@codemirror/lang-markdown"),
+    import("../markdown/directiveLezer/extension"),
+  ]);
+  return Prec.high(
+    markdown({
+      base: markdownLanguage,
+      codeLanguages,
+      extensions: [highlightMarkdown, markiiDirectiveGrammar],
+    }),
+  );
+}
+
+/** `.mk.md`'s directive live-preview decorations — see `decorations.ts`'s own doc. Dynamically imported so plain `.md` never loads it. */
+async function loadMkMdDecorations(): Promise<Extension[]> {
+  const { markiiLivePreviewDecorations } = await import("../markdown/directiveLezer/decorations");
+  return markiiLivePreviewDecorations();
+}
+
 export interface LivePreviewEditorProps {
   /** Which pane this instance belongs to — see `editor/activeView.ts`'s
    * module doc (Phase 6: one registered view per pane, not one global). */
@@ -156,6 +230,28 @@ export function LivePreviewEditor({
   // mechanism as the pre-swap implementation; see its notes in git history
   // and ARCHITECTURE.md).
   const lastEmittedRef = useRef<string | null>(null);
+  // `.mk.md` only (see this file's module doc) — reconfigured once
+  // `loadMkMdLanguage`/`loadMkMdDecorations` resolve. Empty for a plain
+  // `.md` tab for the component's entire lifetime, so the two
+  // Compartments cost nothing beyond their own allocation there.
+  //
+  // TWO separate compartments, dispatched in two SEPARATE transactions
+  // (see the effect below) rather than one combined reconfigure: CM6's
+  // `@codemirror/language` derives a `Language.state` field from whatever
+  // the `language` facet currently resolves to, and that derived field is
+  // only guaranteed up to date for transactions AFTER the one that
+  // installed the new language — a `StateField.create()` that reads
+  // `syntaxTree`/`ensureSyntaxTree` in the SAME transaction that also
+  // installs the language (verified empirically: two Playwright debug
+  // runs, `console.log`ing the tree from inside `create()` vs. from a
+  // microtask right after `dispatch()` returned) can still see the OLD
+  // language's tree. Installing the language first, then the decorations
+  // in a follow-up `dispatch()`, sidesteps the race entirely — see the
+  // Markii-upstream-findings writeup in `docs/ARCHITECTURE.md` for the
+  // upstream ask this points at (`@codemirror/language`'s own docs don't
+  // call out this ordering requirement for a from-scratch language swap).
+  const mkMdLanguageCompartmentRef = useRef(new Compartment());
+  const mkMdDecorationsCompartmentRef = useRef(new Compartment());
 
   const onChangeRef = useRef(onChange);
   const onCursorChangeRef = useRef(onCursorChange);
@@ -225,8 +321,37 @@ export function LivePreviewEditor({
           onCursorChangeRef.current?.({ line: line.number, column: head - line.from + 1 });
         }
       }),
+      mkMdLanguageCompartmentRef.current.of([]),
+      mkMdDecorationsCompartmentRef.current.of([]),
     ];
   }, [paneId]);
+
+  // `.mk.md` live preview (see `mkMdLanguageCompartmentRef`'s own doc for
+  // why this is two dispatches, not one). `EditorContent.tsx` keys this
+  // whole component by `path` (`key={path}`), so a path change always
+  // remounts — this effect's empty dep array runs it exactly once for
+  // this mount's fixed `path`, no need to guard against `path` changing
+  // under it.
+  useEffect(() => {
+    if (!isMkMdPath(path)) return;
+    let cancelled = false;
+    loadMkMdLanguage().then((language) => {
+      if (cancelled) return;
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ effects: mkMdLanguageCompartmentRef.current.reconfigure(language) });
+      loadMkMdDecorations().then((decorations) => {
+        if (cancelled) return;
+        const stillView = viewRef.current;
+        if (!stillView) return;
+        stillView.dispatch({ effects: mkMdDecorationsCompartmentRef.current.reconfigure(decorations) });
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above: `path` is fixed for this mount.
+  }, []);
 
   useEffect(() => {
     const view = viewRef.current;

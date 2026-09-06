@@ -2,10 +2,13 @@
  * Editor content area — mode-aware:
  *  - **Rendered**: routed per-kind through `filetypes/registry.ts`'s
  *    `renderer` field (Phase 4, IMPLEMENTATION-PLAN.md's "renderer wiring +
- *    SegmentedControl logic"): `.md` gets the real Obsidian-style live-
- *    preview CM6 editor (`editor/LivePreviewEditor`, wrapping the
- *    @atomic-editor/editor package — see its module doc and
- *    ARCHITECTURE.md's 2026-08-21 deviation note), `.html` a sandboxed iframe,
+ *    SegmentedControl logic"): `.md` AND `.mk.md` both get the real
+ *    Obsidian-style live-preview CM6 editor (`editor/LivePreviewEditor`,
+ *    wrapping the @atomic-editor/editor package — see its module doc and
+ *    ARCHITECTURE.md's 2026-08-21 deviation note); for `.mk.md` that same
+ *    component additionally layers markii directive live-preview
+ *    decorations on top (docs/PLAN-2026-09-05-refresh.md §6 Phase M2, see
+ *    `LivePreviewEditor.tsx`'s own doc), `.html` a sandboxed iframe,
  *    `.csv` a `DataTable`, `.json` a tree view, images the checkerboard
  *    viewer. Phase 1's static single-note placeholder is gone — every kind
  *    now renders its own real, per-file content.
@@ -46,7 +49,6 @@ const HtmlPreview = lazy(() => import("../renderers/HtmlPreview").then((m) => ({
 const CsvTable = lazy(() => import("../renderers/CsvTable").then((m) => ({ default: m.CsvTable })));
 const JsonView = lazy(() => import("../renderers/JsonView").then((m) => ({ default: m.JsonView })));
 const ImageView = lazy(() => import("../renderers/ImageView").then((m) => ({ default: m.ImageView })));
-const MarkiiPreview = lazy(() => import("../renderers/MarkiiPreview").then((m) => ({ default: m.MarkiiPreview })));
 
 /** `.mk.md` Source mode only — see `CodeMirrorEditor`'s `loadExtraExtensions` doc for why this is a dynamic import rather than a static one. */
 async function loadMarkiiExtraExtensions() {
@@ -236,15 +238,6 @@ export function EditorContent({
             <MissingBanner missing={missing} />
             <Suspense fallback={<EditorLoading />}>
               <JsonView key={path} content={displayContent} />
-            </Suspense>
-          </div>
-        );
-      case "markii":
-        return (
-          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-            <MissingBanner missing={missing} />
-            <Suspense fallback={<EditorLoading />}>
-              <MarkiiPreview key={path} content={displayContent} />
             </Suspense>
           </div>
         );

@@ -2,9 +2,14 @@
  * The ONE static markdown renderer for the whole app (DESIGN-SPEC "Markii
  * extension" / docs/PLAN-2026-09-05-refresh.md §6 Phase M1). Every consumer
  * that needs to turn markdown TEXT into a static React tree — the public
- * share reader (§4.3), print/export (`src/lib/printDocument.tsx`), and
- * `.mk.md`'s Rendered mode (`src/renderers/MarkiiPreview.tsx`) — calls
- * `renderMarkdown` here rather than hand-rolling its own parser. Plain
+ * share reader (§4.3) and print/export (`src/lib/printDocument.tsx`) —
+ * calls `renderMarkdown` here rather than hand-rolling its own parser.
+ * `.mk.md`'s Rendered mode is the exception as of Phase M2: it's the real
+ * in-editor CM6 live preview (`editor/LivePreviewEditor.tsx` +
+ * `markdown/directiveLezer/`), which renders each directive individually
+ * via `@markii/react`'s `renderMark` directly (not this file — see
+ * `directiveLezer/decorations.ts`'s doc for why a narrower, app-state-free
+ * registry is used there). Plain
  * `.md` goes through this SAME pipeline with the directive registry
  * enabled anyway (`mergeRegistries(defaultRegistry, ...)`), which is the
  * whole point of the Markii extension: a `:kbd[x]` written in an ordinary

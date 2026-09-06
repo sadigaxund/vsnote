@@ -983,3 +983,58 @@ refresh) and §1 item 4 (storage onboarding).
     wraps (item 45: the sandbox must never touch a real remote) —
     `isDemoVaultBuild()` gates both identically. No second restore
     implementation was written.
+
+## Amendments round 10 (continued) — 2026-09-06 (Markii directive live preview, Phase M2)
+
+Items 90-92 implement docs/PLAN-2026-09-05-refresh.md §6 Phase M2 — the
+Obsidian live-preview rule (item 61) applied to markii's three directive
+forms inside `.mk.md` files.
+
+90. **`.mk.md` Rendered mode is now the same live-preview CM6 editor as
+    plain `.md`, not a separate static split view.** Phase M1's
+    `renderers/MarkiiPreview.tsx` (a 200ms-debounced, non-editable render
+    through `src/markdown/render.tsx`) is retired — `filetypes/registry.ts`'s
+    `mkmd` entry now uses `renderer: "livepreview"`, the exact renderer
+    `.md` uses (`editor/LivePreviewEditor.tsx`). That component detects a
+    `.mk.md` path itself and layers markii's directive grammar and
+    decorations on top of its own markdown language; plain `.md` is
+    unaffected — see item 91's own detail on how.
+91. **Container (`:::name{attrs} ... :::`) and leaf (`::name{attrs}`)
+    directives render as a live-preview block widget; inline
+    (`:name[label]{attrs}`) directives render inline — both following item
+    61's rule exactly: rendered by default, raw source revealed only while
+    the cursor sits inside that directive's span, instant re-render the
+    moment the cursor leaves.** New module `src/markdown/directiveLezer/`
+    (`extension.ts` + `grammar.ts`): a Lezer `MarkdownExtension` recognizing
+    all three forms against `@lezer/markdown`, replicating the exact
+    word-start rule `@markii/core` uses for inline directives (`12:34`,
+    `a:b`, `word:kbd[x]` are prose; `**:badge[x]**` and a paragraph-initial
+    `:kbd[x]` are directives) and the exact container-nesting rule (outer
+    fence must use strictly more colons than any nested one; insufficient
+    nesting or an unterminated fence degrades to plain text, never an
+    error; nothing parses inside a code fence). `decorations.ts` provides
+    the CM6 side: a `StateField` for the two block forms (CM6 requires
+    block-level decorations to come from a `StateField`, not a
+    `ViewPlugin` — hit as a runtime error while building this) and a
+    `ViewPlugin`, scoped to `view.visibleRanges`, for the inline form. Each
+    directive's rendered HTML comes from `@markii/react`'s `renderMark`/
+    `renderMarkNode` run through `react-dom/server`'s `renderToStaticMarkup`
+    — a pure, synchronous string, never a mounted React root — satisfying
+    the plan's "render stays side-effect-free" requirement for free (there
+    is nowhere for a script to run inside static markup; M3's scripts are
+    explicitly out of scope for render). See `docs/ARCHITECTURE.md`'s
+    markdown pipeline section for the full design writeup and the
+    Markii-upstream-findings this surfaced.
+92. **Known scope limits, recorded rather than silently accepted.** (a) A
+    directive rendered by a live-preview widget uses `@markii/react`'s
+    `defaultRegistry` only, not VSNote's own `vsnote-code`
+    directive/link-map rewrite (`src/markdown/render.tsx`'s pipeline) — a
+    fenced code block or a relative link written INSIDE a directive's
+    content therefore renders plainer there than the same markdown would
+    outside one, in the static share reader. (b) The Lezer container scan
+    tracks fenced (``` `/`~~~`) code correctly but not 4-space-indented
+    code — a stray colon-only line inside an indented code block inside a
+    container could misread as that container's closing fence. Both are
+    documented trade-offs of keeping `directiveLezer/` free of VSNote
+    app-state coupling (item 91) and of the "no full re-parse" performance
+    requirement, not oversights.
