@@ -1642,7 +1642,11 @@ CM6 completion (below) reads. `@markii/host` — the upstream package that
 would normally supply completion/hover/insert-component logic — is
 `private: true` upstream and **never published to npm** (`npm view
 @markii/host` 404s), so its pure functions are vendored instead; see
-"CM6 completion/hover/insert (Source mode)" below.
+"CM6 completion/hover/insert (Source mode)" below. The vendored copy is
+deliberately kept as is; the upstream ask (publish `@markii/host`, or
+expose its pure half as a `@markii/core/editor` subpath, which would also
+undo the `buildComponentCatalog` pack coupling) is filed as
+markii-org/markii#41.
 
 **One renderer, three consumers.** `src/markdown/render.tsx` exports
 `renderMarkdown(text, options)` — the ONLY place markdown text becomes a
@@ -1825,7 +1829,10 @@ own instruction not to):
    publish as a real, versioned package. **Proposal**: publish
    `@markii/host` (or split a `@markii/host-core` subset covering exactly
    `complete/`+`insert/`+`fences/`, which have zero Node/editor
-   dependencies) to npm.
+   dependencies) to npm. **Filed upstream as markii-org/markii#41**,
+   together with finding 4 below, which has the same fix. This is the only
+   Markii finding in this document that has been filed; the vendored copy
+   stays as is either way.
 4. **`buildComponentCatalog` couples completion to the pack system.**
    The catalog builder takes `readonly DiscoveredPack[]` and imports
    `@markii/pack` unconditionally at module scope — a host with no pack
