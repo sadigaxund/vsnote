@@ -12,6 +12,14 @@ export type GitStatus = "M" | "A" | "D" | "U";
 
 export type FileKind =
   | "md"
+  /** Markii extension (docs/PLAN-2026-09-05-refresh.md §6 Phase M1) — a
+   * `.mk.md` file: markdown plus the directive grammar with completion/
+   * hover/insert-component wired in Source mode, and a static (debounced)
+   * Preview instead of plain `.md`'s CM6 live-preview Rendered mode. A
+   * DOUBLE extension — `lib/fileTree.ts::inferFileKind` checks the full
+   * `.mk.md` suffix before falling through to the single-extension switch
+   * below, so `.mk.md` wins over the generic `.md` case. */
+  | "mkmd"
   | "ts"
   | "tsx"
   | "js"

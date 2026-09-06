@@ -5,7 +5,8 @@
  * in" both read.
  */
 import { describe, expect, it } from "vitest";
-import { defaultModeFor, modeAvailabilityFor } from "../../src/filetypes/registry";
+import { defaultModeFor, fileTypeFor, modeAvailabilityFor } from "../../src/filetypes/registry";
+import { inferFileKind } from "../../src/lib/fileTree";
 
 describe("filetypes/registry defaults", () => {
   it("md defaults to rendered", () => {
@@ -60,5 +61,40 @@ describe("filetypes/registry modeAvailabilityFor", () => {
 
   it("the settings view tab (Phase 6.5c) gets no modes, even with a diff", () => {
     expect(modeAvailabilityFor("settings", true)).toEqual([]);
+  });
+
+  it("mkmd (Markii extension) offers rendered+source, plus diff, same as md", () => {
+    expect(modeAvailabilityFor("mkmd", false)).toEqual(["rendered", "source"]);
+    expect(modeAvailabilityFor("mkmd", true)).toEqual(["rendered", "source", "diff"]);
+  });
+});
+
+describe("filetypes/registry mkmd entry (docs/PLAN-2026-09-05-refresh.md §6 Phase M1)", () => {
+  it("defaults to rendered, with the markii renderer", () => {
+    expect(defaultModeFor("mkmd")).toBe("rendered");
+    expect(fileTypeFor("mkmd")?.renderer).toBe("markii");
+  });
+});
+
+describe("inferFileKind: .mk.md double extension wins over .md (src/lib/fileTree.ts)", () => {
+  it("classifies a `.mk.md` file as mkmd, not md", () => {
+    expect(inferFileKind("notes.mk.md")).toBe("mkmd");
+    expect(inferFileKind("a/b/c.mk.md")).toBe("mkmd");
+  });
+
+  it("is case-insensitive on the double extension", () => {
+    expect(inferFileKind("NOTES.MK.MD")).toBe("mkmd");
+  });
+
+  it("still classifies plain .md as md", () => {
+    expect(inferFileKind("plain.md")).toBe("md");
+  });
+
+  it("does not misfire on a filename that merely contains 'mk' before .md", () => {
+    expect(inferFileKind("bookmark.md")).toBe("md");
+    // "mk.md" alone has no basename before the double extension (it would
+    // need to be "<name>.mk.md"), so it is just an ordinary file named "mk".
+    expect(inferFileKind("mk.md")).toBe("md");
+    expect(inferFileKind("x.mk.md")).toBe("mkmd");
   });
 });

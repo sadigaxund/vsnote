@@ -287,6 +287,40 @@
   --syntax-operator: var(--markdown-code-color);
   --syntax-string: var(--markdown-code-color);
   --syntax-comment: var(--color-muted);
+
+  /* ---- Markii token mapping (docs/PLAN-2026-09-05-refresh.md §6 Phase M1)
+     ----
+     `@markii/react/doc.css` (imported once, lazily, by `src/markdown/
+     render.tsx`) defines exactly 19 `--mk-*` custom properties as its ENTIRE
+     external surface — 15 colors + 4 widths — and derives every other rule
+     in that stylesheet (badge/callout/info/success/warning/danger fills,
+     "ink" text colors, the unknown-directive box, shadows) from those 19 via
+     `color-mix()`. Remap ONLY these 19 here; overriding a derived selector
+     (e.g. `.mk-callout` directly) would fight `doc.css`'s own cascade and
+     drift the moment markii changes how a derived rule is built. Mapped onto
+     VSNote's existing `--color-*` family so every one of the library's ten
+     themes (this block matches all of them except the VSNote-default one,
+     which reasserts hand-sampled hex below) gets a coherent markii palette
+     for free — no per-theme markii tuning needed. */
+  --mk-bg: var(--app-editor-bg);
+  --mk-raised: var(--color-surface-elevated, var(--color-surface));
+  --mk-fg: var(--color-fg);
+  --mk-surface: var(--color-surface);
+  --mk-surface-strong: var(--color-surface-hover);
+  --mk-border: var(--color-border);
+  --mk-muted: var(--color-muted);
+  --mk-faint: color-mix(in oklab, var(--color-muted) 55%, transparent);
+  --mk-accent: var(--color-primary);
+  --mk-on-accent: var(--color-primary-fg);
+  --mk-info: var(--color-primary);
+  --mk-success: var(--color-success);
+  --mk-warning: var(--color-warning);
+  --mk-danger: var(--color-danger);
+  --mk-limit: var(--color-muted);
+  --mk-width-fit: fit-content;
+  --mk-width-narrow: 32rem;
+  --mk-width-wide: 56rem;
+  --mk-width-full: 100%;
 }
 
 /* ---- VSNote default theme — pixel-sampled from app-preview.png, and the
@@ -408,4 +442,124 @@
   --syntax-operator: #a8d578;
   --syntax-string: #a8d578;
   --syntax-comment: #848a92;
+
+  /* Markii token mapping, VSNote-default exact values (see the derived
+     `.dark` block above for the full rationale) — hand-sampled to match
+     this theme's own surfaces/accent rather than the generic derivation,
+     same "reassert exact hex" pattern every other VSNote-default token in
+     this block already follows. */
+  --mk-bg: #101318;
+  --mk-raised: #1c1f26;
+  --mk-fg: #d8dfe6;
+  --mk-surface: #15171c;
+  --mk-surface-strong: #1c1f26;
+  --mk-border: #23262d;
+  --mk-muted: #848a92;
+  --mk-faint: #4a4f57;
+  --mk-accent: #27d2c5;
+  --mk-on-accent: #04201c;
+  --mk-info: #27d2c5;
+  --mk-success: #3fb950;
+  --mk-warning: #e3b341;
+  --mk-danger: #f85149;
+  --mk-limit: #848a92;
+  --mk-width-fit: fit-content;
+  --mk-width-narrow: 32rem;
+  --mk-width-wide: 56rem;
+  --mk-width-full: 100%;
+}
+
+/* ---- Markii doc chrome (docs/PLAN-2026-09-05-refresh.md §6 Phase M1) ----
+   The "muted, non-clickable text carrying title" degrade for an unresolved
+   relative link (`src/markdown/render.tsx`'s header explains why this is an
+   `<a>` with no `href` rather than a CSS class the renderer has no way to
+   attach) — scoped to `.mk-doc` (the renderer's own wrapper) everywhere the
+   renderer is used: the public share reader, `.mk.md` Rendered mode, and
+   print/export. Theme-independent (an inert anchor reads as muted body text
+   in every theme, not just VSNote's). */
+.mk-doc a:not([href]) {
+  color: var(--color-muted);
+  text-decoration: none;
+  cursor: default;
+}
+
+/* ---- Static code-block highlighting (`src/markdown/codeBlock.tsx`) ----
+   `@lezer/highlight`'s `classHighlighter` emits `tok-*` classes (its own
+   fixed vocabulary, e.g. `tok-keyword`/`tok-comment`/`tok-string`) — mapped
+   here onto the SAME `--syntax-*` role tokens `editor/theme.ts`'s CM6
+   `HighlightStyle` already reads (per-theme derivation lives there; this
+   file adds no second palette). */
+.mk-static-codeblock {
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  background: var(--app-editor-bg);
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 4px;
+}
+.mk-static-codeblock__line {
+  display: flex;
+}
+.mk-static-codeblock__lineno {
+  flex-shrink: 0;
+  text-align: right;
+  margin-right: 16px;
+  color: var(--color-muted);
+  user-select: none;
+}
+.mk-static-codeblock__text {
+  white-space: pre;
+}
+.mk-static-codeblock__truncated {
+  margin-top: 8px;
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-style: italic;
+}
+.tok-keyword {
+  color: var(--syntax-keyword);
+}
+.tok-typeName,
+.tok-className,
+.tok-namespace {
+  color: var(--syntax-type);
+}
+.tok-number,
+.tok-bool,
+.tok-atom {
+  color: var(--syntax-number);
+}
+.tok-variableName,
+.tok-propertyName,
+.tok-labelName {
+  color: var(--syntax-variable);
+}
+.tok-punctuation,
+.tok-meta {
+  color: var(--syntax-punctuation);
+}
+.tok-operator {
+  color: var(--syntax-operator);
+}
+.tok-string,
+.tok-string2,
+.tok-literal,
+.tok-url,
+.tok-link {
+  color: var(--syntax-string);
+}
+.tok-comment {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+.tok-macroName,
+.tok-heading,
+.tok-strong {
+  color: var(--syntax-function);
+}
+.tok-invalid {
+  color: var(--color-danger);
 }

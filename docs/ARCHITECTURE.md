@@ -1440,6 +1440,220 @@ this phase — the container is purely a packaging/runtime concern layered
 on top of the exact same single-origin process `npm run server` already
 runs locally.
 
+## Markdown rendering pipeline (docs/PLAN-2026-09-05-refresh.md §6 Phase M1)
+
+The app's first unified/remark dependency: `@markii/core@0.13.0` (parse +
+sanitize) and `@markii/react@0.13.0` (React rendering + a directive
+registry, `Kbd`/`Callout`/`Tabs`/etc.). `@markii/stdlib@0.13.0` is a
+transitive dependency of both, plus the base contract table the vendored
+CM6 completion (below) reads. `@markii/host` — the upstream package that
+would normally supply completion/hover/insert-component logic — is
+`private: true` upstream and **never published to npm** (`npm view
+@markii/host` 404s), so its pure functions are vendored instead; see
+"CM6 completion/hover/insert (Source mode)" below.
+
+**One renderer, three consumers.** `src/markdown/render.tsx` exports
+`renderMarkdown(text, options)` — the ONLY place markdown text becomes a
+React tree anywhere in the app:
+- The public share reader's rendered-mode content (docs/ROADMAP-SHARING-AUTH.md;
+  wired in a later pass per the plan's step 5 — this phase ships the
+  renderer, not its ShareApp wiring).
+- `src/lib/printDocument.tsx` (Export as PDF), replacing a ~250-line
+  hand-rolled block/inline markdown parser that duplicated `my-you-eye`'s
+  own `CodeBlock`/`Table`/`renderInline` primitives.
+- `.mk.md`'s Rendered mode (`src/renderers/MarkiiPreview.tsx`, 200ms
+  debounced), via `filetypes/registry.ts`'s new `mkmd` `FileKind` /
+  `"markii"` `RendererKind`.
+
+Plain `.md` renders through this SAME pipeline, registry included — a
+`:kbd[Ctrl+S]` written in an ordinary `.md` note renders too. That is the
+entire point of the extension per the plan; `.md`'s Rendered mode
+(`editor/LivePreviewEditor`, the live CM6 engine) is unchanged by this
+phase and is a SEPARATE code path from the static renderer — Phase M2 is
+where live-preview directive decorations land inside CM6 itself.
+
+**The link-map contract.** `renderMarkdown`'s `links?: Record<string,
+string>` option is exactly the shape of `ShareContentOut.links`
+(`server/app/schemas.py`), computed server-side by
+`server/app/linkmap.py::compute_link_map` — vault-relative link target (as
+written) -> resolved share URL. A relative link to a `.md` file that is
+NOT in the map (and `degradeUnresolvedRelativeLinks` is not explicitly
+`false`) degrades to muted, non-clickable text carrying `title="Not
+shared"`; absolute/external links are untouched; every surviving URL is
+re-checked against `@markii/core`'s `isSafeUrl` regardless of source.
+Print/export passes `degradeUnresolvedRelativeLinks: false` (a printed page
+has no share link map at all — a relative link there is just a relative
+link, not "this file isn't shared").
+
+**Why an AST rewrite instead of a render hook.** `@markii/react` exports no
+`resolveHref`/link-rewrite option (`RenderMarkOptions` has exactly one
+field, `resolveImageSrc`) and no internals to fork. The supported seam is
+upstream of rendering: `render.tsx` calls `@markii/core`'s `parse(text)`
+itself, walks the resulting mdast `Root` rewriting every `link` node
+in place, then renders. **Verified**: `renderMarkNode(node, registry, ...)`
+takes exactly one `MarkNode` (`@markii/core`'s re-export of mdast's
+`RootContent` — ONE top-level child), not a whole `Root`; `renderMark`
+takes raw text and parses it itself, so neither function can render a
+pre-parsed/mutated tree directly. The renderer therefore maps each
+mutated `Root`'s top-level children through `renderMarkNode` individually
+and wraps the results in a `Fragment` (`render.tsx`'s `renderMarkdown`) —
+equivalent output to a whole-document `renderMark`, since that function is
+itself just "parse, then render every top-level node" one level up.
+
+**Why an unresolved link is a title-carrying `<a>` with no `href`, not a
+CSS class.** `nodeToHast` (which `renderMarkNode` calls) wholesale-strips
+every node's `data` field before running the mdast->hast pipeline
+(`@markii/core`'s own hardening against a transformed AST dictating
+`data.hName`/`hProperties`, e.g. a `<script>` injection) — so a rewritten
+link cannot carry a `data`-channel class or attribute override. Only
+mdast's own top-level `title`/`url` fields survive (remark-rehype's
+default `link` handler reads those directly). The renderer therefore keeps
+an unresolved link as a real `link` node — `title` set to `"Not shared"`
+(survives), `url` set to a deliberately-unsafe sentinel scheme
+(`mk-unresolved:...`) that `@markii/core`'s own `isSafeUrl`/`sanitizeUrls`
+strips at the hast stage, leaving `<a title="Not shared">` with no `href`
+— HTML's inert, non-focusable, non-clickable placeholder-anchor shape.
+`src/theme.css`'s `.mk-doc a:not([href])` rule styles it muted.
+
+**Token mapping (`src/theme.css`).** `@markii/react/doc.css`'s entire
+external surface is 19 `--mk-*` custom properties (15 colors + 4 widths);
+every other rule in that stylesheet derives from those 19 via
+`color-mix()`. `theme.css` remaps ONLY those 19 — in the same two-block
+structure (a `.dark` block deriving from `--color-*` for the library's
+other nine themes, plus an exact hand-sampled VSNote-default block) every
+other app-only token family already follows. Overriding a DERIVED selector
+(e.g. `.mk-callout` directly) would fight `doc.css`'s own cascade and drift
+on every markii upgrade — not done here.
+
+**CM6 completion/hover/insert (Source mode, `.mk.md` only).**
+`src/markdown/vendor/markiiHost/` vendors the pure, host-neutral functions
+`@markii/host` would otherwise supply — `completionAt`, `hoverAt`,
+`enclosingContainerFences`/`insertedContainerColonCount`/
+`fenceExtensionEdits` (fence auto-lengthening), `componentSkeleton`, and a
+TRIMMED `buildComponentCatalog` (standard components only — no pack
+support; see that directory's file headers for exactly what was dropped
+and why). Each file carries its upstream path, pinned version (0.13.0),
+and MIT attribution. `src/editor/markiiCompletion.ts` is the CM6-specific
+glue: a `CompletionSource` and `hoverTooltip` built on those functions,
+plus an `insertMarkiiComponent` command that applies
+`fenceExtensionEdits` in the SAME CM6 transaction as the insertion (one
+undo step). Wired only for `kind === "mkmd"` via
+`CodeMirrorEditor`'s new `loadExtraExtensions` prop (a dynamic `import()`,
+so `@codemirror/autocomplete` and the vendored functions never load for
+any other file kind).
+
+**Static code highlighting (`src/markdown/codeBlock.tsx`).** A `<pre>`
+with line numbers, highlighted via `@lezer/highlight`'s `highlightCode`
+over the Lezer parser behind whichever CM6 language
+`filetypes/registry.ts` already loads for a `FileKind`. Used directly for
+a standalone code FILE share/print, AND — via the `vsnote-code` directive
+rewrite below — for every fenced code block embedded inside a rendered
+markdown document. Degrades to plain, correctly-escaped text for an
+unrecognized language, and caps output at `CODE_BLOCK_MAX_LINES` (5,000)
+lines, DESIGN-SPEC item 33's existing perf-cap convention
+(`tests/unit/rendererBigFileCaps.test.ts`). `classHighlighter`'s `tok-*`
+classes map onto `theme.css`'s existing `--syntax-*` role tokens, so
+static output matches the app's own Source-mode syntax colors.
+
+**Fenced code blocks, made highlightable via the same AST-rewrite
+technique as the link map.** `@markii/react`'s hast->React conversion
+hardcodes its `components` map with no seam for a caller to add or
+override an entry (see finding #1 below), so an ordinary fenced code
+block would otherwise always render as a plain, unhighlighted
+`<pre><code>`. `render.tsx` avoids that regression rather than accepting
+it: every mdast `code` node is rewritten, in the SAME tree walk that
+rewrites links, into a synthetic `leafDirective` node named `vsnote-code`
+— `@markii/core`'s own `tagDirectiveNodes` plugin tags any node whose
+`type` is one of the three directive types, regardless of whether
+`remark-directive` or this app produced it, so the synthetic node becomes
+a real `<mk-directive>` hast element like any author-written directive.
+That name is registered (in the registry `render.tsx` already merges over
+`defaultRegistry`) to `vsnoteCodeDirective.tsx`'s `VSNoteCodeBlock`, which
+renders `codeBlock.tsx`'s `<CodeBlock>`. The code body is never serialized
+into the directive's `data-mk-attrs` JSON attribute string — each render
+call builds a small side table (`vsnoteCodeTable.ts`'s
+`CodeTableEntry[]`), the directive attribute carries only that entry's
+index, and the table reaches the component via a `CodeTableContext`
+(`renderMarkdown` wraps its output in that context's `Provider`), since a
+directive component's only inputs are its own attributes/children.
+
+**Unresolvable relative images: text, never a broken-image icon.**
+`resolveImageSrc` only gets a chance to run at RENDER time, inside
+`renderMark`'s own `<img>` handling — by the time an unresolvable image
+would reach the DOM there is no seam left to swap it for something else.
+Since `ResolveImageSrc` is a plain synchronous function, `render.tsx`
+calls it itself during the AST walk: a relative image whose source no
+resolver can turn into a real URL (or for which no resolver was given at
+all — print/export's case) is replaced with a text placeholder
+(`Image: <alt, or the written source>`) before rendering, matching what
+the hand-rolled parser this pipeline replaced used to show for a
+vault-relative image a print window has no `blob:` access to.
+
+**Markii upstream findings** (docs/PLAN-2026-09-05-refresh.md's required
+output — nothing here is filed as a markii-org/markii issue per the task's
+own instruction not to):
+
+1. **No render-time hook for embedded fenced code blocks.**
+   `renderMark`/`renderMarkNode`'s hast->React step
+   (`hastToReactTree`) hardcodes its `components` map (`mk-directive`,
+   `pre` for script-fence folding, `img` for `resolveImageSrc`) with no way
+   for a caller to add or override an entry — `RenderMarkOptions` has
+   exactly one field. An ordinary fenced code block (a `<pre><code>` hast
+   element with no script `data-mk-meta`) always renders through
+   `PreElement`'s plain `_jsx("pre", { children })`, with NO syntax
+   highlighting at all. This is a real, still-open upstream gap — but not
+   a regression here: worked around by rewriting every `code` mdast node
+   into a registered `vsnote-code` leaf directive BEFORE rendering (the
+   same AST-rewrite technique the link map already uses), so markdown-
+   embedded fences print/render highlighted via `codeBlock.tsx`'s
+   `<CodeBlock>` everywhere this pipeline is used — see "Fenced code
+   blocks, made highlightable..." above for the mechanism. **Proposal**:
+   add a `components`-merge option (or a narrower `renderPre`/`renderCode`
+   option, mirroring `resolveImageSrc`'s shape) to `RenderMarkOptions`, so
+   a host does not have to reach for a directive-rewrite trick just to
+   style a code fence.
+2. **No link-rewrite/`resolveHref` hook.** Already covered above — solved
+   via an upstream AST rewrite rather than a workaround, but the absence of
+   *any* render-time seam for something as common as link rewriting
+   (needed by every host that reuses another host's shares/pages, not just
+   VSNote's blog-from-shares feature) seems like a real gap. **Proposal**:
+   a `resolveHref(url, node): string | undefined` option, same shape and
+   same-origin-safety contract as `resolveImageSrc`.
+3. **`@markii/host` is unpublished.** Confirmed `npm view @markii/host`
+   404s and its `package.json` carries `"private": true` upstream — any web
+   host other than the two in-monorepo ones (VS Code, Obsidian) that wants
+   completion/hover/insert-component support must either vendor the pure
+   functions (done here) or reimplement them. The functions themselves are
+   genuinely host-neutral (no `vscode`/`obsidian`/Node imports in
+   `complete/`, `insert/`, `fences/`) and would cost upstream nothing to
+   publish as a real, versioned package. **Proposal**: publish
+   `@markii/host` (or split a `@markii/host-core` subset covering exactly
+   `complete/`+`insert/`+`fences/`, which have zero Node/editor
+   dependencies) to npm.
+4. **`buildComponentCatalog` couples completion to the pack system.**
+   The catalog builder takes `readonly DiscoveredPack[]` and imports
+   `@markii/pack` unconditionally at module scope — a host with no pack
+   support yet (every M1/M2 web host, before Phase M3) cannot import the
+   file at all without also taking the `@markii/pack` dependency, even
+   though it will always call it with `[]`. Worked around here by vendoring
+   a TRIMMED catalog builder with the pack half deleted
+   (`src/markdown/vendor/markiiHost/componentCatalog.ts`'s header).
+   **Proposal**: make the packs parameter's TYPE resolvable without a
+   `@markii/pack` import (e.g. a narrower structural interface
+   `buildComponentCatalog` actually needs), or split "standard-only
+   catalog" into its own zero-pack-dependency export.
+5. **No web/browser reference host to compare against.** The VS Code and
+   Obsidian hosts (referenced throughout `@markii/host`'s doc comments) get
+   real editor integration for hover/hints/hosts-native hover hovers "for
+   free" from their respective platforms; a from-scratch CM6 web host (this
+   one) has to hand-build the `CompletionSource`/`hoverTooltip` glue with
+   no prior art to check against beyond reading the pure functions' own
+   doc comments. Nothing broke, but a minimal `@markii/codemirror` reference
+   integration (the plan's own Phase M2 aspiration: "contribute upstream to
+   markii as `@markii/codemirror` if it stabilizes") would have made this
+   phase faster and less likely to diverge from the VS Code host's actual
+   UX conventions.
+
 ## Deviations
 
 Real friction points found while building against the actual `my-you-eye@0.4.0` npm

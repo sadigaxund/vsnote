@@ -48,6 +48,16 @@ export interface CodeMirrorEditorProps {
   readOnly?: boolean;
   onChange?: (value: string) => void;
   onCursorChange?: (pos: CursorPos) => void;
+  /** Lazily loads kind-specific CM6 extensions layered on top of the base
+   * set — today only `.mk.md`'s directive completion/hover
+   * (`editor/markiiCompletion.ts`'s `markiiEditorExtensions()`, behind a
+   * dynamic `import()` so `@codemirror/autocomplete` + the vendored
+   * `@markii/host` functions stay out of the cold-boot bundle and out of
+   * every OTHER file kind's chunk — `EditorContent.tsx` passes a loader
+   * only for `kind === "mkmd"`). Matches `loadLanguage`'s own
+   * dynamic-import shape and is reconfigured into the same compartment at
+   * the same time. */
+  loadExtraExtensions?: () => Promise<Extension[]>;
 }
 
 export function CodeMirrorEditor({
@@ -59,6 +69,7 @@ export function CodeMirrorEditor({
   readOnly = false,
   onChange,
   onCursorChange,
+  loadExtraExtensions,
 }: CodeMirrorEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -127,9 +138,9 @@ export function CodeMirrorEditor({
       column: view.state.selection.main.head - initialLine.from + 1,
     });
 
-    void loadLanguage().then((ext) => {
+    void Promise.all([loadLanguage(), loadExtraExtensions?.() ?? Promise.resolve([])]).then(([ext, extra]) => {
       if (destroyed) return;
-      view.dispatch({ effects: languageCompartment.reconfigure(ext ?? []) });
+      view.dispatch({ effects: languageCompartment.reconfigure([...(ext ? [ext] : []), ...extra]) });
     });
 
     return () => {

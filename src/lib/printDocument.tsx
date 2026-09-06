@@ -1,253 +1,48 @@
 /**
- * The print-only markdown renderer for DESIGN-SPEC item 38's Export as PDF —
- * split out of `printExport.tsx` (which owns mount/print/teardown) purely so
- * this file's only export is a component (`PrintDocument`); ESLint's
- * `react-refresh/only-export-components` flags a module that exports BOTH
- * component and non-component bindings, and `printExport.tsx` needs to
- * export the plain `exportMarkdownAsPdf` function. See that file's own doc
- * for the full reasoning on why this renders a separate static tree instead
- * of reusing the live CM6 Rendered view, and why the block parser below is
- * a real (if deliberately scoped) markdown reader rather than the library's
- * own minimal `Markdown` component.
+ * The print-only markdown document for DESIGN-SPEC item 38's Export as PDF
+ * — split out of `printExport.tsx` (which owns mount/print/teardown)
+ * purely so this file's only export is a component (`PrintDocument`);
+ * ESLint's `react-refresh/only-export-components` flags a module that
+ * exports BOTH component and non-component bindings, and `printExport.tsx`
+ * needs to export the plain `exportMarkdownAsPdf` function.
+ *
+ * docs/PLAN-2026-09-05-refresh.md §6 Phase M1 item 6: this used to be a
+ * ~250-line hand-rolled block/inline markdown parser (headings, lists,
+ * tables, blockquotes, code fences, `~~strike~~`) built on top of
+ * `my-you-eye`'s `CodeBlock`/`Table`/`renderInline` primitives. It is now
+ * `src/markdown/render.tsx`'s `renderMarkdown` — the ONE static renderer
+ * every markdown-to-React consumer in the app shares (the public share
+ * reader, this file, and `.mk.md`'s Rendered mode) — so print output gets
+ * the exact same GFM/directive support as everywhere else instead of its
+ * own second, drifting implementation. `degradeUnresolvedRelativeLinks:
+ * false`: a printed page has no share link map at all (there is no
+ * `links` option), so a relative link here is just an ordinary relative
+ * link, not a "this file isn't shared" case — degrading it to muted text
+ * would be wrong for a plain export of a note that links to sibling notes
+ * in the same vault.
+ *
+ * Print output matches (or beats) the hand-rolled parser it replaced on
+ * both fronts that parser used to own outright: fenced code blocks are
+ * highlighted (`render.tsx`'s `vsnote-code` directive rewrite, on top of
+ * `codeBlock.tsx`'s highlighter — see that file's header for why
+ * `@markii/react` needed a workaround here at all: no component-override
+ * hook for a plain `<pre><code>`), and an unresolvable relative image
+ * (e.g. a vault-relative `![alt](assets/x.png)` a print window has no
+ * `blob:` access to) renders as the same "Image: alt-or-source" text
+ * placeholder the old parser produced, never a broken-image icon
+ * (`render.tsx`'s image-node rewrite, since no `resolveImageSrc` is passed
+ * here). See `docs/ARCHITECTURE.md`'s markdown-pipeline section, "Markii
+ * upstream findings" #1, for the real (still-open) upstream gap this
+ * works around — a rendering regression is not one of its consequences.
  */
-import { Fragment, type ReactNode } from "react";
-import { CodeBlock, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, renderInline } from "my-you-eye";
-
-/** `my-you-eye`'s exported `renderInline` (bold/italic/inline-code/links)
- * has no `~~strikethrough~~` handling — confirmed reading its regex in
- * `node_modules/my-you-eye/dist/index.js` (`` `[^`]+` ``, `**bold**`,
- * `*italic*`, `[text](url)`, nothing for `~~`). The Format menu's
- * Strikethrough action (`editor/formatActions.ts`) writes real `~~text~~`
- * markdown, so a note using it needs to print correctly too: this splits
- * strikethrough spans out FIRST, wraps each in a real `<del>`, and still
- * delegates every other inline rule (including the delegate call for
- * strikethrough's OWN inner text) to the library's `renderInline` rather
- * than reimplementing bold/italic/code/link matching a second time. */
-function renderInlineText(text: string): ReactNode {
-  const parts = text.split(/(~~[^~]+~~)/g);
-  if (parts.length === 1) return renderInline(text);
-  return (
-    <>
-      {parts.map((part, idx) => {
-        const strike = part.match(/^~~([^~]+)~~$/);
-        return strike ? <del key={idx}>{renderInline(strike[1])}</del> : <Fragment key={idx}>{renderInline(part)}</Fragment>;
-      })}
-    </>
-  );
-}
-
-interface ListItemNode {
-  text: string;
-  ordered: boolean;
-  checked?: boolean;
-  children: ListItemNode[];
-}
-
-type Block =
-  | { type: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
-  | { type: "paragraph"; text: string }
-  | { type: "list"; items: ListItemNode[] }
-  | { type: "blockquote"; lines: { depth: number; text: string }[] }
-  | { type: "code"; code: string; language?: string }
-  | { type: "table"; headers: string[]; rows: string[][] }
-  | { type: "hr" }
-  | { type: "image"; alt: string; src: string };
-
-const LIST_ITEM_RE = /^(\s*)([-*]|\d+\.)\s+(?:\[([ xX])\]\s+)?(.+)$/;
-
-function parseListItems(lines: string[], cursor: { i: number }, minIndent: number): ListItemNode[] {
-  const items: ListItemNode[] = [];
-  while (cursor.i < lines.length) {
-    const m = lines[cursor.i].match(LIST_ITEM_RE);
-    if (!m) break;
-    const indent = m[1].length;
-    if (indent < minIndent) break;
-    if (indent > minIndent) break; // a deeper item belongs to the previous sibling's children, handled below
-    const ordered = /\d+\./.test(m[2]);
-    const checked = m[3] !== undefined ? /x/i.test(m[3]) : undefined;
-    const text = m[4];
-    cursor.i++;
-    let children: ListItemNode[] = [];
-    const next = cursor.i < lines.length ? lines[cursor.i].match(LIST_ITEM_RE) : null;
-    if (next && next[1].length > indent) children = parseListItems(lines, cursor, next[1].length);
-    items.push({ text, ordered, checked, children });
-  }
-  return items;
-}
-
-function parseBlocks(content: string): Block[] {
-  const lines = content.split("\n");
-  const blocks: Block[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.trim() === "") {
-      i++;
-      continue;
-    }
-    const heading = line.match(/^(#{1,6})\s+(.+)/);
-    if (heading) {
-      blocks.push({ type: "heading", level: heading[1].length as 1 | 2 | 3 | 4 | 5 | 6, text: heading[2] });
-      i++;
-      continue;
-    }
-    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      blocks.push({ type: "hr" });
-      i++;
-      continue;
-    }
-    if (line.startsWith("```")) {
-      const language = line.slice(3).trim() || undefined;
-      const codeLines: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].startsWith("```")) {
-        codeLines.push(lines[i]);
-        i++;
-      }
-      i++;
-      blocks.push({ type: "code", code: codeLines.join("\n"), language });
-      continue;
-    }
-    if (line.startsWith("|")) {
-      const tableLines: string[] = [];
-      while (i < lines.length && lines[i].startsWith("|")) {
-        tableLines.push(lines[i]);
-        i++;
-      }
-      if (tableLines.length >= 2 && /^[\s|:-]+$/.test(tableLines[1])) {
-        const parseRow = (row: string) => row.split("|").slice(1, -1).map((c) => c.trim());
-        blocks.push({ type: "table", headers: parseRow(tableLines[0]), rows: tableLines.slice(2).map(parseRow) });
-      }
-      continue;
-    }
-    if (line.startsWith(">")) {
-      const bqLines: { depth: number; text: string }[] = [];
-      while (i < lines.length && (lines[i].startsWith(">") || lines[i].trim() === "")) {
-        if (lines[i].trim() === "") {
-          i++;
-          continue;
-        }
-        const stripped = lines[i].match(/^((?:\s*>)+)\s?(.*)$/);
-        const depth = stripped ? (stripped[1].match(/>/g) ?? []).length : 1;
-        bqLines.push({ depth, text: stripped ? stripped[2] : lines[i] });
-        i++;
-      }
-      blocks.push({ type: "blockquote", lines: bqLines });
-      continue;
-    }
-    if (LIST_ITEM_RE.test(line)) {
-      const cursor = { i };
-      const items = parseListItems(lines, cursor, 0);
-      i = cursor.i;
-      blocks.push({ type: "list", items });
-      continue;
-    }
-    const bareImage = line.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
-    if (bareImage) {
-      blocks.push({ type: "image", alt: bareImage[1], src: bareImage[2] });
-      i++;
-      continue;
-    }
-    const paraLines = [line];
-    i++;
-    while (i < lines.length && lines[i].trim() !== "" && !/^(#{1,6})\s+/.test(lines[i]) && !lines[i].startsWith("```") && !lines[i].startsWith("|") && !lines[i].startsWith(">") && !LIST_ITEM_RE.test(lines[i])) {
-      paraLines.push(lines[i]);
-      i++;
-    }
-    blocks.push({ type: "paragraph", text: paraLines.join(" ") });
-  }
-  return blocks;
-}
-
-function ListItems({ items }: { items: ListItemNode[] }): ReactNode {
-  if (items.length === 0) return null;
-  const ordered = items[0].ordered;
-  const Tag = ordered ? "ol" : "ul";
-  return (
-    <Tag className={ordered ? "print-ol" : "print-ul"}>
-      {items.map((item, idx) => (
-        <li key={idx}>
-          {item.checked !== undefined ? (
-            <label className="print-task">
-              <input type="checkbox" checked={item.checked} readOnly disabled />
-              <span>{renderInlineText(item.text)}</span>
-            </label>
-          ) : (
-            renderInlineText(item.text)
-          )}
-          {item.children.length > 0 && <ListItems items={item.children} />}
-        </li>
-      ))}
-    </Tag>
-  );
-}
-
-function BlockView({ block }: { block: Block }): ReactNode {
-  switch (block.type) {
-    case "heading": {
-      const Tag = `h${block.level}` as keyof JSX.IntrinsicElements;
-      return <Tag>{renderInlineText(block.text)}</Tag>;
-    }
-    case "paragraph":
-      return <p>{renderInlineText(block.text)}</p>;
-    case "list":
-      return <ListItems items={block.items} />;
-    case "blockquote":
-      return (
-        <>
-          {block.lines.map((l, idx) => (
-            <blockquote key={idx} style={{ marginLeft: (l.depth - 1) * 16 }}>
-              {l.text ? renderInlineText(l.text) : <>&nbsp;</>}
-            </blockquote>
-          ))}
-        </>
-      );
-    case "code":
-      return <CodeBlock code={block.code} language={block.language} highlight={Boolean(block.language)} showLineNumbers />;
-    case "table":
-      return (
-        <Table>
-          {block.headers.length > 0 && (
-            <TableHeader>
-              <TableRow>
-                {block.headers.map((h, j) => (
-                  <TableHead key={j}>{renderInlineText(h)}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-          )}
-          <TableBody>
-            {block.rows.map((row, j) => (
-              <TableRow key={j}>
-                {row.map((c, k) => (
-                  <TableCell key={k}>{renderInlineText(c)}</TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      );
-    case "hr":
-      return <hr />;
-    case "image":
-      // Vault images live in lightning-fs (in-browser, opaque blob: URLs the
-      // print window can't resolve) — printed as a labeled placeholder
-      // rather than a broken-image icon; same "never silently guess" spirit
-      // as the rest of this pipeline.
-      return <p className="print-image-note">Image: {block.alt || block.src}</p>;
-  }
-}
+import type { ReactNode } from "react";
+import { renderMarkdown } from "../markdown/render";
 
 export function PrintDocument({ title, content }: { title: string; content: string }): ReactNode {
-  const blocks = parseBlocks(content);
   return (
     <article className="print-doc">
       <h1 className="print-doc-title">{title}</h1>
-      {blocks.map((b, i) => (
-        <Fragment key={i}>
-          <BlockView block={b} />
-        </Fragment>
-      ))}
+      {renderMarkdown(content, { degradeUnresolvedRelativeLinks: false })}
     </article>
   );
 }

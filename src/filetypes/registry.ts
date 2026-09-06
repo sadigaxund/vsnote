@@ -43,7 +43,7 @@ import type { EditorMode, FileKind } from "../types";
  * component — the renderer's own file lives in `renderers/` (or
  * `editor/LivePreviewEditor` for markdown, which is CM6 itself, not a
  * separate renderer). */
-export type RendererKind = "livepreview" | "html" | "csv" | "json" | "image";
+export type RendererKind = "livepreview" | "html" | "csv" | "json" | "image" | "markii";
 
 export interface FileTypeEntry {
   /** Status-bar language id, e.g. "TS", "MD", "JSON" (DESIGN-SPEC's `Ln 14,
@@ -77,6 +77,23 @@ const REGISTRY: Partial<Record<FileKind, FileTypeEntry>> = {
     defaultMode: "rendered",
     supportsDiff: true,
     renderer: "livepreview",
+  },
+  // Markii extension (docs/PLAN-2026-09-05-refresh.md §6 Phase M1) — the
+  // `.mk.md` filetype. Source mode reuses the ordinary CM6 markdown
+  // language (the directive grammar is a superset text-wise; Phase M2's
+  // live-preview decorations are the CM6-side extension, not a different
+  // `loadLanguage`). Rendered mode is `renderer: "markii"`
+  // (`renderers/MarkiiPreview.tsx`) instead of `"livepreview"`: a static,
+  // 200ms-debounced render through `src/markdown/render.tsx` — NOT plain
+  // `.md`'s CM6 live-preview engine, which this phase deliberately leaves
+  // untouched (see the file's own module doc).
+  mkmd: {
+    languageId: "MK.MD",
+    loadLanguage: () => import("@codemirror/lang-markdown").then((m) => m.markdown()),
+    baseModes: ["rendered", "source"],
+    defaultMode: "rendered",
+    supportsDiff: true,
+    renderer: "markii",
   },
   ts: {
     languageId: "TS",

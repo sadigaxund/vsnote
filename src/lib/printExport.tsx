@@ -16,8 +16,19 @@
  * purely so THIS module's only export (`exportMarkdownAsPdf`, a plain
  * function) doesn't trip `react-refresh/only-export-components` by sharing a
  * file with component declarations. See `printDocument.tsx`'s own doc for
- * the block-parser/library-primitive reasoning.
+ * why it renders through `src/markdown/render.tsx` (the app's one static
+ * markdown renderer) instead of a print-specific parser.
  *
+ * `printDocument.tsx` (and, transitively, `src/markdown/render.tsx`'s
+ * unified/remark/`@markii/*` pipeline) is loaded via a dynamic `import()`
+ * INSIDE `exportMarkdownAsPdf` below, not a static top-level import — this
+ * module itself IS imported statically from the always-mounted tab-bar
+ * overflow menu (`OverflowMenu.tsx`), so a static import here would pull
+ * the whole markdown-rendering chunk into the app's cold-boot bundle. The
+ * dynamic import means that chunk loads only the first time a user actually
+ * clicks "Export as PDF".
+ *
+
  * Pagination is a CSS property, not a JS one: nothing here constrains the
  * print root's height or sets `overflow`, so the browser's own print engine
  * paginates it exactly like a plain flowing document — the `break-inside:
@@ -27,7 +38,6 @@
  * across pages, so nothing is ever silently cut off.
  */
 import { createRoot, type Root } from "react-dom/client";
-import { PrintDocument } from "./printDocument";
 
 const PRINT_ROOT_ID = "vsnote-print-root";
 const PRINT_STYLE_ID = "vsnote-print-style";
@@ -87,16 +97,31 @@ function ensurePrintStyle(): void {
 #${PRINT_ROOT_ID} .print-doc h6 { font-size: 0.9em; opacity: 0.85; }
 #${PRINT_ROOT_ID} p { margin: 0.6em 0; }
 #${PRINT_ROOT_ID} pre, #${PRINT_ROOT_ID} table, #${PRINT_ROOT_ID} blockquote { break-inside: avoid-page; }
-#${PRINT_ROOT_ID} .print-ul, #${PRINT_ROOT_ID} .print-ol { margin: 0.4em 0; padding-left: 1.4em; }
-#${PRINT_ROOT_ID} .print-ul { list-style: disc outside; }
-#${PRINT_ROOT_ID} .print-ol { list-style: decimal outside; }
-#${PRINT_ROOT_ID} .print-ul .print-ul, #${PRINT_ROOT_ID} .print-ol .print-ul { list-style-type: circle; }
-#${PRINT_ROOT_ID} li { display: list-item; margin: 0.15em 0; }
-#${PRINT_ROOT_ID} .print-task { list-style: none; margin-left: -1.4em; display: flex; gap: 0.4em; align-items: baseline; }
-#${PRINT_ROOT_ID} blockquote { border-left: 3px solid var(--color-border); padding: 0.1em 0 0.1em 0.8em; color: var(--color-muted); margin: 0.5em 0; }
-#${PRINT_ROOT_ID} hr { border: none; border-top: 1px solid var(--color-border); margin: 1.2em 0; }
-#${PRINT_ROOT_ID} .print-image-note { font-style: italic; color: var(--color-muted); }
-#${PRINT_ROOT_ID} table { width: 100%; border-collapse: collapse; }
+/* docs/PLAN-2026-09-05-refresh.md §6 Phase M1 item 6: these targeted the
+   hand-rolled parser's own \`.print-ul\`/\`.print-ol\`/\`.print-task\` classes;
+   \`src/markdown/render.tsx\`'s renderer instead produces plain remark-rehype
+   output (\`ul\`/\`ol\`/\`li\`, a GFM task item's \`<input type=checkbox>\`
+   directly inside its \`<li>\`), so these rules now target those tags,
+   scoped under \`.mk-doc\` (the renderer's own wrapper class) to avoid ever
+   leaking into the rest of the print root's chrome. */
+#${PRINT_ROOT_ID} .mk-doc ul, #${PRINT_ROOT_ID} .mk-doc ol { margin: 0.4em 0; padding-left: 1.4em; }
+#${PRINT_ROOT_ID} .mk-doc ul { list-style: disc outside; }
+#${PRINT_ROOT_ID} .mk-doc ol { list-style: decimal outside; }
+#${PRINT_ROOT_ID} .mk-doc ul ul { list-style-type: circle; }
+#${PRINT_ROOT_ID} .mk-doc li { display: list-item; margin: 0.15em 0; }
+#${PRINT_ROOT_ID} .mk-doc li:has(> input[type="checkbox"]:first-child) { list-style: none; margin-left: -1.4em; }
+#${PRINT_ROOT_ID} .mk-doc blockquote { border-left: 3px solid var(--color-border); padding: 0.1em 0 0.1em 0.8em; color: var(--color-muted); margin: 0.5em 0; }
+#${PRINT_ROOT_ID} .mk-doc hr { border: none; border-top: 1px solid var(--color-border); margin: 1.2em 0; }
+#${PRINT_ROOT_ID} .mk-doc a:not([href]) { color: var(--color-muted); text-decoration: none; cursor: default; }
+#${PRINT_ROOT_ID} .mk-doc table { width: 100%; border-collapse: collapse; }
+/* A fenced code block prints via \`codeBlock.tsx\`'s \`<CodeBlock>\`
+   (\`render.tsx\`'s \`vsnote-code\` directive rewrite — see that file's
+   header) rather than a bare \`<pre>\`; its own \`.mk-static-codeblock\` rule
+   in theme.css reads \`--app-editor-bg\`/\`--color-fg\`, which the print root
+   never overrides (only the \`--color-*\` tokens above) — pinned back to the
+   print palette here so a code block prints on light paper, not as a dark
+   box. */
+#${PRINT_ROOT_ID} .mk-static-codeblock { background: var(--color-code-bg); color: var(--color-code-fg); }
 `;
   document.head.appendChild(style);
 }
@@ -117,7 +142,8 @@ function teardownPrintRoot(): void {
  * tree and opens the browser's print dialog. Synchronous except for one
  * `requestAnimationFrame` before `window.print()`, so the freshly mounted
  * tree has a committed layout before the browser paginates it. */
-export function exportMarkdownAsPdf(fileName: string, content: string): void {
+export async function exportMarkdownAsPdf(fileName: string, content: string): Promise<void> {
+  const { PrintDocument } = await import("./printDocument");
   teardownPrintRoot(); // a stray previous export never got its 'afterprint' (e.g. dev hot-reload) — start clean
   ensurePrintStyle();
   const container = document.createElement("div");

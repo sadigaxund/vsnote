@@ -744,3 +744,53 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     plan's step 5, "Public reader rewrite + dynamic link map"). Nothing
     here changes today's rendered `<title>` (there isn't one) or Publish
     dialog fields.
+70. **Markii extension, Phase M1 (parse + render).** `docs/PLAN-2026-09-05-
+    refresh.md` §6: `@markii/core`/`@markii/react` (+ `@markii/stdlib`)
+    installed; one static renderer (`src/markdown/render.tsx`) shared by
+    print/export, the future public reader (item 67's link map is its
+    `links` option), and the new `.mk.md` filetype. Plain `.md` renders
+    through the SAME pipeline with the directive registry enabled — a
+    `:kbd[x]` in an ordinary `.md` note renders. `doc.css`'s 19 `--mk-*`
+    tokens are mapped in `src/theme.css` (derived block for the library's
+    other nine themes, hand-sampled exact values for VSNote-default) —
+    remapped, never overriding a rule `doc.css` itself derives from them.
+71. **`.mk.md` filetype.** A markdown-plus-directives file, registered in
+    `filetypes/registry.ts` as `mkmd` (`inferFileKind` checks the full
+    `.mk.md` double-extension suffix before the ordinary single-extension
+    switch, so it wins over plain `.md`). Source mode: ordinary CM6
+    markdown language, plus directive completion (`::`/`:::`/`:`
+    triggers), hover documentation, and an "Insert component" command with
+    automatic fence lengthening (`src/editor/markiiCompletion.ts`, built on
+    vendored `@markii/host` pure functions — see
+    `src/markdown/vendor/markiiHost/`, and docs/ARCHITECTURE.md's markdown-
+    rendering-pipeline section for why they are vendored rather than
+    imported). Rendered mode: a static, 200ms-debounced render through the
+    item 70 renderer (`src/renderers/MarkiiPreview.tsx`) — deliberately NOT
+    plain `.md`'s CM6 live-preview engine; that stays untouched by this
+    phase, and in-editor live-preview directive decorations are Phase M2.
+72. **Unresolved relative link degrade (renderer-level, item 67's client
+    half).** Wherever `src/markdown/render.tsx` renders a relative link to
+    a `.md` file with no entry in a supplied link map, it shows as body-
+    colored-muted, non-clickable text carrying a native `title="Not
+    shared"` tooltip — never a dead, clickable link. Absolute/external
+    links, and every relative link that DOES resolve, render as ordinary
+    clickable anchors.
+73. **Static code highlighting for print/share.** `src/markdown/
+    codeBlock.tsx`'s `<CodeBlock>`: a `<pre>` with line numbers, syntax-
+    highlighted via `@lezer/highlight` over the same CM6 language
+    `filetypes/registry.ts` already loads for the file's kind — no
+    CodeMirror editor instance, read-only static output for a printed page
+    or a shared code file. Degrades to plain, correctly-escaped text for an
+    unrecognized language; caps at 5,000 lines (item 33's existing perf-cap
+    convention) so a pathological file can never flood the DOM. Wired into
+    fenced code blocks embedded inside a rendered markdown document too:
+    `@markii/react` itself has no component-override seam for that (see
+    docs/ARCHITECTURE.md's "Markii upstream findings" #1), so
+    `src/markdown/render.tsx` rewrites every fenced-code mdast node into a
+    registered `vsnote-code` directive before rendering — the same AST-
+    rewrite technique the link map (item 72) uses — so a `.md`'s own code
+    fences print and render highlighted everywhere the one renderer is
+    used, no regression from the parser this phase replaced. A relative
+    image with no resolvable source (e.g. a vault-relative image inside a
+    printed page) degrades the same way: text (`Image: <alt or source>`),
+    never a broken-image icon.

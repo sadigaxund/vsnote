@@ -10,6 +10,11 @@
 import type { FileKind, FileNode } from "../types";
 
 export function inferFileKind(name: string): FileKind {
+  // `.mk.md` is a DOUBLE extension (docs/PLAN-2026-09-05-refresh.md §6
+  // Phase M1) — checked BEFORE the single-extension switch below (which
+  // would only ever see the trailing "md" and misclassify every `.mk.md`
+  // file as plain markdown) so it wins over the generic `.md` case.
+  if (name.toLowerCase().endsWith(".mk.md")) return "mkmd";
   const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
   switch (ext) {
     case "md":

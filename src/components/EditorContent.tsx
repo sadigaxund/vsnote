@@ -46,6 +46,13 @@ const HtmlPreview = lazy(() => import("../renderers/HtmlPreview").then((m) => ({
 const CsvTable = lazy(() => import("../renderers/CsvTable").then((m) => ({ default: m.CsvTable })));
 const JsonView = lazy(() => import("../renderers/JsonView").then((m) => ({ default: m.JsonView })));
 const ImageView = lazy(() => import("../renderers/ImageView").then((m) => ({ default: m.ImageView })));
+const MarkiiPreview = lazy(() => import("../renderers/MarkiiPreview").then((m) => ({ default: m.MarkiiPreview })));
+
+/** `.mk.md` Source mode only — see `CodeMirrorEditor`'s `loadExtraExtensions` doc for why this is a dynamic import rather than a static one. */
+async function loadMarkiiExtraExtensions() {
+  const { markiiEditorExtensions } = await import("../editor/markiiCompletion");
+  return markiiEditorExtensions();
+}
 // Phase 6.5c (DESIGN-SPEC Amendments item 11) — the Settings VIEW. Lazy the
 // same way as every renderer above: it's a tab a session may never open, and
 // pulls in a real slice of the library (`Select`/`Slider`/`Switch`/
@@ -216,6 +223,15 @@ export function EditorContent({
             </Suspense>
           </div>
         );
+      case "markii":
+        return (
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+            <MissingBanner missing={missing} />
+            <Suspense fallback={<EditorLoading />}>
+              <MarkiiPreview key={path} content={displayContent} />
+            </Suspense>
+          </div>
+        );
       default:
         // Rendered was offered without a registered renderer — shouldn't
         // happen (registry only lists "rendered" alongside a `renderer`),
@@ -248,6 +264,7 @@ export function EditorContent({
             loadLanguage={fileType.loadLanguage}
             onChange={missing ? undefined : onChange}
             onCursorChange={onCursorChange}
+            loadExtraExtensions={kind === "mkmd" ? loadMarkiiExtraExtensions : undefined}
           />
         </Suspense>
       </div>

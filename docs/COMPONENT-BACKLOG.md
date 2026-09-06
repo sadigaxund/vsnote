@@ -224,3 +224,30 @@ upstream candidates; no new information from the skill analysis changes their sp
   `src/components/LoginGate.tsx`'s `Wordmark`, replacing the gradient chips.
   Full row (props sketch, exact call sites): `docs/COMPONENT-BACKLOG-Issued_20260821.md`'s
   `Logo` entry. DESIGN-SPEC Amendments round 10 item 62.
+
+### 2.8 `CodeBlock` static highlighting for an app-supplied language (Markii Phase M1, 2026-09-06)
+
+- **Gap:** `my-you-eye@2026.8.3` exports `CodeBlock` with a `highlight` prop, but
+  it only lights up its own built-in tokenizer — a small, fixed language list
+  (`js`/`ts`/`tsx`/`json`/`bash` per its own type doc). There is no way to hand it
+  an external parser/highlighter for a language outside that set, or to keep its
+  output in sync with whatever CM6 language a *consuming app* already resolves per
+  file (VSNote's `filetypes/registry.ts` covers more file kinds than CodeBlock's
+  built-in set, and needs the exact same highlighting for both a live CM6 editor
+  and a static print/share `<pre>`).
+- **Built:** `src/markdown/codeBlock.tsx` (component) + `codeBlockLogic.ts` (pure
+  cap/highlight logic, split for `react-refresh/only-export-components`) — a
+  local `<CodeBlock code kind maxLines>` running `@lezer/highlight`'s
+  `highlightCode` directly over the Lezer parser behind whichever CM6 language
+  `filetypes/registry.ts` already loads for `kind`, emitting `@lezer/highlight`'s
+  own `tok-*` classes (mapped onto `theme.css`'s `--syntax-*` role tokens — the
+  same ones `editor/theme.ts`'s CM6 `HighlightStyle` uses). Caps at 5,000 lines
+  (DESIGN-SPEC item 33's perf-cap convention) and degrades to plain, correctly-
+  escaped text for an unrecognized language. Used directly for a standalone code
+  file share/print, and via `src/markdown/render.tsx`'s `vsnote-code` directive
+  rewrite for a fenced code block embedded in a rendered markdown document (see
+  `docs/ARCHITECTURE.md`'s markdown-pipeline section).
+- **Filed:** sadigaxund/my-you-eye#36 — proposes an `externalHighlight` (or
+  equivalent) escape hatch so a consumer with its own Lezer tree/highlighter (or
+  pre-tokenized line spans) doesn't need a from-scratch local component just to
+  highlight a language `CodeBlock`'s built-in tokenizer doesn't cover.

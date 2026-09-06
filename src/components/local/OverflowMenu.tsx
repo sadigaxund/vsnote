@@ -101,7 +101,7 @@ export function OverflowMenuItems({ paneId, kind, mode, path, missing }: Overflo
     if (!path) return;
     const content = useBufferStore.getState().buffers[path]?.content ?? "";
     const fileName = path.split("/").pop() || path;
-    exportMarkdownAsPdf(fileName, content);
+    void exportMarkdownAsPdf(fileName, content);
   }
 
   // NOTE for the mounting menu (see EditorTabBar.tsx): a Format/Insert
