@@ -34,6 +34,7 @@ import { useDirtyBeforeunloadGuard } from "./lib/useDirtyBeforeunloadGuard";
 import { resolveVaultDisplayLabel } from "./lib/vaultLabel";
 import { probeRender } from "./lib/renderProbe";
 import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
+import { SHARED_TAB_NAME, SHARED_TAB_PATH } from "./lib/sharedTab";
 import { useShareStore } from "./share/useShareStore";
 import { createAutoSyncScheduler } from "./git/autoSyncPolicy";
 import { buildShareLink } from "./share/shareLinks";
@@ -525,7 +526,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   // multi-pane case) still shows the literal "vault" segment: that file is
   // out of this item's scope, see the item 41 report for that known gap.
   const titlebarBreadcrumb =
-    activeTab && activeTab.kind !== "settings"
+    activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared"
       ? activeTab.path.split("/").map((segment, i) => (i === 0 && segment === VAULT_LABEL ? resolveVaultDisplayLabel(vaultDisplayName, VAULT_LABEL) : segment))
       : undefined;
   const titlebarDiffLayout = focusedLeaf?.diffLayout ?? "split";
@@ -949,6 +950,14 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     useTabsStore.getState().openFile({ path: SETTINGS_TAB_PATH, name: SETTINGS_TAB_NAME, kind: "settings" }, { pin: true });
   };
 
+  // docs/PLAN-2026-09-05-refresh.md §2 — the "Shared" activity-bar icon
+  // opens a tab, exactly like `handleOpenSettings` above (see
+  // `lib/sharedTab.ts`'s doc for why).
+  const handleOpenShared = () => {
+    void useShareStore.getState().probe();
+    useTabsStore.getState().openFile({ path: SHARED_TAB_PATH, name: SHARED_TAB_NAME, kind: "shared" }, { pin: true });
+  };
+
   // Source Control panel row click: opens (or focuses) the file pinned,
   // straight into Diff mode — every changed file the panel lists has a
   // nonzero diff by construction, so Diff is always a valid mode for it.
@@ -1145,7 +1154,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   };
 
   const handleShareActiveFile = () => {
-    if (!activeTab || activeTab.kind === "settings") return;
+    if (!activeTab || activeTab.kind === "settings" || activeTab.kind === "shared") return;
     void handleOpenPublish({ id: activeTab.path, path: activeTab.path, name: activeTab.name, kind: activeTab.kind, type: "file" });
   };
   // "Edit policy…" (re-open the Publish dialog against an EXISTING share)
@@ -1234,6 +1243,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     { id: "save", label: "Save file", shortcut: "⌘S" },
     { id: "close-tab", label: "Close tab", shortcut: "⌘W / ⌘⇧W" },
     { id: "settings", label: "Open settings…" },
+    { id: "shared", label: "Open Shared…" },
     { id: "publish", label: "Publish/Share file…" },
   ];
 
@@ -1274,6 +1284,9 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
         break;
       case "settings":
         handleOpenSettings();
+        break;
+      case "shared":
+        handleOpenShared();
         break;
       case "publish":
         handleShareActiveFile();
@@ -1329,6 +1342,8 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
             onSelect={handleActivitySelect}
             changedCount={gitChangedCount}
             onOpenSettings={handleOpenSettings}
+            onOpenShared={handleOpenShared}
+            sharedActive={activeTab?.kind === "shared"}
             onItemIntent={handleActivityIntent}
           />
         )}

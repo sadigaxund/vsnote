@@ -164,7 +164,7 @@ export function EditorPane({
     // mark it "missing" for nothing (harmless, but pointless — and it would
     // fight `EditorContent.tsx`'s own kind==="settings" branch, which never
     // reads `missing`/`loaded` for this kind anyway).
-    if (activeTab && activeTab.kind !== "settings") void useBufferStore.getState().ensureLoaded(activeTab.path);
+    if (activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared") void useBufferStore.getState().ensureLoaded(activeTab.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab?.path]);
 
@@ -177,7 +177,7 @@ export function EditorPane({
   useEffect(() => {
     // Same reasoning as the buffer-load effect above — no real file, no
     // diff to compute.
-    if (activeTab && activeTab.kind !== "settings") void useGitStore.getState().diffFor(activeTab.path);
+    if (activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared") void useGitStore.getState().diffFor(activeTab.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab?.path, gitRefreshGeneration]);
 
@@ -311,7 +311,7 @@ export function EditorPane({
               exactly one pane open, the title bar carries this same
               cluster for the focused pane instead, and NO per-pane header
               renders at all (see this file's module doc). */}
-          {multiPane && activeTab?.kind !== "settings" && (
+          {multiPane && activeTab?.kind !== "settings" && activeTab?.kind !== "shared" && (
             <EditorHeader
               paneId={paneId}
               // DESIGN-SPEC item 41: the vault's display name is a label

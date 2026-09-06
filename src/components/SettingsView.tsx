@@ -28,7 +28,7 @@
  * §2.3) — my-you-eye 2026.8.3 shipped `ColorField` (upstream issue #20),
  * so it's used here instead.
  */
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
   Badge,
@@ -84,18 +84,11 @@ import { buildTemplateVars, renderCommitTemplate } from "../git/commitTemplate";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
 import { isDemoVaultBuild } from "../fs/seed";
 import { useShareStore } from "../share/useShareStore";
-import { SharedPanel } from "./local/SharedPanel";
 import { VaultSetupPanel } from "./local/VaultSetupPanel";
 import { SyncSetupPanel } from "./SyncSetupPanel";
-import { createApiToken, type ShareOut } from "../share/api";
+import { createApiToken } from "../share/api";
 import { fetchOAuthProviders, oauthStartUrl } from "../share/oauth";
 import type { EditorMode, FileKind } from "../types";
-
-// Phase 10 (sharing) — the Publish dialog composes Dialog/Select/Switch/etc.
-// from the library; lazy the same way `App.tsx`'s own instance is, so
-// opening Settings never pays for it unless "Edit policy…" is actually
-// clicked.
-const PublishDialog = lazy(() => import("./local/PublishDialog").then((m) => ({ default: m.PublishDialog })));
 
 export interface SettingsViewProps {
   /** Boot-time `navigator.storage.persist()` result, threaded down from
@@ -239,13 +232,12 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const [activeCategory, setActiveCategory] = useState("appearance");
   const [query, setQuery] = useState("");
 
-  // Phase 10 (sharing) — reachability/auth state + owner's share list live
-  // in `share/useShareStore.ts` (ephemeral, not persisted — see that
-  // module's doc); this view just reads/drives it. `editingShare` is this
-  // view's OWN local "Edit policy…" dialog instance (separate from
-  // `App.tsx`'s publish-a-new-share instance — the two never need to be
-  // open at once, and edit mode never reads file content, so it doesn't
-  // need any of the plumbing a fresh publish does).
+  // Phase 10 (sharing) — reachability/auth state lives in
+  // `share/useShareStore.ts` (ephemeral, not persisted — see that module's
+  // doc); this view just reads/drives it for the "Backend connection" row.
+  // Share management itself (list, edit policy, revoke) moved out to the
+  // "Shared" activity-bar view (docs/PLAN-2026-09-05-refresh.md §2) —
+  // Settings keeps only sharing DEFAULTS now.
   const reachability = useShareStore((s) => s.reachability);
   const authenticated = useShareStore((s) => s.authenticated);
   const shareUsername = useShareStore((s) => s.username);
@@ -261,7 +253,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const logoutShareBackend = useShareStore((s) => s.logout);
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
-  const [editingShare, setEditingShare] = useState<ShareOut | null>(null);
 
   // DESIGN-SPEC Amendments round 5, item 40 — admin-only share blob size
   // limit. `adminMaxBlobBytes` lives in useShareStore (same home as every
@@ -1118,13 +1109,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             </div>
           ),
         },
-        {
-          id: "shared-panel",
-          wide: true,
-          label: "Shared",
-          keywords: "shares links published revoke regenerate hits audit expiry password access",
-          content: <SharedPanel authenticated={authenticated} onEditShare={setEditingShare} />,
-        },
         // DESIGN-SPEC Amendments round 5, item 40 — admin-only, hidden
         // entirely (not disabled) for a non-admin/signed-out caller, same
         // treatment `rowMatches`/search already gives every other row: a
@@ -1377,15 +1361,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
         </div>
       </div>
     </ScrollArea>
-    {editingShare && (
-      <Suspense fallback={null}>
-        <PublishDialog
-          open={editingShare !== null}
-          onOpenChange={(open) => !open && setEditingShare(null)}
-          existingShare={editingShare}
-        />
-      </Suspense>
-    )}
     </>
   );
 }

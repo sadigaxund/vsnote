@@ -59,6 +59,9 @@ async function loadMarkiiExtraExtensions() {
 // `RadioGroup`/`Input`/`Button`/`DataList`/`Kbd`) that shouldn't cost the
 // cold-boot bundle anything until someone actually clicks the gear.
 const SettingsView = lazy(() => import("./SettingsView").then((m) => ({ default: m.SettingsView })));
+// docs/PLAN-2026-09-05-refresh.md §2 — the Shared VIEW, same lazy/virtual-
+// tab treatment as Settings above (see `lib/sharedTab.ts`'s doc).
+const SharedView = lazy(() => import("./SharedView").then((m) => ({ default: m.SharedView })));
 
 export interface EditorContentProps {
   /** Which pane this content belongs to (Phase 6) — threaded to every CM6
@@ -138,6 +141,16 @@ export function EditorContent({
           onExportVault={onExportVault}
           onRequestResetVault={onRequestResetVault}
         />
+      </Suspense>
+    );
+  }
+
+  // docs/PLAN-2026-09-05-refresh.md §2 — same short-circuit as "settings"
+  // above, for the same reason: not a file, no mode/buffer/diff behavior.
+  if (kind === "shared") {
+    return (
+      <Suspense fallback={<EditorLoading />}>
+        <SharedView />
       </Suspense>
     );
   }

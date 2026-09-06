@@ -37,7 +37,16 @@ export type FileKind =
    * node (never appears in the Explorer tree, never routed through
    * `useFsStore.inferFileKind`). `SettingsView.tsx`'s `SETTINGS_TAB_PATH`
    * is the one path that ever carries this kind. */
-  | "settings";
+  | "settings"
+  /** docs/PLAN-2026-09-05-refresh.md §2 — the Shared VIEW (share list,
+   * edit policy, revoke), opened as a full-width tab exactly like
+   * "settings" above, for the same reason: a table with source/link/
+   * access/links/hits/last-accessed/actions columns needs real width, and
+   * a Settings-style tab already gets it (see `SharedView.tsx`'s header
+   * doc for why a sidebar panel was tried first and rejected).
+   * `lib/sharedTab.ts`'s `SHARED_TAB_PATH` is the one path that ever
+   * carries this kind. */
+  | "shared";
 
 export interface FileNode {
   id: string;

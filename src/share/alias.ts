@@ -10,6 +10,13 @@
 
 export const ALIAS_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
+/** Mirrors `server/app/security.py::RESERVED_ALIASES` exactly — words that
+ * are real top-level route prefixes (`/api`, `/share`, `/git`, `/assets`).
+ * Checked case-insensitively, same as the server. Kept in sync by hand
+ * (small, stable set); a drift would only ever produce a client-side
+ * false-negative (server still rejects), never a false-positive block. */
+export const RESERVED_ALIASES: ReadonlySet<string> = new Set(["api", "share", "git", "assets"]);
+
 export type AliasValidation = { valid: true } | { valid: false; reason: string };
 
 /** Empty string is treated as "no alias chosen" — valid, since the field is
@@ -20,6 +27,9 @@ export function validateAlias(alias: string): AliasValidation {
   if (alias.length > 64) return { valid: false, reason: "Must be at most 64 characters." };
   if (!ALIAS_PATTERN.test(alias)) {
     return { valid: false, reason: "Only letters, digits, hyphens, and underscores are allowed." };
+  }
+  if (RESERVED_ALIASES.has(alias.toLowerCase())) {
+    return { valid: false, reason: "This word is reserved. Choose a different alias." };
   }
   return { valid: true };
 }

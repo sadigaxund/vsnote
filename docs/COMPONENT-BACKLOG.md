@@ -111,6 +111,11 @@ a backlog entry changes materially, update its issue in the same pass):
   was scoped to the dependency bump alone, and the shares/remotes tables it
   would replace are a separate, later step. This entry stays `planned` until
   that step lands and wires these props in.
+  **Update 2026-09-06 (docs/PLAN-2026-09-05-refresh.md §2/§4):** consumed —
+  `components/SharedView.tsx` (the new "Shared" activity-bar view,
+  replacing the deleted `local/SharedPanel.tsx`) uses `renderActions` for
+  its trailing copy-link + overflow-`DropdownMenu` actions cell. Status
+  now **done**.
 
 ### 2.2 ResizeHandle keyboard accessibility (PaneGroup / SidebarContainer)
 
@@ -251,3 +256,34 @@ upstream candidates; no new information from the skill analysis changes their sp
   equivalent) escape hatch so a consumer with its own Lezer tree/highlighter (or
   pre-tokenized line spans) doesn't need a from-scratch local component just to
   highlight a language `CodeBlock`'s built-in tokenizer doesn't cover.
+
+### 2.9 `Stepper` (Publish dialog rebuild, 2026-09-06)
+
+- **Gap:** `my-you-eye` has no Stepper/Wizard primitive — `skills/components.json`
+  returns zero entries for either name. Needed for the rebuilt `PublishDialog.tsx`
+  (docs/PLAN-2026-09-05-refresh.md §4): a five-step linear form (Mode -> Who can
+  open -> Protection -> Link -> Result).
+- **Built:** `src/components/local/Stepper.tsx` — numbered dots + labels, a
+  connecting rule, and a checkmark "done" state for a completed step a user can
+  click back to. Deliberately thin: no branching/skip logic, no animation, since
+  this dialog's steps are a fixed sequence, not a graph. Styled with the same
+  token vocabulary as `SegmentedControl.tsx` (this file's nearest local-component
+  sibling) rather than forking any library part.
+- **Filed:** ALREADY EXISTS upstream as sadigaxund/my-you-eye#35 (confirmed via
+  `gh issue list -R sadigaxund/my-you-eye --state all` before building this) — not
+  re-filed. This local component unblocks the dialog rebuild in the meantime, per
+  CLAUDE.md rule 2's "missing component protocol."
+
+### 2.10 `Switch` unchecked-state contrast in dark themes (2026-09-06)
+
+- **Gap:** `Switch`'s unchecked track (`bg-secondary`) and thumb (`bg-bg`) resolve
+  close enough in VSNote's dark theme that an OFF switch reads as a bare,
+  borderless dark circle with no visible track — found while screenshot-reviewing
+  the rebuilt Publish dialog's "Never expires"/"Show title" toggles, then
+  confirmed reproducible on a PRE-EXISTING, unrelated toggle (Settings → Git &
+  Sync's "Show git status in explorer") — so this is the component's own
+  contrast behavior in this theme, not something introduced by new consumer code.
+- **Not worked around locally** — CLAUDE.md rule 1 forbids patching library
+  internals from this app; shipped as-is.
+- **Filed:** sadigaxund/my-you-eye#37 — proposes either a persistent track border
+  or a thumb color guaranteed to contrast with `bg-secondary` specifically.

@@ -184,6 +184,11 @@ templates, saved searches, quick capture / web clipper. Do not build.
   variant on files inside a shared folder; tooltip = link + policy + hits;
   context menu: copy link / manage) and appear in the **Shared registry view**
   (activity bar; also linked from Settings).
+  **Note (2026-09-06):** this bullet's "Shared registry view (activity bar)"
+  prediction is now real, just not folder-scoped (folders are gone) — see
+  `components/SharedView.tsx` and DESIGN-SPEC round 10 item 83. It replaced
+  the interim `local/SharedPanel.tsx` that had lived inside Settings ->
+  Sharing since folder shares were removed.
 
 ### 5.2 Real-sync merge policy — approved (replaces "refuse + explain" as v2.0 final)
 User verdict: refuse-only "makes the app useless". Requirements: never lose

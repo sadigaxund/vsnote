@@ -237,28 +237,101 @@ browser back button as the only navigation a "blog" needs — there is no
 list/index view, no folder-share revival; an index note with an alias is just
 another ordinary share whose own markdown happens to link to the others.
 
-**UI surfaces**: `components/local/PublishDialog.tsx` (Google/Microsoft-style publish/
-edit-policy dialog — pure composition of `my-you-eye`'s `Dialog`/`FormField`/`Select`/
-`Switch`/`Input`/`Button`/`Badge`/`Alert` plus the existing local `SegmentedControl` for
-the raw/rendered mode toggle; no new local primitive, so no `docs/COMPONENT-BACKLOG.md`
-row) and `components/local/SharedPanel.tsx` (the owner's share list — composed from the
-library's raw `Table`/`TableRow`/`TableCell` primitives rather than `DataTable`, since
-`DataTable` has no row-click/actions slot at all — checked `skills/components.json`;
-`Table` is exactly "reach for this when you need bespoke markup a data-driven API can't
-express," per its own manifest description). Reachable from three places per the
-roadmap: `local/ExplorerTree.tsx`'s row context menu ("Publish…", files only), the
-command palette ("Publish/Share file…"), and `components/TitleBar.tsx`'s share icon
-(shown whenever a real file is focused) — all three funnel through `App.tsx`'s
-`handleOpenPublish`/`handleShareActiveFile`, which read the file's CURRENT buffer
-content (`useBufferStore`, unsaved edits included) and open one shared dialog instance.
-"Edit policy…" (from the Shared panel) is a SEPARATE, local `PublishDialog` instance
-owned by `SettingsView.tsx` itself — it never needs file content, so it doesn't need any
-of the App.tsx plumbing a fresh publish does. The "Shared" panel lives inside
-`SettingsView.tsx`'s new "Sharing" category (not a fifth activity-bar icon): Settings is
-already a real full-width tab (Phase 6.5c), the share list is account-level
-configuration exactly like "Git & Sync," and a new activity-bar icon would need its own
-`SidebarContainer` region + width/collapse plumbing for a view that's fundamentally a
-list + actions, not a persistent always-visible panel.
+**UI surfaces — rebuilt as a stepped dialog + a Shared activity-bar view
+(docs/PLAN-2026-09-05-refresh.md §4/§5/§2, 2026-09-06). SUPERSEDES the single-form
+dialog and Settings-embedded panel described in the paragraph this replaces.**
+
+`components/local/PublishDialog.tsx` is now a FIVE-STEP form (Mode -> Who can open ->
+Protection -> Link -> Result), composed from `my-you-eye`'s `RadioGroup`/`FormField`/
+`Select`/`Switch`/`Input`/`Button`/`Badge`/`Alert`/`Combobox` plus the existing local
+`SegmentedControl` (raw/rendered picker) and a new local `Stepper`
+(`components/local/Stepper.tsx`) — the library has no Stepper/Wizard primitive
+(`skills/components.json` has zero entries for either name; already filed upstream as
+sadigaxund/my-you-eye#35, not re-filed). Pure, non-component logic (step order,
+per-mode auth-matrix filtering, the `PublishMode` union, date<->epoch helpers) lives in
+`components/local/publishDialogLogic.ts`, split out specifically so the component file
+exports only the component (this cleared the repo's prior two
+`react-refresh/only-export-components` ESLint warnings — the baseline is 0 warnings).
+Step 3 (Protection) is filtered through `publishDialogLogic.ts`'s `authModesFor`, which
+mirrors `server/app/routers/shares.py::_check_auth_matches_render_mode` exactly (raw:
+`none`/`token` only; rendered: `none`/`password`/`token`) — the dialog can never
+construct a combination the server rejects. Step 4 (Link) validates the alias
+client-side against the SAME rules the server enforces, including the reserved-word
+list (`share/alias.ts`'s `RESERVED_ALIASES`, mirroring `server/app/security.py`'s set
+exactly), and carries the two §5 opt-ins (`Show title`, `Back link` via `Combobox` over
+the owner's other active shares). For Rendered mode it also lists "Links in this file"
+(`share/linksInFile.ts`'s `extractRelativeFileLinks`/`statusForLinks`, built on
+`markdown/render.tsx`'s `parseAndRewriteLinks` with `degradeUnresolvedRelativeLinks:
+false` so a not-yet-shared link's `url` survives intact for matching): each relative
+`.md` link shows "Shared as /share/x" or "Not shared" plus a "Share too" action that
+reads the sibling straight off the vault (`fs/operations.ts::readTextFile`) and
+publishes it with the SAME policy currently held in the form. Step 5 (Result) shows the
+link with copy, and for `auth_mode: "token"` the newly-minted PER-SHARE token
+(`share/api.ts::createShareToken`, §4.2 — never an owner account API token) with a "you
+will not see this again" warning and a ready-made `curl -H 'Authorization: Bearer
+<token>' <url>` line, both copyable. The SAME component drives "Edit policy…",
+pre-filled from `existingShare`, `PATCH /api/shares/{id}` on save; a token is only
+minted for an edit when `auth_mode` is newly switching INTO `token` (never re-minted on
+every save).
+
+`components/SharedView.tsx` is the owner's share-management surface now — its own
+activity-bar icon ("Shared", `ActivityBar.tsx`), not a Settings category.
+
+**A full-width TAB, not a sidebar panel — course-corrected mid-pass.** The first cut
+rendered `SharedView` inside the shared `local/SidebarContainer` region shell (same
+shell as Explorer/Search/Source Control/Extensions). Screenshot review immediately
+showed this was wrong: a table with source/link/mode/access/links-to-from/hits/
+last-accessed columns was unusable at `DEFAULT_SIDEBAR_WIDTH` (288px) — headers
+overlapped and every cell collapsed to a bare truncation chevron — and stayed
+unusable even widened past 600px (the region caps at half the window). An owner
+audit table genuinely needs more width than a side rail can offer at any width a
+user would tolerate keeping permanently open. This app's OWN prior reasoning for
+putting sharing inside Settings ("Settings is already a real full-width tab... the
+share list is account-level configuration, not a persistent always-visible panel")
+still holds — what changed is only that it deserves its own entry point instead of
+living inside Settings. So: `components/ActivityBar.tsx`'s "Shared" icon calls a new
+`onOpenShared` prop (a sibling of `onOpenSettings`, NOT a `panel` selection — it
+never touches `sidebarWidth`/`sidebarCollapsed`), wired in `App.tsx`'s
+`handleOpenShared` to `useTabsStore.openFile({ path: SHARED_TAB_PATH, kind: "shared" },
+{ pin: true })` — the exact same "virtual tab, not a real fs path" mechanism
+`lib/settingsTab.ts`/`kind: "settings"` already uses, now generalized in
+`lib/sharedTab.ts` and `EditorContent.tsx`'s parallel `kind === "shared"` branch.
+Every other `kind === "settings"` special case in the codebase
+(`EditorPane.tsx`'s buffer/diff-fetch skip and per-pane header hide,
+`EditorTabBar.tsx`'s gear-icon-instead-of-FileIcon tab rendering,
+`filetypes/registry.ts::modeAvailabilityFor`'s "no editor surface" gate, `App.tsx`'s
+breadcrumb/share-active-file guards) got the identical `|| kind === "shared"`
+treatment, since a Shared tab is exactly as much "not a file" as a Settings tab is.
+
+Now full-width, `SharedView.tsx` uses `my-you-eye`'s `DataTable` with
+`renderActions`/`onRowClick` (my-you-eye 2026.8.3, upstream #25 —
+`docs/COMPONENT-BACKLOG.md` §2.1, now consumed) instead of the old hand-rolled
+`Table`/`TableRow` markup: fixed column widths (`layout="fixed"`, the default — an
+earlier `layout="auto"` attempt hid columns off-screen behind an invisible
+horizontal scroll instead of truncating them in place, worse at every width tried),
+a truncated link column with its own copy action, relative dates
+(`lib/relativeTime.ts::formatRelativeEpochSeconds`), a "Links to / from" count
+column (`share/shareLinkGraph.ts::computeShareLinkCounts`, computed client-side
+from the vault's own file contents — the owner has direct fs access, so this needs
+no new server endpoint), and a trailing actions cell: a quick copy-link icon button
+plus a `DropdownMenu` (copy link, edit policy, regenerate, manage tokens for a
+`token`-mode share, revoke). DESIGN-SPEC item 51 (no flash on refresh): the table
+stays mounted and dims (`aria-busy` + reduced opacity) during a refresh; only the
+very first load (nothing fetched yet) shows a full `Skeleton` swap. "Edit policy…"
+opens a second, lazy `PublishDialog` instance owned by this view (same split the
+old Settings panel used — it never needs file content). "Manage tokens…" opens a
+small `Dialog` listing `share/api.ts::listShareTokens` with per-token revoke.
+
+Reachable from three publish-a-new-share places per the roadmap: `local/ExplorerTree.
+tsx`'s row context menu ("Publish…", files only), the command palette ("Publish/Share
+file…"), and `components/TitleBar.tsx`'s share icon — all three funnel through
+`App.tsx`'s `handleOpenPublish`/`handleShareActiveFile`, which read the file's CURRENT
+buffer content (`useBufferStore`, unsaved edits included) and open one shared dialog
+instance, lazy-loaded (`App.tsx`) and preloaded on activity-rail hover intent for the
+"scm"/"shared" panels the same way every other overlay chunk in this app is.
+`SettingsView.tsx`'s "Sharing" category keeps ONLY sharing DEFAULTS now: the backend
+connection/sign-in row and the admin-only share blob size limit row — `local/
+SharedPanel.tsx` is deleted.
 
 **Routing.** This app had no router before this phase — `main.tsx` read a single
 always-mounted `<App/>`. The minimum viable fix: `window.location.pathname` is read

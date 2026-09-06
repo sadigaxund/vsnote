@@ -1,43 +1,59 @@
 /**
  * PublishDialog — the Google/Microsoft-style sharing dialog
- * (`docs/ROADMAP-SHARING-AUTH.md` §1), reachable from three places per the
- * roadmap: the Explorer row context menu (`ExplorerTree.tsx`'s "Publish…"
- * item), the command palette ("Publish/Share file…"), and the title bar's
- * share icon (`components/TitleBar.tsx`) — all three just set `open`/
- * `filePath` on one shared instance mounted once in `App.tsx`, same pattern
- * as the existing "Reset demo vault" `ConfirmDialog`.
+ * (`docs/ROADMAP-SHARING-AUTH.md` §1), rebuilt as a STEPPED form
+ * (docs/PLAN-2026-09-05-refresh.md §4 and §5) reachable from three places:
+ * the Explorer row context menu (`ExplorerTree.tsx`'s "Publish…" item), the
+ * command palette ("Publish/Share file…"), and the title bar's share icon
+ * (`components/TitleBar.tsx`) — all three just set `open`/`filePath` on one
+ * shared instance mounted once in `App.tsx`. The Shared view
+ * (`components/SharedView.tsx`) mounts a second instance for "Edit
+ * policy…"/"Regenerate…"/"Manage tokens…", same as `SettingsView.tsx`'s old
+ * "Sharing" category used to.
  *
- * Pure composition of `my-you-eye` primitives (Dialog, FormField, Select,
- * Switch, Input, Button, Badge, Alert) plus the local `SegmentedControl`
- * (already used by the title bar's Rendered/Source/Diff toggle) for the
- * raw/rendered mode picker — no new local primitive needed, so this file
- * gets no `docs/COMPONENT-BACKLOG.md` row of its own (same "solved by
- * composition" precedent as `ExtensionsPanel.tsx`, see that doc's Notes
- * section).
+ * Five fixed steps (`publishDialogLogic.ts`'s `STEP_IDS`), composed from
+ * `my-you-eye` (`RadioGroup`, `FormField`, `Input`, `Select`, `Switch`,
+ * `Dialog`, `Button`, `Badge`, `Alert`, `Combobox`) plus the local
+ * `Stepper` (the library has no Stepper/Wizard — sadigaxund/my-you-eye#35,
+ * already filed; see `Stepper.tsx`'s doc) and `SegmentedControl` for the
+ * raw/rendered mode picker (already used by the title bar's Rendered/
+ * Source/Diff toggle):
  *
- * Two modes, one component:
+ *  1. **Mode** — Raw or Rendered, each with a one-line "what a visitor
+ *     gets" description.
+ *  2. **Who can open** — Anyone with the link, or Only people I list
+ *     (restricted; the People list lives on this step).
+ *  3. **Protection** — filtered by mode, mirroring the server's auth
+ *     matrix EXACTLY (`publishDialogLogic.ts`'s `authModesFor`): raw offers
+ *     none/token only, rendered offers none/password/token. The dialog can
+ *     never construct a combination the server would reject.
+ *  4. **Link** — alias (validated client-side against the SAME rules the
+ *     server enforces, including reserved words — `share/alias.ts`),
+ *     expiry, and the two §5 opt-ins `Show title` / `Back link`. Rendered
+ *     mode also lists "Links in this file" here (`share/linksInFile.ts`):
+ *     every relative link found in the document, each "Shared as /share/x"
+ *     or "Not shared" plus a "Share too" action that publishes that
+ *     sibling with the SAME policy this dialog currently holds.
+ *  5. **Result** — the link with a copy button; for token protection, the
+ *     one-time per-share token (§4.2 — `share/api.ts`'s
+ *     `createShareToken`, NOT an owner account API token) with a "you will
+ *     not see this again" warning and a ready-made `curl` line.
+ *
+ * Two callers of the SAME component:
  *  - **Publish** (`existingShare` omitted): reads the file's current buffer
- *    content, `POST /api/blobs` then `POST /api/shares`, shows the
- *    resulting link with copy-to-clipboard.
- *  - **Edit policy** (`existingShare` set, from the Shared panel's "Edit
- *    policy…" action): the same form pre-filled from the share record,
- *    `PATCH /api/shares/{id}` on save — never re-uploads content (snapshot
- *    stays pinned; that's the whole point of "snapshot by default", see
- *    `docs/ROADMAP-SHARING-AUTH.md` §1).
+ *    content, `POST /api/blobs` then `POST /api/shares`.
+ *  - **Edit policy** (`existingShare` set): the same form pre-filled from
+ *    the share record, `PATCH /api/shares/{id}` on save — never re-uploads
+ *    content (snapshot stays pinned).
  *
- * "Live" toggle: deliberately NOT exposed here. The backend's `live` field
- * exists and defaults `false` (`ShareCreateIn.live`), but nothing server-side
- * currently re-serves the CURRENT working-tree content for a `live: true`
- * share (`server/app/routers/share_public.py`'s GET handlers always read
- * `share.blob_id`'s pinned blob — `live` is stored but not yet acted on for
- * reads). Exposing a toggle that silently does nothing would be dishonest
- * UI; see this phase's final report for the same note.
+ * "Live" toggle: deliberately NOT exposed here — see git history for the
+ * unchanged reasoning (`live` is stored but not yet acted on for reads).
  */
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Badge,
   Button,
+  Combobox,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -46,6 +62,8 @@ import {
   DialogTitle,
   FormField,
   Input,
+  RadioGroup,
+  RadioGroupItem,
   Select,
   SelectContent,
   SelectItem,
@@ -54,14 +72,31 @@ import {
   Switch,
   useToast,
 } from "my-you-eye";
-import { Check, Copy, FileCode, Globe2, Loader2, Lock, X } from "lucide-react";
+import { Check, Copy, ExternalLink, FileCode, Globe2, Loader2, Lock, Share2, X } from "lucide-react";
 import { SegmentedControl } from "./SegmentedControl";
+import { Stepper } from "./Stepper";
 import { useShareStore } from "../../share/useShareStore";
 import { fetchOAuthProviders, oauthStartUrl } from "../../share/oauth";
 import { validateAlias } from "../../share/alias";
 import { buildShareLink } from "../../share/shareLinks";
-import { createApiToken } from "../../share/api";
-import type { AuthMode, GeneralAccess, GrantIn, GrantRole, RenderMode, ShareOut } from "../../share/api";
+import { createShareToken } from "../../share/api";
+import { extractRelativeFileLinks, statusForLinks, type FileLinkStatus } from "../../share/linksInFile";
+import { readTextFile } from "../../fs/operations";
+import { displayToFsPath } from "../../fs/paths";
+import {
+  AUTH_MODE_LABELS,
+  GENERAL_ACCESS_DESCRIPTIONS,
+  MODE_CHROME,
+  RENDER_MODE_DESCRIPTIONS,
+  STEP_IDS,
+  STEP_LABELS,
+  authModesFor,
+  dateInputToEpochSeconds,
+  derivePublishMode,
+  epochSecondsToDateInput,
+  type StepId,
+} from "./publishDialogLogic";
+import type { AuthMode, GeneralAccess, GrantIn, GrantRole, RenderMode, ShareOut, ShareTokenCreateOut } from "../../share/api";
 import type { FileKind } from "../../types";
 
 export interface PublishDialogProps {
@@ -71,69 +106,20 @@ export interface PublishDialogProps {
    * omitted only while the dialog is closing/reused, never while `open`. */
   filePath?: string;
   fileKind?: FileKind;
-  /** Current buffer content — read by the caller (`App.tsx`) from
-   * `useBufferStore`, never by this component (keeps it vault-agnostic and
-   * safe to reason about alongside `share/ShareApp.tsx`'s "never touches
-   * vault storage" requirement — this dialog only ever sees a plain string
-   * its caller already read). */
+  /** Current buffer content — read by the caller from `useBufferStore`,
+   * never by this component (keeps it vault-agnostic, aside from the
+   * "Share too" action below, which deliberately reads sibling files
+   * directly since it publishes something the caller never asked about). */
   content?: string;
   /** Edit-policy mode: re-open for an existing share instead of publishing
    * a new one. */
   existingShare?: ShareOut;
 }
 
-/** Round 7 item 57 — delivery is its own axis, decoupled from role and
- * available for EVERY file kind (the share viewer renders code files in the
- * code editor since round 6, so the old "rendered is md/html only" gate was
- * stale). Wire values stay the server's render_mode ("rendered"/"raw"). */
 const DELIVERY_OPTIONS: { value: RenderMode; label: string; icon: React.ReactNode }[] = [
   { value: "rendered", label: "Viewer page", icon: <Globe2 size={12} /> },
   { value: "raw", label: "Raw file", icon: <FileCode size={12} /> },
 ];
-
-/** `<input type="date">` value <-> epoch seconds (the backend's
- * `expires_at` unit — see `schemas.py`'s `ShareCreateIn.expires_at`,
- * consumed as `float` seconds throughout `policy.py`). Midday UTC avoids a
- * date rendered in a timezone west of UTC silently rolling back a day. */
-function dateInputToEpochSeconds(value: string): number | undefined {
-  if (!value) return undefined;
-  const ms = Date.parse(`${value}T12:00:00Z`);
-  return Number.isNaN(ms) ? undefined : ms / 1000;
-}
-function epochSecondsToDateInput(epoch: number | null | undefined): string {
-  if (!epoch) return "";
-  return new Date(epoch * 1000).toISOString().slice(0, 10);
-}
-
-/**
- * The dialog's TWO concrete modes as one closed union (TODO §6.2, from
- * vercel-labs composition-patterns' `architecture-avoid-boolean-props` +
- * `patterns-explicit-variants`): every caller-visible decision switches on
- * this discriminated kind. Derived ONCE from props; `null` means "mounted
- * without a usable target" (a closing-transition frame) and renders an
- * inert shell. Folder shares are gone entirely (§4.4) — this dialog is
- * files-only now; a later worker rebuilds it from scratch, so this is kept
- * to the minimum shape that still compiles and passes its e2e specs.
- */
-export type PublishMode = { kind: "publish-file"; filePath: string; content: string } | { kind: "edit-file"; share: ShareOut };
-
-export function derivePublishMode(props: { filePath?: string; content?: string; existingShare?: ShareOut }): PublishMode | null {
-  const { filePath, content, existingShare } = props;
-  if (existingShare) {
-    return { kind: "edit-file", share: existingShare };
-  }
-  if (filePath && content !== undefined) {
-    return { kind: "publish-file", filePath, content };
-  }
-  return null;
-}
-
-/** Per-kind chrome, keyed explicitly — replaces nested ternaries over two
- * booleans with a total map the compiler forces to stay exhaustive. */
-export const MODE_CHROME: Record<PublishMode["kind"], { title: string; verb: string }> = {
-  "publish-file": { title: "Publish", verb: "Publish" },
-  "edit-file": { title: "Edit share", verb: "Save" },
-};
 
 export function PublishDialog({ open, onOpenChange, filePath, content, existingShare }: PublishDialogProps) {
   const { toast } = useToast();
@@ -144,56 +130,31 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
   const login = useShareStore((s) => s.login);
   const publish = useShareStore((s) => s.publish);
   const updateShare = useShareStore((s) => s.updateShare);
+  const allShares = useShareStore((s) => s.shares);
 
-  // TODO §6.2 — the two concrete modes, derived once (see PublishMode).
-  // `isEditKind` is a computed VIEW over this closed union for layout
-  // gates; it is no longer the state encoding itself.
   const mode = derivePublishMode({ existingShare, filePath, content });
   const isEditKind = mode?.kind === "edit-file";
 
-  // Prefilled directly from props at MOUNT time, not reset via an effect —
-  // both call sites (`App.tsx`'s "publish a new share" instance,
-  // `SettingsView.tsx`'s "Edit policy…" instance) conditionally mount this
-  // component only while open (`{open && <PublishDialog/>}`), so it fully
-  // unmounts on close and remounts fresh on every open; a lazy `useState`
-  // initializer reading `existingShare`/`fileKind` here is therefore
-  // already correct without any "resync when the target changes" effect
-  // (which would also trip `react-hooks/set-state-in-effect` for no
-  // benefit — this codebase's established alternative for "state that
-  // resets when a prop changes" is the render-time adjustment pattern, see
-  // `local/ExplorerTree.tsx`'s `renamingSnapshot`; remounting is simpler
-  // still since nothing here needs to survive a target change in place).
-  // Round 7 item 55 — new shares default to "anyone with the link".
-  const [generalAccess, setGeneralAccess] = useState<GeneralAccess>(
-    () => (existingShare?.general_access as GeneralAccess) ?? "link",
-  );
-  // Round 7 item 57 — the link-wide default role, orthogonal to delivery.
+  const [step, setStep] = useState<StepId>("mode");
+
+  const [renderMode, setRenderMode] = useState<RenderMode>(() => (existingShare?.render_mode as RenderMode) ?? "rendered");
+  const [generalAccess, setGeneralAccess] = useState<GeneralAccess>(() => (existingShare?.general_access as GeneralAccess) ?? "link");
   const [linkRole, setLinkRole] = useState<GrantRole>(() => existingShare?.link_role ?? "viewer");
-  const [authMode, setAuthMode] = useState<AuthMode>(() => (existingShare?.auth_mode as AuthMode) ?? "none");
-  const [password, setPassword] = useState("");
-  const [alias, setAlias] = useState(() => existingShare?.alias ?? "");
-  // Round 6 item 5 — expiry is explicit: OFF means "Never expires" (the
-  // default), and the date input only exists once the switch opts in.
-  const [expiryEnabled, setExpiryEnabled] = useState(() => existingShare?.expires_at != null);
-  const [expiresLocal, setExpiresLocal] = useState(() => epochSecondsToDateInput(existingShare?.expires_at));
-  const [renderMode, setRenderMode] = useState<RenderMode>(
-    () => (existingShare?.render_mode as RenderMode) ?? "rendered",
-  );
-  // Round 7 item 60 — the people list is real state (server round-trips
-  // grants on ShareOut now), not a single write-only add.
   const [grants, setGrants] = useState<GrantIn[]>(() => existingShare?.grants ?? []);
   const [draftPrincipal, setDraftPrincipal] = useState("");
   const [draftRole, setDraftRole] = useState<GrantRole>("viewer");
-  // Round 7 item 56 — inline API-token generation (shown once, copy only).
-  const [generatedToken, setGeneratedToken] = useState<string | null>(null);
-  const [generatingToken, setGeneratingToken] = useState(false);
-  const [tokenError, setTokenError] = useState<string | null>(null);
-  const [tokenCopied, setTokenCopied] = useState(false);
+
+  const [authMode, setAuthMode] = useState<AuthMode>(() => (existingShare?.auth_mode as AuthMode) ?? "none");
+  const [password, setPassword] = useState("");
+
+  const [alias, setAlias] = useState(() => existingShare?.alias ?? "");
+  const [expiryEnabled, setExpiryEnabled] = useState(() => existingShare?.expires_at != null);
+  const [expiresLocal, setExpiresLocal] = useState(() => epochSecondsToDateInput(existingShare?.expires_at));
+  const [showTitle, setShowTitle] = useState(() => existingShare?.show_title ?? false);
+  const [backLink, setBackLink] = useState(() => existingShare?.back_link ?? "");
 
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
-  // TODO §8.2 — "Continue with Google" renders only when the backend has
-  // OAuth credentials configured (providers probe).
   const [oauthGoogle, setOauthGoogle] = useState(false);
   useEffect(() => {
     void fetchOAuthProviders().then((p) => setOauthGoogle(p.google));
@@ -202,90 +163,132 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ShareOut | null>(null);
-  const [copied, setCopied] = useState(false);
+
+  // §4.2 — the one-time per-share token, minted right after a successful
+  // publish/save when protection is "API token" (see `handleSubmit`).
+  const [mintedToken, setMintedToken] = useState<ShareTokenCreateOut | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<"link" | "token" | "curl" | null>(null);
+
+  // §5 "Links in this file" — only meaningful for Rendered mode publishing
+  // a real file; computed once from the content the caller handed us.
+  const currentFilePath = mode?.kind === "publish-file" ? mode.filePath : mode?.kind === "edit-file" ? mode.share.source_path : undefined;
+  const currentContent = mode?.kind === "publish-file" ? mode.content : undefined;
+  const fileLinks: FileLinkStatus[] = useMemo(() => {
+    if (renderMode !== "rendered" || !currentFilePath || currentContent === undefined) return [];
+    return statusForLinks(extractRelativeFileLinks(currentFilePath, currentContent), allShares);
+  }, [renderMode, currentFilePath, currentContent, allShares]);
+  const [sharingSibling, setSharingSibling] = useState<string | null>(null);
+
+  async function handleShareSibling(targetPath: string) {
+    setSharingSibling(targetPath);
+    try {
+      const fsPath = displayToFsPath(targetPath);
+      const siblingContent = await readTextFile(fsPath);
+      const filename = targetPath.slice(targetPath.lastIndexOf("/") + 1);
+      await publish({
+        sourcePath: targetPath,
+        filename,
+        content: siblingContent,
+        renderMode,
+        generalAccess,
+        authMode: authMode === "token" ? "none" : authMode, // never mint a second silent token
+        password: authMode === "password" ? password : undefined,
+        grants,
+        linkRole,
+      });
+      toast({ title: "Shared", description: `${filename} is now shared with the same policy.`, variant: "success" });
+    } catch (err) {
+      toast({ title: "Couldn't share that file", description: err instanceof Error ? err.message : "Try again.", variant: "danger" });
+    } finally {
+      setSharingSibling(null);
+    }
+  }
 
   const aliasCheck = useMemo(() => validateAlias(alias), [alias]);
   const filename = filePath ? filePath.slice(filePath.lastIndexOf("/") + 1) : "";
-
   const offline = reachability === "offline";
-  const canSubmit =
-    !offline &&
-    authenticated &&
-    aliasCheck.valid &&
-    (authMode !== "password" || password.length > 0 || (isEditKind && existingShare?.has_password)) &&
-    // Item 5 — an opted-in expiry must actually have a date; "on but blank"
-    // would silently save as never-expires while the UI said otherwise.
-    (!expiryEnabled || expiresLocal.length > 0) &&
-    !submitting;
 
-  async function handleLogin() {
-    await login(loginUser, loginPass);
+  const availableAuthModes = authModesFor(renderMode);
+  // Switching Mode to Raw while Password was selected must not silently
+  // submit a rejected combination — fall back to "none" the moment Raw is
+  // chosen with an unsupported protection still selected. Adjusted during
+  // RENDER (a `useState` snapshot of the last `renderMode` seen — refs
+  // can't be read/written during render under this repo's
+  // `eslint-plugin-react-hooks` rules, `react-hooks/refs`), the same
+  // "adjust state when a prop/derived value changes" pattern
+  // `ExplorerTree.tsx`'s `renamingSnapshot` uses, which avoids the
+  // `react-hooks/set-state-in-effect` cascading-render warning entirely
+  // rather than suppressing it.
+  const [lastRenderMode, setLastRenderMode] = useState(renderMode);
+  if (lastRenderMode !== renderMode) {
+    setLastRenderMode(renderMode);
+    if (!availableAuthModes.includes(authMode)) setAuthMode("none");
+  }
+
+  const backLinkOptions = useMemo(
+    () =>
+      allShares
+        .filter((s) => !s.revoked_at && (!isEditKind || s.id !== existingShare?.id))
+        .map((s) => ({ value: s.alias ?? s.slug, label: `${s.source_path} (${s.alias ?? s.slug})` })),
+    [allShares, isEditKind, existingShare],
+  );
+
+  const stepIndex = STEP_IDS.indexOf(step);
+  const canAdvanceFromLink = aliasCheck.valid && (!expiryEnabled || expiresLocal.length > 0);
+  const canSubmit = !offline && authenticated && canAdvanceFromLink && (authMode !== "password" || password.length > 0 || (isEditKind && existingShare?.has_password)) && !submitting;
+
+  function goNext() {
+    const order: StepId[] = ["mode", "access", "protection", "link", "result"];
+    const idx = order.indexOf(step);
+    if (idx < order.length - 2) setStep(order[idx + 1]);
+    else void handleSubmit();
+  }
+  function goBack() {
+    const order: StepId[] = ["mode", "access", "protection", "link", "result"];
+    const idx = order.indexOf(step);
+    if (idx > 0) setStep(order[idx - 1]);
   }
 
   function handleAddGrant() {
     const principal = draftPrincipal.trim();
     if (!principal) return;
-    setGrants((prev) =>
-      prev.some((g) => g.principal.toLowerCase() === principal.toLowerCase()) ? prev : [...prev, { principal, role: draftRole }],
-    );
+    setGrants((prev) => (prev.some((g) => g.principal.toLowerCase() === principal.toLowerCase()) ? prev : [...prev, { principal, role: draftRole }]));
     setDraftPrincipal("");
   }
 
-  // Round 7 item 56 — "Requires: API token" is self-serve: a read-scoped
-  // token minted right here, revealed once (the server never re-serves it).
-  async function handleGenerateToken() {
-    setGeneratingToken(true);
-    setTokenError(null);
-    try {
-      const created = await createApiToken(`share ${alias.trim() || filename || "link"}`, "read");
-      setGeneratedToken(created.token);
-    } catch (err) {
-      setTokenError(err instanceof Error ? err.message : "Could not create a token.");
-    } finally {
-      setGeneratingToken(false);
-    }
-  }
-
-  async function handleCopyToken() {
-    if (!generatedToken) return;
-    try {
-      await navigator.clipboard.writeText(generatedToken);
-      setTokenCopied(true);
-      setTimeout(() => setTokenCopied(false), 1500);
-    } catch {
-      // clipboard denied — the token is still selectable text in the field
-    }
+  async function handleLogin() {
+    await login(loginUser, loginPass);
   }
 
   async function handleSubmit() {
     setSubmitting(true);
     setError(null);
+    setTokenError(null);
     try {
+      if (!mode) throw new Error("Nothing to publish.");
+      const wasToken = isEditKind ? existingShare?.auth_mode === "token" : false;
       const policyPatch = {
         alias: alias.trim().length > 0 ? alias.trim() : "",
-        // `expires_at: null` reads as "omitted" server-side, so switching
-        // expiry OFF must travel as the explicit clear_expiry sentinel.
         ...(expiryEnabled ? { expires_at: dateInputToEpochSeconds(expiresLocal) ?? null } : { clear_expiry: true }),
         general_access: generalAccess,
         auth_mode: authMode,
         render_mode: renderMode,
-        // Round 7 items 57/60 — the link-wide role and the people list are
-        // the dialog's state, sent wholesale (grants replace server-side).
         ...(generalAccess === "link" ? { link_role: linkRole } : {}),
         grants,
         ...(authMode === "password" && password.length > 0 ? { password } : {}),
         ...(authMode !== "password" ? { clear_password: true } : {}),
+        show_title: showTitle,
+        back_link: backLink,
       };
 
-      if (!mode) throw new Error("Nothing to publish.");
+      let share: ShareOut;
       switch (mode.kind) {
-        case "edit-file": {
-          const updated = await updateShare(mode.share.id, policyPatch);
-          setResult(updated);
+        case "edit-file":
+          share = await updateShare(mode.share.id, policyPatch);
           break;
-        }
-        case "publish-file": {
-          const share = await publish({
+        case "publish-file":
+          share = await publish({
             sourcePath: mode.filePath,
             filename,
             content: mode.content,
@@ -298,9 +301,21 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
             grants,
             linkRole,
           });
-          setResult(share);
-          toast({ title: "Published", description: `${filename} is now shared.`, variant: "success" });
           break;
+      }
+      setResult(share);
+      setStep("result");
+      if (mode.kind === "publish-file") toast({ title: "Published", description: `${filename} is now shared.`, variant: "success" });
+
+      // §4.2 — mint a fresh per-share token only when token protection is
+      // newly in effect (a brand-new share, or an edit that just switched
+      // INTO token mode) — never on every save, which would spam mints.
+      if (authMode === "token" && !wasToken) {
+        try {
+          const minted = await createShareToken(share.id, `share ${alias.trim() || filename || share.slug}`);
+          setMintedToken(minted);
+        } catch (err) {
+          setTokenError(err instanceof Error ? err.message : "Could not mint a share token.");
         }
       }
     } catch (err) {
@@ -311,38 +326,35 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
   }
 
   const link = result ? buildShareLink(result) : null;
+  const curlLine = link && mintedToken ? `curl -H 'Authorization: Bearer ${mintedToken.token}' ${link}` : null;
 
-  async function handleCopy() {
-    if (!link) return;
+  async function copyText(field: "link" | "token" | "curl", text: string) {
     try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 1500);
     } catch {
-      // clipboard permission denied — the link is still selectable text in the field
+      // clipboard permission denied — the value is still selectable text
     }
   }
 
+  function resetAndClose(open: boolean) {
+    onOpenChange(open);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={resetAndClose}>
       <DialogContent size="md" data-testid="publish-dialog">
         <DialogHeader>
-          <DialogTitle style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {mode ? MODE_CHROME[mode.kind].title : "Publish"}
-          </DialogTitle>
+          <DialogTitle>{mode ? MODE_CHROME[mode.kind].title : "Publish"}</DialogTitle>
           <DialogDescription>
-            {mode?.kind === "edit-file"
-              ? mode.share.source_path
-              : filePath
-                ? `Share "${filePath.split("/").pop()}" with a link.`
-                : ""}
+            {mode?.kind === "edit-file" ? mode.share.source_path : filePath ? `Share "${filePath.split("/").pop()}" with a link.` : ""}
           </DialogDescription>
         </DialogHeader>
 
         {offline && (
           <Alert variant="warning" title="Backend not running" size="sm">
-            Share links need the VSNote backend. Start it with <code>npm run server</code> (listens on
-            127.0.0.1:8787).
+            Share links need the VSNote backend. Start it with <code>npm run server</code> (listens on 127.0.0.1:8787).
           </Alert>
         )}
 
@@ -351,21 +363,11 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
             <Alert variant="info" size="sm" title="Sign in to publish">
               Publishing requires an owner session on the backend.
             </Alert>
-            {/* DESIGN-SPEC Amendments round 4 item 32 hint, reworded round 6
-                item 2: the old copy overflowed the dialog under nowrap
-                ("modal spill"); shorter copy that genuinely fits one row. */}
             <p style={{ fontSize: 12, color: "var(--color-muted)", margin: 0, whiteSpace: "nowrap" }}>
               No account? Set the VSNOTE_BOOTSTRAP env vars on the server.
             </p>
             <div style={{ display: "flex", gap: 8 }}>
-              <Input
-                size="sm"
-                placeholder="Username"
-                value={loginUser}
-                onChange={(e) => setLoginUser(e.target.value)}
-                aria-label="Backend username"
-                data-testid="publish-login-username"
-              />
+              <Input size="sm" placeholder="Username" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} aria-label="Backend username" data-testid="publish-login-username" />
               <Input
                 size="sm"
                 type="password"
@@ -375,20 +377,7 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
                 aria-label="Backend password"
                 data-testid="publish-login-password"
               />
-              {/* DESIGN-SPEC Amendments round 4 item 31: this row's two
-                  `Input`s are the library's `w-full` variant, so they
-                  compete with the Button for the flex row's space — without
-                  pinning the Button to its own content size it can shrink
-                  enough for "Sign in" to wrap onto two rows (same mechanism
-                  as item 27's Test Connection button). */}
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleLogin}
-                disabled={loggingIn}
-                data-testid="publish-login-submit"
-                style={{ whiteSpace: "nowrap", flexShrink: 0 }}
-              >
+              <Button type="button" size="sm" onClick={handleLogin} disabled={loggingIn} data-testid="publish-login-submit" style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
                 {loggingIn ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Sign in"}
               </Button>
             </div>
@@ -398,264 +387,50 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
               </Alert>
             )}
             {oauthGoogle && (
-              <a
-                href={oauthStartUrl("/")}
-                data-testid="publish-oauth-google"
-                style={{ fontSize: 12.5, color: "var(--color-primary)" }}
-              >
+              <a href={oauthStartUrl("/")} data-testid="publish-oauth-google" style={{ fontSize: 12.5, color: "var(--color-primary)" }}>
                 Continue with Google instead
               </a>
             )}
           </div>
         )}
 
-        {!offline && authenticated && !result && (
+        {!offline && authenticated && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {/* Round 7 items 55/57 — access + link role share one row,
-                Docs-style: who can open it, and what the LINK itself
-                grants. Per-person upgrades live in the People list below. */}
-            <FormField label="General access">
-              <div style={{ display: "flex", gap: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <Select value={generalAccess} onValueChange={(v) => setGeneralAccess(v as GeneralAccess)}>
-                    <SelectTrigger size="sm" data-testid="publish-general-access">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* Round 6 item 3 — icon + label on ONE row: a bare icon
-                          next to text inside SelectItem could wrap/stack; an
-                          inline-flex wrapper keeps them a single unit. */}
-                      <SelectItem value="restricted">
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-                          <Lock size={13} aria-hidden /> Restricted to listed people
-                        </span>
-                      </SelectItem>
-                      <SelectItem value="link">
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-                          <Globe2 size={13} aria-hidden /> Anyone with the link
-                        </span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {generalAccess === "link" && (
-                  <Select value={linkRole} onValueChange={(v) => setLinkRole(v as GrantRole)}>
-                    <SelectTrigger size="sm" style={{ width: 120 }} data-testid="publish-link-role" aria-label="Link role">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="viewer">Can view</SelectItem>
-                      <SelectItem value="editor">Can edit</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            </FormField>
+            <Stepper steps={STEP_IDS.map((id) => ({ id, label: STEP_LABELS[id] }))} current={stepIndex} onStepClick={(i) => setStep(STEP_IDS[i])} />
 
-            <FormField
-              label="Share as"
-              hint={renderMode === "raw" ? "The link returns the file bytes only, no page around them." : undefined}
-            >
-              <SegmentedControl
-                size="sm"
-                fullWidth
-                value={renderMode}
-                onChange={setRenderMode}
-                aria-label="Delivery"
-                options={DELIVERY_OPTIONS}
-              />
-            </FormField>
+            {step === "mode" && (
+              <FormField label="Share as">
+                <SegmentedControl size="sm" fullWidth value={renderMode} onChange={setRenderMode} aria-label="Delivery" options={DELIVERY_OPTIONS} />
+                <p style={{ fontSize: 12, color: "var(--color-muted)", margin: "8px 0 0" }} data-testid="publish-mode-description">
+                  {RENDER_MODE_DESCRIPTIONS[renderMode]}
+                </p>
+              </FormField>
+            )}
 
-            <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                {/* Round 6 item 5 — expiry is explicit: the default state
-                    SAYS "Never expires"; a date only exists after opting
-                    in via the switch. */}
-                <FormField label="Expiry">
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 32 }}>
-                    <Switch
-                      checked={expiryEnabled}
-                      onCheckedChange={(on) => {
-                        setExpiryEnabled(on);
-                        if (!on) setExpiresLocal("");
-                      }}
-                      aria-label="Set an expiry date"
-                      data-testid="publish-expiry-toggle"
-                    />
-                    {expiryEnabled ? (
-                      <Input
-                        size="sm"
-                        type="date"
-                        value={expiresLocal}
-                        onChange={(e) => setExpiresLocal(e.target.value)}
-                        aria-label="Expiry date"
-                        data-testid="publish-expires"
-                        style={{ flex: 1 }}
-                      />
-                    ) : (
-                      <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>Never expires</span>
-                    )}
-                  </div>
-                </FormField>
-              </div>
-              <div style={{ flex: 1 }}>
-                <FormField label="Custom alias" error={aliasCheck.valid ? undefined : aliasCheck.reason}>
-                  <Input
-                    size="sm"
-                    placeholder="8-64 chars: letters, digits, - _"
-                    value={alias}
-                    onChange={(e) => setAlias(e.target.value)}
-                    invalid={!aliasCheck.valid}
-                    aria-invalid={!aliasCheck.valid}
-                    aria-label="Custom alias"
-                    data-testid="publish-alias"
-                  />
-                </FormField>
-              </div>
-            </div>
-
-            {/* Round 6 item 4 — per-share TOKEN auth was server-implemented
-                (policy.py's AuthMode.token: Authorization: Bearer with an
-                API token) but never exposed here; the old Password switch
-                becomes a three-way credential select. */}
-            <FormField
-              label="Requires"
-              hint={authMode === "token" ? "Callers send an API token as an Authorization: Bearer header." : undefined}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Select value={authMode} onValueChange={(v) => setAuthMode(v as AuthMode)}>
-                  <SelectTrigger size="sm" style={{ width: 150 }} data-testid="publish-auth-mode">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No credential</SelectItem>
-                    <SelectItem value="password">Password</SelectItem>
-                    <SelectItem value="token">API token</SelectItem>
-                  </SelectContent>
-                </Select>
-                {authMode === "password" && (
-                  <Input
-                    size="sm"
-                    type="password"
-                    placeholder={isEditKind && existingShare?.has_password ? "Leave blank to keep current password" : "Share password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    aria-label="Share password"
-                    data-testid="publish-password"
-                    style={{ flex: 1 }}
-                  />
-                )}
-                {authMode === "token" && !generatedToken && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => void handleGenerateToken()}
-                    disabled={generatingToken}
-                    data-testid="publish-generate-token"
-                    style={{ whiteSpace: "nowrap", flexShrink: 0 }}
-                  >
-                    {generatingToken ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Generate token"}
-                  </Button>
-                )}
-              </div>
-              {/* Round 7 item 56 — the minted secret, revealed exactly once. */}
-              {authMode === "token" && generatedToken && (
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <Input
-                    size="sm"
-                    readOnly
-                    value={generatedToken}
-                    aria-label="Generated API token"
-                    data-testid="publish-generated-token"
-                    style={{ flex: 1, fontFamily: "var(--font-mono)" }}
-                    onFocus={(e) => e.currentTarget.select()}
-                  />
-                  <Button type="button" size="sm" variant="secondary" onClick={() => void handleCopyToken()} data-testid="publish-copy-token">
-                    {tokenCopied ? <Check size={13} /> : <Copy size={13} />}
-                    {tokenCopied ? "Copied" : "Copy"}
-                  </Button>
-                </div>
-              )}
-              {authMode === "token" && tokenError && (
-                <Alert variant="danger" size="sm" style={{ marginTop: 8 }}>
-                  {tokenError}
-                </Alert>
-              )}
-            </FormField>
-
-            {/* Round 7 item 60 — always visible: for restricted shares it
-                IS the access list; for link shares it holds per-person role
-                upgrades (a signed-in grantee outranks the link role). */}
-            {(
-              <FormField
-                label="People"
-                hint={
-                  generalAccess === "restricted"
-                    ? "People sign in with their account email or username to open it."
-                    : "Optional per-person roles for signed-in people, above the link's own."
-                }
-              >
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="publish-grants">
-                  {grants.map((g) => (
-                    <div key={g.principal} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          fontSize: 12.5,
-                          color: "var(--color-fg)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {g.principal}
+            {step === "access" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <FormField label="Who can open it">
+                  <RadioGroup value={generalAccess} onValueChange={(v) => setGeneralAccess(v as GeneralAccess)} data-testid="publish-general-access" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <RadioGroupItem value="link" />
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <Globe2 size={13} aria-hidden /> Anyone with the link
                       </span>
-                      <Select
-                        value={g.role}
-                        onValueChange={(v) =>
-                          setGrants((prev) => prev.map((x) => (x.principal === g.principal ? { ...x, role: v as GrantRole } : x)))
-                        }
-                      >
-                        <SelectTrigger size="sm" style={{ width: 110 }} aria-label={`Role for ${g.principal}`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="viewer">Can view</SelectItem>
-                          <SelectItem value="editor">Can edit</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Remove ${g.principal}`}
-                        onClick={() => setGrants((prev) => prev.filter((x) => x.principal !== g.principal))}
-                        style={{ flexShrink: 0 }}
-                      >
-                        <X size={13} />
-                      </Button>
-                    </div>
-                  ))}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <Input
-                      size="sm"
-                      placeholder="email or username"
-                      value={draftPrincipal}
-                      onChange={(e) => setDraftPrincipal(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleAddGrant();
-                        }
-                      }}
-                      aria-label="Add person"
-                      data-testid="publish-grant-principal"
-                      style={{ flex: 1, minWidth: 160 }}
-                    />
-                    <Select value={draftRole} onValueChange={(v) => setDraftRole(v as GrantRole)}>
-                      <SelectTrigger size="sm" style={{ width: 110 }} aria-label="Role for the new person">
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <RadioGroupItem value="restricted" />
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <Lock size={13} aria-hidden /> Only people I list
+                      </span>
+                    </label>
+                  </RadioGroup>
+                  <p style={{ fontSize: 12, color: "var(--color-muted)", margin: "8px 0 0" }}>{GENERAL_ACCESS_DESCRIPTIONS[generalAccess]}</p>
+                </FormField>
+
+                {generalAccess === "link" && (
+                  <FormField label="Link role">
+                    <Select value={linkRole} onValueChange={(v) => setLinkRole(v as GrantRole)}>
+                      <SelectTrigger size="sm" style={{ width: 150 }} data-testid="publish-link-role" aria-label="Link role">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -663,20 +438,267 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
                         <SelectItem value="editor">Can edit</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button
-                      type="button"
+                  </FormField>
+                )}
+
+                {generalAccess === "restricted" && (
+                  <FormField label="People" hint="They sign in with their account email or username to open it.">
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="publish-grants">
+                      {grants.map((g) => (
+                        <div key={g.principal} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.principal}</span>
+                          <Select value={g.role} onValueChange={(v) => setGrants((prev) => prev.map((x) => (x.principal === g.principal ? { ...x, role: v as GrantRole } : x)))}>
+                            <SelectTrigger size="sm" style={{ width: 110 }} aria-label={`Role for ${g.principal}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="viewer">Can view</SelectItem>
+                              <SelectItem value="editor">Can edit</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button type="button" size="sm" variant="ghost" aria-label={`Remove ${g.principal}`} onClick={() => setGrants((prev) => prev.filter((x) => x.principal !== g.principal))}>
+                            <X size={13} />
+                          </Button>
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Input
+                          size="sm"
+                          placeholder="email or username"
+                          value={draftPrincipal}
+                          onChange={(e) => setDraftPrincipal(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddGrant();
+                            }
+                          }}
+                          aria-label="Add person"
+                          data-testid="publish-grant-principal"
+                          style={{ flex: 1, minWidth: 160 }}
+                        />
+                        <Select value={draftRole} onValueChange={(v) => setDraftRole(v as GrantRole)}>
+                          <SelectTrigger size="sm" style={{ width: 110 }} aria-label="Role for the new person">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="viewer">Can view</SelectItem>
+                            <SelectItem value="editor">Can edit</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button type="button" size="sm" variant="secondary" disabled={!draftPrincipal.trim()} onClick={handleAddGrant} data-testid="publish-grant-add" style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                  </FormField>
+                )}
+              </div>
+            )}
+
+            {step === "protection" && (
+              <FormField label="Protection" hint={authMode === "token" ? "A per-share token is minted for you after publishing; callers send it as an Authorization: Bearer header." : undefined}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Select value={authMode} onValueChange={(v) => setAuthMode(v as AuthMode)}>
+                    <SelectTrigger size="sm" style={{ width: 170 }} data-testid="publish-auth-mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableAuthModes.map((am) => (
+                        <SelectItem key={am} value={am}>
+                          {AUTH_MODE_LABELS[am]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {authMode === "password" && (
+                    <Input
                       size="sm"
-                      variant="secondary"
-                      disabled={!draftPrincipal.trim()}
-                      onClick={handleAddGrant}
-                      data-testid="publish-grant-add"
-                      style={{ whiteSpace: "nowrap", flexShrink: 0 }}
-                    >
-                      Add
-                    </Button>
+                      type="password"
+                      placeholder={isEditKind && existingShare?.has_password ? "Leave blank to keep current password" : "Share password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      aria-label="Share password"
+                      data-testid="publish-password"
+                      style={{ flex: 1 }}
+                    />
+                  )}
+                </div>
+                {renderMode === "raw" && (
+                  <p style={{ fontSize: 12, color: "var(--color-muted)", margin: "8px 0 0" }}>Raw files can't require a password. Choose no credential or a share token.</p>
+                )}
+                {authMode === "password" && fileLinks.length > 0 && (
+                  <Alert variant="warning" size="sm" style={{ marginTop: 8 }} data-testid="publish-password-links-warning">
+                    A password prompts once per share. This file links to other notes, so a linked set is better served by no credential or restricted access.
+                  </Alert>
+                )}
+              </FormField>
+            )}
+
+            {step === "link" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <FormField label="Expiry">
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 32 }}>
+                        <Switch
+                          checked={expiryEnabled}
+                          onCheckedChange={(on) => {
+                            setExpiryEnabled(on);
+                            if (!on) setExpiresLocal("");
+                          }}
+                          aria-label="Set an expiry date"
+                          data-testid="publish-expiry-toggle"
+                        />
+                        {expiryEnabled ? (
+                          <Input size="sm" type="date" value={expiresLocal} onChange={(e) => setExpiresLocal(e.target.value)} aria-label="Expiry date" data-testid="publish-expires" style={{ flex: 1 }} />
+                        ) : (
+                          <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>Never expires</span>
+                        )}
+                      </div>
+                    </FormField>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <FormField label="Custom alias" error={aliasCheck.valid ? undefined : aliasCheck.reason}>
+                      <Input
+                        size="sm"
+                        placeholder="8-64 chars: letters, digits, - _"
+                        value={alias}
+                        onChange={(e) => setAlias(e.target.value)}
+                        invalid={!aliasCheck.valid}
+                        aria-invalid={!aliasCheck.valid}
+                        aria-label="Custom alias"
+                        data-testid="publish-alias"
+                      />
+                    </FormField>
                   </div>
                 </div>
-              </FormField>
+
+                <FormField label="Show title" hint="Publishes the document's heading as the page title.">
+                  <Switch checked={showTitle} onCheckedChange={setShowTitle} aria-label="Show title" data-testid="publish-show-title" />
+                </FormField>
+
+                <FormField label="Back link" hint="One line at the top pointing to another of your shares, typically an index.">
+                  <div data-testid="publish-back-link">
+                    <Combobox
+                      options={[{ value: "", label: "None" }, ...backLinkOptions]}
+                      value={backLink}
+                      onChange={setBackLink}
+                      placeholder="None"
+                      emptyText="No other active shares yet."
+                    />
+                  </div>
+                </FormField>
+
+                {renderMode === "rendered" && fileLinks.length > 0 && (
+                  <FormField label="Links in this file">
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="publish-file-links">
+                      {fileLinks.map((link) => (
+                        <div key={link.target} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }} data-testid={`publish-file-link-${link.target}`}>
+                          <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)" }}>{link.raw}</span>
+                          {link.share ? (
+                            <Badge variant="success" tone="soft">
+                              Shared as /share/{link.share.alias ?? link.share.slug}
+                            </Badge>
+                          ) : (
+                            <>
+                              <Badge variant="neutral" tone="soft">
+                                Not shared
+                              </Badge>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => void handleShareSibling(link.target)}
+                                disabled={sharingSibling === link.target}
+                                data-testid={`publish-share-too-${link.target}`}
+                              >
+                                {sharingSibling === link.target ? <Loader2 size={12} className="animate-spin" /> : <Share2 size={12} />}
+                                Share too
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </FormField>
+                )}
+              </div>
+            )}
+
+            {step === "result" && result && link && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <FormField label="Share link">
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <Input size="sm" readOnly value={link} data-testid="publish-result-link" style={{ flex: 1 }} onFocus={(e) => e.currentTarget.select()} />
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void copyText("link", link)} data-testid="publish-copy-link">
+                      {copiedField === "link" ? <Check size={13} /> : <Copy size={13} />}
+                      {copiedField === "link" ? "Copied" : "Copy"}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => window.open(link, "_blank", "noopener,noreferrer")} aria-label="Open link">
+                      <ExternalLink size={13} />
+                    </Button>
+                  </div>
+                </FormField>
+
+                <div style={{ display: "flex", gap: 6 }}>
+                  <Badge variant="neutral" tone="soft">
+                    {result.render_mode === "rendered" ? "Viewer page" : "Raw file"}
+                  </Badge>
+                  <Badge variant={result.general_access === "link" ? "primary" : "neutral"} tone="soft">
+                    {result.general_access === "link" ? "Anyone with the link" : "Restricted"}
+                  </Badge>
+                  {result.auth_mode === "password" && (
+                    <Badge variant="warning" tone="soft">
+                      Password
+                    </Badge>
+                  )}
+                  {result.auth_mode === "token" && (
+                    <Badge variant="warning" tone="soft">
+                      Share token
+                    </Badge>
+                  )}
+                </div>
+
+                {result.auth_mode === "token" && mintedToken && (
+                  <>
+                    <Alert variant="warning" size="sm" title="You will not see this token again" data-testid="publish-token-warning">
+                      Copy it now and store it somewhere safe. VSNote never re-serves the plaintext token.
+                    </Alert>
+                    <FormField label="Share token">
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <Input
+                          size="sm"
+                          readOnly
+                          value={mintedToken.token}
+                          aria-label="Generated share token"
+                          data-testid="publish-generated-token"
+                          style={{ flex: 1, fontFamily: "var(--font-mono)" }}
+                          onFocus={(e) => e.currentTarget.select()}
+                        />
+                        <Button type="button" size="sm" variant="secondary" onClick={() => void copyText("token", mintedToken.token)} data-testid="publish-copy-token">
+                          {copiedField === "token" ? <Check size={13} /> : <Copy size={13} />}
+                          {copiedField === "token" ? "Copied" : "Copy"}
+                        </Button>
+                      </div>
+                    </FormField>
+                    <FormField label="Try it">
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <Input size="sm" readOnly value={curlLine ?? ""} data-testid="publish-curl-line" style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 11.5 }} onFocus={(e) => e.currentTarget.select()} />
+                        <Button type="button" size="sm" variant="secondary" onClick={() => curlLine && void copyText("curl", curlLine)} data-testid="publish-copy-curl">
+                          {copiedField === "curl" ? <Check size={13} /> : <Copy size={13} />}
+                          {copiedField === "curl" ? "Copied" : "Copy"}
+                        </Button>
+                      </div>
+                    </FormField>
+                  </>
+                )}
+                {result.auth_mode === "token" && tokenError && (
+                  <Alert variant="danger" size="sm">
+                    {tokenError}
+                  </Alert>
+                )}
+              </div>
             )}
 
             {error && (
@@ -687,53 +709,28 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
           </div>
         )}
 
-        {result && link && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <FormField label="Share link">
-              <div style={{ display: "flex", gap: 8 }}>
-                <Input size="sm" readOnly value={link} data-testid="publish-result-link" style={{ flex: 1 }} onFocus={(e) => e.currentTarget.select()} />
-                <Button type="button" size="sm" variant="secondary" onClick={handleCopy} data-testid="publish-copy-link">
-                  {copied ? <Check size={13} /> : <Copy size={13} />}
-                  {copied ? "Copied" : "Copy"}
-                </Button>
-              </div>
-            </FormField>
-            <div style={{ display: "flex", gap: 6 }}>
-              <Badge variant="neutral" tone="soft">
-                {result.render_mode === "rendered" ? "Viewer page" : "Raw file"}
-              </Badge>
-              <Badge variant={result.general_access === "link" ? "primary" : "neutral"} tone="soft">
-                {result.general_access === "link" ? "Anyone with the link" : "Restricted"}
-              </Badge>
-              {result.auth_mode === "password" && (
-                <Badge variant="warning" tone="soft">
-                  Password
-                </Badge>
-              )}
-              {result.auth_mode === "token" && (
-                <Badge variant="warning" tone="soft">
-                  API token
-                </Badge>
-              )}
-            </div>
-          </div>
-        )}
-
         <DialogFooter>
-          {result ? (
-            <Button type="button" onClick={() => onOpenChange(false)} data-testid="publish-done">
+          {step === "result" ? (
+            <Button type="button" onClick={() => resetAndClose(false)} data-testid="publish-done">
               Done
             </Button>
           ) : (
             <>
-              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-                Cancel
+              <Button type="button" variant="ghost" onClick={() => (stepIndex === 0 ? resetAndClose(false) : goBack())}>
+                {stepIndex === 0 ? "Cancel" : "Back"}
               </Button>
-              <Button type="button" disabled={!canSubmit} onClick={handleSubmit} data-testid="publish-submit">
+              <Button
+                type="button"
+                disabled={stepIndex === STEP_IDS.indexOf("link") ? !canSubmit : false}
+                onClick={goNext}
+                data-testid={stepIndex === STEP_IDS.indexOf("link") ? "publish-submit" : "publish-continue"}
+              >
                 {submitting ? (
                   <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span>
-                ) : (
+                ) : stepIndex === STEP_IDS.indexOf("link") ? (
                   mode ? MODE_CHROME[mode.kind].verb : "Publish"
+                ) : (
+                  "Continue"
                 )}
               </Button>
             </>

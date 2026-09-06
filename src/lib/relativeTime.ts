@@ -28,3 +28,13 @@ export function formatLastPushedLabel(lastSyncedAt: number | null, now: number =
   if (lastSyncedAt === null) return "never pushed";
   return `last pushed ${relativeAgo(Math.max(0, now - lastSyncedAt))}`;
 }
+
+/** Bare "Xm ago" / "Never" for a nullable EPOCH-SECONDS timestamp (the
+ * Shared view's created/last-accessed columns — `ShareOut.created_at`/
+ * `last_access_at` are seconds, unlike `lastSyncedAt` above which is
+ * milliseconds; both funnel through the same `relativeAgo` so the two
+ * surfaces never drift in wording). */
+export function formatRelativeEpochSeconds(epochSeconds: number | null | undefined, now: number = Date.now()): string {
+  if (epochSeconds == null) return "Never";
+  return relativeAgo(Math.max(0, now - epochSeconds * 1000));
+}

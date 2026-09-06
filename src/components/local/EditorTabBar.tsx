@@ -31,7 +31,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "my-you-eye";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, MoreHorizontal, Settings as SettingsIcon, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, MoreHorizontal, Settings as SettingsIcon, Share2 as SharedIcon, X } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "./ContextMenu";
 import { FileIcon } from "./FileIcon";
 import type { DockEdge, TabItem } from "../../types";
@@ -200,6 +200,8 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                       file/folder identity ... gear"). */}
                   {tab.kind === "settings" ? (
                     <SettingsIcon size={14} color="var(--color-muted)" aria-hidden />
+                  ) : tab.kind === "shared" ? (
+                    <SharedIcon size={14} color="var(--color-muted)" aria-hidden />
                   ) : (
                     <FileIcon kind={tab.kind} name={tab.name} size={14} />
                   )}

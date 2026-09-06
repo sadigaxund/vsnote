@@ -1,19 +1,17 @@
 /**
- * Phase 10 (sharing) e2e UI helpers — drive the Publish dialog / Settings
- * "Sharing" category / the Shared panel exactly the way a user would (no
- * bare timeouts, only auto-waiting Playwright locators/assertions, matching
- * `fixtures.ts`'s existing discipline).
+ * Phase 10 (sharing) e2e UI helpers — drive the STEPPED Publish dialog
+ * (docs/PLAN-2026-09-05-refresh.md §4, rebuilt this pass) and the "Shared"
+ * activity-bar view (§2) exactly the way a user would (no bare timeouts,
+ * only auto-waiting Playwright locators/assertions, matching `fixtures.ts`'s
+ * existing discipline).
  */
 import { expect, type Page } from "@playwright/test";
 import { openSettingsTab, treeRow } from "./fixtures";
 
-/** Opens Settings → Sharing, waits for "Online" (single-origin refactor,
- * Phase 10.5a: no more Backend URL field to fill — `/api/*` is a relative
- * fetch that reaches the real backend via `vite.config.ts`'s proxy in this
- * dev/preview e2e run, same as it does same-origin in production), and
- * signs in. Leaves the Settings tab open (Sharing category active) —
- * callers that need the Explorer sidebar don't need to switch away from it
- * first, since the sidebar is independent of which editor tab is focused. */
+/** Opens Settings → Sharing, waits for "Online", and signs in. Leaves the
+ * Settings tab open. Share MANAGEMENT itself lives in the "Shared"
+ * activity-bar view now (`openSharedView` below) — Settings → Sharing keeps
+ * only the backend connection/sign-in row and the admin blob-size row. */
 export async function signInToShareBackend(page: Page, username: string, password: string): Promise<void> {
   await openSettingsTab(page);
   await page.getByTestId("settings-nav-sharing").click();
@@ -24,22 +22,47 @@ export async function signInToShareBackend(page: Page, username: string, passwor
   await expect(page.getByTestId("share-signout")).toBeVisible();
 }
 
+/** Opens the "Shared" TAB (docs/PLAN-2026-09-05-refresh.md §2, course-
+ * corrected mid-pass to a full-width tab — same mechanism as opening
+ * Settings), replacing Settings → Sharing → Shared. Idempotent: if the tab
+ * is already open/focused, clicking the activity-bar icon again just
+ * re-focuses it (no collapse-toggle risk the old sidebar-panel version had). */
+export async function openSharedView(page: Page): Promise<void> {
+  const view = page.getByTestId("shared-view");
+  if (await view.isVisible().catch(() => false)) return;
+  await page.getByRole("button", { name: "Shared", exact: true }).click();
+  await expect(view).toBeVisible();
+}
+
 export interface PublishOptions {
   treePath: string;
   generalAccess?: "restricted" | "link";
   renderMode?: "raw" | "rendered";
   password?: string;
+  authMode?: "none" | "password" | "token";
   alias?: string;
-  /** Round 6 items 11/12 — a single per-principal role grant, driven
-   * through the dialog's "Roles" row (the switch + principal input + role
-   * select, none of which carry their own testid — see `PublishDialog.tsx`,
-   * targeted here by accessible name/role instead). */
+  /** A single per-principal role grant — the People row on the "Who can
+   * open" step when `generalAccess: "restricted"`. */
   grant?: { principal: string; role: "viewer" | "editor" };
 }
 
-/** Right-click → "Publish…" on a file row, fill the dialog, submit, and
- * return the resulting share link (read straight from the dialog's own
- * read-only link field — the same value `buildShareLink` produced). */
+/** Advances the dialog from whichever of the first four steps it's
+ * currently on to the next one ("Continue"), or submits ("Publish"/"Save")
+ * from the Link step. */
+async function continueStep(dialog: import("@playwright/test").Locator): Promise<void> {
+  const submit = dialog.getByTestId("publish-submit");
+  if (await submit.isVisible().catch(() => false)) {
+    await submit.click();
+    return;
+  }
+  await dialog.getByTestId("publish-continue").click();
+}
+
+/** Right-click → "Publish…" on a file row, drive the FIVE-STEP dialog
+ * (Mode → Who can open → Protection → Link → Result), and return the
+ * resulting share link (read from the Result step's read-only link field).
+ * For `authMode: "token"`, also returns the one-time minted token so a
+ * caller can assert the "you will not see this again" flow. */
 export async function publishFileViaContextMenu(page: Page, opts: PublishOptions): Promise<string> {
   await treeRow(page, opts.treePath).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Publish…" }).click();
@@ -47,27 +70,17 @@ export async function publishFileViaContextMenu(page: Page, opts: PublishOptions
   const dialog = page.getByTestId("publish-dialog");
   await expect(dialog).toBeVisible();
 
-  if (opts.generalAccess === "link") {
-    await dialog.getByTestId("publish-general-access").click();
-    await page.getByRole("option", { name: "Anyone with the link" }).click();
-  }
+  // Step 1 — Mode.
   if (opts.renderMode) {
-    // Round 7 item 57 — delivery labels: Viewer page / Raw file.
     await dialog.getByRole("radio", { name: opts.renderMode === "rendered" ? "Viewer page" : "Raw file" }).click();
   }
-  if (opts.password) {
-    // Round 6 item 4 — the old Password switch is now a three-way
-    // credential select (No credential / Password / API token).
-    await dialog.getByTestId("publish-auth-mode").click();
-    await page.getByRole("option", { name: "Password" }).click();
-    await dialog.getByTestId("publish-password").fill(opts.password);
-  }
-  if (opts.alias) {
-    await dialog.getByTestId("publish-alias").fill(opts.alias);
+  await continueStep(dialog);
+
+  // Step 2 — Who can open.
+  if (opts.generalAccess === "restricted") {
+    await dialog.getByTestId("publish-general-access").getByLabel("Only people I list").click();
   }
   if (opts.grant) {
-    // Round 7 item 60 — the People list: fill the add row, pick the role,
-    // press Add (grants are visible state now, not a write-only switch).
     await dialog.getByTestId("publish-grant-principal").fill(opts.grant.principal);
     if (opts.grant.role === "editor") {
       await dialog.getByLabel("Role for the new person").click();
@@ -75,8 +88,26 @@ export async function publishFileViaContextMenu(page: Page, opts: PublishOptions
     }
     await dialog.getByTestId("publish-grant-add").click();
   }
+  await continueStep(dialog);
 
-  await dialog.getByTestId("publish-submit").click();
+  // Step 3 — Protection.
+  const authMode = opts.authMode ?? (opts.password ? "password" : undefined);
+  if (authMode) {
+    await dialog.getByTestId("publish-auth-mode").click();
+    await page.getByRole("option", { name: authMode === "password" ? "Password" : authMode === "token" ? "Share token" : "No credential" }).click();
+    if (authMode === "password" && opts.password) {
+      await dialog.getByTestId("publish-password").fill(opts.password);
+    }
+  }
+  await continueStep(dialog);
+
+  // Step 4 — Link.
+  if (opts.alias) {
+    await dialog.getByTestId("publish-alias").fill(opts.alias);
+  }
+  await continueStep(dialog); // submits (Publish/Save) from this step
+
+  // Step 5 — Result.
   const linkInput = dialog.getByTestId("publish-result-link");
   await expect(linkInput).toBeVisible();
   const link = await linkInput.inputValue();
@@ -85,17 +116,46 @@ export async function publishFileViaContextMenu(page: Page, opts: PublishOptions
   return link;
 }
 
+/** Same flow as `publishFileViaContextMenu`, but also returns the one-time
+ * minted share token (§4.2) for `authMode: "token"` callers — read BEFORE
+ * dismissing the dialog, since the plaintext is never re-served. */
+export async function publishFileWithToken(page: Page, opts: Omit<PublishOptions, "authMode" | "password">): Promise<{ link: string; token: string }> {
+  await treeRow(page, opts.treePath).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Publish…" }).click();
+
+  const dialog = page.getByTestId("publish-dialog");
+  await expect(dialog).toBeVisible();
+  if (opts.renderMode) {
+    await dialog.getByRole("radio", { name: opts.renderMode === "rendered" ? "Viewer page" : "Raw file" }).click();
+  }
+  await continueStep(dialog);
+  if (opts.generalAccess === "restricted") {
+    await dialog.getByTestId("publish-general-access").getByLabel("Only people I list").click();
+  }
+  await continueStep(dialog);
+  await dialog.getByTestId("publish-auth-mode").click();
+  await page.getByRole("option", { name: "Share token" }).click();
+  await continueStep(dialog);
+  if (opts.alias) await dialog.getByTestId("publish-alias").fill(opts.alias);
+  await continueStep(dialog);
+
+  const linkInput = dialog.getByTestId("publish-result-link");
+  await expect(linkInput).toBeVisible();
+  const link = await linkInput.inputValue();
+  await expect(dialog.getByTestId("publish-token-warning")).toBeVisible();
+  const tokenInput = dialog.getByTestId("publish-generated-token");
+  const token = await tokenInput.inputValue();
+  await dialog.getByTestId("publish-done").click();
+  await expect(dialog).toBeHidden();
+  return { link, token };
+}
+
 /** Creates a new file (Explorer "New File" under `parentPath`, renamed to
  * `filename`), opens it, types `content` into its editor, and saves
- * (⌘S/Ctrl+S). Returns the new file's vault display path. Used by the
- * sandbox spec to publish attacker-controlled content that doesn't exist in
- * the seeded demo vault. */
+ * (⌘S/Ctrl+S). Returns the new file's vault display path. */
 export async function createFileWithContent(page: Page, parentPath: string, filename: string, content: string): Promise<string> {
   await treeRow(page, parentPath).click({ button: "right" });
   await page.getByRole("menuitem", { name: "New File" }).click();
-  // DESIGN-SPEC Amendments round 4 item 30: the draft row is an in-memory
-  // placeholder (`.vsnote-draft-file`, never a real fs path) with an empty
-  // name field, not a real `untitled.md`.
   const draftPath = `${parentPath}/.vsnote-draft-file`;
   const draftRow = treeRow(page, draftPath);
   await expect(draftRow).toBeVisible();
@@ -107,11 +167,6 @@ export async function createFileWithContent(page: Page, parentPath: string, file
   await expect(row).toBeVisible();
   await row.dblclick();
 
-  // Some kinds (html, json, csv, image) default to Rendered mode, whose
-  // preview isn't a CM6 surface at all (e.g. `.html` opens
-  // `renderers/HtmlPreview.tsx`'s plain iframe) — force Source explicitly
-  // so `.cm-content` below is always the real editable view, regardless of
-  // the file's default mode.
   const sourceToggle = page.getByRole("radio", { name: "Source" });
   if (await sourceToggle.isVisible().catch(() => false)) {
     await sourceToggle.click();
@@ -126,18 +181,14 @@ export async function createFileWithContent(page: Page, parentPath: string, file
   return finalPath;
 }
 
-/** Revokes a share from the Shared panel (Settings → Sharing → Shared),
- * matched by its slug/alias (the identifier segment of `link`). Re-opens
- * the Settings tab first (`openSettingsTab`) rather than assuming it's
- * still the active tab — a caller that opened/edited another file since
- * signing in (e.g. `createFileWithContent`'s `dblclick`) has moved the
- * active tab away from Settings. */
+/** Revokes a share from the "Shared" activity-bar view, matched by its
+ * slug/alias (the identifier segment of `link`). */
 export async function revokeShareByLink(page: Page, link: string): Promise<void> {
   const identifier = new URL(link).pathname.split("/").filter(Boolean).pop()!;
-  await openSettingsTab(page);
-  await page.getByTestId("settings-nav-sharing").click();
-  const row = page.locator('[data-testid^="shared-row-"]', { hasText: identifier });
+  await openSharedView(page);
+  const row = page.locator("tr", { hasText: identifier });
   await expect(row).toBeVisible();
-  await row.getByLabel("Revoke").click();
+  await row.getByLabel(/^Actions for/).click();
+  await page.getByTestId(/^shared-revoke-/).click();
   await page.getByRole("button", { name: "Revoke" }).last().click();
 }

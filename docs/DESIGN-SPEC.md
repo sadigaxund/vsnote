@@ -831,3 +831,89 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     share's page immediately, no republish. Navigation is the owner's own
     markdown plus the browser's back button — there is no index/listing
     view and no folder-share revival.
+
+## Amendments round 10 (continued) — 2026-09-06 (publish dialog rebuild + Shared view)
+
+Item 69 said the publish dialog/Shared-view surfaces for items 66-68 were "not
+built this pass" — they are now. Items 78-83 below implement them; item 78
+explicitly SUPERSEDES items 55 and 56, which described the old single-form
+dialog and its API-token-as-visitor-credential model.
+
+78. **Publish dialog is a stepped form — SUPERSEDES items 55 and 56.** Five
+    fixed steps, one screen at a time (a local `Stepper`, see item 80):
+    `Mode` (Raw / Rendered, each with a one-line "what a visitor gets"
+    description) -> `Who can open` (Anyone with the link / Only people I
+    list, with the People list living on this step for restricted access)
+    -> `Protection` (filtered by mode — see item 79) -> `Link` (alias,
+    expiry, `Show title`, `Back link`, and Rendered mode's "Links in this
+    file" — item 81) -> `Result` (the link, and for token protection the
+    one-time token — item 82). Item 55's "segmented controls fill their
+    container width" carries forward for the Mode step's raw/rendered
+    picker; item 56's "API-token access must be self-serve" is superseded
+    by item 82 below (a per-share token, not an owner account token).
+79. **Protection step mirrors the server's auth matrix exactly.** Raw mode
+    offers only "No credential" and "Share token"; Rendered mode additionally
+    offers "Password". The dialog can never construct a combination
+    `server/app/routers/shares.py::_check_auth_matches_render_mode` would
+    reject — there is no password field to even type on a raw share. If a
+    password is chosen on a file whose Rendered "Links in this file" list
+    is non-empty, an inline warning says a password prompts once PER
+    SHARE, so a linked set (a "blog") is better served by no credential or
+    restricted access.
+80. **`Stepper` — a new local component, not an upstream import.** `my-you-
+    eye` has no Stepper/Wizard primitive (`skills/components.json`: zero
+    entries for either name; already filed as sadigaxund/my-you-eye#35,
+    not re-filed). `components/local/Stepper.tsx`: numbered dots + labels,
+    a connecting rule, a checkmark "done" state a user can click back to.
+    Deliberately thin — no branching/skip logic, since this dialog's five
+    steps are a fixed linear sequence.
+81. **"Links in this file" (Rendered mode, Link step) — the owner-side half
+    of §5's blog feature.** Every relative markdown-file link found in the
+    document being published (`share/linksInFile.ts`, built on
+    `markdown/render.tsx`'s own `parseAndRewriteLinks`) shows "Shared as
+    /share/x" when it resolves to one of the owner's other active shares,
+    or "Not shared" with a "Share too" action otherwise. "Share too" reads
+    the sibling file straight from the vault and publishes it with the
+    SAME policy currently held in the form (mode, access, protection) —
+    one click, no second trip through the dialog.
+82. **Per-share tokens are minted and shown IN the dialog, not a separate
+    flow. Labeled "Share token" throughout — never "API token"**, since
+    the entire point of §4.2 was to stop the owner's account-wide API
+    tokens from doubling as visitor credentials; calling a share's own
+    token an "API token" would reproduce exactly the confusion the change
+    removed. Choosing "Share token" protection, then publishing/saving,
+    mints a token via `POST /api/shares/{id}/tokens` (§4.2/item 66) and
+    shows it on the Result step with a "you will not see this again"
+    warning and a ready-made, copyable `curl -H 'Authorization: Bearer
+    <token>' <url>` line. Editing an EXISTING share only mints a fresh
+    token when protection is newly switching INTO "Share token" — never
+    re-minted on every save (that would spam mints for no reason;
+    rotation stays a deliberate mint-new-then-revoke-old action from the
+    Shared view).
+83. **Shared view — a new activity-bar icon, opening a full-width TAB
+    (course-corrected mid-pass, see the "SUPERSEDES" note below).** Share
+    management (list, edit policy, regenerate, manage tokens, revoke)
+    moves to its own "Shared" icon on the activity bar (`ActivityBar.tsx`).
+    **SUPERSEDES this item's own first draft**, which rendered the view
+    inside the shared sidebar region (`local/SidebarContainer`, same shell
+    as Explorer/Search/Source Control/Extensions): screenshot review
+    showed a source/link/mode/access/links-to-from/hits/last-accessed
+    table was unusable there — headers overlapped and every cell
+    collapsed to a bare truncation chevron, even after widening the
+    region past 600px. The icon instead opens a full-width tab exactly
+    the way Settings already does (`lib/sharedTab.ts`, `App.tsx`'s
+    `handleOpenShared`, `EditorContent.tsx`'s `kind === "shared"` branch —
+    the identical virtual-tab mechanism `kind === "settings"` established).
+    `SettingsView.tsx`'s "Sharing" category keeps ONLY sharing defaults —
+    backend sign-in and the admin-only share blob size limit. The view's
+    table (`components/SharedView.tsx`) uses `my-you-eye` `DataTable`'s
+    `renderActions`/`onRowClick` (my-you-eye 2026.8.3, upstream #25) with
+    FIXED column widths (an `"auto"`-layout attempt hid columns behind an
+    invisible horizontal scroll instead, worse at every width tried) — a
+    truncated link column with its own copy action, relative dates, a
+    "Links to / from" count per share (§5's audit requirement, computed
+    client-side from the vault's own files), and a trailing actions cell
+    (quick copy-link button + an overflow `DropdownMenu`: copy link, edit
+    policy, regenerate, manage tokens, revoke). Per item 51, a refresh
+    keeps the table mounted and dims it rather than unmounting to a
+    skeleton or empty state.

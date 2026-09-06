@@ -202,7 +202,7 @@ export function modeAvailabilityFor(kind: FileKind | undefined, hasDiff: boolean
   // toggle never renders for it (see `EditorPane.tsx`, which hides the
   // whole header row for this kind rather than showing an all-disabled
   // segmented control).
-  if (!kind || kind === "folder" || kind === "settings") return [];
+  if (!kind || kind === "folder" || kind === "settings" || kind === "shared") return [];
   const entry = fileTypeForOrPlain(kind);
   const modes = [...entry.baseModes];
   if (hasDiff && entry.supportsDiff) modes.push("diff");
