@@ -241,6 +241,52 @@ const shareAuthProxy = {
 // "folder-redux-actions.clone") survive intact.
 const HASHED_CHUNK_NAME = /^(.*)-[\w-]{8}\.\w+$/;
 
+/* R3-9 gave every unmodeled extension a real language through
+   `@codemirror/language-data`, whose ~100 parser packages are each their
+   own lazy chunk under a generic `index-<hash>.js` name. Left alone they
+   all land in the service worker's precache, which took the manifest from
+   ~190 entries and 2.5MB to 287 and 3.9MB: every visitor would pay origin
+   quota up front for parsers of languages they will never open, which is
+   the same failure the exotic-icon fallback tier above already has a
+   carve-out for.
+
+   Identifying them by NAME is impossible (the emitted names are generic)
+   and forcing them into named chunks via `manualChunks` was tried and
+   reverted: it pulled the catalog into the boot chunk's static graph and
+   broke the offline cold-start probe. So this identifies them
+   STRUCTURALLY instead, at `generateBundle` time, when the module ids
+   behind each chunk are known: a chunk is a language-parser chunk when
+   EVERY module in it comes from one of those lazily catalogued packages.
+   The all-modules rule is what keeps a chunk that also carries app code
+   (or a language the hand-written registry entries load themselves) out of
+   the exclusion set. `manifestTransforms` below consults the result, which
+   is populated during the same build, before the service worker is
+   generated. */
+const LAZY_LANGUAGE_PACKAGE = /node_modules\/(?:@codemirror\/(?:lang-[a-z0-9-]+|legacy-modes|language-data)|@lezer\/[a-z0-9-]+)\//;
+const REGISTRY_LOADED_LANGUAGE_PACKAGE =
+  /node_modules\/(?:@codemirror\/lang-(?:markdown|javascript|json|css|html)|@lezer\/(?:markdown|javascript|json|css|html|common|highlight|lr))\//;
+const lazyLanguageChunkFileNames = new Set<string>();
+
+function collectLazyLanguageChunks() {
+  return {
+    name: "vsnote-collect-lazy-language-chunks",
+    apply: "build" as const,
+    generateBundle(_options: unknown, bundle: Record<string, { type: string; modules?: Record<string, unknown> }>) {
+      lazyLanguageChunkFileNames.clear();
+      for (const [fileName, chunk] of Object.entries(bundle)) {
+        if (chunk.type !== "chunk") continue;
+        const ids = Object.keys(chunk.modules ?? {});
+        if (ids.length === 0) continue;
+        const allLazyLanguage = ids.every(
+          (id) => LAZY_LANGUAGE_PACKAGE.test(id) && !REGISTRY_LOADED_LANGUAGE_PACKAGE.test(id),
+        );
+        if (allLazyLanguage) lazyLanguageChunkFileNames.add(fileName);
+      }
+    },
+  };
+}
+
+
 // https://vite.dev/config/
 export default defineConfig({
   // DESIGN-SPEC Amendments round 5 item 36 — the full demo vault is opt-in.
@@ -256,6 +302,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    collectLazyLanguageChunks(),
     // Phase 5b (IMPLEMENTATION-PLAN.md Phase 5's PWA bullet): installable
     // app shell that also loads offline. `registerType: 'autoUpdate'` +
     // `clientsClaim`/`skipWaiting` is the documented combo for "never serve
@@ -348,6 +395,9 @@ export default defineConfig({
               const match = HASHED_CHUNK_NAME.exec(fileName);
               const baseName = match ? match[1] : fileName;
               if (ALWAYS_EXCLUDED_ICON_CHUNKS.has(baseName)) return false;
+              // A chunk made up ENTIRELY of lazily catalogued language
+              // parsers is not precached: see `collectLazyLanguageChunks`.
+              if (lazyLanguageChunkFileNames.has(entry.url.replace(/^\//, ""))) return false;
               const looksLikeIconWrapper = entry.size <= ICON_URL_WRAPPER_MAX_BYTES;
               return !(ICON_URL_WRAPPER_NAMES.has(baseName) && looksLikeIconWrapper);
             }),
