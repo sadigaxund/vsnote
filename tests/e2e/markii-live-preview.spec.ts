@@ -123,18 +123,23 @@ test.describe("markii directive live preview (.mk.md Rendered mode)", () => {
     const rendered = page.locator(".cm-content").first();
     await expect(rendered.locator(".mk-live-preview-block")).toBeVisible();
 
-    const lnCol = page.locator("text=/^Ln \\d+, Col \\d+$/");
+    // The status bar's Ln/Col readout is deliberately pinned to "Ln 1,
+    // Col 1" outside Source and Diff mode (`StatusBar.tsx`), so it cannot
+    // be the probe here. CodeMirror's own `.cm-activeLine` marks the line
+    // the caret is on, which is exactly the question: did the caret land on
+    // a real fence line, or get stuck at the widget's edge?
+    const activeLineText = () => rendered.locator(".cm-activeLine").first().innerText();
 
     // Entering from ABOVE: end of line 1, then down through the blank line
-    // 2, then into the container — must land on its OPENING fence line
-    // (line 3), at the very start of it, not swallowed into the widget.
+    // 2, then into the container — must land on its OPENING fence line,
+    // not be swallowed into the widget.
     await rendered.getByText("Some intro text.", { exact: false }).click();
     await page.keyboard.press("End");
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowDown");
     await expect(rendered.locator(".mk-live-preview-block")).toHaveCount(0);
     await expect(rendered).toContainText(":::center");
-    await expect(lnCol).toHaveText("Ln 3, Col 1");
+    expect((await activeLineText()).trim()).toBe(":::center");
 
     // Leave the block again (re-collapses) before testing the other
     // direction, so this second approach also starts from a real reveal
@@ -142,16 +147,15 @@ test.describe("markii directive live preview (.mk.md Rendered mode)", () => {
     await rendered.getByText("Outro text.", { exact: false }).click();
     await expect(rendered.locator(".mk-live-preview-block")).toBeVisible();
 
-    // Entering from BELOW: end of line 7, then up through the blank line 6,
-    // then into the container — must land on its CLOSING fence line
-    // (line 5), at the very end of it (the last real position in the
-    // block), not swallowed into the widget from the other side.
+    // Entering from BELOW: end of the last line, then up through the blank
+    // line, then into the container — must land on its CLOSING fence line,
+    // not be swallowed into the widget from the other side.
     await rendered.getByText("Outro text.", { exact: false }).click();
     await page.keyboard.press("End");
     await page.keyboard.press("ArrowUp");
     await page.keyboard.press("ArrowUp");
     await expect(rendered.locator(".mk-live-preview-block")).toHaveCount(0);
     await expect(rendered).toContainText(":::center");
-    await expect(lnCol).toHaveText("Ln 5, Col 4");
+    expect((await activeLineText()).trim()).toBe(":::");
   });
 });

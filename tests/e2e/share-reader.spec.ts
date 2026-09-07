@@ -183,6 +183,16 @@ test.describe("R3-5: selectable reading text + visitor reading preferences", () 
     // `user-select: none` subtrees from the resulting selection, so the
     // line-number spans ("1"/"2"/"3") must not appear glued to their line's
     // text even though they sit right next to it in the DOM.
+    // Collapse the paragraph selection before dragging. The triple-click
+    // above selects the paragraph plus its trailing whitespace, which
+    // reaches into the code block's own region, so a mousedown on the first
+    // code line lands INSIDE the existing selection and Chromium starts a
+    // drag-and-drop of the selected text instead of a new selection: the
+    // drag below then has no effect at all. Reproduced directly, and it is
+    // not a timing artifact (waiting past the multi-click interval does not
+    // help; collapsing the selection does).
+    await secondPage.evaluate(() => window.getSelection()?.removeAllRanges());
+
     const lines = secondPage.locator(".mk-static-codeblock__text");
     const firstBox = await lines.nth(0).boundingBox();
     const lastBox = await lines.nth(2).boundingBox();
