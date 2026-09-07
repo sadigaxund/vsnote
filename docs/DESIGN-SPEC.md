@@ -1225,3 +1225,15 @@ items OVERRIDE anything above them.
      view while a long category's rows scroll past. Together these remove
      the cascading-left-panels look, where the title, hint, search box and
      nav each stepped down the left edge before any content began.
+
+109. **A menu item's icon and its label are separated by the `gap-inline`
+     token (0.5rem), never by a bare JSX space or an ad-hoc
+     `marginLeft`.** The Shared view's row-actions menu read as icon and
+     label glued together because `my-you-eye`'s `DropdownMenuItem` is
+     `flex items-center` with no gap of its own, and the items relied on a
+     JSX whitespace text node; the editor's overflow menu had already
+     worked around the same gap with a hardcoded `marginLeft: 8`. The
+     library merges a caller `className`, so the fix is the real spacing
+     token on the item, applied to every icon-bearing menu across the app
+     (the local `ContextMenu` already bakes in the numerically identical
+     `gap-2`).

@@ -133,9 +133,9 @@ export function OverflowMenuItems({ paneId, kind, mode, path, missing }: Overflo
           </DropdownSubmenuTrigger>
           <DropdownSubmenuContent>
             {FORMAT_ITEMS.map(({ id, label, icon: Icon }) => (
-              <DropdownMenuItem key={id} onSelect={() => handleFormat(id)}>
+              <DropdownMenuItem className="gap-inline" key={id} onSelect={() => handleFormat(id)}>
                 <Icon size={14} aria-hidden />
-                <span style={{ marginLeft: 8 }}>{label}</span>
+                <span>{label}</span>
               </DropdownMenuItem>
             ))}
           </DropdownSubmenuContent>
@@ -146,22 +146,22 @@ export function OverflowMenuItems({ paneId, kind, mode, path, missing }: Overflo
           </DropdownSubmenuTrigger>
           <DropdownSubmenuContent>
             {INSERT_ITEMS.map(({ id, label, icon: Icon }) => (
-              <DropdownMenuItem key={id} onSelect={() => handleInsert(id)}>
+              <DropdownMenuItem className="gap-inline" key={id} onSelect={() => handleInsert(id)}>
                 <Icon size={14} aria-hidden />
-                <span style={{ marginLeft: 8 }}>{label}</span>
+                <span>{label}</span>
               </DropdownMenuItem>
             ))}
           </DropdownSubmenuContent>
         </DropdownSubmenu>
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={!canExportPdf} onSelect={handleExportPdf} data-testid="overflow-menu-export-pdf">
+        <DropdownMenuItem className="gap-inline" disabled={!canExportPdf} onSelect={handleExportPdf} data-testid="overflow-menu-export-pdf">
           <FileDown size={14} aria-hidden />
-          <span style={{ marginLeft: 8 }}>Export as PDF</span>
+          <span>Export as PDF</span>
         </DropdownMenuItem>
         {kind === "mkmd" && (
-          <DropdownMenuItem disabled={!canRunScripts || running} onSelect={handleRunScripts} data-testid="overflow-menu-run-scripts">
+          <DropdownMenuItem className="gap-inline" disabled={!canRunScripts || running} onSelect={handleRunScripts} data-testid="overflow-menu-run-scripts">
             <Play size={14} aria-hidden />
-            <span style={{ marginLeft: 8 }}>Run scripts</span>
+            <span>Run scripts</span>
           </DropdownMenuItem>
         )}
     </>

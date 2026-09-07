@@ -245,13 +245,14 @@ export function SharedView() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => void handleCopy(share)}>
+                        <DropdownMenuItem className="gap-inline" onClick={() => void handleCopy(share)}>
                           <Copy size={13} /> Copy link
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setEditingShare(share)} data-testid={`shared-edit-${share.id}`}>
+                        <DropdownMenuItem className="gap-inline" onClick={() => setEditingShare(share)} data-testid={`shared-edit-${share.id}`}>
                           <Pencil size={13} /> Edit policy
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          className="gap-inline"
                           onClick={async () => {
                             await regenerate(share.id);
                             toast({ title: "Link regenerated", variant: "success" });
@@ -260,12 +261,12 @@ export function SharedView() {
                           <RotateCw size={13} /> Regenerate
                         </DropdownMenuItem>
                         {share.auth_mode === "token" && (
-                          <DropdownMenuItem onClick={() => setTokenShare(share)} data-testid={`shared-tokens-${share.id}`}>
+                          <DropdownMenuItem className="gap-inline" onClick={() => setTokenShare(share)} data-testid={`shared-tokens-${share.id}`}>
                             <KeyRound size={13} /> Manage tokens
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setRevokeTarget(share)} data-testid={`shared-revoke-${share.id}`}>
+                        <DropdownMenuItem className="gap-inline" onClick={() => setRevokeTarget(share)} data-testid={`shared-revoke-${share.id}`}>
                           <Trash2 size={13} color="var(--color-danger)" /> Revoke
                         </DropdownMenuItem>
                       </DropdownMenuContent>
