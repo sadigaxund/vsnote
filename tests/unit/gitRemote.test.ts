@@ -12,6 +12,8 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GIT_REPO_NAME,
   describeConnectionTest,
+  mapError,
+  resolveGitCorsProxy,
   resolveGitCredential,
   resolveGitRemoteUrl,
   validateRepoName,
@@ -112,6 +114,48 @@ describe("validateRepoName() — mirrors server/app/gitrepo.py's REPO_NAME_RE ex
   });
 });
 
+describe("resolveGitCorsProxy() — R3-2: same-origin vs. proxied", () => {
+  it("returns undefined for the same-origin implicit remote", () => {
+    expect(resolveGitCorsProxy(ORIGIN, `${ORIGIN}/git/vault.git`)).toBeUndefined();
+  });
+
+  it("returns undefined for a custom override that happens to point back at this origin", () => {
+    expect(resolveGitCorsProxy(ORIGIN, `${ORIGIN}/git/other.git`)).toBeUndefined();
+  });
+
+  it("returns the proxy URL for a genuinely cross-origin http(s) remote", () => {
+    expect(resolveGitCorsProxy(ORIGIN, "https://github.com/me/notes.git")).toBe(`${ORIGIN}/api/git-proxy`);
+  });
+
+  it("returns undefined for a non-http(s) or unparseable URL rather than a bogus proxy target", () => {
+    expect(resolveGitCorsProxy(ORIGIN, "ssh://git@github.com/me/notes.git")).toBeUndefined();
+    expect(resolveGitCorsProxy(ORIGIN, "not a url")).toBeUndefined();
+    expect(resolveGitCorsProxy(ORIGIN, "")).toBeUndefined();
+  });
+});
+
+describe("mapError() — R3-2: the git proxy's own refusals are distinct from a real auth rejection", () => {
+  it("classifies the proxy's own marked refusal as 'blocked', not 'auth'", () => {
+    const err = {
+      code: "HttpError",
+      data: { statusCode: 403, statusMessage: "Forbidden", response: "VSNOTE-GIT-PROXY-REFUSAL: Host 'evil.example.com' is not on the git proxy allowlist." },
+    };
+    const mapped = mapError(err);
+    expect(mapped.code).toBe("blocked");
+    expect(mapped.message).toBe("Host 'evil.example.com' is not on the git proxy allowlist.");
+  });
+
+  it("still classifies an un-marked 401/403 as a real credential rejection", () => {
+    const err = { code: "HttpError", data: { statusCode: 401, statusMessage: "Unauthorized", response: "" } };
+    expect(mapError(err).code).toBe("auth");
+  });
+
+  it("still classifies an un-marked non-auth HTTP status as a generic http error", () => {
+    const err = { code: "HttpError", data: { statusCode: 500, statusMessage: "Server Error", response: "boom" } };
+    expect(mapError(err).code).toBe("http");
+  });
+});
+
 describe("describeConnectionTest() — item 41(e)'s three distinct outcomes", () => {
   it("maps an offline/unreachable failure to 'unreachable'", () => {
     const result: ConnectionTestResult = { ok: false, code: "offline", message: "Could not reach the git remote." };
@@ -153,6 +197,13 @@ describe("describeConnectionTest() — item 41(e)'s three distinct outcomes", ()
     expect(external.message).not.toMatch(/created on first push/i);
     expect(external.message).toMatch(/does not exist on the remote/i);
     expect(builtIn.message).not.toBe(external.message);
+  });
+
+  it("maps the git proxy's own 'blocked' refusal to 'misconfigured', distinct from 'unreachable'/'auth-rejected'", () => {
+    const result: ConnectionTestResult = { ok: false, code: "blocked", message: "Only https upstream git remotes are supported." };
+    const described = describeConnectionTest(result);
+    expect(described.outcome).toBe("misconfigured");
+    expect(described.message).toBe("Only https upstream git remotes are supported.");
   });
 
   it("gives each of the three outcomes a distinct, single-line message", () => {

@@ -89,6 +89,7 @@ from .routers import app_config as app_config_router
 from .routers import auth as auth_router
 from .routers import git_admin as git_admin_router
 from .routers import git_http as git_http_router
+from .routers import git_proxy as git_proxy_router
 from .routers import share_public as share_public_router
 from .routers import shares as shares_router
 from .routers import vault as vault_router
@@ -294,6 +295,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     api_app.include_router(share_public_router.build_content_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(admin_router.build_router(get_db, auth_deps))
     api_app.include_router(git_admin_router.build_router(get_db, settings, auth_deps))
+    # R3-2 — same-origin git CORS proxy for Settings → Git & Sync →
+    # Advanced: custom remote. Deliberately under `/api` (auth required),
+    # NOT the unauthenticated `/git` mount above (see app/git_proxy.py's
+    # module docstring for the full "why").
+    api_app.include_router(git_proxy_router.build_router(settings, auth_deps))
     api_app.include_router(vault_router.build_router(get_db, settings, auth_deps))
     api_app.include_router(vault_remotes_router.build_router(get_db, settings, auth_deps, mirror_runner))
     api_app.include_router(app_config_router.build_router(get_db, settings))

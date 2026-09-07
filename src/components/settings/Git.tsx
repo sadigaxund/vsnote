@@ -249,6 +249,24 @@ export function useGitRows(): SettingRow[] {
                 onClick={() => {
                   if (gitRemoteOverrideEnabled) setGitRemoteOverrideToken(gitOverrideTokenDraft);
                   else setGitAuthToken(gitTokenDraft);
+                  // A blank or malformed override URL, with the override
+                  // toggle ON, must never silently test the IMPLICIT remote
+                  // instead (that would report "Connected" while the user
+                  // believes their custom remote works) nor produce the
+                  // generic "Could not reach the remote host" copy —
+                  // `resolveGitRemoteUrl` falls back to the implicit remote
+                  // for real sync on purpose (a half-filled Advanced section
+                  // must not break sync), but "Test connection" specifically
+                  // must call out the misconfiguration instead of testing
+                  // something the user didn't ask for.
+                  if (gitRemoteOverrideEnabled && (gitRemoteOverrideUrl.trim() === "" || overrideUrlError)) {
+                    setGitTestResult({
+                      ok: false,
+                      code: "not-configured",
+                      message: gitRemoteOverrideUrl.trim() === "" ? "Enter a custom remote URL first." : "Fix the custom remote URL first.",
+                    });
+                    return;
+                  }
                   setGitTesting(true);
                   setGitTestResult(null);
                   void testGitConnection({

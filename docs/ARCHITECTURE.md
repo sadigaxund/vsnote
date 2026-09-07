@@ -818,6 +818,109 @@ final pass)**: two new rows, "Default commit message" (the template `Input`, wit
 live-rendered preview line underneath) and "Device name" (the `{device}` setting) — no
 remaining "isn't wired up yet" placeholder anywhere in this category.
 
+## Custom remote git CORS proxy (R3-2)
+
+**Root cause this fixes.** Settings → Git & Sync → "Advanced: custom remote"
+against a real external host (`https://github.com/you/notes.git`, a PAT)
+failed "Test connection" with "Could not reach the remote host" even though
+the credential and URL were correct. isomorphic-git's browser transport
+(`isomorphic-git/http/web`) is a bare `fetch()`; smart-HTTP git hosts like
+github.com/gitlab.com send NO CORS headers on `info/refs`/
+`git-upload-pack`/`git-receive-pack`, so the browser kills the request
+before any HTTP status is ever visible to JS — it surfaces as an ordinary
+network-error `TypeError`, indistinguishable from the server actually being
+offline. The `401` then `404` the owner saw in the SERVER's own log at the
+same time was a red herring from something else entirely (the periodic
+background fetch above, or an earlier test run before the override toggle
+was flipped on) — not the browser request that "Test connection" actually
+made, which never reached this server's `/git/*` at all.
+
+**The fix**: same-origin proxying, using isomorphic-git's OWN `corsProxy`
+option rather than reinventing URL rewriting. Passed to
+`fetch`/`push`/`getRemoteInfo`, isomorphic-git itself rewrites the request
+URL before ever calling `fetch()` (confirmed against
+`node_modules/isomorphic-git/index.js`'s `corsProxify`):
+
+```
+corsProxy.endsWith('?')
+  ? `${corsProxy}${url}`
+  : `${corsProxy}/${url.replace(/^https?:\/\//, '')}`
+```
+
+So passing `corsProxy = "${origin}/api/git-proxy"` turns a request for
+`https://github.com/me/notes.git/info/refs?service=git-upload-pack` into
+`${origin}/api/git-proxy/github.com/me/notes.git/info/refs?service=git-upload-pack`
+— a same-origin browser request needing no CORS headers at all. The actual
+cross-origin fetch happens server-side, where CORS is not a browser
+concept.
+
+**Client** (`src/git/remote.ts`): `resolveGitCorsProxy(origin, remoteUrl)` is
+the pure resolver (unit-tested in `tests/unit/gitRemote.test.ts` next to
+`resolveGitRemoteUrl`) — returns `undefined` (go direct, unproxied) whenever
+`remoteUrl` is same-origin (the implicit remote, or a custom override that
+happens to point back at this same VSNote instance) or isn't a proxyable
+http(s) URL; returns `${origin}/api/git-proxy` for a genuinely cross-origin
+remote. `computeGitCorsProxy` is its real-`window` wrapper.
+`realFetch`/`pushBranch`/`testGitConnection` all pass
+`corsProxy: computeGitCorsProxy(config.url)` into their respective
+`git.fetch`/`git.push`/`git.getRemoteInfo` calls — no changes needed
+anywhere else (`useGitStore.ts`'s `remoteConfig()`, `Git.tsx`'s test button)
+since the proxy decision is derived purely from the URL those call sites
+already resolve.
+
+**Server** (`server/app/git_proxy.py` + `server/app/routers/git_proxy.py`):
+`GET|POST /api/git-proxy/{rest_of_path:path}` — mounted on `api_app`
+(`/api`-grade auth applies, the same `AuthDeps.require_auth_context` every
+other `/api` route uses), deliberately NOT the unauthenticated `/git` mount
+(above) that serves this app's OWN bare repos — this route makes the server
+originate arbitrary outbound requests to allowlisted third-party hosts,
+which must never be reachable by an unauthenticated caller.
+`rest_of_path` is `<host>/<path...>` (isomorphic-git already stripped the
+scheme); `validate_target` reassembles it with the request's own query
+string into a real `https://` target and runs the refusal matrix (security
+posture, binding — see `docs/ROADMAP-SHARING-AUTH.md`): host allowlist
+(`VSNOTE_GIT_PROXY_HOSTS`), https-only, and an SSRF resolve-and-check on the
+target hostname, reapplied to every redirect hop the router itself follows
+(GET only — a git smart-HTTP POST redirecting mid-upload would need
+re-streaming an already-consumed body, not worth the complexity for a case
+real git hosts essentially never hit). Request/response bodies are streamed
+end-to-end via `httpx.AsyncClient` (never buffered in full), only
+`Authorization`/`Content-Type`/`Accept`/`Git-Protocol`/`User-Agent` are
+forwarded upstream (no cookies, no other app headers leak to a third-party
+host), and every refusal this module raises comes back as a plain-text body
+prefixed `VSNOTE-GIT-PROXY-REFUSAL:` rather than JSON.
+
+**Distinguishing "our proxy refused this" from "the real remote rejected the
+credentials"** (`src/git/remote.ts::mapError`): isomorphic-git's `HttpError`
+preserves the raw response text as `err.data.response`, so the client reads
+that exact `VSNOTE-GIT-PROXY-REFUSAL:` prefix back out and classifies it as
+a new `SyncError` code, `"blocked"` — mapped by `describeConnectionTest` to
+the `"misconfigured"` outcome, never `"auth-rejected"`. Without this, a
+disallowed host or a blank/malformed override URL would misreport as "the
+token is wrong," sending the user chasing the wrong fix. A genuine browser
+CORS failure (pre-proxy, or if the client is ever pointed at a same-origin
+remote directly without going through this proxy) remains fundamentally
+indistinguishable, from JS, between "blocked by CORS" and "the server is
+actually down" — the fetch API gives no signal to tell them apart. This
+proxy is the actual fix for that ambiguity (the real browser request is now
+same-origin, so "offline" genuinely means "this server is unreachable"),
+not a client-side workaround pretending to detect CORS after the fact.
+
+**Settings** (`src/components/settings/Git.tsx`): "Test connection" no
+longer silently tests the IMPLICIT remote when "Advanced: custom remote" is
+on but the override URL is blank or fails `isHttpRemoteUrl` — that would
+report "Connected" against a remote the user didn't ask to test. It now
+short-circuits to a `"not-configured"` result ("Enter/fix the custom remote
+URL first"), mapped by the existing `describeConnectionTest` to
+`"misconfigured"`, before ever calling `testGitConnection`.
+
+**Tests**: `tests/unit/gitRemote.test.ts` (`resolveGitCorsProxy`, the new
+`mapError`/`describeConnectionTest` "blocked" branch);
+`server/tests/test_git_proxy.py` (allowlist refusal, scheme refusal,
+SSRF/private-IP refusal — including the redirect case — unauthenticated
+refusal, request-header filtering, and a happy path streamed against a
+LOCAL fake git HTTP endpoint in the test process, never the real network).
+
 ## Server-mounted vault (Phase 17 Milestone A)
 
 `server/app/vault.py` is the single source of truth for "where is the

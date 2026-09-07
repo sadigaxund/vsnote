@@ -276,3 +276,86 @@ behind that proxy.
   running. Local-first survives via the PWA: an installed/precached app opens
   and edits fully offline; share/sync affordances degrade gracefully. The SPA
   bundle must still never *require* the API to boot, render, or edit.
+
+### 5.5 Custom remote git CORS proxy — R3-2, BINDING security posture
+
+§5.4's item 41 amendment gave "Advanced: custom remote override" a real,
+genuinely cross-origin external URL (GitHub/Gitea/another VSNote instance).
+That immediately hit a browser limitation §5.4's "no settable server URL"
+rule never had to face: isomorphic-git's browser transport is a bare
+`fetch()`, and smart-HTTP git hosts like github.com/gitlab.com send no CORS
+headers on their `info/refs`/`git-upload-pack`/`git-receive-pack`
+endpoints — the browser kills the request before any HTTP status is ever
+visible to JS, indistinguishable (from JS) from the server being offline.
+"Test connection" against a real external host failed with "Could not reach
+the remote host" for exactly this reason, not a credential or server
+problem.
+
+**Decision**: a same-origin git CORS proxy, `GET|POST /api/git-proxy/...`
+(`server/app/git_proxy.py` + `server/app/routers/git_proxy.py`), used as
+isomorphic-git's own `corsProxy` option (not a bespoke URL-rewriting
+scheme — isomorphic-git already rewrites the request URL itself given a
+`corsProxy` value; see `docs/ARCHITECTURE.md`'s "Custom remote git CORS
+proxy (R3-2)" section for the exact rewrite and route shape). This keeps
+§5.4's "no settable server/base URL, everything relative to
+`window.location.origin`" rule intact for the APP/API origin — the proxy
+route is itself same-origin, relative, unconfigurable client-side; only the
+UPSTREAM target it's allowed to reach is configurable, server-side, by the
+operator.
+
+Because this route makes the server originate arbitrary outbound requests
+to third-party hosts on the caller's behalf, its security posture is
+BINDING, same weight as §1's uniform-404 rule:
+
+- **https only.** Any proxied request whose target carries an explicit
+  non-https scheme is refused outright (never silently reinterpreted as
+  https, never forwarded as http).
+- **Host allowlist**, `VSNOTE_GIT_PROXY_HOSTS` (default `github.com`,
+  `gitlab.com`, `codeberg.org`, `bitbucket.org`, comma-separated,
+  operator-configurable). A request host must equal one of these entries OR
+  be an explicit subdomain of one (`api.github.com` passes for `github.com`)
+  — never a bare substring/suffix match (`notgithub.com`,
+  `github.com.evil.example` both fail).
+- **SSRF refusal.** The target hostname is resolved and EVERY returned
+  address is checked against private (RFC1918), loopback, link-local,
+  multicast, reserved, and unspecified ranges (IPv6 unique-local `fc00::/7`
+  included) — refused unless the operator has explicitly set the test/dev-only
+  `VSNOTE_GIT_PROXY_ALLOW_PRIVATE` escape hatch (default off; see
+  `server/README.md`). Applied to the original request AND to every
+  redirect hop the proxy itself follows (GET only) — a redirect can never
+  launder a request past a check that already ran once.
+- **Header minimization.** Only `Authorization`/`Content-Type`/`Accept`/
+  `Git-Protocol`/`User-Agent` are ever forwarded upstream — no cookies, no
+  other app header ever leaks to a third-party host through this proxy.
+- **Streaming, not buffering.** Both the request and response bodies are
+  streamed end-to-end; `VSNOTE_GIT_PROXY_MAX_BODY_BYTES` (default 200 MiB)
+  caps how much of either this proxy will move before giving up, enforced
+  against a declared `Content-Length` up front and against the actual byte
+  count streamed (a lying or absent `Content-Length` cannot bypass this).
+- **Auth required.** The exact same `/api` auth dependency every other
+  `/api` route uses (session cookie or any scoped API token) — an
+  unauthenticated caller never reaches DNS resolution or a socket, let alone
+  an upstream host. Deliberately mounted under `/api`, never the
+  unauthenticated `/git` mount that serves this app's own bare repos.
+- **No credential logging.** Tokens/`Authorization` header VALUES are never
+  logged by this route, in any code path, success or refusal.
+- **Timeouts.** Connect/read/write timeouts on every upstream request — an
+  unresponsive or malicious upstream host can never hang this server's own
+  worker indefinitely.
+- **Response bodies pass through untouched** — this proxy never rewrites,
+  inspects, or re-encodes upstream response bytes; a git client (isomorphic-
+  git or otherwise) sees exactly what the real remote sent.
+
+Every refusal this route generates itself (allowlist, scheme, SSRF, body
+too large) comes back as a plain-text body prefixed
+`VSNOTE-GIT-PROXY-REFUSAL:` rather than JSON or a bare status code — see
+`docs/ARCHITECTURE.md`'s section for why (the client needs to tell "our own
+proxy refused this on policy grounds" apart from "the real remote rejected
+the credentials," and isomorphic-git's `HttpError` happens to preserve the
+raw response text where the client can read that prefix back out).
+
+Test coverage (`server/tests/test_git_proxy.py`): allowlist refusal, scheme
+refusal, SSRF/private-IP refusal (including the redirect-revalidation
+case), unauthenticated refusal, request-header filtering, and a happy path
+streamed against a LOCAL fake git HTTP endpoint spun up in the test process
+— never the real network.

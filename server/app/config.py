@@ -122,6 +122,38 @@ class Settings(BaseSettings):
     # baked into the image.
     secrets_path: str = Field(default="./secrets", validation_alias="VSNOTE_SECRETS_PATH")
 
+    # R3-2 — same-origin git CORS proxy (`app/git_proxy.py`,
+    # `app/routers/git_proxy.py`, mounted at `/api/git-proxy`). Fixes
+    # Settings → Git & Sync → Advanced: custom remote against a real
+    # external host: isomorphic-git's browser transport is a bare
+    # `fetch()`, and github.com/gitlab.com/etc. send no CORS headers on
+    # their smart-HTTP endpoints, so the browser kills the request before
+    # any status is even visible to JS. Passing this proxy as isomorphic-
+    # git's own `corsProxy` option (`src/git/remote.ts`'s
+    # `resolveGitCorsProxy`) makes the actual browser request same-origin;
+    # this server does the cross-origin fetch itself instead.
+    #
+    # Comma-separated allowed upstream hosts. A request host must equal one
+    # of these OR be an explicit subdomain (`foo.github.com` passes,
+    # `notgithub.com` does not — see `git_proxy.is_allowed_host`).
+    git_proxy_hosts: str = Field(
+        default="github.com,gitlab.com,codeberg.org,bitbucket.org",
+        validation_alias="VSNOTE_GIT_PROXY_HOSTS",
+    )
+    # SSRF guard: the target hostname is resolved and every returned address
+    # checked against private/loopback/link-local/multicast/reserved/
+    # unspecified ranges (`ipaddress` stdlib) — refused unless this is set.
+    # Default False (refuse) is the binding posture
+    # (`docs/ROADMAP-SHARING-AUTH.md`); this exists ONLY as a test/dev
+    # escape hatch (`server/tests/test_git_proxy.py`'s happy-path test,
+    # against a local fake git host, sets it True) — never enable this in a
+    # deployment that shares a network with anything sensitive.
+    git_proxy_allow_private_hosts: bool = Field(default=False, validation_alias="VSNOTE_GIT_PROXY_ALLOW_PRIVATE")
+    # A sane cap on how much of either the request or the response body this
+    # proxy will move before giving up — git packs can legitimately be
+    # large, so this is generous (200 MiB), not `VSNOTE_MAX_BLOB_BYTES`-sized.
+    git_proxy_max_body_bytes: int = Field(default=200 * 1024 * 1024, validation_alias="VSNOTE_GIT_PROXY_MAX_BODY_BYTES")
+
 
 def resolve_secret_key(settings: Settings) -> str:
     """Computed once per app instance (see create_app) — never re-derived

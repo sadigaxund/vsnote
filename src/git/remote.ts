@@ -132,6 +132,53 @@ export function computeGitRemoteUrl(settings: GitRemoteSettings): string {
   return resolveGitRemoteUrl(window.location.origin, settings);
 }
 
+/** R3-2 — the same-origin git CORS proxy (`server/app/routers/git_proxy.py`,
+ * mounted at `/api/git-proxy`). Root cause of the "Advanced: custom remote"
+ * test failing with "Could not reach the remote host": isomorphic-git's
+ * browser transport is a bare `fetch()`, and smart-HTTP git hosts like
+ * github.com/gitlab.com send NO CORS headers on `info/refs`/
+ * `git-upload-pack` — the browser kills the request before any HTTP status
+ * is even visible to JS, which surfaces as an ordinary network-error
+ * `TypeError` indistinguishable, from JS, from the server actually being
+ * offline. isomorphic-git's own `corsProxy` option is exactly the fix:
+ * passed to `fetch`/`push`/`getRemoteInfo`, isomorphic-git itself rewrites
+ * the URL to `${corsProxy}/${url-without-scheme}` (confirmed against
+ * `node_modules/isomorphic-git/index.js`'s `corsProxify`) before ever
+ * calling `fetch()` — so the ACTUAL browser request becomes same-origin
+ * (this app's own backend), which needs no CORS headers at all, and our
+ * backend does the cross-origin fetch server-side instead.
+ *
+ * Pure — no `window` — so it's unit-testable the same way
+ * `resolveGitRemoteUrl` is; `computeGitCorsProxy` below is the thin
+ * `window`-reading wrapper every real call site uses. Returns `undefined`
+ * (no proxy — go direct) whenever `remoteUrl` is already same-origin (the
+ * implicit remote, or a custom override that happens to point back at this
+ * same VSNote instance) or isn't a proxyable http(s) URL at all — only a
+ * genuinely cross-origin http(s) remote ever needs the proxy. */
+export function resolveGitCorsProxy(origin: string, remoteUrl: string): string | undefined {
+  let target: URL;
+  let here: URL;
+  try {
+    target = new URL(remoteUrl);
+    here = new URL(origin);
+  } catch {
+    return undefined;
+  }
+  if (target.protocol !== "http:" && target.protocol !== "https:") return undefined;
+  if (target.origin === here.origin) return undefined;
+  return `${origin}/api/git-proxy`;
+}
+
+/** Real-`window` wrapper — see `resolveGitCorsProxy`'s doc. Every real
+ * network call in this module (`realFetch`/`pushBranch`/`testGitConnection`)
+ * derives its `corsProxy` from this, so the implicit remote and a
+ * same-origin override never proxy (roadmap: "same-origin implicit remote
+ * must keep going direct, unproxied"), while a genuinely external override
+ * always does. */
+export function computeGitCorsProxy(remoteUrl: string): string | undefined {
+  return resolveGitCorsProxy(window.location.origin, remoteUrl);
+}
+
 export interface GitCredentialSettings {
   /** The implicit-remote token (`gitAuthToken` — a Phase 9 API token). */
   token: string;
@@ -164,7 +211,7 @@ export interface SyncStatus extends AheadBehind {
 
 const EMPTY_STATUS: SyncStatus = { ahead: 0, behind: 0, hasRemoteRef: false };
 
-export type SyncErrorCode = "not-configured" | "offline" | "auth" | "diverged" | "dirty" | "http" | "unknown";
+export type SyncErrorCode = "not-configured" | "offline" | "auth" | "diverged" | "dirty" | "http" | "blocked" | "unknown";
 
 export class SyncError extends Error {
   code: SyncErrorCode;
@@ -272,14 +319,34 @@ export async function computeSyncStatus(branch: string): Promise<SyncStatus> {
   return { ahead, behind, hasRemoteRef: true };
 }
 
+/** `server/app/routers/git_proxy.py` prefixes every refusal IT generates
+ * (host not allowlisted, non-https scheme, resolves to a private/loopback
+ * address, request body too large) with this exact plain-text marker in the
+ * response body — isomorphic-git's `HttpError` preserves the raw response
+ * text as `err.data.response` (confirmed against
+ * `node_modules/isomorphic-git/index.js`'s `HttpError` — `{statusCode,
+ * statusMessage, response}`), so this is how the client tells "our OWN
+ * proxy refused this remote on policy grounds" apart from "the actual
+ * remote host rejected the credentials" even though both can arrive as a
+ * plain HTTP 400/403 — conflating the two would tell a user their token is
+ * bad when the real problem is a disallowed host or a blank/malformed
+ * override URL. */
+const PROXY_REFUSAL_MARKER = "VSNOTE-GIT-PROXY-REFUSAL:";
+
 /** Exported so `sync.ts` classifies unexpected git/network errors the exact
  * same way `realFetch`/`realPull`/`realPush` do — one error taxonomy, not
  * two independently-drifting copies. */
 export function mapError(err: unknown): SyncError {
   if (err instanceof SyncError) return err;
   const code = (err as { code?: string } | null)?.code;
-  const statusCode = (err as { data?: { statusCode?: number } } | null)?.data?.statusCode;
+  const data = (err as { data?: { statusCode?: number; response?: string } } | null)?.data;
+  const statusCode = data?.statusCode;
   if (code === "HttpError") {
+    const response = typeof data?.response === "string" ? data.response : "";
+    if (response.startsWith(PROXY_REFUSAL_MARKER)) {
+      const detail = response.slice(PROXY_REFUSAL_MARKER.length).trim();
+      return new SyncError("blocked", detail || "The git proxy refused this remote.", statusCode);
+    }
     if (statusCode === 401 || statusCode === 403) {
       return new SyncError(
         "auth",
@@ -317,6 +384,7 @@ export async function realFetch(config: RemoteConfig, branch: string): Promise<S
       http,
       dir: GIT_DIR,
       url: config.url,
+      corsProxy: computeGitCorsProxy(config.url),
       ref: branch,
       remoteRef: branch,
       singleBranch: true,
@@ -406,6 +474,7 @@ export async function pushBranch(config: RemoteConfig, branch: string): Promise<
       http,
       dir: GIT_DIR,
       url: config.url,
+      corsProxy: computeGitCorsProxy(config.url),
       ref: branch,
       remoteRef: branch,
       remote: "origin",
@@ -488,7 +557,12 @@ export async function testGitConnection(config: RemoteConfig): Promise<Connectio
     return { ok: false, code: "not-configured", message: "Set a Remote URL first." };
   }
   try {
-    const info = await git.getRemoteInfo({ http, url: config.url, onAuth: () => buildGitAuth(config.token) });
+    const info = await git.getRemoteInfo({
+      http,
+      url: config.url,
+      corsProxy: computeGitCorsProxy(config.url),
+      onAuth: () => buildGitAuth(config.token),
+    });
     return { ok: true, repoExists: Object.keys(info.heads ?? {}).length > 0 };
   } catch (err) {
     const mapped = mapError(err);
@@ -540,6 +614,13 @@ export function describeConnectionTest(result: ConnectionTestResult, isCustomRem
     return { outcome: "auth-rejected", message: "Reached the host, but the credential was rejected." };
   }
   if (result.code === "not-configured") {
+    return { outcome: "misconfigured", message: result.message };
+  }
+  if (result.code === "blocked") {
+    // The git CORS proxy (`server/app/routers/git_proxy.py`) refused this
+    // remote itself (bad/disallowed host, non-https, blank/malformed
+    // override URL, private-address target) — a configuration problem the
+    // user can fix, never "the remote is down" or "the credential is bad".
     return { outcome: "misconfigured", message: result.message };
   }
   return { outcome: "error", message: result.message };

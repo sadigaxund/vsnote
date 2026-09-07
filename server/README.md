@@ -173,6 +173,9 @@ Env-driven, see `.env.example` for the full annotated list (loaded from
 | `VSNOTE_VAULT_REPO_NAME` | `vault` | Phase 17 — the repo name clients use in `<origin>/git/<name>.git` to reach the vault (whichever shape it is). Must match `gitrepo.REPO_NAME_RE`; validated at startup |
 | `VSNOTE_REQUIRE_LOGIN` | `True` | Phase 17 — the app-wide login gate. See "App-wide login gate" below |
 | `VSNOTE_OAUTH_GOOGLE_CLIENT_ID` / `_SECRET` | *(unset)* | TODO §8.2 — both set ⇒ Google sign-in goes live (`/api/auth/oauth/*`) and "Continue with Google" renders on every sign-in surface. See "OAuth sign-in (Google)" below |
+| `VSNOTE_GIT_PROXY_HOSTS` | `github.com,gitlab.com,codeberg.org,bitbucket.org` | R3-2 — comma-separated allowlist for `POST\|GET /api/git-proxy/...`, the same-origin CORS proxy Settings → Git & Sync → "Advanced: custom remote" uses against an external host. An entry matches itself or an explicit subdomain, never a bare substring. See "Custom remote git CORS proxy" below |
+| `VSNOTE_GIT_PROXY_ALLOW_PRIVATE` | `False` | R3-2 — test/dev-only escape hatch: turns OFF the proxy's SSRF refusal (private/loopback/link-local/multicast/reserved/unspecified addresses) and its https-only requirement. Never set this in a deployment that shares a network with anything sensitive |
+| `VSNOTE_GIT_PROXY_MAX_BODY_BYTES` | `209715200` (200 MiB) | R3-2 — caps how much of either the proxied request or response body `/api/git-proxy` will stream before giving up (git packs are legitimately large, so this is far more generous than `VSNOTE_MAX_BLOB_BYTES`) |
 
 ## App-wide login gate (Phase 17)
 
@@ -359,6 +362,37 @@ denyNonFastforwards` policy would). The VSNote client (`src/git/remote.ts`)
 refuses to attempt a push at all once it detects local/remote have diverged —
 see `docs/ARCHITECTURE.md`'s "Real sync (Phase 11)" section for the exact
 policy and how it's surfaced in the UI.
+
+## Custom remote git CORS proxy (R3-2)
+
+Unlike `/git/*` above (this server's OWN bare repos, same-origin by
+construction, so CORS never mattered), Settings → Git & Sync → "Advanced:
+custom remote override" points isomorphic-git at a genuinely external host —
+GitHub, Gitea, another VSNote instance. Those hosts send no CORS headers on
+their smart-HTTP endpoints, so a browser `fetch()` straight at them dies
+before any HTTP status is even visible to JS. `POST|GET
+/api/git-proxy/{rest_of_path:path}` (`app/git_proxy.py` +
+`app/routers/git_proxy.py`) fixes this: the client passes it as
+isomorphic-git's own `corsProxy` option, which makes isomorphic-git rewrite
+the request URL itself into a same-origin one — this server does the actual
+cross-origin fetch, where CORS is not a browser concept at all.
+
+Mounted under `/api` (same auth as everything else there — session cookie or
+any scoped API token; unauthenticated calls never reach DNS or a socket),
+deliberately not the unauthenticated `/git` mount. Security posture — host
+allowlist (`VSNOTE_GIT_PROXY_HOSTS`), https only, an SSRF resolve-and-check
+refusing private/loopback/link-local/multicast/reserved/unspecified targets
+(including on every redirect this route itself follows), header
+minimization (only `Authorization`/`Content-Type`/`Accept`/`Git-Protocol`/
+`User-Agent` ever go upstream), streamed bodies with a size cap
+(`VSNOTE_GIT_PROXY_MAX_BODY_BYTES`), and no credential logging — is BINDING;
+see `../docs/ROADMAP-SHARING-AUTH.md` §5.5 for the full posture and
+`../docs/ARCHITECTURE.md`'s "Custom remote git CORS proxy (R3-2)" section
+for the implementation (exact route shape, how isomorphic-git addresses it,
+and how the client tells this proxy's own refusals apart from a real
+upstream auth rejection). `VSNOTE_GIT_PROXY_ALLOW_PRIVATE` (env table above)
+is a test/dev-only escape hatch — never set it in a deployment that shares a
+network with anything sensitive.
 
 ## Durable storage
 
