@@ -46,7 +46,21 @@ export function inferFileKind(name: string): FileKind {
     case "webp":
       return "image";
     default:
-      return "unknown";
+      // R3-9: everything else falls to the generic "code" kind rather than
+      // "unknown" — `filetypes/registry.ts`'s `code` entry resolves the
+      // ACTUAL language lazily, by filename, against
+      // `@codemirror/language-data`'s coverage (python, go, rust, shell,
+      // yaml, toml, sql, java, c/c++, ruby, php, xml, ini, `Dockerfile`,
+      // ...). This has to stay a cheap, synchronous, no-import heuristic —
+      // `inferFileKind` runs on every tree read, including at boot — so it
+      // does NOT try to predict whether `language-data` actually knows this
+      // extension; a name it doesn't recognize either (e.g. `.env`, a
+      // no-extension file `language-data` has no filename pattern for)
+      // still gets "code" here and degrades to plain text once
+      // `loadCodeLanguageInfo` (registry.ts) comes up empty — same
+      // graceful-degrade contract `csv`/an unrecognized markdown fence
+      // language already have.
+      return "code";
   }
 }
 

@@ -5,7 +5,7 @@
  * in" both read.
  */
 import { describe, expect, it } from "vitest";
-import { defaultModeFor, fileTypeFor, modeAvailabilityFor } from "../../src/filetypes/registry";
+import { defaultModeFor, fileTypeFor, fileTypeForOrPlain, languageIdFor, modeAvailabilityFor } from "../../src/filetypes/registry";
 import { inferFileKind } from "../../src/lib/fileTree";
 
 describe("filetypes/registry defaults", () => {
@@ -87,6 +87,61 @@ describe("filetypes/registry mkmd entry (docs/PLAN-2026-09-05-refresh.md §6 Pha
   it("defaults to rendered, using the same livepreview renderer as plain .md", () => {
     expect(defaultModeFor("mkmd")).toBe("rendered");
     expect(fileTypeFor("mkmd")?.renderer).toBe("livepreview");
+  });
+});
+
+describe("R3-9: the generic 'code' fallback kind (@codemirror/language-data coverage)", () => {
+  it("inferFileKind falls back to 'code' (not 'unknown') for extensions the hand-written table doesn't model", () => {
+    for (const name of ["script.py", "main.go", "config.yaml", "deploy.sh", "lib.rs", "app.rb", "Query.sql"]) {
+      expect(inferFileKind(name)).toBe("code");
+    }
+  });
+
+  it("still classifies every hand-written kind exactly as before (the fallback never shadows an explicit case)", () => {
+    expect(inferFileKind("a.ts")).toBe("ts");
+    expect(inferFileKind("a.md")).toBe("md");
+    expect(inferFileKind("a.json")).toBe("json");
+    expect(inferFileKind("a.png")).toBe("image");
+  });
+
+  it("the 'code' entry offers rendered+source (default source), diff-capable, using the 'code' renderer — same shape as the hand-written code kinds", () => {
+    expect(fileTypeFor("code")?.baseModes).toEqual(["rendered", "source"]);
+    expect(defaultModeFor("code")).toBe("source");
+    expect(fileTypeFor("code")?.renderer).toBe("code");
+    expect(modeAvailabilityFor("code", false)).toEqual(["rendered", "source"]);
+    expect(modeAvailabilityFor("code", true)).toEqual(["rendered", "source", "diff"]);
+  });
+
+  it("resolves a real CM6 language for .py/.go/.yaml/.sh via language-data, keyed by filename (not just kind)", async () => {
+    for (const [filename, expectedId] of [
+      ["main.py", "PYTHON"],
+      ["main.go", "GO"],
+      ["config.yaml", "YAML"],
+      ["deploy.sh", "SHELL"],
+    ] as const) {
+      const entry = fileTypeForOrPlain("code");
+      const extension = await entry.loadLanguage(filename);
+      expect(extension, `${filename} should resolve a CM6 language extension`).not.toBeNull();
+      const id = await languageIdFor("code", filename);
+      expect(id).toBe(expectedId);
+    }
+  });
+
+  it("degrades an extension language-data doesn't recognize either to plain text, not a crash", async () => {
+    const entry = fileTypeForOrPlain("code");
+    const extension = await entry.loadLanguage("mystery.vsnoteunknownext");
+    expect(extension).toBeNull();
+    expect(await languageIdFor("code", "mystery.vsnoteunknownext")).toBe("PLAIN");
+  });
+
+  it("loadLanguage with no filename (defensive) degrades to plain text rather than throwing", async () => {
+    const entry = fileTypeForOrPlain("code");
+    await expect(entry.loadLanguage(undefined)).resolves.toBeNull();
+  });
+
+  it("languageIdFor passes non-'code' kinds straight through to the synchronous languageId", async () => {
+    expect(await languageIdFor("ts", "a.ts")).toBe("TS");
+    expect(await languageIdFor(undefined, undefined)).toBe("PLAIN");
   });
 });
 

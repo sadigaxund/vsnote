@@ -14,12 +14,15 @@
  *     instance).
  *  2. The Publish dialog now offers a working (non-disabled) Viewer page
  *     for that same code file.
- *  3. A file whose extension the registry has never heard of (e.g. `.py` —
- *     not a recognized `FileKind`, falls back to the plain-text entry,
- *     `baseModes: ["source"]` only) correctly gets Viewer page DISABLED,
- *     with an explanation — the actual mechanism behind the "looked
- *     disabled" report, now reproduced and pinned rather than silently
- *     mis-offered.
+ *  3. A file whose extension NEITHER this hand-written table NOR
+ *     `@codemirror/language-data` (R3-9, `filetypes/registry.ts`'s `code`
+ *     fallback entry) recognizes still falls back to the plain-text entry
+ *     (`baseModes: ["source"]` only) and correctly gets Viewer page
+ *     DISABLED, with an explanation. (`.py` itself used to be this repo's
+ *     example of the bug — before R3-9 it fell all the way through to
+ *     `"unknown"`/plain-text with no highlighting anywhere; it is now a
+ *     `"code"`-kind file with real Python highlighting and a working
+ *     Viewer page — see `py-language-coverage.spec.ts`.)
  */
 import { test, expect } from "@playwright/test";
 import { gotoApp, tab, treeRow } from "./fixtures";
@@ -83,10 +86,13 @@ test.describe("Rendered mode for code files (R3-7)", () => {
     await expect(viewerPage).toHaveAttribute("aria-checked", "true");
   });
 
-  test("Publish dialog disables Viewer page for an unrecognized extension, with an explanation", async ({ page }) => {
+  test("Publish dialog disables Viewer page for an extension neither the table nor language-data recognizes, with an explanation", async ({ page }) => {
     await gotoApp(page);
     await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
-    const path = await createFileWithContent(page, "vault/notes", "script.py", "print('hi')\n");
+    // R3-9: `.py` is now a recognized `"code"`-kind file (Python, via
+    // @codemirror/language-data) — use an extension nothing recognizes
+    // instead, to keep pinning the genuinely-unrenderable case.
+    const path = await createFileWithContent(page, "vault/notes", "notes.vsnoteunknownext", "mystery bytes\n");
 
     await treeRow(page, path).click({ button: "right" });
     await page.getByRole("menuitem", { name: "Publish…" }).click();

@@ -60,6 +60,8 @@ export interface CodeBlockProps {
   code: string;
   /** The file's `FileKind` (`src/types.ts`) — resolved to a CM6 language via `filetypes/registry.ts`'s existing `loadLanguage`, so this component never duplicates that table. Omitted/unrecognized kinds degrade to plain, correctly-escaped text. */
   kind?: FileKind;
+  /** R3-9: the file's actual name/path, passed through to `loadLanguage` — required for `kind === "code"` (the generic fallback: one `FileKind` covers every `@codemirror/language-data` language, so the real language can only be picked by filename, e.g. `foo.py` -> Python). Every hand-written kind ignores it; omitted for a directive-rendered fence (`vsnoteCodeDirective.tsx`, which has no real filename — only a fence info-string language already mapped to a hand-written kind or `undefined`). */
+  path?: string;
   maxLines?: number;
   /** Controlled wrap state — see the module doc's "Toolbar" section. Omit to let the component manage its own (starts unwrapped, matching `theme.css`'s un-scoped `.mk-static-codeblock` default). */
   wrap?: boolean;
@@ -88,7 +90,7 @@ function toolbarButtonStyle(active: boolean): CSSProperties {
 }
 
 /** Static highlighted `<pre>` with line numbers. Degrades to plain escaped text for an unknown/unsupported language (no `language.parser` resolved), and never chokes on a very large file (see `capCodeLines`/`CODE_BLOCK_MAX_LINES`). */
-export function CodeBlock({ code, kind, maxLines = CODE_BLOCK_MAX_LINES, wrap: wrapProp, truncatedHint }: CodeBlockProps): ReactNode {
+export function CodeBlock({ code, kind, path, maxLines = CODE_BLOCK_MAX_LINES, wrap: wrapProp, truncatedHint }: CodeBlockProps): ReactNode {
   const capped = capCodeLines(code, maxLines);
   const [language, setLanguage] = useState<Language | undefined>(undefined);
   const [localWrap, setLocalWrap] = useState(false);
@@ -99,7 +101,7 @@ export function CodeBlock({ code, kind, maxLines = CODE_BLOCK_MAX_LINES, wrap: w
   useEffect(() => {
     let cancelled = false;
     fileTypeForOrPlain(kind)
-      .loadLanguage()
+      .loadLanguage(path)
       .then((extension) => {
         if (cancelled) return;
         const lang = (extension as { language?: Language } | null)?.language;
@@ -111,7 +113,7 @@ export function CodeBlock({ code, kind, maxLines = CODE_BLOCK_MAX_LINES, wrap: w
     return () => {
       cancelled = true;
     };
-  }, [kind]);
+  }, [kind, path]);
 
   // Reset the transient "copied" glyph if the underlying code changes out
   // from under a still-mounted block (e.g. the file being shown reloads).

@@ -21,7 +21,7 @@ import { restoreFromRemote } from "./git/restore";
 import { flushDraftSave } from "./fs/drafts";
 import { useDecoratedTree } from "./stores/useDecoratedTree";
 import { EMPTY_DIFF } from "./git/diff";
-import { fileTypeFor } from "./filetypes/registry";
+import { fileTypeFor, languageIdFor } from "./filetypes/registry";
 import { getActiveEditorView, openSearchInActiveView } from "./editor/activeView";
 import { resolveMarkdownLink } from "./editor/markdownLinks";
 import { modeAvailabilityFor } from "./filetypes/registry";
@@ -519,6 +519,38 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const activeTab = useMemo(() => focusedLeaf?.tabs.find((t) => t.path === focusedLeaf.activeTabId), [focusedLeaf]);
 
   const activeDiff = useGitStore((s) => (activeTab ? (s.diffCache[activeTab.path] ?? EMPTY_DIFF) : EMPTY_DIFF));
+
+  // R3-9: the status bar's language label. `fileTypeFor(kind)?.languageId`
+  // (used directly below for every other kind) is only ever the "CODE"
+  // placeholder for the generic fallback kind — the real label (e.g.
+  // "PYTHON") depends on the active tab's actual filename, resolved
+  // asynchronously against `@codemirror/language-data` via
+  // `registry.ts`'s `languageIdFor`. `codeLanguageKey` (the active tab's
+  // path, or `undefined` when it isn't a `code`-kind tab) is reset
+  // synchronously DURING RENDER when it changes — the same "adjust state
+  // when a prop changes" snapshot pattern `FileIcon.tsx`'s
+  // `requestKey`/`resolved` and `codeBlock.tsx`'s `lastCode`/`copied` use —
+  // so the effect below only ever calls `setState` from its async
+  // callback, never synchronously in the effect body itself.
+  const codeLanguageKey = activeTab?.kind === "code" ? activeTab.path : undefined;
+  const [codeLanguageState, setCodeLanguageState] = useState<{ key: string | undefined; id: string | undefined }>({
+    key: codeLanguageKey,
+    id: undefined,
+  });
+  if (codeLanguageState.key !== codeLanguageKey) {
+    setCodeLanguageState({ key: codeLanguageKey, id: undefined });
+  }
+  const codeLanguageId = codeLanguageState.key === codeLanguageKey ? codeLanguageState.id : undefined;
+  useEffect(() => {
+    if (codeLanguageKey === undefined) return;
+    let cancelled = false;
+    void languageIdFor("code", codeLanguageKey).then((id) => {
+      if (!cancelled) setCodeLanguageState({ key: codeLanguageKey, id });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [codeLanguageKey]);
 
   // DESIGN-SPEC Amendments round 3 item 18 ("Header consolidation") — the
   // title bar always mirrors the FOCUSED pane's mode/diff/breadcrumb state,
@@ -1458,7 +1490,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
           }}
           encoding="UTF-8"
           eol="LF"
-          language={fileTypeFor(activeTab?.kind)?.languageId ?? "PLAIN"}
+          language={(activeTab?.kind === "code" ? codeLanguageId : undefined) ?? fileTypeFor(activeTab?.kind)?.languageId ?? "PLAIN"}
           onSync={() => void handleSyncNow()}
           storagePersistence={storagePersistence}
         />

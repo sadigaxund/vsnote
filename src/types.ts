@@ -29,6 +29,24 @@ export type FileKind =
   | "html"
   | "csv"
   | "image"
+  /** R3-9: any file whose extension isn't one of the hand-written kinds
+   * above but IS covered by `@codemirror/language-data` (CM6's own
+   * language packages plus its legacy `StreamLanguage` modes) — python,
+   * go, rust, shell, yaml, toml, sql, java, c/c++, ruby, php, xml, ini,
+   * `Dockerfile`, and everything else that ships in that package.
+   * `lib/fileTree.ts::inferFileKind` assigns this as its default case
+   * (replacing the old silent "unknown" fallthrough) for any file that
+   * isn't one of the other explicit kinds; `filetypes/registry.ts`'s
+   * single `code` entry gives it the SAME `baseModes`/`renderer: "code"`
+   * shape as the hand-written code kinds (`ts`/`tsx`/`js`/`jsx`/`css`)
+   * above — the difference is which language actually loads, resolved
+   * per-FILE (by filename, via `LanguageDescription.matchFilename`) rather
+   * than per-kind, since one `FileKind` here covers arbitrarily many
+   * languages. A file whose extension `language-data` doesn't recognize
+   * either still gets this kind (Rendered/Source/Diff stay available) but
+   * resolves to no CM6 language — the same plain-text degrade `csv`/an
+   * unrecognized fence language already gets. */
+  | "code"
   | "folder"
   | "unknown"
   /** Phase 6.5c (DESIGN-SPEC Amendments item 11): the Settings VIEW, opened

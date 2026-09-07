@@ -27,7 +27,22 @@ import { pathExists, readTextFile } from "../fs/operations";
 import { displayToFsPath } from "../fs/paths";
 import type { FileKind, FileNode } from "../types";
 
-const SEARCHABLE_KINDS = new Set<FileKind>(["md", "ts", "tsx", "js", "jsx", "json", "css", "html", "csv", "unknown"]);
+// R3-9: "code" (the generic language-data-backed fallback kind — python,
+// go, rust, shell, yaml, ...) is plain text same as every kind already
+// listed here, so it's just as full-text searchable.
+const SEARCHABLE_KINDS = new Set<FileKind>([
+  "md",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "json",
+  "css",
+  "html",
+  "csv",
+  "code",
+  "unknown",
+]);
 
 /** Caps so a pathological huge file/vault can't make one search freeze the
  * UI — this app's demo vault is tiny, but the mechanism should degrade

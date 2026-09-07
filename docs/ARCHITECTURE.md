@@ -4109,3 +4109,24 @@ state. The controls themselves are one floating pill
 `SegmentedControl` and `Switch`; it fades on an idle timer through
 `opacity` only, never `display`/`visibility`, so it never leaves the tab
 order.
+
+## Generic language coverage (R3-9)
+
+`filetypes/registry.ts` gained a generic `"code"` `FileKind` — the default
+`inferFileKind` case for any extension the hand-written entries do not
+model. Its `loadLanguage` resolves the CM6 language per FILE rather than
+per kind, matching the actual filename against `@codemirror/language-data`
+(`LanguageDescription.matchFilename`) and loading only the matched
+language's own package. Both `@codemirror/language-data` and the value
+import of `@codemirror/language` it needs for `LanguageDescription` are
+reached exclusively through dynamic `import()` inside `registry.ts`, which
+is itself boot-loaded, so none of the catalog and none of the parsers land
+in the cold-boot bundle; a language's chunk arrives only when a file of
+that language is opened, rendered or shared. `loadLanguage` therefore
+takes an optional filename, which the hand-written entries ignore, and
+`codeBlock.tsx` — the static highlighted view shared by the editor's
+read-only Rendered mode, the public reader and print/export — takes the
+file's path so all three surfaces resolve the identical language. The
+status bar's language label resolves asynchronously through
+`languageIdFor`, since a synchronous kind lookup cannot know a generic
+file's language.

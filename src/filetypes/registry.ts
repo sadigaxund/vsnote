@@ -34,6 +34,21 @@
  * reasoning the table already applies to md) — flagged here rather than
  * silently guessed, since the table's silence on those two rows is
  * genuinely ambiguous; worth confirming against DESIGN-SPEC in review.
+ *
+ * R3-9: a `.py`/`.go`/`.rs`/`.sh`/`.yaml`/... file previously fell through
+ * `lib/fileTree.ts::inferFileKind`'s switch to `"unknown"`, which has no
+ * entry here at all — `fileTypeForOrPlain` silently gave it the
+ * `PLAIN_TEXT` fallback (`baseModes: ["source"]` only, no highlighting,
+ * no Rendered mode) EVERYWHERE a `FileKind` drives behavior: Source mode,
+ * Diff, the public share reader's `CodeBlock`, and print/export. Fixed by
+ * adding ONE new `FileKind` ("code", see `types.ts`'s doc) as the default
+ * `inferFileKind` case instead of "unknown", and ONE new `REGISTRY` entry
+ * for it below, whose `loadLanguage` defers to `loadCodeLanguageInfo` —
+ * `@codemirror/language-data`'s ~180-language catalog, matched by
+ * filename via `LanguageDescription.matchFilename` — as the fallback for
+ * every extension this table doesn't hand-write its own case for. See
+ * `loadCodeLanguageInfo`'s own doc below for the bundle-splitting
+ * discipline that keeps this from bloating the boot chunk.
  */
 import type { Extension } from "@codemirror/state";
 import type { EditorMode, FileKind } from "../types";
@@ -56,13 +71,28 @@ export type RendererKind = "livepreview" | "html" | "csv" | "json" | "image" | "
 
 export interface FileTypeEntry {
   /** Status-bar language id, e.g. "TS", "MD", "JSON" (DESIGN-SPEC's `Ln 14,
-   * Col 32` / `UTF-8` / `LF` / `MD` status-bar cluster). */
+   * Col 32` / `UTF-8` / `LF` / `MD` status-bar cluster). Constant for every
+   * hand-written kind; for the generic `code` kind this is a placeholder
+   * ("CODE") — the REAL per-file id (e.g. "PYTHON") only exists once a
+   * filename has been matched against `@codemirror/language-data`, which is
+   * necessarily async (see `loadCodeLanguageInfo` below) — callers that
+   * want the real label for a `code`-kind file (`App.tsx`'s status bar) use
+   * that function directly instead of this static field. */
   languageId: string;
   /** Lazily loads this file type's CM6 language support extension (Source
    * mode). Resolves to `null` for "no CM6 language mode" — csv-as-text per
    * IMPLEMENTATION-PLAN.md Phase 3 (plain text: still gets line numbers,
-   * search, the git gutter — just no syntax highlighting). */
-  loadLanguage: () => Promise<Extension | null>;
+   * search, the git gutter — just no syntax highlighting).
+   *
+   * Takes an optional `filename` (R3-9) — every hand-written entry ignores
+   * it (the kind alone already determines the language), but the generic
+   * `code` entry needs it: one `FileKind` ("code") covers arbitrarily many
+   * actual languages, so which language to load can only be decided per
+   * FILE, not per kind. Callers that have a real filename/path in scope
+   * (`EditorContent.tsx`, `codeBlock.tsx`) pass it through; callers that
+   * only ever handle a specific hand-written kind (none currently) may omit
+   * it. */
+  loadLanguage: (filename?: string) => Promise<Extension | null>;
   /** Modes selectable for this kind before considering whether the active
    * file actually has a nonzero diff — "diff" is added dynamically by the
    * caller (`modeAvailabilityFor` below) only when `supportsDiff` and a
@@ -193,7 +223,88 @@ const REGISTRY: Partial<Record<FileKind, FileTypeEntry>> = {
     supportsDiff: false,
     renderer: "image",
   },
+  // R3-9: the generic fallback kind — every extension `inferFileKind`
+  // doesn't have its own case for (`lib/fileTree.ts`). Same shape as the
+  // hand-written code kinds above (`baseModes`/`defaultMode`/`supportsDiff`/
+  // `renderer: "code"`, reusing the exact same `CodeView`/`CodeBlock`
+  // Rendered-mode machinery) — the only difference is `loadLanguage` defers
+  // to `loadCodeLanguageInfo` below, which needs the actual filename to
+  // pick a language out of `@codemirror/language-data`'s ~180-language
+  // catalog. `languageId` here is only the synchronous placeholder (see the
+  // interface doc) — never shown once a real match resolves.
+  code: {
+    languageId: "CODE",
+    loadLanguage: (filename) => loadCodeLanguageInfo(filename).then((info) => info.extension),
+    baseModes: ["rendered", "source"],
+    defaultMode: "source",
+    supportsDiff: true,
+    renderer: "code",
+  },
 };
+
+/** R3-9 fallback path: matches `filename` against every language
+ * `@codemirror/language-data` knows (CM6's own `@codemirror/lang-*`
+ * packages PLUS its legacy `@codemirror/legacy-modes` `StreamLanguage`
+ * wrappers) via `LanguageDescription.matchFilename` — the same resolution
+ * VSCode/CodeMirror's own demo use for "what language is this file",
+ * covering both ordinary extensions (`.py`, `.go`, `.rs`, `.sh`, `.yaml`,
+ * `.toml`, `.sql`, `.java`, `.c`/`.cpp`, `.rb`, `.php`, `.xml`, `.ini`, ...)
+ * and filename patterns with no extension at all (`Dockerfile`, `Makefile`).
+ *
+ * Bundle discipline (CLAUDE.md rule 3 / the arc's boot-chunk rules): BOTH
+ * `@codemirror/language-data` (a ~32KB metadata module: language names,
+ * extensions, and a `load()` closure per language — no parser code itself)
+ * and `@codemirror/language` (needed only for the `LanguageDescription`
+ * class's `matchFilename` static method) are reached through dynamic
+ * `import()` here, same as every `loadLanguage` in the table above reaches
+ * its own `@codemirror/lang-*` package — neither module is imported
+ * statically anywhere in this file, so nothing new lands in the chunk that
+ * contains `REGISTRY`/`fileTypeFor` (which IS boot-loaded — `App.tsx` and
+ * `EditorContent.tsx` both import from this module eagerly). A matched
+ * language's OWN package (e.g. `@codemirror/lang-python`, or
+ * `@codemirror/legacy-modes/mode/ruby` for a StreamLanguage entry) is
+ * itself behind the matched `LanguageDescription`'s own `load()` — Vite
+ * code-splits per-language exactly as it already does for `lang-markdown`/
+ * `lang-javascript`/etc, so opening a `.py` file never pulls in the Rust,
+ * Go, YAML, or any other language's parser.
+ *
+ * Verify post-build with: no `@codemirror/language-data` / `@codemirror/
+ * lang-python` etc. source strings inside the entry/boot chunk — see this
+ * file's `RendererKind` doc area / the module header for the exact grep.
+ */
+async function loadCodeLanguageInfo(
+  filename: string | undefined,
+): Promise<{ extension: Extension | null; languageId: string }> {
+  if (!filename) return { extension: null, languageId: "PLAIN" };
+  try {
+    const [{ languages }, { LanguageDescription }] = await Promise.all([
+      import("@codemirror/language-data"),
+      import("@codemirror/language"),
+    ]);
+    const desc = LanguageDescription.matchFilename(languages, filename);
+    if (!desc) return { extension: null, languageId: "PLAIN" };
+    const support = await desc.load();
+    return { extension: support, languageId: desc.name.toUpperCase() };
+  } catch {
+    // A language's own chunk failing to load (offline, a stale deployed
+    // bundle after a redeploy) degrades to plain text — never a crash, same
+    // contract every other `loadLanguage` in this file already has.
+    return { extension: null, languageId: "PLAIN" };
+  }
+}
+
+/** Real per-FILE status-bar language id for a `code`-kind file (R3-9) —
+ * `fileTypeFor("code")?.languageId` is only ever the "CODE" placeholder
+ * (see the interface doc), since the actual language depends on the
+ * filename, not the kind. Falls straight through to the ordinary
+ * synchronous `languageId` for every other kind (including `undefined`),
+ * so a caller (`App.tsx`'s status bar) can call this unconditionally for
+ * whatever tab is active rather than branching on kind itself. */
+export async function languageIdFor(kind: FileKind | undefined, path: string | undefined): Promise<string> {
+  if (kind !== "code") return fileTypeForOrPlain(kind).languageId;
+  const info = await loadCodeLanguageInfo(path);
+  return info.languageId;
+}
 
 const PLAIN_TEXT: FileTypeEntry = {
   languageId: "PLAIN",

@@ -34,9 +34,15 @@ import type { FileKind } from "../types";
 export interface CodeViewProps {
   content: string;
   kind?: FileKind;
+  /** R3-9: the open file's path — threaded to `CodeBlock`'s `path` prop so
+   * a generic `kind === "code"` file (python, go, rust, ... — anything
+   * `filetypes/registry.ts`'s `code` entry covers via `@codemirror/
+   * language-data`) resolves the SAME language here as it does in Source
+   * mode, not a second guess. */
+  path?: string;
 }
 
-export function CodeView({ content, kind }: CodeViewProps) {
+export function CodeView({ content, kind, path }: CodeViewProps) {
   if (content.length === 0) {
     return (
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }}>
@@ -57,6 +63,7 @@ export function CodeView({ content, kind }: CodeViewProps) {
         <CodeBlock
           code={content}
           kind={kind}
+          path={path}
           truncatedHint={truncated ? " Switch to Source to see the rest of this file." : undefined}
         />
       </div>

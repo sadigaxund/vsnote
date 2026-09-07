@@ -179,7 +179,7 @@ export function EditorContent({
     if (!path) return null;
     return (
       <Suspense fallback={<EditorLoading />}>
-        <DiffView key={path} paneId={paneId} path={path} loadLanguage={fileType.loadLanguage} layout={diffLayout} />
+        <DiffView key={path} paneId={paneId} path={path} loadLanguage={() => fileType.loadLanguage(path)} layout={diffLayout} />
       </Suspense>
     );
   }
@@ -253,7 +253,7 @@ export function EditorContent({
           <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
             <MissingBanner missing={missing} />
             <Suspense fallback={<EditorLoading />}>
-              <CodeView key={path} content={displayContent} kind={kind} />
+              <CodeView key={path} content={displayContent} kind={kind} path={path} />
             </Suspense>
           </div>
         );
@@ -286,7 +286,7 @@ export function EditorContent({
             content={missing ? headContent : content}
             readOnly={missing}
             diff={diff}
-            loadLanguage={fileType.loadLanguage}
+            loadLanguage={() => fileType.loadLanguage(path)}
             onChange={missing ? undefined : onChange}
             onCursorChange={onCursorChange}
             loadExtraExtensions={kind === "mkmd" ? loadMarkiiExtraExtensions : undefined}

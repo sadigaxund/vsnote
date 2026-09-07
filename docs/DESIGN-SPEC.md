@@ -93,6 +93,7 @@ buildable detail. When in doubt, open the image and match it.
 | `.csv` | DataTable | CM6 plain/highlighted | merge vs HEAD |
 | `.json` | tree/pretty view | CM6 highlighted (default) | merge vs HEAD |
 | code (`.ts/.tsx/.js/.jsx/.css`) | static highlighted `CodeBlock`: line numbers, wrap toggle, copy button | CM6 highlighted (default) | merge vs HEAD |
+| any other extension `@codemirror/language-data` knows (`.py/.go/.rs/.sh/.yaml/.toml/.sql/.java/.c/.cpp/.rb/.php/.xml/.ini`, `Dockerfile`, …) | same static highlighted `CodeBlock`, language resolved per file by filename | CM6 highlighted (default), language resolved per file | merge vs HEAD |
 | images | image viewer (only mode) | — | — |
 
 ### Markdown live preview (the Obsidian behavior — non-negotiable)
@@ -1300,3 +1301,15 @@ items OVERRIDE anything above them.
      publish dialog shows a non-blocking hint that short aliases are
      guessable and suggests a password or narrower access; it never
      refuses the publish. The uniform 404 posture is unchanged.
+
+114. **Language coverage runs past the hand-written table.** A `.py` file
+     (and go, rust, shell, yaml, toml, sql, java, c, c++, ruby, php, xml,
+     ini, `Dockerfile`, and the rest) fell through to plain text in every
+     surface at once: Source, Diff, the public reader, print and export,
+     and the Rendered mode of item 112. One generic `code` file kind now
+     backs every extension the table does not model, resolving the real
+     language per FILE against `@codemirror/language-data`'s catalog and
+     lazy-loading only the matched language, so highlighting appears
+     everywhere those surfaces already highlight the modeled kinds. An
+     extension neither the table nor the catalog recognizes still degrades
+     to plain text.
