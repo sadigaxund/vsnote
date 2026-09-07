@@ -1324,3 +1324,20 @@ items OVERRIDE anything above them.
      the recursive docking model the panes already have. It is disabled
      when there is no real file focused, or when the focused pane holds a
      single tab and would be left empty.
+
+116. **A side-by-side Preview pane for markdown.** Live preview reveals raw
+     syntax wherever the caret is, so a directive you are still typing
+     never shows its rendered form and nothing says why. A "Preview" toggle
+     beside the mode group, and a "Toggle preview" command, opens a
+     read-only pane to the right of the active `.md` or `.mk.md` editor
+     that renders the whole document through the same static pipeline the
+     public reader uses, so Markii directives render there. It updates on a
+     roughly 150ms debounce, scroll-syncs by proportional position rather
+     than by line, shows "Preview" and the filename in its header, and
+     never accepts editing. It is per-tab view state, not a file mode: it
+     closes with its tab, the registry is untouched, and it is offered in
+     Source and Rendered mode but not in Diff. Alongside it, the first time
+     a session reveals a directive's raw source under the caret, a small
+     muted hint at the end of the block says it renders again when the
+     cursor leaves, so the Obsidian rule is discoverable once rather than
+     never.

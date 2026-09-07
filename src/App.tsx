@@ -1302,6 +1302,13 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   // even though the shortcut itself is best-effort).
   const paletteCommands = [
     { id: "toggle-mode", label: "Toggle Rendered / Source", shortcut: "⌘E" },
+    // R3-11 — the side-by-side static Preview pane for the active
+    // `.md`/`.mk.md` tab. Always listed (unlike the icon toggle, which only
+    // renders when the active tab is eligible — `EditorPane.tsx`'s
+    // `previewEligible`) since the palette's own "Commands" group has no
+    // per-file filtering mechanism today; `handlePaletteCommand` below is
+    // itself a no-op when there's no active tab to toggle.
+    { id: "toggle-preview", label: "Toggle preview" },
     { id: "toggle-theme", label: "Toggle theme" },
     // Phase 11 (real sync, roadmap §5.2) — label dropped "(push & pull)":
     // that undersold what `handleSyncNow` actually does now (fetch, then
@@ -1330,6 +1337,9 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     switch (id) {
       case "toggle-mode":
         toggleRenderedSource();
+        break;
+      case "toggle-preview":
+        if (activeTab) useTabsStore.getState().togglePreview(activeTab.path, activePaneId);
         break;
       case "toggle-theme":
         useSettingsStore.getState().cycleTheme();

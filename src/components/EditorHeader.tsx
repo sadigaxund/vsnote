@@ -16,8 +16,8 @@
  * (it always operates on the focused pane regardless of which pane's own
  * header, if any, is visible) — this component no longer renders one.
  */
-import { Breadcrumbs } from "my-you-eye";
-import { AlignJustify, Columns2, Eye, FileCode, GitCompareArrows } from "lucide-react";
+import { Breadcrumbs, Button, Tooltip } from "my-you-eye";
+import { AlignJustify, Columns2, Eye, FileCode, GitCompareArrows, PanelRight } from "lucide-react";
 import { DiffStatChip } from "./local/DiffStatChip";
 import { SegmentedControl } from "./local/SegmentedControl";
 import { RunScriptsButton } from "./local/RunScriptsButton";
@@ -50,6 +50,16 @@ export interface EditorHeaderProps {
    * `SegmentedControl` that used to live inside `editor/DiffView.tsx`. */
   diffLayout?: DiffLayout;
   onDiffLayoutChange?: (layout: DiffLayout) => void;
+  /** R3-11 — the side-by-side static Preview pane toggle, "next to the
+   * Rendered/Source/Diff mode group" per the task brief. Only rendered when
+   * `EditorPane.tsx` decides the active tab is eligible (`md`/`mkmd`,
+   * Source or Rendered mode) — `showPreviewToggle` undefined/false hides it
+   * entirely rather than showing a disabled icon, matching how this header
+   * already omits controls that don't apply (e.g. the diff-layout toggle
+   * outside Diff mode) instead of disabling them. */
+  showPreviewToggle?: boolean;
+  previewOpen?: boolean;
+  onTogglePreview?: () => void;
 }
 
 export function EditorHeader({
@@ -62,6 +72,9 @@ export function EditorHeader({
   availableModes = ["rendered", "source", "diff"],
   diffLayout = "split",
   onDiffLayoutChange,
+  showPreviewToggle,
+  previewOpen,
+  onTogglePreview,
 }: EditorHeaderProps) {
   const has = (m: EditorMode) => availableModes.includes(m);
   return (
@@ -109,6 +122,21 @@ export function EditorHeader({
               { value: "unified", label: "Unified", icon: <AlignJustify size={11} /> },
             ]}
           />
+        )}
+        {showPreviewToggle && (
+          <Tooltip content={previewOpen ? "Hide preview" : "Show preview"} side="bottom">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Toggle preview"
+              aria-pressed={!!previewOpen}
+              data-testid="editor-header-preview-toggle"
+              onClick={onTogglePreview}
+            >
+              <PanelRight size={13} />
+            </Button>
+          </Tooltip>
         )}
       </div>
     </div>

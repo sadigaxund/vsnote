@@ -17,9 +17,11 @@ export interface AppTabBarProps {
   onSplitTab?: (path: string, edge: Exclude<DockEdge, "center">) => void;
   /** Round 6 item 16 — Format/Insert/Export items for the `…` menu. */
   documentActions?: ReactNode;
+  /** R3-11 — see `local/EditorTabBar.tsx`'s own doc. */
+  trailingActions?: ReactNode;
 }
 
-export function AppTabBar({ paneId, tabs, activeId, onSelect, onClose, onDropExternalTab, onSplitTab, documentActions }: AppTabBarProps) {
+export function AppTabBar({ paneId, tabs, activeId, onSelect, onClose, onDropExternalTab, onSplitTab, documentActions, trailingActions }: AppTabBarProps) {
   return (
     <EditorTabBar
       paneId={paneId}
@@ -30,6 +32,7 @@ export function AppTabBar({ paneId, tabs, activeId, onSelect, onClose, onDropExt
       onDropExternalTab={onDropExternalTab}
       onSplitTab={onSplitTab}
       documentActions={documentActions}
+      trailingActions={trailingActions}
     />
   );
 }

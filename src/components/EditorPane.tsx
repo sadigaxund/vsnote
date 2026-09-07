@@ -42,12 +42,14 @@
  * below) so the title bar can read AND change it for the focused pane too,
  * not just this pane's own (now-conditional) header.
  */
-import { useEffect, useMemo, useState } from "react";
-import { TexturedSurface } from "my-you-eye";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, TexturedSurface, Tooltip } from "my-you-eye";
+import { PanelRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { AppTabBar } from "./TabBar";
 import { EditorHeader } from "./EditorHeader";
 import { EditorContent } from "./EditorContent";
+import { MarkdownPreviewPane } from "./MarkdownPreviewPane";
 import { DockOverlay } from "./local/PaneGroup";
 import { PaneErrorBoundary } from "./local/PaneErrorBoundary";
 import { OverflowMenuItems } from "./local/OverflowMenu";
@@ -197,6 +199,27 @@ export function EditorPane({
   const diffLayout = leaf?.diffLayout ?? "split";
   const setDiffLayoutForPane = useTabsStore((s) => s.setDiffLayout);
 
+  // R3-11 — side-by-side static Preview pane. Eligible only for markdown
+  // (plain `.md` or Markii `.mk.md`) in Source or Rendered mode: Diff mode
+  // already shows two representations of the file (before/after) and has
+  // its own unified/split toggle, so a THIRD static pane there would be
+  // more confusing than useful; the Settings/Shared virtual tabs have no
+  // markdown content at all. `filetypes/registry.ts` stays untouched — this
+  // is a per-tab VIEW preference (`OpenTab.previewOpen`), not a new mode.
+  const previewEligible =
+    !!activeTab && (activeTab.kind === "md" || activeTab.kind === "mkmd") && (activeTab.mode === "source" || activeTab.mode === "rendered");
+  const previewOpen = previewEligible && !!activeTab?.previewOpen;
+  const togglePreview = useTabsStore((s) => s.togglePreview);
+  const handleTogglePreview = () => {
+    if (activeTab) togglePreview(activeTab.path, paneId);
+  };
+  // The DOM node wrapping whichever live editor (`EditorContent`) is
+  // mounted for this pane's active tab — `MarkdownPreviewPane` reaches into
+  // it to find CM6's own `.cm-scroller` for proportional scroll sync (see
+  // that component's module doc for why a ref rather than a prop threaded
+  // through the off-limits editor files).
+  const sourceContainerRef = useRef<HTMLDivElement | null>(null);
+
   if (!leaf) return null;
 
   const tabItems: TabItem[] = leaf.tabs.map((t) => ({
@@ -301,6 +324,28 @@ export function EditorPane({
                 missing={activeBuffer?.missing ?? false}
               />
             }
+            // R3-11: with exactly one pane open, `EditorHeader` below never
+            // mounts (see its own `multiPane` doc), so the Preview toggle
+            // lives here instead — same icon, same handler, just a
+            // different visible location for the single-pane case.
+            trailingActions={
+              !multiPane && previewEligible ? (
+                <Tooltip content={previewOpen ? "Hide preview" : "Show preview"} side="bottom">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Toggle preview"
+                    aria-pressed={previewOpen}
+                    data-testid="tabbar-preview-toggle"
+                    onClick={handleTogglePreview}
+                    style={{ flexShrink: 0, marginRight: 2 }}
+                  >
+                    <PanelRight size={13} />
+                  </Button>
+                </Tooltip>
+              ) : undefined
+            }
           />
           {/* DESIGN-SPEC Amendments item 11: the Settings tab is a real VIEW,
               not a document with Rendered/Source/Diff representations — the
@@ -338,41 +383,64 @@ export function EditorPane({
               availableModes={availableModes}
               diffLayout={diffLayout}
               onDiffLayoutChange={(layout) => setDiffLayoutForPane(layout, paneId)}
+              showPreviewToggle={previewEligible}
+              previewOpen={previewOpen}
+              onTogglePreview={handleTogglePreview}
             />
           )}
         </>
       )}
       <div
         data-pane-content={paneId}
-        style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}
+        // R3-11: row layout so the Preview pane sits to the RIGHT of the
+        // live editor rather than replacing it — `flexDirection` was
+        // unconditionally "column" before this change; the editor's own
+        // sub-div below restores that column layout for itself so nothing
+        // about its internal (header-band + content) stacking changes.
+        style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "row" }}
         onDragOver={handleDragOver}
         onDragLeave={() => setDockPreview(null)}
         onDrop={handleDrop}
       >
-        <PaneErrorBoundary key={`${paneId}:${activeTab?.path ?? "empty"}`} paneId={paneId}>
-        <EditorContent
-          paneId={paneId}
-          hasTab={!!activeTab}
-          path={activeTab?.path}
-          kind={activeTab?.kind}
-          mode={activeTab?.mode ?? "source"}
-          content={activeBuffer?.content ?? ""}
-          loaded={activeBuffer?.loaded ?? false}
-          missing={activeBuffer?.missing ?? false}
-          diff={activeDiff}
-          onChange={(value) => {
-            if (activeTab) useBufferStore.getState().setContent(activeTab.path, value);
-          }}
-          onCursorChange={handleCursorChange}
-          onOpenLink={(href) => onOpenLink(paneId, href)}
-          diffLayout={diffLayout}
-          storagePersistence={storagePersistence}
-          onExportVault={onExportVault}
-          onRequestResetVault={onRequestResetVault}
-          onRestoreFromRemote={onRestoreFromRemote}
-        />
-        </PaneErrorBoundary>
-        {dockPreview && <DockOverlay edge={dockPreview} />}
+        <div
+          ref={sourceContainerRef}
+          data-pane-source={paneId}
+          style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}
+        >
+          <PaneErrorBoundary key={`${paneId}:${activeTab?.path ?? "empty"}`} paneId={paneId}>
+          <EditorContent
+            paneId={paneId}
+            hasTab={!!activeTab}
+            path={activeTab?.path}
+            kind={activeTab?.kind}
+            mode={activeTab?.mode ?? "source"}
+            content={activeBuffer?.content ?? ""}
+            loaded={activeBuffer?.loaded ?? false}
+            missing={activeBuffer?.missing ?? false}
+            diff={activeDiff}
+            onChange={(value) => {
+              if (activeTab) useBufferStore.getState().setContent(activeTab.path, value);
+            }}
+            onCursorChange={handleCursorChange}
+            onOpenLink={(href) => onOpenLink(paneId, href)}
+            diffLayout={diffLayout}
+            storagePersistence={storagePersistence}
+            onExportVault={onExportVault}
+            onRequestResetVault={onRequestResetVault}
+            onRestoreFromRemote={onRestoreFromRemote}
+          />
+          </PaneErrorBoundary>
+          {dockPreview && <DockOverlay edge={dockPreview} />}
+        </div>
+        {previewOpen && activeTab && (
+          <MarkdownPreviewPane
+            key={activeTab.path}
+            path={activeTab.path}
+            name={activeTab.name}
+            content={activeBuffer?.content ?? ""}
+            sourceContainerRef={sourceContainerRef}
+          />
+        )}
       </div>
 
       {zen && (

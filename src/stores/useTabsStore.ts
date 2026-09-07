@@ -61,6 +61,19 @@ export interface OpenTab {
   preview: boolean;
   /** Double-click/edit pinned it — survives the next preview open. */
   pinned: boolean;
+  /** R3-11 — the side-by-side static Preview pane's open/closed state,
+   * PER TAB (not a new file mode, not a pane-level or global toggle — see
+   * `MarkdownPreviewPane.tsx`'s module doc). Only ever meaningful for
+   * `md`/`mkmd` tabs in Source or Rendered mode (`EditorPane.tsx` gates the
+   * toggle button and the pane itself on that), but stored unconditionally
+   * on every tab for simplicity — a stray `true` on a non-markdown tab is
+   * inert. Naturally "closes when the source tab closes" (the task's own
+   * requirement) for free: this flag lives ON the tab, so it's discarded
+   * along with the rest of the `OpenTab` the moment `closeTab` removes it —
+   * no separate cleanup needed. Optional, defaults to `false` via `??
+   * false` at every read site, same convention as `diffLayout` above (no
+   * persist version bump for one new optional field). */
+  previewOpen?: boolean;
 }
 
 export interface PaneLeaf {
@@ -316,6 +329,15 @@ interface TabsStoreState {
    * `EditorPane.tsx`'s own per-pane header (when >1 pane) and by the title
    * bar (`App.tsx`, which always mirrors the FOCUSED pane). */
   setDiffLayout: (layout: DiffLayout, paneId?: string) => void;
+
+  /** R3-11 — flips `path`'s per-tab Preview-pane flag (default: the
+   * focused pane's own tab, so the command palette's "Toggle preview"
+   * command can call this with no arguments at all). Self-contained (reads
+   * the CURRENT value inside the same `set`, same pattern as every other
+   * per-tab flag in this store) rather than taking an explicit `open`
+   * value — every caller (the header's icon button, the palette command)
+   * wants "flip whatever it is now," never "force it to X." */
+  togglePreview: (path: string, paneId?: string) => void;
 }
 
 export const useTabsStore = create<TabsStoreState>()(
@@ -579,6 +601,16 @@ export const useTabsStore = create<TabsStoreState>()(
       setDiffLayout: (layout, explicitPaneId) => {
         const paneId = explicitPaneId ?? get().activePaneId;
         set((state) => ({ tree: updateLeaf(state.tree, paneId, (pane) => ({ ...pane, diffLayout: layout })) }));
+      },
+
+      togglePreview: (path, explicitPaneId) => {
+        const paneId = explicitPaneId ?? get().activePaneId;
+        set((state) => ({
+          tree: updateLeaf(state.tree, paneId, (pane) => ({
+            ...pane,
+            tabs: pane.tabs.map((t) => (t.path === path ? { ...t, previewOpen: !t.previewOpen } : t)),
+          })),
+        }));
       },
     }),
     {

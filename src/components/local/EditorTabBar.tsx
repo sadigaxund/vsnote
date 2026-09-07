@@ -64,9 +64,18 @@ export interface EditorTabBarProps {
    * menu, above the tab-management items. A `ReactNode` slot so this bar
    * stays a generic strip with no knowledge of markdown or buffers. */
   documentActions?: ReactNode;
+  /** R3-11 — persistent icon-button(s) rendered directly in the strip,
+   * between the tabs and the `…` overflow trigger (NOT inside that
+   * dropdown, unlike `documentActions` above): for a control that needs to
+   * be a single click away and visible at a glance, e.g. the Preview
+   * toggle. Only `EditorPane.tsx` (single-pane case, where `EditorHeader`
+   * doesn't mount at all — see that file's `multiPane` doc) uses this; the
+   * multi-pane case renders the same toggle inside `EditorHeader` instead,
+   * next to the mode group, per the task brief. */
+  trailingActions?: ReactNode;
 }
 
-export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDropExternalTab, onSplitTab, documentActions }: EditorTabBarProps) {
+export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDropExternalTab, onSplitTab, documentActions, trailingActions }: EditorTabBarProps) {
   // ARIA tabs pattern (COMPONENT-BACKLOG §3.4/B3): a tablist has ONE tab
   // stop — the focused/active tab — with Arrow keys moving focus among tabs
   // (focus follows the roving index; activation stays explicit via
@@ -335,6 +344,7 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
           );
         })}
       </div>
+      {trailingActions}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button

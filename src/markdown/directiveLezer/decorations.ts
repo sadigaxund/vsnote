@@ -219,6 +219,54 @@ class MkBlockDirectiveWidget extends WidgetType {
   }
 }
 
+/**
+ * R3-11 — a small muted inline hint shown at the END of a revealed
+ * directive/fence, reading "rendered when the cursor leaves", so the
+ * Obsidian live-preview rule (raw source only while the caret is inside,
+ * instant re-render on leave — item 61) is discoverable rather than a
+ * silent behavior a user has to notice on their own. `aria-hidden` + a
+ * no-op `ignoreEvent`/ `coordsAt`-inert `WidgetType`: it's a passing visual
+ * aid, never a focusable or announced element, so it adds nothing for the
+ * accessibility/reflow audit (`tests/e2e/ui-audit.spec.ts`) to flag.
+ *
+ * Module-level `hintShownThisSession` (not per-editor-instance, not
+ * persisted) — "ONCE PER SESSION" per the task brief: the first time ANY
+ * `.mk.md` editor in this browser tab reveals a directive, the hint
+ * appears once and never again for the rest of the session (a reload
+ * resets it, same as any other "seen this already" in-memory flag in this
+ * codebase). Set synchronously inside the (pure, synchronous) decoration
+ * build itself — the same place that decides a reveal is happening at all
+ * — rather than from some separate effect, so there's no window where two
+ * simultaneous reveals (two split panes on two different `.mk.md` files)
+ * could each show it once.
+ */
+let hintShownThisSession = false;
+
+class RevealHintWidget extends WidgetType {
+  eq(): boolean {
+    return true; // stateless — any two instances render identically.
+  }
+  toDOM(): HTMLElement {
+    const el = document.createElement("span");
+    el.className = "mk-reveal-hint";
+    el.setAttribute("aria-hidden", "true");
+    el.textContent = "rendered when the cursor leaves";
+    return el;
+  }
+  ignoreEvent(): boolean {
+    return true; // purely decorative — never intercepts a click/selection.
+  }
+}
+
+/** Pushes the once-per-session reveal hint at `pos` (a directive/fence's
+ * end) onto `decorations`, iff it hasn't been shown yet this session.
+ * Shared by both the block `StateField` and the inline `ViewPlugin` below. */
+function maybePushRevealHint(decorations: Range<Decoration>[], pos: number): void {
+  if (hintShownThisSession) return;
+  hintShownThisSession = true;
+  decorations.push(Decoration.widget({ widget: new RevealHintWidget(), side: 1 }).range(pos));
+}
+
 class MkInlineDirectiveWidget extends WidgetType {
   constructor(
     private readonly source: string,
@@ -379,7 +427,13 @@ function buildBlockDecorations(state: EditorState, cache: Map<string, string>, r
     enter(node) {
       if (node.name !== MK_DIRECTIVE_CONTAINER && node.name !== MK_DIRECTIVE_LEAF) return undefined;
       const { from, to } = node;
-      if (cursorTouches(state, from, to)) return false; // reveal raw source; still skip descending, nothing nested needs its own decoration.
+      if (cursorTouches(state, from, to)) {
+        // Reveal raw source; still skip descending, nothing nested needs
+        // its own decoration. R3-11: the discoverability hint goes here —
+        // this IS "a revealed directive or fence."
+        maybePushRevealHint(decorations, to);
+        return false;
+      }
       const source = doc.sliceString(from, to);
       decorations.push(
         Decoration.replace({
@@ -408,7 +462,10 @@ function buildInlineDecorations(view: EditorView, cache: Map<string, string>, re
       enter(node) {
         if (node.name !== MK_DIRECTIVE_TEXT) return undefined;
         const { from, to } = node;
-        if (cursorTouches(state, from, to)) return undefined;
+        if (cursorTouches(state, from, to)) {
+          maybePushRevealHint(decorations, to);
+          return undefined;
+        }
         const source = doc.sliceString(from, to);
         decorations.push(
           Decoration.replace({
@@ -432,6 +489,17 @@ const mkLivePreviewTheme = EditorView.baseTheme({
   },
   ".mk-live-preview-inline": {
     display: "inline",
+  },
+  // R3-11's once-per-session reveal hint (see `RevealHintWidget`) — muted
+  // and small enough to read as a caption, never mistaken for document
+  // content; `user-select: none` so it can't end up copied into a paste.
+  ".mk-reveal-hint": {
+    display: "inline",
+    marginLeft: "0.5em",
+    fontSize: "0.85em",
+    fontStyle: "italic",
+    color: "var(--color-muted, #888)",
+    userSelect: "none",
   },
 });
 

@@ -4130,3 +4130,24 @@ file's path so all three surfaces resolve the identical language. The
 status bar's language label resolves asynchronously through
 `languageIdFor`, since a synchronous kind lookup cannot know a generic
 file's language.
+
+## Side-by-side markdown Preview (R3-11)
+
+`src/components/MarkdownPreviewPane.tsx` is a fourth consumer of
+`renderMarkdown`, after the editor's Rendered mode, the public reader and
+print/export: a debounced (~150ms), read-only static render of the active
+`.md`/`.mk.md` tab, shown beside its live editor. It is per-tab VIEW STATE
+(`useTabsStore`'s `OpenTab.previewOpen`), not a file mode, so
+`filetypes/registry.ts` is untouched and "closes when the tab closes" falls
+out of `closeTab` discarding the tab entry. `EditorPane.tsx` lays the
+editor and the preview out as flex siblings inside one pane rather than
+making the preview a real pane in the split grid, because it is a view of
+one tab and not something another tab can be docked into. Scroll sync is
+proportional (`src/markdown/previewScrollSync.ts`, pure and unit-tested)
+rather than line-mapped, since the two DOM trees have no shared structure;
+the preview finds CM6's `.cm-scroller` by querying inside a container ref
+`EditorPane` hands down, because neither editor component exposes a scroll
+ref. The toggle has two mount points for one action: the mode group in
+`EditorHeader.tsx` exists only when more than one pane is open, so the
+single-pane case gets the same toggle through the tab bar's new
+`trailingActions` slot.
