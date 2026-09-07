@@ -29,6 +29,26 @@ test.describe("Settings view", () => {
     await expect(tab(page, "vault/notes/architecture.md")).toBeVisible();
   });
 
+  test("Ctrl+, opens Settings and focuses its search field (round 5)", async ({ page }) => {
+    await gotoApp(page);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    // Pressed from the editor, with no Settings tab open at all yet.
+    await page.locator(".cm-content").first().click();
+    await page.keyboard.press("Control+,");
+
+    await expect(tab(page, "settings")).toBeVisible();
+    await expect(page.getByTestId("settings-search")).toBeFocused();
+
+    // Pressed again while Settings is already open: still just (re)focuses
+    // search, doesn't duplicate the tab or error.
+    await page.getByTestId("settings-search").fill("theme");
+    await tab(page, "vault/notes/architecture.md").click();
+    await page.keyboard.press("Control+,");
+    await expect(tab(page, "settings")).toBeVisible();
+    await expect(page.getByTestId("settings-search")).toBeFocused();
+  });
+
   test("category nav is a scroll-spy TOC: it scrolls to and highlights the clicked category's section", async ({ page }) => {
     await gotoApp(page);
     await openSettingsTab(page);

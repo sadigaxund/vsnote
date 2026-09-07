@@ -34,7 +34,7 @@ import { flattenFiles } from "./lib/flattenTree";
 import { useDirtyBeforeunloadGuard } from "./lib/useDirtyBeforeunloadGuard";
 import { resolveVaultDisplayLabel } from "./lib/vaultLabel";
 import { probeRender } from "./lib/renderProbe";
-import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH } from "./lib/settingsTab";
+import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH, requestSettingsSearchFocus } from "./lib/settingsTab";
 import { SHARED_TAB_NAME, SHARED_TAB_PATH } from "./lib/sharedTab";
 import { useShareStore } from "./share/useShareStore";
 import { createAutoSyncScheduler } from "./git/autoSyncPolicy";
@@ -825,8 +825,9 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   // keydown handler that `preventDefault`s and owns every shortcut this app
   // claims while it has focus, so the browser's own bindings never win:
   // ⌘S (save), ⌘F (open OUR CM6 search panel, never the browser's find
-  // bar), ⌘E (toggle Rendered/Source), ⌘K (command palette), ⌘P (file
-  // jump), ⌘W / ⌘⇧W (close tab — best-effort / guaranteed fallback, see
+  // bar), ⌘E (toggle Rendered/Source), ⌘K (command palette), ⌘, (open
+  // Settings, focused on search — round 5), ⌘P (file jump), ⌘W / ⌘⇧W
+  // (close tab — best-effort / guaranteed fallback, see
   // `closeActiveTab`'s doc), ⌘⇧Z (zen mode).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -845,6 +846,17 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
       } else if (key === "k") {
         e.preventDefault();
         setPaletteMode("commands");
+      } else if (key === ",") {
+        // Round 5 — Ctrl+, / Cmd+,: open Settings (or just focus it if the
+        // tab is already open) and focus its search field. `openFile` with
+        // `kind: "settings"` is exactly what `handleOpenSettings` below
+        // does (inlined here, not called, since it's declared later in
+        // this component and `react-hooks/immutability` rightly flags a
+        // forward reference to a `const` even inside a closure that only
+        // runs after the whole component body has executed once).
+        e.preventDefault();
+        useTabsStore.getState().openFile({ path: SETTINGS_TAB_PATH, name: SETTINGS_TAB_NAME, kind: "settings" }, { pin: true });
+        requestSettingsSearchFocus();
       } else if (key === "p") {
         e.preventDefault();
         setPaletteMode("files");

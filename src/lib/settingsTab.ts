@@ -17,3 +17,31 @@
  */
 export const SETTINGS_TAB_PATH = "settings";
 export const SETTINGS_TAB_NAME = "Settings";
+
+/**
+ * Ctrl+, / Cmd+, ("open Settings and focus its search field") — the global
+ * shortcut handler (`App.tsx`) opens/focuses the Settings tab and then
+ * calls `requestSettingsSearchFocus()`; `SettingsView.tsx` is the only
+ * consumer of `consumePendingSettingsSearchFocus`/the event below. A plain
+ * module-level flag + a `window` `CustomEvent` (not a store) because this
+ * is a one-shot imperative request ("focus this field now"), not state
+ * anything renders from — and it has to work whether `SettingsView` is
+ * already mounted (event listener fires) or is about to lazy-mount for the
+ * first time (the flag is read once on mount, since the event obviously
+ * fires before a not-yet-mounted component could ever add a listener for
+ * it).
+ */
+export const SETTINGS_FOCUS_SEARCH_EVENT = "vsnote:settings-focus-search";
+let pendingSettingsSearchFocus = false;
+
+export function requestSettingsSearchFocus(): void {
+  pendingSettingsSearchFocus = true;
+  window.dispatchEvent(new CustomEvent(SETTINGS_FOCUS_SEARCH_EVENT));
+}
+
+/** Reads and clears the pending-focus flag — call once, on mount. */
+export function consumePendingSettingsSearchFocus(): boolean {
+  const had = pendingSettingsSearchFocus;
+  pendingSettingsSearchFocus = false;
+  return had;
+}

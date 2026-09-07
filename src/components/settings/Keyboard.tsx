@@ -8,6 +8,7 @@ import type { SettingRow } from "./types";
 
 const SHORTCUTS: { keys: string; description: string }[] = [
   { keys: "⌘K", description: "Command palette: file jump and commands" },
+  { keys: "⌘,", description: "Open Settings, focused on search" },
   { keys: "⌘P", description: "Go to file" },
   { keys: "⌘S", description: "Save the active buffer" },
   { keys: "⌘F", description: "Find in the current view" },
@@ -23,7 +24,7 @@ export function useKeyboardRows(): SettingRow[] {
     {
       id: "shortcuts",
       label: "Keyboard shortcuts",
-      keywords: "kbd shortcuts hotkeys palette save search close zen esc",
+      keywords: "kbd shortcuts hotkeys palette save search close zen esc settings comma",
       content: (
         <SettingsRow label="Keyboard shortcuts" controlWidth="full">
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
