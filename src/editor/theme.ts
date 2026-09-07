@@ -66,7 +66,20 @@ export const editorTheme = EditorView.theme(
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
       backgroundColor: "color-mix(in oklab, var(--color-primary) 25%, transparent)",
     },
-    ".cm-activeLine": { backgroundColor: "var(--color-surface-hover)" },
+    // TRANSLUCENT on purpose. With `drawSelection`, the selection is painted
+    // by `.cm-selectionLayer`, which sits UNDER `.cm-content`, while
+    // `.cm-activeLine` is a background on the line element itself. An opaque
+    // active-line background therefore paints straight over the selection,
+    // so selecting several lines showed no highlight at all on the caret's
+    // line: the one line the user is most likely to be looking at. Alpha low
+    // enough that the selection reads through it, high enough that the
+    // caret line is still obvious with no selection. `.cm-activeLineGutter`
+    // below stays opaque, since no selection is ever drawn in the gutter.
+    // The live-preview editor needs no matching rule: atomic-editor already
+    // ships `.cm-activeLine { background: transparent }`.
+    ".cm-activeLine": {
+      backgroundColor: "color-mix(in oklab, var(--color-surface-hover) 45%, transparent)",
+    },
     ".cm-activeLineGutter": { backgroundColor: "var(--color-surface-hover)" },
     ".cm-gutters": {
       // Same reasoning as `&` above — transparent under textured themes so
