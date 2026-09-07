@@ -20,8 +20,9 @@ would produce FastAPI's own 422 automatically, and the roadmap is explicit
 that a malformed identifier must take the *identical 404 path* as a missing
 one, never a 422. Format validation therefore happens exactly once, inside
 policy.resolve_share (or, for the auth endpoint, via the same
-`security.validate_slug_format` call used there) — never via a declarative
-path constraint.
+`security.validate_identifier_format` call used there — R3-4: this accepts
+EITHER a generated slug's shape or a custom alias's own, shorter/lowercase-
+only shape) — never via a declarative path constraint.
 
 Contract for Phase 10 (client sharing UI): see server/README.md's "Public
 share contract" section for the full request/response shapes documented for
@@ -501,7 +502,7 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         # real share and a nonexistent one (keyed by caller IP, not by
         # slug), so exhausting it never tells an attacker anything about
         # whether the slug names a real record.
-        if not security.validate_slug_format(identifier):
+        if not security.validate_identifier_format(identifier):
             write_audit_event(db, "auth.failure", slug=identifier, reason="malformed_slug", request=request)
             return policy.not_found_response()
 

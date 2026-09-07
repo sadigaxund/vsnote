@@ -1285,3 +1285,18 @@ items OVERRIDE anything above them.
      `canPublishRendered` now reads the same `baseModes` table and
      disables that option, with an inline reason, for a kind the registry
      cannot render.
+
+113. **A custom alias is 2 to 64 lowercase characters, no longer the
+     generated slug's shape.** Aliases and slugs shared one
+     `^[A-Za-z0-9_-]{8,64}$` rule, which made short, memorable aliases
+     like "get" or "help" impossible; an alias is now `[a-z0-9-_]`, 2 to
+     64 characters, with an uppercase character rejected outright ("Use
+     lowercase letters, digits, hyphens and underscores") rather than
+     silently downcased, since a silently rewritten alias changes the URL
+     the owner just chose. Generated slugs are unchanged at 22 mixed-case
+     characters. Uniqueness is case-insensitive against both aliases and
+     slugs, and the reserved-word list grew from four to eleven. When
+     "anyone with the link" is paired with an alias under 8 characters the
+     publish dialog shows a non-blocking hint that short aliases are
+     guessable and suggests a password or narrower access; it never
+     refuses the publish. The uniform 404 posture is unchanged.

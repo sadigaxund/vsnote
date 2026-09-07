@@ -119,3 +119,22 @@ export const STEP_LABELS: Record<StepId, string> = {
   link: "Link",
   result: "Result",
 };
+
+/** R3-4 — a short alias (below the OLD 8-char minimum) is easy to guess by
+ * brute force, so "anyone with the link" plus a short alias deserves a
+ * nudge toward a password or restricted access. This is a HINT, never a
+ * blocking error: short aliases are the whole point of the feature, and
+ * the owner may genuinely want a short, public, unauthenticated link (a
+ * personal landing page, say) — the dialog must never refuse to publish
+ * over this. Pure predicate (no JSX) so it's unit-testable on its own,
+ * same reasoning as every other helper in this file. `SHORT_ALIAS_THRESHOLD`
+ * is the alias length below which the hint applies — the alias itself is
+ * validated against `share/alias.ts`'s SEPARATE, lower `ALIAS_MIN_LENGTH`
+ * (2); this threshold is a guessability judgment call, not a format rule,
+ * so it deliberately isn't imported from there. */
+export const SHORT_ALIAS_THRESHOLD = 8;
+
+export function shouldShowShortAliasHint(generalAccess: GeneralAccess, alias: string): boolean {
+  const trimmed = alias.trim();
+  return generalAccess === "link" && trimmed.length > 0 && trimmed.length < SHORT_ALIAS_THRESHOLD;
+}

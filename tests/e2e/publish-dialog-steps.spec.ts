@@ -170,4 +170,54 @@ test.describe("Publish dialog — stepped flow", () => {
     // (the already-shared sibling's row also contains "Shared as /share/…").
     await expect(unsharedRow).toContainText("Shared as /share/", { timeout: 10_000 });
   });
+
+  // R3-4 — short custom aliases ("get", "help") are now legal (min length
+  // dropped from 8 to 2), but a short alias on an "anyone with the link"
+  // share is guessable, so the Link step shows a non-blocking inline hint.
+  // Publishing must still succeed — the hint is advisory only.
+  test("shows a short-alias hint on 'anyone with the link' but never blocks publishing", async ({ page }) => {
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    const path = await createFileWithContent(page, "vault/notes", "short-alias.md", "# Short alias\n\nContent.\n");
+
+    await treeRow(page, path).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Publish…" }).click();
+    const dialog = page.getByTestId("publish-dialog");
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByTestId("publish-continue").click(); // -> access (default: anyone with the link)
+    await dialog.getByTestId("publish-continue").click(); // -> protection
+    await dialog.getByTestId("publish-continue").click(); // -> link
+
+    const alias = `sa${Date.now().toString(36)}`.slice(0, 7); // stays under the 8-char hint threshold
+    await dialog.getByTestId("publish-alias").fill(alias);
+    await expect(dialog.getByTestId("publish-alias-short-hint")).toBeVisible();
+    await expect(dialog.getByTestId("publish-alias-short-hint")).toContainText(
+      "Short aliases are guessable; add a password or restrict access if this should stay private.",
+    );
+
+    await dialog.getByTestId("publish-submit").click();
+    await expect(dialog.getByTestId("publish-step-result")).toHaveAttribute("aria-selected", "true");
+    const link = await dialog.getByTestId("publish-result-link").inputValue();
+    expect(link).toContain(`/share/${alias}`);
+  });
+
+  test("does not show the short-alias hint once restricted to specific people", async ({ page }) => {
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    const path = await createFileWithContent(page, "vault/notes", "short-alias-restricted.md", "restricted\n");
+
+    await treeRow(page, path).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Publish…" }).click();
+    const dialog = page.getByTestId("publish-dialog");
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByTestId("publish-continue").click(); // -> access
+    await dialog.getByRole("radio", { name: "Only people I list" }).click();
+    await dialog.getByTestId("publish-continue").click(); // -> protection
+    await dialog.getByTestId("publish-continue").click(); // -> link
+
+    await dialog.getByTestId("publish-alias").fill("short1");
+    await expect(dialog.getByTestId("publish-alias-short-hint")).toHaveCount(0);
+  });
 });

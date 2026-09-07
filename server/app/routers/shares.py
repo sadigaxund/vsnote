@@ -17,6 +17,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from slowapi import Limiter
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -89,15 +90,37 @@ def _check_alias_available(db: Session, alias: str, *, exclude_share_id: Optiona
     instead of a 500 IntegrityError. An alias must never collide with
     either an existing alias OR an existing slug (both columns share the
     same identifier namespace at the public gate — `policy.lookup_share`
-    matches either). The DB's own unique constraints on `shares.alias` and
-    `shares.slug` remain as the belt-and-suspenders backstop for the race
-    between this check and the commit (still caught below as an
-    IntegrityError -> 409)."""
+    matches either), and R3-4 makes that comparison CASE-INSENSITIVE (an
+    alias is always stored lowercase already, per `alias_error` rejecting
+    uppercase input outright, but a generated slug is mixed-case, so
+    `func.lower()` on both sides is what actually catches an alias that
+    happens to case-fold onto an existing slug).
+
+    Race note: this is a check-then-commit pre-check, not an atomic
+    constraint. `shares.alias` and `shares.slug` each have their own
+    (case-SENSITIVE) DB-level unique index, so two concurrent requests
+    racing to claim the exact same alias value, or the exact same slug
+    value, still can't both succeed — the loser's `db.commit()` below hits
+    an IntegrityError and gets the same 409 this pre-check gives the
+    common case. What is NOT backstopped by any DB constraint (this
+    predates R3-4 and is unchanged by it): a race between a `create_share`
+    picking a random slug and a concurrent `create_share`/`patch_share`
+    choosing that exact string (or a case-fold of it) as a custom alias —
+    those are two different columns with two independent unique indexes,
+    so the DB itself never compares one to the other. This is
+    astronomically unlikely for a 22-char random slug and is the same
+    residual gap the pre-R3-4 code already had for the case-sensitive
+    version of the same cross-column race; R3-4 doesn't add a new gap, it
+    just makes the pre-check itself case-insensitive rather than closing
+    the underlying race, which would need a DB-level functional
+    (case-folded) unique index this repo's no-real-migrations posture
+    (`db.py`'s module doc) makes out of scope here."""
     err = security.alias_error(alias)
     if err:
         raise HTTPException(status_code=422, detail=err)
+    folded = alias.lower()
     query = db.query(models.Share).filter(
-        (models.Share.alias == alias) | (models.Share.slug == alias)
+        (func.lower(models.Share.alias) == folded) | (func.lower(models.Share.slug) == folded)
     )
     if exclude_share_id is not None:
         query = query.filter(models.Share.id != exclude_share_id)

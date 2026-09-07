@@ -30,9 +30,13 @@ SLUG_ALPHABET = string.ascii_letters + string.digits
 SLUG_LENGTH = 22
 
 # Validated at BOTH the API boundary (path param constraint) and inside the
-# policy gate (policy.py). Note this is intentionally a SUPERSET of
-# SLUG_ALPHABET (also allows '_' and '-') so custom aliases can use them too;
-# generated slugs themselves only ever use SLUG_ALPHABET.
+# policy gate (policy.py). This is ONLY the shape of a *generated* slug —
+# see ALIAS_RE below for why custom aliases now get their own, looser
+# pattern instead of sharing this one. Never loosen this to accommodate
+# aliases: `test_slug.py`'s accept/reject table pins this exact shape, and
+# widening it would silently widen what the policy gate accepts as "not
+# even worth a DB lookup" for the OTHER identifier kind, defeating the
+# split below.
 SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
 
@@ -44,24 +48,100 @@ def validate_slug_format(identifier: str) -> bool:
     return bool(SLUG_RE.match(identifier))
 
 
-# §4.5 — words that are real top-level route prefixes in this app
-# (server/app/main.py's mounts: `/api`, `/share`, `/git`; plus `/assets`,
-# the SPA's static-asset directory served by the catch-all route). An
-# alias that collided with one of these would make `/share/<alias>`
-# ambiguous with `/<alias>/...` at the browser-navigation layer (both are
-# real top-level paths this server serves). Checked case-insensitively at
-# BOTH create and patch time (`routers/shares.py`) via `alias_error` below
-# — a single source of truth so the two call sites can't drift apart.
-RESERVED_ALIASES = frozenset({"api", "share", "git", "assets"})
+# --- Custom aliases -----------------------------------------------------
+#
+# R3-4 — the owner wants short, memorable aliases ("get", "help"). Generated
+# slugs stay 22 mixed-case characters (`SLUG_LENGTH`/`SLUG_ALPHABET` above,
+# unchanged) precisely BECAUSE they're never typed by a human and need the
+# entropy; a custom alias is chosen and typed by the owner, so it gets its
+# OWN, deliberately looser rules instead of `SLUG_RE` being loosened to fit
+# both jobs:
+#   - length 2-64 (was 8-64, shared with slugs)
+#   - lowercase-only `[a-z0-9_-]` (was mixed-case) — an uppercase character
+#     is a REJECTED input, never silently downcased: silently rewriting the
+#     alias would hand the owner back a different URL than the one they
+#     just typed and clicked "Publish" on.
+ALIAS_MIN_LENGTH = 2
+ALIAS_MAX_LENGTH = 64
+ALIAS_RE = re.compile(rf"^[a-z0-9_-]{{{ALIAS_MIN_LENGTH},{ALIAS_MAX_LENGTH}}}$")
+
+
+def validate_alias_format(alias: str) -> bool:
+    return bool(ALIAS_RE.match(alias))
+
+
+# The PUBLIC gate (`policy.py::resolve_share`, `routers/share_public.py`'s
+# password-auth route) sees one `identifier` path segment that could be
+# EITHER kind — it has to accept whichever of the two shapes matches before
+# ever touching the DB (roadmap §1 step 1: a format failure is free, no
+# lookup). Note the two ranges overlap at 8-64 chars (a slug can never be
+# lowercase-only length 2-7, since it's always 22 chars; a >=8-char alias is
+# accepted by either regex) — the union is exactly "2-7 chars: lowercase
+# alias only; 8-64 chars: either shape".
+def validate_identifier_format(identifier: str) -> bool:
+    return validate_slug_format(identifier) or validate_alias_format(identifier)
+
+
+# §4.5 — reserved words an alias can never be. Two parts:
+#   1. A fixed list of words that read as "this is obviously a system path"
+#      even though they are not literally routes this server serves today
+#      (`static`, `admin`, `login`, `logout`, `health`, `s`, `raw`) —
+#      reserving them now avoids ever having to evict an existing owner's
+#      alias if one of these becomes a real route later.
+#   2. Every top-level path this server or the SPA ACTUALLY serves today,
+#      enumerated (not guessed) from:
+#        - `server/app/main.py`'s root-app mounts/routes: `/share/*`
+#          (share_public_router), `/git/*` (git_http_router's mount), and
+#          `/api` (the api_app mount) — these are the only three
+#          registrations on the ROOT app before the SPA catch-all, so
+#          they're the only prefixes that could ever collide with
+#          `/<alias>` at the browser-navigation layer.
+#        - Vite's build output (`dist/`, confirmed by `ls dist/`): the
+#          default `assetsDir` is `assets/`, so `/assets/*` is a second
+#          real top-level path the SPA catch-all serves straight off disk.
+#        - The SPA's own top-level client routing (`src/main.tsx`): there
+#          is no client-side router (no react-router) — the ENTIRE client
+#          route surface is the single `/^\/share\/(.+?)\/?$/` regex
+#          branch in `main.tsx`, which is already covered by `share` above.
+#          `src/App.tsx` adds no further top-level routes (it's the
+#          always-mounted shell for the non-share branch, not a router).
+#      Re-derive by re-reading those two files plus `ls dist/` if this list
+#      is ever in doubt — nothing here is inferred from naming convention.
+# Checked case-insensitively at BOTH create and patch time
+# (`routers/shares.py`) via `alias_error` below — a single source of truth
+# so the two call sites can't drift apart.
+RESERVED_ALIASES = frozenset(
+    {
+        # actually-served top-level paths (main.py mounts + dist/assets)
+        "api",
+        "share",
+        "git",
+        "assets",
+        # reserved pre-emptively — not live routes today, but the words an
+        # owner would reasonably expect a real app to use for one
+        "static",
+        "admin",
+        "login",
+        "logout",
+        "health",
+        "s",
+        "raw",
+    }
+)
 
 
 def alias_error(alias: str) -> Optional[str]:
     """Returns a clean, owner-facing error string for an invalid alias, or
     `None` if the alias is acceptable on format/reserved-word grounds alone
-    (uniqueness against existing slugs/aliases is a separate DB-backed
-    check — see `routers/shares.py`)."""
-    if not validate_slug_format(alias):
-        return "alias must match the slug format"
+    (uniqueness against existing slugs/aliases is a separate, case-
+    insensitive DB-backed check — see `routers/shares.py`)."""
+    if len(alias) < ALIAS_MIN_LENGTH or len(alias) > ALIAS_MAX_LENGTH:
+        return f"alias must be {ALIAS_MIN_LENGTH}-{ALIAS_MAX_LENGTH} characters"
+    if not validate_alias_format(alias):
+        # Covers uppercase letters (the common case worth naming explicitly
+        # per R3-4's decision — never silently downcased) as well as any
+        # other disallowed character (spaces, slashes, punctuation, ...).
+        return "Use lowercase letters, digits, hyphens and underscores"
     if alias.lower() in RESERVED_ALIASES:
         return "alias is a reserved word and can't be used"
     return None

@@ -95,6 +95,7 @@ import {
   dateInputToEpochSeconds,
   derivePublishMode,
   epochSecondsToDateInput,
+  shouldShowShortAliasHint,
   type StepId,
 } from "./publishDialogLogic";
 import type { AuthMode, GeneralAccess, GrantIn, GrantRole, RenderMode, ShareOut, ShareTokenCreateOut } from "../../share/api";
@@ -216,6 +217,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
   }
 
   const aliasCheck = useMemo(() => validateAlias(alias), [alias]);
+  const showShortAliasHint = shouldShowShortAliasHint(generalAccess, alias);
   const filename = filePath ? filePath.slice(filePath.lastIndexOf("/") + 1) : "";
   const offline = reachability === "offline";
 
@@ -594,7 +596,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                     <FormField label="Custom alias" error={aliasCheck.valid ? undefined : aliasCheck.reason}>
                       <Input
                         size="sm"
-                        placeholder="8-64 chars: letters, digits, - _"
+                        placeholder="2-64 chars, lowercase: letters, digits, - _"
                         value={alias}
                         onChange={(e) => setAlias(e.target.value)}
                         invalid={!aliasCheck.valid}
@@ -602,6 +604,14 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                         aria-label="Custom alias"
                         data-testid="publish-alias"
                       />
+                      {aliasCheck.valid && showShortAliasHint && (
+                        <p
+                          style={{ fontSize: 12, color: "var(--color-muted)", margin: "6px 0 0" }}
+                          data-testid="publish-alias-short-hint"
+                        >
+                          Short aliases are guessable; add a password or restrict access if this should stay private.
+                        </p>
+                      )}
                     </FormField>
                   </div>
                 </div>

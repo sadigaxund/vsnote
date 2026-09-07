@@ -490,17 +490,37 @@ change the policy gate's shape:
   quotes, and any path separator stripped; falls back to the share's slug
   if that sanitizes to empty). See `routers/share_public.py`'s module
   docstring and `tests/test_raw_mode.py`.
-- **Reserved aliases.** `security.RESERVED_ALIASES` (`api`, `share`, `git`,
-  `assets` — every real top-level route prefix `main.py` mounts, plus the
-  SPA's static-asset directory) is checked case-insensitively by
+- **Custom aliases have their own rules, separate from generated slugs**
+  (R3-4, `docs/ROADMAP-SHARING-AUTH.md` §5.6). A generated slug stays 22
+  mixed-case characters (`SLUG_RE`, unchanged); a custom alias gets its own
+  `ALIAS_RE` — length 2-64, lowercase-only `[a-z0-9_-]` — so the owner can
+  use short, memorable aliases ("get", "help") without loosening the
+  slug's own shape. An uppercase character in an alias is REJECTED with a
+  clear message, never silently downcased (`security.alias_error()`).
+  The public gate's format check (`policy.py` step 1,
+  `security.validate_identifier_format`) accepts EITHER shape, since one
+  `{identifier}` path segment serves both kinds.
+- **Reserved aliases.** `security.RESERVED_ALIASES` — the four original
+  real top-level route prefixes `main.py` mounts plus the SPA's
+  static-asset directory (`api`, `share`, `git`, `assets`), PLUS
+  `static`, `admin`, `login`, `logout`, `health`, `s`, `raw` reserved
+  pre-emptively (R3-4) — is checked case-insensitively by
   `security.alias_error()`, the single function both `POST /api/shares` and
   `PATCH /api/shares/{id}` call, so the list can't drift between the two
   call sites. Alias uniqueness is enforced by an explicit pre-check
   (`routers/shares.py::_check_alias_available`, matching against BOTH
-  `shares.alias` and `shares.slug` — an alias must never collide with an
-  existing slug either) that returns a clean `409`, with the DB's own
-  unique constraints as a race-condition backstop (still caught as
-  `IntegrityError` -> `409`, never a raw `500`).
+  `shares.alias` and `shares.slug`, CASE-INSENSITIVELY via `func.lower()`
+  on both sides — an alias must never collide with an existing slug either,
+  even one that only matches it up to case) that returns a clean `409`,
+  with the DB's own (case-SENSITIVE) unique constraints on each column as a
+  same-column race-condition backstop (still caught as `IntegrityError` ->
+  `409`, never a raw `500`). That backstop does NOT cover a race between a
+  newly-generated random slug and a concurrently-chosen alias of the same
+  (or case-folded same) value — a pre-existing gap across the two columns'
+  independent unique indexes, astronomically unlikely given the slug's
+  128-bit entropy, and out of scope for R3-4 to close (would need a
+  DB-level case-folded functional unique index, and this repo has no real
+  migration tool yet — `db.py`'s module doc).
 - **Expiry skew.** `policy.EXPIRY_SKEW_SECONDS = 60` and `policy.is_expired()`
   are the one place "is this share expired" is computed (used by both
   `resolve_share` and the password-auth endpoint) — `expires_at` is

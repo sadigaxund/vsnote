@@ -359,3 +359,48 @@ refusal, SSRF/private-IP refusal (including the redirect-revalidation
 case), unauthenticated refusal, request-header filtering, and a happy path
 streamed against a LOCAL fake git HTTP endpoint spun up in the test process
 — never the real network.
+
+### 5.6 Custom alias rules — R3-4, decided
+
+§1's custom alias was, until now, validated with the exact same shape as a
+server-generated slug (`^[A-Za-z0-9_-]{8,64}$`) — an 8-character minimum
+that ruled out exactly the short, memorable aliases ("get", "help") an
+owner most wants to type. **Decision**: aliases get their own, looser
+rules, deliberately kept separate from the slug's shape rather than
+loosening the slug's own regex (a generated slug stays 22 mixed-case
+characters — the 8-64 shared range was only ever a historical accident of
+one regex doing two jobs):
+
+- **Length 2-64** (was 8-64).
+- **Character set `[a-z0-9-_]`, lowercase only** (was mixed-case). An
+  uppercase character is a REJECTED input with a clear message ("Use
+  lowercase letters, digits, hyphens and underscores"), never silently
+  downcased — rewriting the alias out from under the owner would hand them
+  back a different URL than the one they just typed and clicked Publish on.
+- **Uniqueness is case-insensitive** against BOTH existing aliases and
+  existing slugs (a generated slug is mixed-case; case-folding both sides
+  of the comparison is what actually matters there, since an alias itself
+  can never be stored with uppercase).
+- **Reserved words**, case-insensitive, replacing the original four
+  (`api`, `share`, `git`, `assets`): those four plus `static`, `admin`,
+  `login`, `logout`, `health`, `s`, `raw`. The four originals are real
+  top-level paths this server/SPA serves today (`server/app/main.py`'s
+  root-app mounts plus Vite's `assets/` build output); the rest are
+  reserved pre-emptively so a word that reads as "obviously a system path"
+  can never be claimed as a personal alias, without requiring an eviction
+  later if one of them becomes a real route. See `server/app/
+  security.py`'s `RESERVED_ALIASES` for the exact enumeration and how to
+  re-derive it.
+- The public gate's format check (`policy.py` step 1) now accepts EITHER
+  shape — a generated slug's or a custom alias's — since one path segment
+  has to serve both identifier kinds; see `security.
+  validate_identifier_format`.
+- The uniform-404 posture (§1) is unaffected: a short-alias miss denies
+  exactly like every other miss.
+
+Publish dialog UX: a short alias (under 8 characters) combined with
+"Anyone with the link" access shows a non-blocking inline hint ("Short
+aliases are guessable; add a password or restrict access if this should
+stay private.") — publishing is still allowed. This is advisory only,
+never enforced server-side; a determined owner can and may want a short,
+public, unauthenticated link.

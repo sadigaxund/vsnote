@@ -203,8 +203,18 @@ def test_patch_clear_expiry_and_source_path(owner_client):
 # --- §4.5: reserved aliases + uniqueness pre-check --------------------------
 
 
+# R3-4's full replacement reserved-word set (`security.RESERVED_ALIASES`):
+# the four originals plus every other actually-served top-level path
+# (`static`... `raw`) — see that constant's comment for where each entry
+# comes from. Every lowercase reserved word must be rejected at BOTH create
+# and patch time; the uppercase variants are additionally rejected, but for
+# the SEPARATE "uppercase is never allowed" reason (covered by its own
+# test below), not because they hit the reserved-word branch specifically.
+RESERVED_ALIASES = ("api", "share", "git", "assets", "static", "admin", "login", "logout", "health", "s", "raw")
+
+
 def test_reserved_alias_rejected_on_create(owner_client):
-    for reserved in ("api", "share", "git", "assets", "API", "Share"):
+    for reserved in RESERVED_ALIASES:
         r = owner_client.post(
             "/api/shares",
             json={
@@ -222,9 +232,86 @@ def test_reserved_alias_rejected_on_create(owner_client):
 
 
 def test_reserved_alias_rejected_on_patch(owner_client):
-    share = publish_share(owner_client)
-    r = owner_client.patch(f"/api/shares/{share['id']}", json={"alias": "git"})
+    for reserved in RESERVED_ALIASES:
+        share = publish_share(owner_client)
+        r = owner_client.patch(f"/api/shares/{share['id']}", json={"alias": reserved})
+        assert r.status_code == 422, f"{reserved!r} should be rejected"
+
+
+def test_uppercase_alias_rejected_with_clear_message_never_downcased(owner_client):
+    """R3-4 — an uppercase character is a REJECTED input, never silently
+    downcased: silently rewriting the alias would hand the owner a
+    different URL than the one they just typed and clicked Publish on."""
+    files = {"file": ("note.md", b"hi", "text/markdown")}
+    blob_id = owner_client.post("/api/blobs", files=files).json()["id"]
+    r = owner_client.post(
+        "/api/shares",
+        json={
+            "source_path": "notes/x.md",
+            "blob_id": blob_id,
+            "render_mode": "raw",
+            "general_access": "link",
+            "auth_mode": "none",
+            "alias": "MyAlias",
+        },
+    )
     assert r.status_code == 422
+    assert r.json()["detail"] == "Use lowercase letters, digits, hyphens and underscores"
+
+
+def test_short_alias_now_accepted(owner_client):
+    """R3-4's whole point: 2-7 char aliases like 'get'/'help' are now legal
+    (the old minimum was 8), and the published share is reachable at that
+    short identifier through the public gate."""
+    share = publish_share(owner_client, alias="get")
+    assert share["alias"] == "get"
+    r = owner_client.get("/share/get")
+    assert r.status_code == 200
+
+
+def test_one_char_alias_still_rejected(owner_client):
+    files = {"file": ("note.md", b"hi", "text/markdown")}
+    blob_id = owner_client.post("/api/blobs", files=files).json()["id"]
+    r = owner_client.post(
+        "/api/shares",
+        json={
+            "source_path": "notes/x.md",
+            "blob_id": blob_id,
+            "render_mode": "raw",
+            "general_access": "link",
+            "auth_mode": "none",
+            "alias": "a",
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_alias_uniqueness_against_another_alias(owner_client):
+    """Two aliases can only ever collide on EXACT equality in practice — an
+    alias is always stored lowercase (uppercase input is rejected outright,
+    see `test_uppercase_alias_rejected_...` above), so there is no cased
+    variant of an existing alias an owner could even submit. The
+    `func.lower()` comparison in `_check_alias_available` still covers this
+    column defensively (see that function's docstring); this test just
+    pins the ordinary collision case."""
+    publish_share(owner_client, alias="taken-alias")
+    second = publish_share(owner_client)
+    r = owner_client.patch(f"/api/shares/{second['id']}", json={"alias": "taken-alias"})
+    assert r.status_code == 409
+
+
+def test_alias_uniqueness_is_case_insensitive_against_an_existing_slug(owner_client):
+    """An alias is always stored lowercase (uppercase input is rejected
+    outright), but a generated slug is mixed-case — R3-4 requires the
+    uniqueness check to case-fold BOTH sides, so an alias that matches an
+    existing slug except for case must still collide."""
+    existing = publish_share(owner_client)
+    mixed_case_slug = existing["slug"]
+    assert mixed_case_slug.lower() != mixed_case_slug, "fixture slug should contain at least one uppercase letter"
+
+    other = publish_share(owner_client)
+    r = owner_client.patch(f"/api/shares/{other['id']}", json={"alias": mixed_case_slug.lower()})
+    assert r.status_code == 409
 
 
 def test_alias_cannot_collide_with_another_shares_alias(owner_client):
@@ -236,9 +323,14 @@ def test_alias_cannot_collide_with_another_shares_alias(owner_client):
 
 
 def test_alias_cannot_collide_with_an_existing_slug(owner_client):
+    # R3-4: an alias is lowercase-only now (a generated slug is mixed-case),
+    # so the exact slug string would 422 on FORMAT before ever reaching the
+    # uniqueness check — lower-casing it is what actually exercises the
+    # slug-collision branch (see the dedicated case-insensitivity test
+    # below for the "differs only by case" version of this same check).
     existing = publish_share(owner_client)
     other = publish_share(owner_client)
-    r = owner_client.patch(f"/api/shares/{other['id']}", json={"alias": existing["slug"]})
+    r = owner_client.patch(f"/api/shares/{other['id']}", json={"alias": existing["slug"].lower()})
     assert r.status_code == 409
 
 

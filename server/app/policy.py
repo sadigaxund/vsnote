@@ -4,7 +4,9 @@ the editor-only PUT — is resolved through `resolve_share()` below. There is
 no other code path anywhere in this server that looks up a Share by slug.
 
 Deny-by-default order (roadmap §1, implemented exactly in this sequence):
-  1. identifier matches SLUG_RE
+  1. identifier matches SLUG_RE or ALIAS_RE (R3-4 — `security.
+     validate_identifier_format`; a generated slug and a custom alias have
+     different shapes now, so the format gate accepts either)
   2. share exists (lookup by slug OR alias)
   3. not revoked
   4. not expired
@@ -185,8 +187,11 @@ def resolve_share(
     # 1. Format. Never a 422 — a format failure takes the identical deny
     # path a missing/malformed identifier would (roadmap §1). No DB query
     # happens for a malformed identifier, so this branch costs nothing that
-    # could be timed against a real lookup.
-    if not security.validate_slug_format(identifier):
+    # could be timed against a real lookup. `identifier` may be EITHER a
+    # generated slug or a custom alias (R3-4 gave aliases their own,
+    # shorter/lowercase-only shape — `security.py`'s `validate_identifier_
+    # format` accepts either).
+    if not security.validate_identifier_format(identifier):
         write_audit_event(db, "policy.deny", slug=identifier, reason="malformed_slug", request=request)
         raise PolicyDenied("malformed_slug")
 
