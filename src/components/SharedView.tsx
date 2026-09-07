@@ -66,9 +66,9 @@ import {
   ScrollArea,
   Skeleton,
   Tooltip,
-  useToast,
   type DataTableColumn,
 } from "my-you-eye";
+import { useToast } from "./local/useToast";
 import { Copy, KeyRound, MoreHorizontal, Pencil, RefreshCcw, RotateCw, Share2, Trash2, X } from "lucide-react";
 import { useShareStore } from "../share/useShareStore";
 import { buildShareLink } from "../share/shareLinks";
@@ -155,14 +155,25 @@ export function SharedView() {
   }
 
   // Full-width page now (see header doc) — every column the roadmap asks
-  // for gets its own space: Source, Link, Mode, Access, Links to/from,
-  // Hits, Last accessed, plus the trailing actions cell.
+  // for gets its own space: Source, Link, Mode, Access, Links to, Linked
+  // from, Hits, Last accessed, plus the trailing actions cell.
+  //
+  // "Links to / from" used to be ONE `width: "sm"` cell rendering
+  // "N to / M from" — at that width it truncated to a bare chevron ("1 to
+  // /", clipped) for any non-trivial count, so the number that mattered
+  // most was exactly the one hidden. Split into two independently-narrow
+  // numeric columns instead (`width: "xs"`, right-aligned, `type: "number"`
+  // for tabular-nums per docs/UI-STANDARDS.md rule 7) — each column only
+  // ever holds a short integer, so `xs` never truncates. This shifts every
+  // column after it right by one; `tests/e2e/share-panel.spec.ts`'s
+  // `td.nth(...)` index for Hits is updated to match.
   const columns: DataTableColumn[] = [
     { key: "source", header: "Source", width: "xl" },
     { key: "link", header: "Link", width: "lg" },
     { key: "mode", header: "Mode", type: "badge", width: "sm" },
     { key: "access", header: "Access", type: "badge", width: "md" },
-    { key: "links", header: "Links to / from", width: "sm" },
+    { key: "linksTo", header: "Links to", type: "number", width: "xs", align: "right" },
+    { key: "linkedFrom", header: "Linked from", type: "number", width: "xs", align: "right" },
     { key: "hits", header: "Hits", type: "number", width: "xs", align: "right" },
     { key: "lastAccessed", header: "Last accessed", width: "sm" },
   ];
@@ -175,7 +186,8 @@ export function SharedView() {
       link: `/share/${share.alias ?? share.slug}`,
       mode: share.render_mode === "rendered" ? "Viewer page" : "Raw file",
       access: share.general_access === "link" ? "Anyone with the link" : "Restricted",
-      links: `${counts?.linksTo ?? 0} to / ${counts?.linkedFrom ?? 0} from`,
+      linksTo: counts?.linksTo ?? 0,
+      linkedFrom: counts?.linkedFrom ?? 0,
       hits: share.hit_count,
       lastAccessed: formatRelativeEpochSeconds(share.last_access_at),
     };

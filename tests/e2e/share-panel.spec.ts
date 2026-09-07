@@ -29,9 +29,11 @@ test.describe("Shared view", () => {
     await openSharedView(page);
     const row = page.locator("tr", { hasText: identifier });
     await expect(row).toBeVisible();
-    // Column order: Source, Link, Mode, Access, Links to/from, Hits,
-    // Created, Last accessed, Actions (`SharedView.tsx`'s `columns`).
-    const hitsCell = row.locator("td").nth(5);
+    // Column order: Source, Link, Mode, Access, Links to, Linked from,
+    // Hits, Last accessed, Actions (`SharedView.tsx`'s `columns` — round 10
+    // item 98 split the old single truncating "Links to/from" cell into two
+    // narrow numeric columns, shifting Hits from index 5 to index 6).
+    const hitsCell = row.locator("td").nth(6);
     await expect(hitsCell).toHaveText("0"); // fresh share, zero hits
 
     // Fetch the share (a real page visit, not a raw API call) via a second
