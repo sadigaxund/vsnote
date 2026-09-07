@@ -1237,3 +1237,18 @@ items OVERRIDE anything above them.
      token on the item, applied to every icon-bearing menu across the app
      (the local `ContextMenu` already bakes in the numerically identical
      `gap-2`).
+
+110. **A multi-line live-preview selection spans exactly the text column,
+     and arrow keys enter a collapsed block instead of stalling at its
+     edge.** CodeMirror's `rectanglesForRange` draws every open edge of a
+     multi-line selection from `.cm-content`'s box PLUS a `.cm-line`'s own
+     horizontal padding, never `.cm-content`'s padding, so the reading
+     column's inset has to live on `.cm-line`: parked anywhere else the
+     highlight either undershoots the glyphs or bleeds into the column's
+     left and right margins. Separately, a block-replacing widget has no
+     glyph for vertical motion to land on, so `cursorLineDown`/`Up`
+     resolved to the widget's own end and left the caret pinned to its
+     right edge at full block height; arrow keys now land on the block's
+     first line when arriving from above and its last line when arriving
+     from below, where the existing cursor-reveal rule shows the raw
+     source for editing, exactly as it does for inline syntax.

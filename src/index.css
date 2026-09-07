@@ -235,24 +235,46 @@ textarea,
    the first selected line is drawn from the measured cursor rect (correct,
    at the text) while every continuation line is drawn from the layer's own
    left edge, 8px further left, painting over the margin. Measured on a
-   select-all before this rule: first rect at x=561 matching the text, every
+   select-all before any fix: first rect at x=561 matching the text, every
    following rect at x=553.
 
-   Moving the same inset onto `.cm-scroller` shifts the content box and the
-   selection layer together, so both share one left edge and the column keeps
-   its inset. Overriding a rule from a CM6 package this way is ordinary
-   theming (CLAUDE.md rule 7 explicitly expects us to adapt CM6 code); the
-   `!important`-free specificity here is simply `.atomic-cm-editor` plus the
-   element, matching how the upstream rule itself is written. */
-/* Three classes on purpose: atomic-editor ships its own rule at
-   `.atomic-cm-editor .cm-content` and injects that stylesheet at RUNTIME
-   (the live-preview bundle is dynamically imported), so it lands after
-   this file and an equal-specificity rule would lose on source order.
-   `.cm-content` is always inside `.cm-scroller`, so this selector is
-   exact rather than merely heavier. */
+   ee14f44 first tried moving the same inset from `.cm-content` onto
+   `.cm-scroller`. That regressed differently: `RectangleMarker.forRange` /
+   `rectanglesForRange` (`node_modules/@codemirror/view/dist/index.js`,
+   ~line 9319) draws every "open" edge of a multi-line selection — every
+   continuation line, and the open side of the first/last line — from
+   `leftSide`/`rightSide`, which it computes ONCE per selection draw as:
+
+     contentRect.left + parseInt(getComputedStyle(firstLineEl).paddingLeft)
+     contentRect.right - parseInt(getComputedStyle(firstLineEl).paddingRight)
+
+   i.e. `.cm-content`'s bounding box PLUS whatever horizontal padding is on
+   a `.cm-line` element — never `.cm-content`'s own padding. Parking the
+   inset on `.cm-scroller` (or on `.cm-content`) leaves that term at 0 and
+   makes `leftSide`/`rightSide` equal `.cm-content`'s bare box edges, which
+   still is not where the glyphs sit once any padding lives above the line
+   level — for continuation lines the highlight then either undershoots
+   (padding on content, as originally) or, once `.cm-content`'s own
+   max-width/margin-auto box is measured with no padding of its own, can
+   read a box wider than the glyph column and paint into the reading
+   column's LEFT AND RIGHT margins instead of stopping at the text.
+
+   The fix that actually matches the library's own formula: give `.cm-line`
+   itself the inset, not `.cm-content` or `.cm-scroller`. `.cm-content`
+   keeps `padding-inline: 0` so its box IS the measure-width text column
+   (centered purely by its own `max-width` + `margin-inline: auto` — no
+   scroller padding involved), and `rectanglesForRange` picks up the same
+   0.5rem via the `.cm-line` padding term, so `leftSide`/`rightSide` land
+   exactly on the glyph edges on every line — first, continuation, and
+   last — matching the real cursor-measured rect atomic-editor's own single
+   selected line already got right. `:where(...)` keeps this rule's
+   specificity at exactly one class (`.cm-line`) so atomic-editor's own
+   per-line-type paddings (`.cm-line.cm-atomic-blockquote`'s rail inset,
+   `.cm-line.cm-atomic-fenced-code`'s left/right gutter) still win for the
+   lines that set them — this is only the base/default line inset. */
 .atomic-cm-editor .cm-scroller .cm-content {
   padding-inline: 0;
 }
-.atomic-cm-editor .cm-scroller {
+:where(.atomic-cm-editor, .atomic-cm-editor .cm-scroller) .cm-line {
   padding-inline: 0.5rem;
 }

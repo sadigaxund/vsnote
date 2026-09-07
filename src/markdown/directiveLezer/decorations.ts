@@ -84,8 +84,9 @@ import { defaultRegistry } from "@markii/react/components";
 import type { ValueStore } from "@markii/runtime";
 import "@markii/react/doc.css";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+import { cursorLineDown, cursorLineUp } from "@codemirror/commands";
+import { EditorSelection, Prec, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
+import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { MK_DIRECTIVE_CONTAINER, MK_DIRECTIVE_LEAF, MK_DIRECTIVE_TEXT } from "./extension";
 import { buildPackRegistry, type PackForRegistry } from "../packPlaceholderLogic";
 
@@ -267,6 +268,108 @@ function cursorTouches(state: EditorState, from: number, to: number): boolean {
   return false;
 }
 
+/**
+ * `pos`'s enclosing `MK_DIRECTIVE_CONTAINER`/`MK_DIRECTIVE_LEAF` node, if
+ * `pos` sits STRICTLY inside it (excluding both boundaries — a boundary
+ * position already satisfies `cursorTouches` and gets the raw-source
+ * decoration on its own, so vertical motion landing exactly on `from`/`to`
+ * needs no correction). Used only by `mkBlockVerticalNavigation` below.
+ */
+function findEnclosingBlockRange(state: EditorState, pos: number): { from: number; to: number } | null {
+  const tree = treeFor(state, state.doc.length);
+  let found: { from: number; to: number } | null = null;
+  tree.iterate({
+    enter(node) {
+      if (found) return false;
+      if (node.name !== MK_DIRECTIVE_CONTAINER && node.name !== MK_DIRECTIVE_LEAF) return undefined;
+      if (pos > node.from && pos < node.to) found = { from: node.from, to: node.to };
+      return false; // never need to descend into a directive's own children for this check.
+    },
+  });
+  return found;
+}
+
+/**
+ * ArrowUp/ArrowDown into a collapsed directive container/leaf (the block
+ * widget from `buildBlockDecorations` above) — without this, the caret gets
+ * visually stuck at the widget's right/bottom edge instead of entering it.
+ *
+ * Root cause: `Decoration.replace({..., block: true})` swaps the directive's
+ * source lines for ONE widget `<div>` with no text nodes inside. CM6's
+ * default `cursorLineDown`/`cursorLineUp` (`@codemirror/commands`) resolve
+ * vertical motion by asking the CURRENT (pre-transaction) layout for the
+ * document position nearest the target y/x — decorations haven't been
+ * recomputed against the new selection yet (the `blockField` `StateField`
+ * above only reacts to a transaction AFTER it's dispatched), so that lookup
+ * still sees the collapsed widget's row. With no glyph to land the caret's
+ * x-preserving column on, the browser/CM6 resolve it to whichever real text
+ * boundary is nearest on that row — empirically the range's END (`to`),
+ * i.e. visually the widget's right edge, stretched to the whole widget's
+ * height since that's the row's only box. This is the block decoration
+ * making the range act atomic for cursor placement, without it being
+ * listed in `EditorView.atomicRanges` (that facet isn't involved here —
+ * plain vertical motion through a `block: true` replace decoration exhibits
+ * the same "no text to land in" problem `atomicRanges` is normally used to
+ * paper over).
+ *
+ * The fix extends the existing cursor-reveal predicate (`cursorTouches`,
+ * used by `buildBlockDecorations`/`buildInlineDecorations` to decide when
+ * to show raw source) to this case: run CM6's default vertical motion
+ * first, then check whether the result landed strictly inside a directive
+ * range while the ORIGINAL position was outside it (i.e. this keypress is
+ * what's crossing the boundary). If so, snap the selection to the range's
+ * `from` (entering from above — lands on the directive's own first/opening
+ * fence line) or `to` (entering from below — lands on its last/closing
+ * fence line) instead of wherever the pre-decoration-update motion guessed.
+ * That dispatches a second, selection-only transaction, which the block
+ * `StateField` DOES see before rendering (its `update` recomputes on any
+ * selection change), so the directive is already showing raw, editable
+ * source lines by the time this command returns — the caret lands on real
+ * text, not the widget.
+ */
+function mkBlockVerticalNavigation(direction: 1 | -1) {
+  return (view: EditorView): boolean => {
+    const before = view.state.selection.main.head;
+    const ran = direction === 1 ? cursorLineDown(view) : cursorLineUp(view);
+    if (!ran) return ran;
+    const after = view.state.selection.main;
+    if (!after.empty) return true; // a shift-selection variant isn't this command's concern.
+    const range = findEnclosingBlockRange(view.state, after.head);
+    if (!range) return true;
+    // Only correct a genuine crossing INTO the range from outside it — a
+    // move that already started inside (or on its edge) already has real,
+    // revealed source lines to navigate within, and needs no help.
+    const enteredFromOutside = direction === 1 ? before <= range.from : before >= range.to;
+    if (!enteredFromOutside) return true;
+    const target = direction === 1 ? range.from : range.to;
+    if (after.head !== target) {
+      view.dispatch({ selection: EditorSelection.cursor(target), scrollIntoView: true });
+    }
+    return true;
+  };
+}
+
+/**
+ * `Prec.highest` so this always gets first crack at ArrowUp/ArrowDown
+ * ahead of `@codemirror/commands`' `standardKeymap`/`defaultKeymap`
+ * (`cursorLineDown`/`cursorLineUp` themselves, or atomic-editor's own copy
+ * of them) — those bind the same keys at ordinary precedence, and CM6's
+ * keymap facet tries higher-precedence handlers first, falling through to
+ * the next one whenever a `run` returns `false`. `mkBlockVerticalNavigation`
+ * always returns whatever the default command returned (`true` once the
+ * document has any content, since a no-op default already reports that as
+ * "handled"), so plain ArrowUp/ArrowDown everywhere else in the document —
+ * every position with no enclosing directive — behaves exactly as before;
+ * this only ever changes the RESULT of the default motion when it lands
+ * inside a directive block per `mkBlockVerticalNavigation`'s own doc.
+ */
+const mkBlockNavigationKeymap = Prec.highest(
+  keymap.of([
+    { key: "ArrowDown", run: mkBlockVerticalNavigation(1) },
+    { key: "ArrowUp", run: mkBlockVerticalNavigation(-1) },
+  ]),
+);
+
 function buildBlockDecorations(state: EditorState, cache: Map<string, string>, registry: Registry, valueStore: ValueStore | undefined): DecorationSet {
   const decorations: Range<Decoration>[] = [];
   const tree = treeFor(state, state.doc.length);
@@ -389,5 +492,5 @@ export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegis
     { decorations: (v) => v.decorations },
   );
 
-  return [blockField, inlinePlugin, mkLivePreviewTheme];
+  return [blockField, inlinePlugin, mkLivePreviewTheme, mkBlockNavigationKeymap];
 }
