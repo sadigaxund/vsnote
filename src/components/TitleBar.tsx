@@ -168,8 +168,16 @@ export function AppTitleBar({
               <PanelLeft size={15} />
             </Button>
           </Tooltip>
-          <Tooltip content="Split editor" side="bottom">
-            <Button type="button" variant="ghost" size="icon-sm" aria-label="Split editor" onClick={onToggleSplit}>
+          <Tooltip content="Split editor right" side="bottom">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Split editor right"
+              disabled={!onToggleSplit}
+              onClick={onToggleSplit}
+              data-testid="titlebar-split"
+            >
               <SquareSplitHorizontal size={15} />
             </Button>
           </Tooltip>

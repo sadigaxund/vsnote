@@ -1199,6 +1199,39 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     }
   };
 
+  // Title bar "Split editor" — R3-10 fix. Was inert: `AppTitleBar` never
+  // passed `onToggleSplit`, even though `TitleBar.tsx` already accepted it.
+  // Wired to the SAME primitive the per-tab "Split right" context menu item
+  // (`EditorTabBar.tsx` → `EditorPane.tsx`'s `handleSplitTab`) already uses —
+  // `useTabsStore`'s `dockTab` with `sourcePaneId === targetPaneId` and
+  // `edge: "right"` — rather than a second split mechanism. This is a
+  // one-shot SPLIT, not a toggle: the underlying `dockTab` primitive is
+  // recursive/one-directional (see its own doc, "any leaf can still split
+  // in either direction, recursively") and the existing per-tab menu item
+  // it mirrors has no "unsplit" counterpart either, so a toggle here would
+  // invent behavior the rest of the app doesn't have. Clicking again splits
+  // the new pane further right, same as the context menu would.
+  //
+  // `canSplitEditor` covers both ways the action is genuinely unavailable:
+  // no real file focused (no active tab, or the virtual Settings/Shared
+  // tab — same exclusion `handleShareActiveFile` below already applies),
+  // and the single-tab case `dockTab` itself no-ops on ("nothing would
+  // remain in the source pane to split against") — the title bar button
+  // reflects that as disabled instead of silently doing nothing on click.
+  const canSplitEditor =
+    !!activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared" && (focusedLeaf?.tabs.length ?? 0) > 1;
+  const handleSplitEditor = () => {
+    if (!canSplitEditor || !activeTab) return;
+    useTabsStore.getState().dockTab({
+      sourcePaneId: activePaneId,
+      targetPaneId: activePaneId,
+      edge: "right",
+      path: activeTab.path,
+      name: activeTab.name,
+      kind: activeTab.kind,
+    });
+  };
+
   const handleShareActiveFile = () => {
     if (!activeTab || activeTab.kind === "settings" || activeTab.kind === "shared") return;
     void handleOpenPublish({ id: activeTab.path, path: activeTab.path, name: activeTab.name, kind: activeTab.kind, type: "file" });
@@ -1375,6 +1408,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
           onEnterZen={enterZenMode}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={() => useSettingsStore.getState().toggleSidebarCollapsed()}
+          onToggleSplit={canSplitEditor ? handleSplitEditor : undefined}
           onOpenPalette={() => setPaletteMode("commands")}
           onOpenSettings={handleOpenSettings}
           onShare={handleShareActiveFile}

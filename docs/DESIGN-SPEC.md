@@ -1313,3 +1313,14 @@ items OVERRIDE anything above them.
      everywhere those surfaces already highlight the modeled kinds. An
      extension neither the table nor the catalog recognizes still degrades
      to plain text.
+
+115. **The title bar's "Split editor" button actually splits.** It had
+     been rendered with no handler at all since the title bar was built,
+     so the one split affordance visible without opening a tab's context
+     menu did nothing. It now performs exactly the action that menu's
+     "Split right" performs, on the focused pane's active file, and its
+     label says "Split editor right" because that is what it does. It is
+     one-shot, not a toggle: clicking again splits further right, matching
+     the recursive docking model the panes already have. It is disabled
+     when there is no real file focused, or when the focused pane holds a
+     single tab and would be left empty.
