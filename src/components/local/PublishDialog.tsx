@@ -373,7 +373,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
 
   return (
     <Dialog open={open} onOpenChange={resetAndClose}>
-      <DialogContent size="md" data-testid="publish-dialog">
+      <DialogContent size="md" data-testid="publish-dialog" style={{ width: 480 }}>
         <DialogHeader>
           <DialogTitle>{mode ? MODE_CHROME[mode.kind].title : "Publish"}</DialogTitle>
           <DialogDescription>
@@ -381,6 +381,10 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
           </DialogDescription>
         </DialogHeader>
 
+        <div
+          data-testid="publish-dialog-body"
+          style={{ minHeight: 360, maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column" }}
+        >
         {offline && (
           <Alert variant="warning" title="Backend not running" size="sm">
             Share links need the VSNote backend. Start it with <code>npm run server</code> (listens on 127.0.0.1:8787).
@@ -750,6 +754,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
             )}
           </div>
         )}
+        </div>
 
         <DialogFooter>
           {step === "result" ? (
