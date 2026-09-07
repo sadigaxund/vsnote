@@ -86,12 +86,15 @@ test.describe("Rendered mode for code files (R3-7)", () => {
     await expect(viewerPage).toHaveAttribute("aria-checked", "true");
   });
 
-  test("Publish dialog disables Viewer page for an extension neither the table nor language-data recognizes, with an explanation", async ({ page }) => {
+  test("Publish dialog offers a Viewer page for an extension nothing recognizes, which reads as plain text", async ({ page }) => {
     await gotoApp(page);
     await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
-    // R3-9: `.py` is now a recognized `"code"`-kind file (Python, via
-    // @codemirror/language-data) — use an extension nothing recognizes
-    // instead, to keep pinning the genuinely-unrenderable case.
+    // R3-9 made every unmodeled extension the generic "code" kind, whose
+    // language simply fails to resolve when @codemirror/language-data knows
+    // nothing about it. So there is no longer a text file WITHOUT a viewer
+    // page: the file renders, unhighlighted. `canPublishRendered` still
+    // reads the registry's own baseModes, so it keeps tracking the table if
+    // a future kind drops its renderer.
     const path = await createFileWithContent(page, "vault/notes", "notes.vsnoteunknownext", "mystery bytes\n");
 
     await treeRow(page, path).click({ button: "right" });
@@ -100,9 +103,7 @@ test.describe("Rendered mode for code files (R3-7)", () => {
     await expect(dialog).toBeVisible();
 
     const viewerPage = dialog.getByRole("radio", { name: "Viewer page" });
-    await expect(viewerPage).toBeDisabled();
-    await expect(dialog.getByTestId("publish-mode-no-renderer")).toBeVisible();
-    // Raw file is picked automatically since Viewer page isn't available.
-    await expect(dialog.getByRole("radio", { name: "Raw file" })).toHaveAttribute("aria-checked", "true");
+    await expect(viewerPage).toBeEnabled();
+    await expect(dialog.getByTestId("publish-mode-no-renderer")).toHaveCount(0);
   });
 });

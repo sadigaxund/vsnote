@@ -94,12 +94,18 @@ test.describe("split grid", () => {
       "true",
     );
 
-    // Focusing the OTHER pane updates the title bar to mirror IT instead —
-    // indexer.ts (left pane) opens in Source by default (registry default
-    // for code kinds), so Rendered isn't even a valid segment for it.
+    // Focusing the OTHER pane updates the title bar to mirror IT instead.
+    // indexer.ts (left pane) opens in Source, the registry default for code
+    // kinds; since DESIGN-SPEC item 112 those kinds also HAVE a Rendered
+    // mode (the static highlighted view), so the segment is enabled and
+    // simply unchecked, where it used to be disabled outright.
     await pane(page, leftId).click();
     await expect(page.getByTestId("app-titlebar").getByRole("radio", { name: "Source" })).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByTestId("app-titlebar").getByRole("radio", { name: "Rendered" })).toBeDisabled();
+    await expect(page.getByTestId("app-titlebar").getByRole("radio", { name: "Rendered" })).toBeEnabled();
+    await expect(page.getByTestId("app-titlebar").getByRole("radio", { name: "Rendered" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 
   test("arranges a 2x2 grid of four different files", async ({ page }) => {

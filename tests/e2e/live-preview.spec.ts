@@ -123,26 +123,37 @@ test.describe("live preview (Rendered mode)", () => {
     // otherwise pass vacuously.
     expect(rects.length).toBeGreaterThanOrEqual(3);
 
-    const contentBox = await content.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      return { left: r.left, right: r.right };
+    // The column the text actually occupies, measured the same way
+    // CodeMirror's own `rectanglesForRange` measures it: the first
+    // `.cm-line`'s box inset by its own horizontal padding. That is the
+    // library's definition of `leftSide`/`rightSide`, so asserting against
+    // it pins the selection to the glyph column rather than to whichever
+    // element happens to carry the inset this month.
+    const column = await content.evaluate((el) => {
+      const line = el.querySelector(".cm-line");
+      if (!line) throw new Error("no .cm-line");
+      const r = line.getBoundingClientRect();
+      const cs = window.getComputedStyle(line);
+      return { left: r.left + parseFloat(cs.paddingLeft), right: r.right - parseFloat(cs.paddingRight) };
     });
 
-    const lefts = new Set(rects.map((r) => Math.round(r.left)));
-    const rights = new Set(rects.map((r) => Math.round(r.right)));
-    // One consistent left edge and one consistent right edge across every
-    // selected line — not "first line differs from the rest" (the original
-    // bug) and not "some lines are wider than others" (the ee14f44
-    // regression: continuation lines bleeding into the margins).
-    expect(lefts.size).toBe(1);
-    expect(rights.size).toBe(1);
+    // No rect may start left of the column or end right of it: that is the
+    // margin bleed the ee14f44 inset caused, and the mirror-image
+    // undershoot the inset before it caused.
+    for (const r of rects) {
+      expect(r.left).toBeGreaterThanOrEqual(column.left - 1);
+      expect(r.right).toBeLessThanOrEqual(column.right + 1);
+    }
 
-    // And that one shared edge sits at the text column, not out in the
-    // margins flanking it: within a few px of `.cm-content`'s own box,
-    // never at `.cm-scroller`'s wider edge.
-    const [left] = lefts;
-    const [right] = rights;
-    expect(Math.abs(left - contentBox.left)).toBeLessThanOrEqual(4);
-    expect(Math.abs(right - contentBox.right)).toBeLessThanOrEqual(4);
+    // The full-width "between" pieces must span the column exactly. The
+    // first and last pieces are open-ended at one side only, since the
+    // selection starts and ends mid-document, so they are not required to.
+    const widest = Math.max(...rects.map((r) => r.right - r.left));
+    const spanning = rects.filter((r) => r.right - r.left > widest - 1);
+    expect(spanning.length).toBeGreaterThanOrEqual(1);
+    for (const r of spanning) {
+      expect(Math.abs(r.left - column.left)).toBeLessThanOrEqual(1);
+      expect(Math.abs(r.right - column.right)).toBeLessThanOrEqual(1);
+    }
   });
 });
