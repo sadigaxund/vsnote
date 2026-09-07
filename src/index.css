@@ -34,10 +34,53 @@ body,
    this, keyboard focus is invisible across most of the shell. Additive by
    design: elements that define their own focus outlines keep winning via
    their more specific rules. Uses the accent-derived `--color-ring` token
-   (`useSettingsStore.applyDomSettings`) rather than a raw color. */
+   (`useSettingsStore.applyDomSettings`) rather than a raw color.
+
+   Round 10 item 102 (focus ring softened): the outline itself is
+   UNCHANGED — still a full-strength, full-opacity 2px `--color-ring` line,
+   because that's the one part `tests/e2e/ui-audit.spec.ts` measures for
+   real WCAG non-text contrast (>=3:1 against `--app-chrome-bg`) and
+   softening it into a translucent line would put that contrast at risk for
+   no accessibility benefit. What reads as "sharp" is the hard 1px edge
+   sitting right against the element with no transition into the
+   background; a low-opacity halo just outside it (additive `box-shadow`,
+   never replacing the outline) gives the same crisp, unambiguous ring a
+   softer edge, and `outline-offset` grows from 1 to 2px so the ring has
+   room to breathe instead of hugging the control. `border-radius: inherit`
+   lets the halo follow a rounded control's own corners instead of framing
+   it with a hard rectangle. */
 :focus-visible {
   outline: 2px solid var(--color-ring, var(--color-primary));
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--color-ring, var(--color-primary)) 22%, transparent);
+  border-radius: inherit;
+}
+
+/* Round 10 item 103 (round 2, command palette): text-entry controls get a
+   LIGHTER version of the same ring. Browsers' `:focus-visible` heuristic
+   matches a typing-capable control (`<input>`/`<textarea>`) on programmatic
+   AND pointer focus, not just real keyboard nav — unlike a button, tab, or
+   custom widget, which only matches on keyboard focus. The command
+   palette's search input (`my-you-eye`'s `CommandPalette`, confirmed in
+   `node_modules/my-you-eye/dist/index.js`) autofocuses via
+   `inputRef.current?.focus()` the instant the palette opens, so the full
+   2px-outline-plus-halo treatment was ALWAYS visible there with no user
+   interaction at all — reading as a hard slab under the input (round-2
+   verdict on `polish-06-command-palette.png`), not a transient keyboard-nav
+   indicator. This is the same root cause on every OTHER text input in the
+   shell (Settings fields, publish-dialog inputs), just least visible
+   elsewhere because those don't autofocus. Fixed once, generically, for
+   every native text control — not a command-palette-specific override
+   (there is no way to scope one: `CommandPaletteProps` has no `className`/
+   `ref`-reachable hook into its Radix `Dialog.Portal`-rendered content, see
+   the round-2 report's "not achievable" section). Higher specificity
+   (`input`/`textarea` + `:focus-visible`) wins over the bare `:focus-visible`
+   rule above with no `!important` and no source-order dependency. */
+input:focus-visible,
+textarea:focus-visible {
+  outline-width: 1px;
   outline-offset: 1px;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-ring, var(--color-primary)) 18%, transparent);
 }
 
 /* Honor prefers-reduced-motion globally: collapse animation/transition
@@ -121,7 +164,8 @@ textarea,
   left: 8px;
   top: 8px;
   z-index: 50;
-  padding: 6px 10px;
+  /* Round 10 item 99 (4/8px spacing rhythm audit): 6px/10px were off-grid. */
+  padding: 8px 12px;
   border-radius: var(--radius-ui-sm);
   background: var(--color-surface);
   color: var(--color-fg);
@@ -133,5 +177,51 @@ textarea,
 .skip-link:focus-visible {
   transform: none;
   outline: 2px solid var(--color-ring, var(--color-primary));
-  outline-offset: 1px;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--color-ring, var(--color-primary)) 22%, transparent);
+}
+
+/* ---- Round 10 item 103: tree-row hover transition ----
+   `local/ExplorerTree.tsx`'s row hover (`onMouseEnter`/`onMouseLeave`
+   toggling `--sidebar-item-hover` inline) swapped instantly with no
+   transition — part of the "crude/sharp" verdict. Pure additive CSS
+   reading the token the component already sets
+   (`--motion-duration-quick`), scoped to the stable `role="treeitem"`
+   attribute the row already renders — no component edit needed here.
+   (The matching tab-hover fix lives IN `local/EditorTabBar.tsx` itself,
+   not here — that component is ours, under `src/components/local/`, so
+   fighting its own inline `background: "transparent"` with an
+   `!important` from this file would have been the wrong fix for code we
+   own outright; CLAUDE.md rule 1's fork/wrap-override caution is about
+   `my-you-eye` library components, not this one.) */
+[role="treeitem"] {
+  transition: background-color var(--motion-duration-quick) ease;
+}
+
+/* ---- Round 10 item 104: command palette container border ----
+   The palette already carries `--shadow-elevated`, and after round 2's
+   shadow retune that shadow does the work of separating it from the page.
+   A full-strength `--color-border` on top of a now-visible shadow states
+   the same edge twice, which is exactly the doubled-up, "cut out of the
+   page" reading the design verdict called crude. Dropped to
+   `--app-border-nested` so the shadow carries the separation and the
+   border only finishes the corner.
+
+   Scoped by `my-you-eye`'s own `CommandPalette` dialog classes
+   (`p-0 overflow-hidden gap-0`, its `DialogContent` call) rather than a
+   bare `[role="dialog"]`, so ordinary dialogs keep their full-strength
+   outer edge. This is a plain token swap from OUTSIDE the component, no
+   fork and no `!important`; if the library ever changes those classes the
+   rule simply stops matching and the palette reverts to the library
+   default, which is a safe failure mode.
+
+   NOT touched here, deliberately: the teal line under the palette's
+   search input. It looks like a decorative 2px underline but it is the
+   input's FOCUS RING (`--color-ring`, plus the halo added earlier this
+   round), visible on every open because the input takes focus
+   immediately. `tests/e2e/ui-audit.spec.ts` measures that ring for WCAG
+   non-text contrast (10.07:1 against a 3:1 floor), so it stays exactly as
+   it is. See DESIGN-SPEC round 10 item 104. */
+[role="dialog"].p-0.overflow-hidden.gap-0 {
+  border-color: var(--app-border-nested);
 }

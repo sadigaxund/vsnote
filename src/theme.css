@@ -21,6 +21,22 @@
  */
 
 :root {
+  /* ---- Design polish, round 10 items 98-101 (owner verdict: "too crude
+     and sharp on the edges, but organized nicely") ----
+     Radii scale: the library ships `--radius-ui-sm`/`--radius-ui`/
+     `--radius-ui-lg` (4/6/10px) as its ENTIRE radius surface (verified
+     against `node_modules/my-you-eye/dist/tokens.css` and every compiled
+     `rounded-ui*` class site) — no fork needed, just the three root
+     overrides below, one flatter/rounder step each: chips (badges, the
+     tree-row hover/selection chip, small controls) 4->6px, panels (cards,
+     popovers, table containers, inputs) 6->8px, dialogs 10px unchanged
+     (already matched the target). See docs/DESIGN-SPEC.md Amendments round
+     10 item 98 for the full rationale and the two theme.css-local 4px
+     radii (`.mk-static-codeblock`, `.mk-doc img`) bumped to match the chip
+     tier in the blocks below. */
+  --radius-ui-sm: 6px;
+  --radius-ui: 8px;
+
   /* Monospaced UI chrome + code. Websafe stack only — no @font-face, no
      external CDN request, so the app renders identically offline. Falls
      forward to the OS's native mono font when JetBrains Mono isn't
@@ -68,8 +84,18 @@
   --app-chrome-sidebar-header-h: 36px;
   --app-chrome-tree-row-h: 24px;
   --app-chrome-statusbar-h: 22px;
+  /* Round 10 item 99 (4/8px spacing rhythm audit): `--app-density-tab-pad-x`
+     was 10px at default — off the 4/8 grid every other horizontal padding
+     token in this file already sits on. Snapped to 12px (still strictly
+     more than `--app-density-row-pad-x`'s 8px, preserving "tabs get a
+     touch more breathing room than tree rows" at every tier). Only the
+     off-grid values change; band HEIGHTS above and `--app-density-icon-
+     gap` are untouched (the deliberate sub-4px fine-tuning documented on
+     the `compact`/`comfortable` blocks below is a different, intentional
+     scale, not a rhythm violation) — `tests/e2e/settings-view.spec.ts`'s
+     density test only asserts band heights, never these padding values. */
   --app-density-row-pad-x: 8px;
-  --app-density-tab-pad-x: 10px;
+  --app-density-tab-pad-x: 12px;
   --app-density-icon-gap: 4px;
 }
 
@@ -80,8 +106,10 @@
   --app-chrome-sidebar-header-h: 30px;
   --app-chrome-tree-row-h: 20px;
   --app-chrome-statusbar-h: 18px;
-  --app-density-row-pad-x: 5px;
-  --app-density-tab-pad-x: 7px;
+  /* Item 99: 5px/7px were off-grid; snapped to the 4px unit (4px/8px),
+     still strictly less than default's 8px/12px. */
+  --app-density-row-pad-x: 4px;
+  --app-density-tab-pad-x: 8px;
   --app-density-icon-gap: 2px;
 }
 
@@ -92,8 +120,10 @@
   --app-chrome-sidebar-header-h: 42px;
   --app-chrome-tree-row-h: 28px;
   --app-chrome-statusbar-h: 26px;
-  --app-density-row-pad-x: 11px;
-  --app-density-tab-pad-x: 13px;
+  /* Item 99: 11px/13px were off-grid; snapped to the 4px unit (12px/16px),
+     still strictly more than default's 8px/12px. */
+  --app-density-row-pad-x: 12px;
+  --app-density-tab-pad-x: 16px;
   --app-density-icon-gap: 6px;
 }
 
@@ -227,6 +257,50 @@
   --motion-duration-quick: 100ms;
   --motion-duration-base: 120ms;
   --motion-duration-slow: 150ms;
+
+  /* ---- Round 10 item 100: one shadow scale, tuned for a near-black shell
+     ----
+     `my-you-eye/dist/tokens.css` defines `--shadow-subtle`/`--shadow-card`/
+     `--shadow-elevated` exactly once, theme-invariant, as low-alpha BLACK
+     shadows tuned for a light (near-white) canvas — verified they're
+     already the ONE scale every popover/dropdown/tooltip (`--shadow-card`)
+     and dialog/drawer (`--shadow-elevated`) consumes (`node_modules/
+     my-you-eye/dist/*.js`, no per-component shadow left uncovered), so
+     there is no consistency gap to fix there. The gap is CONTRAST: a
+     0.05-0.10 alpha black shadow against this app's own near-black chrome
+     (`--app-chrome-bg: #0e1015`) composites to next to nothing — a real
+     screenshot comparison showed popovers/dialogs reading as flat cut-out
+     rectangles with only their 1px border for edges, which is a real
+     contributor to the "sharp/crude" verdict independent of the radius and
+     border-alpha fixes. Same 3-tier shape as the library's own scale
+     (spread grows, blur grows, tighter first layer + softer ambient
+     second), alpha raised until it actually reads on this bg — reasserted
+     as literal hex/oklch here (not a derivation) so every non-VSNote theme
+     that ALSO lands on a dark surface via `.dark` still gets a visible
+     scale instead of the library's washed-out default. */
+  --shadow-subtle: 0 1px 2px 0 oklch(0 0 0 / 0.32);
+  --shadow-card: 0 2px 6px -1px oklch(0 0 0 / 0.45), 0 8px 20px -6px oklch(0 0 0 / 0.35);
+  --shadow-elevated: 0 6px 16px -4px oklch(0 0 0 / 0.55), 0 20px 48px -12px oklch(0 0 0 / 0.4);
+
+  /* ---- Round 10 item 101: border alpha lowered on nested surfaces ----
+     `my-you-eye` exposes exactly ONE border token (`--color-border`) — no
+     upstream "nested"/"subtle" tier exists to redefine (confirmed against
+     `skills/components.json` and the compiled dist), so lowering alpha
+     specifically for NESTED surfaces (a divider one level down inside an
+     already-bordered panel — a table's own cell rules, a code panel's
+     internal filename divider) while leaving primary chrome dividers
+     (sidebar/editor split, tab strip, dialog outer edge) at their full,
+     wayfinding-load-bearing contrast requires a token this app owns. New
+     `--app-border-nested`: a real alpha channel (not a color blended
+     toward the background), so it reads correctly regardless of which
+     surface it sits on. Consumed only by the theme.css-owned nested rules
+     below (`.mk-doc th/td`, `.mk-doc hr`, `.share-reader__code-filename`)
+     — see docs/DESIGN-SPEC.md Amendments round 10 item 101 for why a
+     library-wide `--color-border` change was rejected (it would soften the
+     primary structural dividers too, which the owner verdict never asked
+     for). */
+  --app-border-nested: color-mix(in oklab, var(--mk-border, var(--color-border)) 55%, transparent);
+
   /* No single library token matches this app's third, darker-than-bg
      content depth (app-preview.png's editor surface) — derived rather than
      invented, so it still tracks each theme's own bg. */
@@ -394,6 +468,16 @@
   --sidebar-item-active: #292e37;
   --sidebar-badge-bg: #1c1f26;
   --sidebar-badge-fg: #d8dfe6;
+
+  /* Round 10 items 100-101, VSNote-default exact values (see the derived
+     `.dark` block above for the full rationale) — same values, reasserted
+     here so VSNote's own shadow/border reads stay pixel-identical
+     regardless of what the generic derived block above computes. */
+  --shadow-subtle: 0 1px 2px 0 oklch(0 0 0 / 0.32);
+  --shadow-card: 0 2px 6px -1px oklch(0 0 0 / 0.45), 0 8px 20px -6px oklch(0 0 0 / 0.35);
+  --shadow-elevated: 0 6px 16px -4px oklch(0 0 0 / 0.55), 0 20px 48px -12px oklch(0 0 0 / 0.4);
+  --app-border-nested: color-mix(in oklab, #23262d 55%, transparent); /* == mk-border at this theme */
+
   /* Editor / content surface — measured the darkest "content" depth,
      shared by the active tab (see EditorTabBar) so it visually merges
      into the editor below it. */
@@ -498,7 +582,7 @@
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.5;
-  border-radius: 4px;
+  border-radius: var(--radius-ui-sm);
 }
 .mk-static-codeblock__line {
   display: flex;
@@ -599,6 +683,12 @@
   --mk-width-narrow: 32rem;
   --mk-width-wide: 56rem;
   --mk-width-full: 100%;
+  /* Round 10 item 101 (border alpha lowered on nested surfaces) — same
+     token/rationale as the app shell's `.dark` block, scoped to this
+     reader's own light palette so `.mk-doc th/td`/`.mk-doc hr`/
+     `.share-reader__code-filename` get a softer divider than the reader's
+     primary card/panel border. */
+  --app-border-nested: color-mix(in oklab, var(--mk-border) 55%, transparent);
 
   --color-bg: var(--mk-bg);
   --color-fg: var(--mk-fg);
@@ -635,6 +725,12 @@
   --syntax-operator: #0a6e66;
   --syntax-string: #0a6e66;
   --syntax-comment: #64707c;
+  /* Round 10 item 100 (one shadow scale) — light-surface tuning: the
+     library's own default `--shadow-*` (tuned for a near-white canvas)
+     already reads correctly here, unlike the app shell's near-black
+     chrome, so this scope intentionally does NOT override them; only the
+     dark-scheme block below (near-black again) reasserts the shell's
+     raised-alpha scale. */
 
   color-scheme: light;
   display: block;
@@ -661,6 +757,12 @@
     --mk-warning: #e3b341;
     --mk-danger: #f85149;
     --mk-limit: #848a92;
+    --app-border-nested: color-mix(in oklab, var(--mk-border) 55%, transparent);
+    /* Round 10 item 100 — same near-black-tuned scale as the app shell's
+       `.dark` block (this scheme's bg is the same #101318). */
+    --shadow-subtle: 0 1px 2px 0 oklch(0 0 0 / 0.32);
+    --shadow-card: 0 2px 6px -1px oklch(0 0 0 / 0.45), 0 8px 20px -6px oklch(0 0 0 / 0.35);
+    --shadow-elevated: 0 6px 16px -4px oklch(0 0 0 / 0.55), 0 20px 48px -12px oklch(0 0 0 / 0.4);
 
     --color-bg: var(--mk-bg);
     --color-fg: var(--mk-fg);
@@ -720,10 +822,11 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  /* Round 10 item 99 (4/8px spacing rhythm audit): 14px was off-grid. */
+  gap: 16px;
   padding: 32px 28px;
   border: 1px solid var(--mk-border);
-  border-radius: 10px;
+  border-radius: var(--radius-ui-lg);
   background: var(--mk-raised);
   max-width: 360px;
   width: 100%;
@@ -741,7 +844,7 @@
   align-items: center;
   justify-content: center;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-ui);
   background: #0e1015;
 }
 
@@ -785,13 +888,13 @@
    inside this panel (theme.css's `.mk-static-codeblock`, unchanged). */
 .share-reader__code-panel {
   border: 1px solid var(--mk-border);
-  border-radius: 8px;
+  border-radius: var(--radius-ui);
   overflow: hidden;
   background: var(--mk-raised);
 }
 .share-reader__code-filename {
   padding: 8px 16px;
-  border-bottom: 1px solid var(--mk-border);
+  border-bottom: 1px solid var(--app-border-nested, var(--mk-border));
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--mk-muted);
@@ -931,7 +1034,7 @@
 }
 .mk-doc hr {
   border: none;
-  border-top: 1px solid var(--mk-border);
+  border-top: 1px solid var(--app-border-nested, var(--mk-border));
   margin: 2em 0;
 }
 .mk-doc table {
@@ -942,8 +1045,10 @@
 }
 .mk-doc th,
 .mk-doc td {
-  border: 1px solid var(--mk-border);
-  padding: 6px 10px;
+  border: 1px solid var(--app-border-nested, var(--mk-border));
+  /* Round 10 item 99 (4/8px spacing rhythm audit): 6px/10px were off the
+     4/8 grid every other padding value in this file sits on. */
+  padding: 8px 12px;
   text-align: left;
 }
 .mk-doc th {
@@ -952,5 +1057,5 @@
 }
 .mk-doc img {
   max-width: 100%;
-  border-radius: 4px;
+  border-radius: var(--radius-ui-sm);
 }

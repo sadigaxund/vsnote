@@ -1086,3 +1086,127 @@ forms inside `.mk.md` files.
     non-manual trigger, so a switch for it would change no behavior; see
     `docs/ARCHITECTURE.md`'s Phase M3 worker-3 section.
 
+
+98. **A radii scale, applied at the root rather than per component.**
+    `my-you-eye`'s three radius tokens are retuned once at `:root` and
+    every component follows: `--radius-ui-sm` 4px -> **6px** (chips,
+    badges, small controls, the tree-row hover and selection chip),
+    `--radius-ui` 6px -> **8px** (panels: cards, popovers, table
+    containers, inputs), `--radius-ui-lg` **10px unchanged** (dialogs,
+    already on target). Two literal 4px radii in `theme.css` (the static
+    code-block panel, prose images in rendered markdown) now reference the
+    chip token instead of restating it. Owner verdict this answers: "too
+    crude and sharp on the edges, but organized nicely".
+
+99. **A 4/8px spacing rhythm, with the off-grid values snapped.** Tab
+    horizontal padding 10px -> **12px** at the default density tier,
+    5/7px -> **4/8px** compact, 11/13px -> **12/16px** comfortable;
+    rendered-markdown table cells 6px 10px -> **8px 12px**; the share
+    reader's pre-content card gap 14px -> **16px**; the skip link
+    6px 10px -> **8px 12px**. Density band HEIGHTS and
+    `--app-density-icon-gap` are deliberately NOT snapped: their sub-4px
+    steps are an intentional fine-tuning scale (see `theme.css`'s
+    `compact`/`comfortable` blocks), not a rhythm violation.
+
+100. **One shadow scale, retuned for a near-black shell.** `my-you-eye`'s
+     `--shadow-subtle`/`--shadow-card`/`--shadow-elevated` are already the
+     one scale every popover, dropdown, tooltip, dialog and drawer
+     consumes, so there was no consistency gap; the gap was CONTRAST. The
+     library's values are low-alpha black tuned for a near-white canvas,
+     and against this app's `--app-chrome-bg` (`#0e1015`) they composite
+     to almost nothing, leaving popovers and dialogs reading as flat
+     cut-out rectangles whose only edge is a 1px border. Same three-tier
+     shape, alpha raised until it reads: subtle `0 1px 2px / 0.32`; card
+     `0 2px 6px -1px / 0.45` plus `0 8px 20px -6px / 0.35`; elevated
+     `0 6px 16px -4px / 0.55` plus `0 20px 48px -12px / 0.40`. The share
+     reader's LIGHT scheme keeps the library defaults, which already read
+     correctly on a white page. Filed upstream as sadigaxund/my-you-eye#38
+     (the default theme's `.dark` block is the only shipped theme with no
+     `--shadow-*` override).
+
+101. **Border alpha lowered on nested surfaces only.** New app-owned token
+     `--app-border-nested`, roughly 55% of `--color-border` via
+     `color-mix` into transparent (a real alpha channel, so it composites
+     correctly on whatever surface it lands on, rather than a colour
+     blended toward one specific background). Applied ONLY to dividers one
+     level deep inside an already-bordered surface: rendered-markdown
+     table cells, the markdown horizontal rule, and the share reader's
+     internal filename divider. Primary structural dividers (the
+     sidebar/editor split, the tab strip's own bottom border, a dialog's
+     outer edge) stay at full strength, because they carry wayfinding
+     contrast the verdict never asked to soften. A library-wide
+     `--color-border` change was rejected for exactly that reason. The
+     token cannot reach inside `my-you-eye` components; filed upstream as
+     sadigaxund/my-you-eye#39.
+
+102. **The focus ring is softened around, never weakened.** The
+     `:focus-visible` outline itself is UNCHANGED: still a full-strength,
+     full-opacity 2px `--color-ring` line, because that is precisely what
+     `tests/e2e/ui-audit.spec.ts` measures for WCAG non-text contrast
+     (10.07:1 against a 3:1 floor). What changed is the edge around it:
+     `outline-offset` 1px -> **2px**, plus a low-opacity halo just outside
+     the ring (`box-shadow`, 22% of the ring colour, 5px spread) with
+     `border-radius: inherit` so the halo follows a rounded control's own
+     corners instead of framing it in a hard rectangle. "Softened" must
+     not become "removed" on an accessibility gate.
+
+103. **Tab and tree-row hover states.** Tree rows gained a
+     `background-color` transition on the hover swap they already had.
+     Inactive tabs had NO hover affordance at all; they now get one, with
+     the same transition. Both use `--motion-duration-quick`, and both
+     respect the global `prefers-reduced-motion` collapse. The tab fix
+     lives in `local/EditorTabBar.tsx` itself rather than as a CSS
+     override from `index.css`: that component is ours, so an
+     `!important` fight with its own inline style would have been the
+     wrong tool for code we own outright (rule 1's fork/wrap-override
+     caution is about `my-you-eye` components).
+
+104. **Tabs are separated by weight, not boxed by dividers.** Full-strength
+     vertical dividers on every tab were the "cut-out rectangles" reading.
+     Now: an ACTIVE tab has no side divider at all (it already reads as
+     distinct via its lighter surface and 2px accent top border); an
+     INACTIVE tab's divider drops to `--app-border-nested`; the tab
+     strip's own bottom border stays full strength, because it is
+     structural. The command palette gets the same treatment for the same
+     reason: its container keeps `--shadow-elevated`, which after item 100
+     actually reads, so its border drops to `--app-border-nested` rather
+     than stating the same edge twice. **Not changed, deliberately**: the
+     teal line under the palette's search input. It looks like a
+     decorative 2px underline but it is the input's FOCUS RING, visible on
+     every open because the input takes focus immediately, and item 102
+     governs it.
+
+105. **Toasts are an elevated panel with a status accent, not a colour
+     slab.** A full-bleed saturated success or danger fill was the loudest
+     and crudest element on screen. A toast is now `--color-surface-
+     elevated` with a 1px border, `--radius-ui`, `--shadow-elevated`, a
+     3px left accent bar in the status colour (success green, danger red,
+     default accent) and its TITLE in that status colour, with body copy
+     at normal text colour. The status still reads instantly without the
+     whole panel becoming a colour block. This required replacing
+     `my-you-eye`'s `Toaster`/`useToast` with a local component
+     (`src/components/local/Toast.tsx`, COMPONENT-BACKLOG entry): the
+     library hardcodes the variants as a solid fill through an unexported
+     internal `cva`, and its public `ToastData` has no `className`, so no
+     supported token or prop lever exists, and the only global lever
+     (`--color-success`/`--color-danger`) carries real semantics elsewhere
+     (git status, alerts, badges). Filed upstream as
+     sadigaxund/my-you-eye#40.
+
+106. **The Shared tab reports link counts as two numeric columns.** The
+     single "Links to / from" cell truncated to a clipped chevron ("1 to
+     /") at its width, hiding exactly the number it existed to show. It is
+     now two independently narrow, right-aligned numeric columns, "Links
+     to" and "Linked from", each holding a short integer that cannot
+     truncate. Carried over from the round-9 review as an open nit.
+
+107. **Known, deliberately unfixed: a `Switch` in its off state is nearly
+     invisible in dark themes.** The library's unchecked track is
+     `bg-secondary` with a transparent border, which on this app's dark
+     surfaces sits close enough to the background that the track
+     disappears and the control reads as a lone floating thumb. There is
+     no track-scoped token to retarget, and the only lever
+     (`--color-secondary`) is shared with secondary buttons and other
+     surfaces, so fixing it locally would mean force-styling library
+     internals against rule 1. Left unpatched on purpose; recorded on
+     sadigaxund/my-you-eye#37.

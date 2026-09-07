@@ -172,6 +172,34 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                     e.dataTransfer.effectAllowed = "move";
                   }}
                   onClick={() => onSelect?.(tab.id)}
+                  // Round 10 item 103 (tab hover state) — same
+                  // onMouseEnter/onMouseLeave-toggles-inline-background
+                  // idiom `ExplorerTree.tsx`'s row hover already uses, so
+                  // an inactive tab gets `--color-surface-hover` on hover
+                  // and back to transparent on leave. Fixed IN this
+                  // component (not a `!important` override from outside)
+                  // because `EditorTabBar` lives under `src/components/
+                  // local/` — CLAUDE.md rule 1's "never fork/wrap-override"
+                  // is about `my-you-eye` library components; this is our
+                  // own code, so the right fix is here, not a specificity
+                  // fight from `index.css`.
+                  // Round 10 item 105 (round 2 follow-up): the hover
+                  // background is the ACTIVE tab's own surface
+                  // (`--app-editor-bg`), not `--color-surface-hover`. That
+                  // token is a one-step lift meant for surfaces already
+                  // lighter than the tab strip, and against this strip it
+                  // was invisible at 1x (confirmed on a hover screenshot,
+                  // `.design/polish/after/polish-07-tab-hover.png`). Landing
+                  // on the active tab's surface reads as "this is where the
+                  // tab is going", and hover still can't be mistaken for
+                  // active, since only the active tab carries the 2px accent
+                  // top border and only an inactive tab has a side divider.
+                  onMouseEnter={(e) => {
+                    if (!active) e.currentTarget.style.background = "var(--app-editor-bg)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active) e.currentTarget.style.background = "transparent";
+                  }}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -181,8 +209,18 @@ export function EditorTabBar({ paneId, tabs, activeId, onSelect, onClose, onDrop
                     padding: "0 var(--app-density-tab-pad-x)",
                     minWidth: 120,
                     maxWidth: 220,
-                    borderRight: "1px solid var(--app-chrome-border)",
+                    // Round 10 item 103 (round 2): full-strength vertical
+                    // dividers on every tab were the "cut-out rectangles"
+                    // effect. An active tab now has NO side divider at all
+                    // (it already reads as distinct via its background +
+                    // accent top border); an inactive tab's divider drops to
+                    // `--app-border-nested` instead of the strip's own
+                    // full-strength `--app-chrome-border` (which stays
+                    // structural — see the strip's own `borderBottom`,
+                    // untouched, a few lines up in this file).
+                    borderRight: active ? "none" : "1px solid var(--app-border-nested)",
                     background: active ? "var(--app-editor-bg)" : "transparent",
+                    transition: "background-color var(--motion-duration-quick) ease",
                     borderTop: active
                       ? "2px solid var(--color-primary)"
                       : "2px solid transparent",

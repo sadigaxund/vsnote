@@ -26,6 +26,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { DEFAULT_ACTIVE_PATH, gotoApp, treeRow } from "./fixtures";
+import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
+import { openSharedView, signInToShareBackend } from "./shareUiHelpers";
 
 const AUDIT_DIR = ".design/ui-audit";
 const SKIP = !process.env.VSNOTE_UI_AUDIT;
@@ -193,4 +195,93 @@ test("UI audit: reflow, text-spacing, contrast, vision-deficiency evidence", asy
   writeFileSync(`${AUDIT_DIR}/REPORT.md`, `# UI audit — ${new Date().toISOString()}\n\n\`\`\`\n${findings.join("\n")}\n\`\`\`\n`);
   console.log(findings.join("\n"));
   void testInfo;
+});
+
+/**
+ * Design-polish before/after capture (docs/PLAN-2026-09-05-refresh.md §7,
+ * DESIGN-SPEC round 10 items 98-103) — six screens the human design judge
+ * flips between across two runs of this file (one at each end of the
+ * polish commit range), copied out of `.design/ui-audit/` into
+ * `.design/polish/{before,after}/` by hand between runs (same filenames,
+ * so the pair lines up). Each screenshot is guarded by a real `expect(...)
+ * .toBeVisible()` on the exact surface being captured — this is not a bare
+ * capture harness, so it stays in the suite as a real (if screenshot-
+ * flavored) assertion of "that surface still renders", not just a photo
+ * op. Uses the REAL share backend (`startShareBackend()` via `globalSetup
+ * .ts`, the same one `share-*.spec.ts` files use) rather than the first
+ * test's hermetic `page.route` stubs, because three of the six screens
+ * (Shared view, publish dialog, public reader) need a real publish
+ * round-trip to have non-empty content worth screenshotting.
+ */
+test("design polish: six before/after screens (round 10 items 98-103)", async ({ page, context }) => {
+  test.skip(SKIP, "run with VSNOTE_UI_AUDIT=1");
+  mkdirSync(AUDIT_DIR, { recursive: true });
+
+  await gotoApp(page);
+
+  // 1. Editor with the sidebar — the main shell. Captured BEFORE signing
+  // in (which opens Settings), so the active tab is really the editor, not
+  // Settings left focused from the sign-in helper below.
+  await expect(treeRow(page, DEFAULT_ACTIVE_PATH)).toBeVisible();
+  await page.screenshot({ path: `${AUDIT_DIR}/polish-01-editor-shell.png`, fullPage: false });
+
+  // 7 (round 2 addition). Tab hover state — after-only: none of the other
+  // six captures exercise a mouse hover (all six are static, mouse-less
+  // states), so there is no meaningful "before" pair for this one. Hovers
+  // an INACTIVE tab (seeded `src/indexer.ts`, second tab from the left) to
+  // show the softened divider (`--app-border-nested`) and the hover
+  // background together.
+  await page.locator('[role="tab"][data-tab-path="vault/src/indexer.ts"]').hover();
+  await page.screenshot({ path: `${AUDIT_DIR}/polish-07-tab-hover.png`, fullPage: false });
+  await page.mouse.move(0, 0);
+
+  await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
+  // 2. Settings — Appearance (theme select, density radio group, accent
+  // ColorField: a real mix of control types on one page).
+  await page.getByTestId("settings-nav-appearance").click();
+  await expect(page.getByTestId("settings-theme")).toBeVisible();
+  await page.screenshot({ path: `${AUDIT_DIR}/polish-02-settings-appearance.png`, fullPage: false });
+
+  // 3 + 4. Publish dialog on a content-bearing step (Link: alias/expiry,
+  // not the empty Mode-picker first frame), then finish publishing so
+  // there's a real share for the Shared view and public reader below.
+  await treeRow(page, DEFAULT_ACTIVE_PATH).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Publish…" }).click();
+  const dialog = page.getByTestId("publish-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("radio", { name: "Viewer page" }).click();
+  await dialog.getByTestId("publish-continue").click(); // -> Who can open
+  await dialog.getByTestId("publish-continue").click(); // -> Protection
+  await dialog.getByTestId("publish-continue").click(); // -> Link
+  await expect(dialog.getByTestId("publish-alias")).toBeVisible();
+  await page.screenshot({ path: `${AUDIT_DIR}/polish-04-publish-dialog.png`, fullPage: false });
+  await dialog.getByTestId("publish-submit").click(); // -> Result
+  const linkInput = dialog.getByTestId("publish-result-link");
+  await expect(linkInput).toBeVisible();
+  const link = await linkInput.inputValue();
+  await dialog.getByTestId("publish-done").click();
+  await expect(dialog).toBeHidden();
+
+  // 5. Shared view/tab, now with a real row in it.
+  await openSharedView(page);
+  await expect(page.getByTestId("shared-view-table")).toBeVisible();
+  await page.screenshot({ path: `${AUDIT_DIR}/polish-03-shared-view.png`, fullPage: false });
+
+  // 6. The public share reader — its own token scope, no app chrome. Waits
+  // for the actual rendered document (the seeded architecture.md's real
+  // heading), not just the "Loading…" shell `.share-reader` shows first.
+  const reader = await context.newPage();
+  await reader.goto(link);
+  await expect(reader.getByText("Indexing architecture", { exact: false })).toBeVisible();
+  await reader.screenshot({ path: `${AUDIT_DIR}/polish-05-public-reader.png`, fullPage: false });
+  await reader.close();
+
+  // 7 (screen 6 of 6). Command palette — a popover surface, for the shadow
+  // scale.
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog");
+  await expect(palette.getByText("Commands", { exact: true })).toBeVisible();
+  await page.screenshot({ path: `${AUDIT_DIR}/polish-06-command-palette.png`, fullPage: false });
+  await page.keyboard.press("Escape");
 });
