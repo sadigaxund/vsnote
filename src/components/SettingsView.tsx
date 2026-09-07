@@ -41,43 +41,48 @@
  * so the CSS reverses the row (rail first, i.e. on top) and reflows the
  * rail itself into a horizontal, wrapping row — still sticky.
  *
- * Built on `my-you-eye`'s `Tabs`/`TabsList`/`TabsTrigger` (`pills` variant
- * — a discrete "switch which panel is showing" choice, which is exactly
- * what the library's own docs say `Tabs` is for and `SegmentedControl` is
- * NOT: `components.json`'s `SegmentedControl` entry describes itself as "a
- * form control... not navigation. Use it instead of Tabs when the choice
- * sets a value"). The library has no dedicated vertical nav/TOC primitive
- * (`components.json` has no `NavList`/`SideNav`/`TOC`, and `Tabs` itself
- * has no `orientation` prop of its own — but it forwards unknown props to
- * Radix's `Tabs.Root`, which DOES support `orientation`), so this passes
- * `orientation="vertical"` through at the wide layout for real up/down
- * roving-tabindex keyboard nav (Radix's own vertical-tablist behavior),
- * and `"horizontal"` at the narrow, wrapping-row layout — tracked via a
- * `matchMedia` listener at the same 900px breakpoint the CSS uses, so the
- * two stay in sync. `index.css`'s rules only reflow layout (flex
- * direction, width, sticky) on top of the library's own visuals — no
- * fork, no local component needed. `TabsContent` is skipped since this
- * shell renders every category's rows itself, continuously, and needs the
- * same manual control for search-filtered grouping.
+ * **Round 5 (design-health P1) — the rail is `SettingsNavRail`
+ * (`components/local/SettingsNavRail.tsx`), not `my-you-eye`'s `Tabs`.**
+ * The `Tabs`/`TabsList`/`TabsTrigger` (`pills` variant) version above
+ * looked and read as a tab switcher — filled active pill,
+ * `role="tablist"`/`role="tab"`, `aria-selected` — even though it never
+ * behaved like one: every section is always mounted, a click just
+ * smooth-scrolls to an already-rendered section, and "current" tracks
+ * scroll position, not a click (the critique this round fixed named this
+ * exactly: "rail semantics contradict its look: pills + aria-selected over
+ * a continuous-scroll TOC"). The library has no vertical NavList/SideNav/
+ * TOC primitive to reach for instead (checked
+ * `skills/my-you-eye/components.json`: `Tabs` is the only navigation-group
+ * component, and none of its three variants — `filing`/`pills`/`underline`
+ * — is a plain, unfilled current-row look with a leading accent bar), so
+ * per CLAUDE.md rule 2's missing-component protocol this is now a local
+ * component: plain text rows (icon + label), `role="navigation"` on the
+ * `<nav>`, one `role="list"` `<ul>` per group with a `Separator` between
+ * groups (three groups, two dividers, no group labels — see
+ * `navRailGroups` below), and `aria-current="true"` on the current row
+ * instead of `aria-selected`. Filed upstream as
+ * sadigaxund/my-you-eye#41; entry in `docs/COMPONENT-BACKLOG.md`.
+ * `SettingsNavRail` keeps the same roving-tabindex up/down (vertical) /
+ * left/right (horizontal) keyboard nav Radix's `Tabs.Root` gave the old
+ * version for free, tracked via the same `matchMedia` listener at the
+ * 900px breakpoint (`navRailNarrow` below) so orientation stays in sync
+ * with `index.css`'s reflow. Every existing `data-testid="settings-nav-
+ * <id>"` is unchanged.
  *
  * **The rail is a scroll-spy table of contents, not a switcher (owner
- * follow-up).** Content is ALL categories' sections stacked in one
- * continuous scroll (search still filters rows per section, hiding a
- * section entirely when nothing in it matches) — there is no more "only
- * the active category's rows are mounted" behavior. Clicking a
- * `TabsTrigger` (`activationMode="manual"`, so arrow-key roving focus
- * doesn't also trigger a scroll on every keypress — only Enter/Space or a
- * click does) smooth-scrolls that section's heading to
- * `SETTINGS_SCROLL_SPY_OFFSET` below the scrollport's top; `Tabs`' `value`
- * is NOT set directly by that click, only `activeCategory` state is,
- * except `activeCategory` is ALSO the thing a scroll listener keeps in
- * sync with whichever section's heading has scrolled past that same
- * offset — so a manual scroll (no click at all) updates the highlighted
- * item exactly the way a click does, and `aria-selected` (driven by
- * `Tabs`' controlled `value`) always reflects real scroll position, per
- * the owner's ask. */
+ * follow-up, unchanged this round).** Content is ALL categories' sections
+ * stacked in one continuous scroll (search still filters rows per section,
+ * hiding a section entirely when nothing in it matches) — there is no
+ * "only the active category's rows are mounted" behavior. Clicking a rail
+ * row (`onSelect` below) smooth-scrolls that section's heading to
+ * `SETTINGS_SCROLL_SPY_OFFSET` below the scrollport's top without directly
+ * setting `activeCategory` — `activeCategory` (and therefore the rail's
+ * `aria-current`) is set ONLY by the scroll listener that watches every
+ * section's position on ANY scroll (click-driven or manual), so a manual
+ * scroll updates the current row exactly the way a click does. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Input, ScrollArea, Separator, Tabs, TabsList, TabsTrigger } from "my-you-eye";
+import { Input, ScrollArea, Separator } from "my-you-eye";
+import { SettingsNavRail } from "./local/SettingsNavRail";
 import {
   Eye,
   GitBranch,
@@ -99,6 +104,8 @@ import { usePacksRows } from "./settings/Packs";
 import { useKeyboardRows } from "./settings/Keyboard";
 import { rowMatches, type SettingsCategory } from "./settings/types";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
+import { SETTINGS_FOCUS_SEARCH_EVENT, consumePendingSettingsSearchFocus } from "../lib/settingsTab";
+import { modKey } from "../lib/platform";
 
 export interface SettingsViewProps {
   /** Boot-time `navigator.storage.persist()` result, threaded down from
@@ -134,6 +141,19 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
   const [activeCategory, setActiveCategory] = useState("appearance");
   const [query, setQuery] = useState("");
 
+  // Ctrl+, / Cmd+, (`App.tsx`'s global shortcut handler): opens this tab
+  // and calls `requestSettingsSearchFocus()`. Handles both the "already
+  // mounted, just focus" case (the event listener) and the "mounting for
+  // the first time, the event already fired before we could listen" case
+  // (the pending-flag check on mount) — see `lib/settingsTab.ts`'s doc.
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (consumePendingSettingsSearchFocus()) searchInputRef.current?.focus();
+    const onFocusRequest = () => searchInputRef.current?.focus();
+    window.addEventListener(SETTINGS_FOCUS_SEARCH_EVENT, onFocusRequest);
+    return () => window.removeEventListener(SETTINGS_FOCUS_SEARCH_EVENT, onFocusRequest);
+  }, []);
+
   const [navRailNarrow, setNavRailNarrow] = useState(
     () => typeof window !== "undefined" && window.matchMedia(SETTINGS_NAV_RAIL_BREAKPOINT).matches,
   );
@@ -163,15 +183,23 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
     { id: "rendered-view", label: "Rendered view", icon: <Eye size={15} />, rows: useRenderedRows() },
     { id: "git-sync", label: "Git & Sync", icon: <GitBranch size={15} />, rows: useGitRows() },
     { id: "sharing", label: "Sharing", icon: <Share2 size={15} />, rows: useSharingRows() },
-    { id: "packs", label: "Packs", icon: <Package size={15} />, rows: usePacksRows() },
     {
       id: "storage",
       label: "Storage",
       icon: <HardDrive size={15} />,
       rows: useStorageRows({ persistence, onExportVault, onRequestResetVault, onRestoreFromRemote }),
     },
+    { id: "packs", label: "Packs", icon: <Package size={15} />, rows: usePacksRows() },
     { id: "keyboard", label: "Keyboard", icon: <KeyboardIcon size={15} />, rows: useKeyboardRows() },
   ];
+  // DESIGN-SPEC item 119 (round 4) — the rail groups these 8 categories
+  // into three clusters with two thin, unlabeled dividers: Appearance /
+  // Editor / Rendered view (look-and-feel of the editor), Git & Sync /
+  // Sharing / Storage (the vault's data lifecycle), Packs / Keyboard
+  // (extensibility + reference). `SettingsNavRail` renders one `<ul>` per
+  // group with a `Separator` between groups — this array is that same
+  // grouping, not a second source of truth for category order.
+  const navRailGroups = [categories.slice(0, 3), categories.slice(3, 6), categories.slice(6, 8)];
 
   const trimmedQuery = query.trim();
   const searching = trimmedQuery.length > 0;
@@ -297,8 +325,9 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                 style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-muted)", pointerEvents: "none" }}
               />
               <Input
+                ref={searchInputRef}
                 size="sm"
-                placeholder="Search settings…"
+                placeholder={`Search settings (${modKey()}+,)`}
                 aria-label="Search settings"
                 data-testid="settings-search"
                 value={query}
@@ -353,29 +382,13 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             </div>
           </div>
 
-          <nav className="settings-nav-rail" aria-label="Settings categories">
-            <Tabs
-              value={activeCategory}
-              onValueChange={scrollToCategory}
-              variant="pills"
-              orientation={navRailNarrow ? "horizontal" : "vertical"}
-              activationMode="manual"
-            >
-              <TabsList>
-                {categories.map((c) => (
-                  <TabsTrigger
-                    key={c.id}
-                    value={c.id}
-                    data-testid={`settings-nav-${c.id}`}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                  >
-                    {c.icon}
-                    {c.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </nav>
+          <SettingsNavRail
+            groups={navRailGroups}
+            activeId={activeCategory}
+            onSelect={scrollToCategory}
+            orientation={navRailNarrow ? "horizontal" : "vertical"}
+            aria-label="Settings categories"
+          />
         </div>
       </div>
     </ScrollArea>

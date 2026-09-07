@@ -521,16 +521,54 @@ textarea,
   overflow-y: auto;
   overflow-x: hidden;
 }
-.settings-nav-rail [role="tablist"] {
+/* R5 (design-health P1) — `SettingsNavRail` (components/local/) replaces
+   the `Tabs`/`TabsList`/`TabsTrigger` rail: a scroll-spy TOC's rows never
+   looked like a "switch which panel is showing" pill row anyway, so these
+   rules restyle it as plain text rows — no filled background at any
+   state — with a 2px accent bar owning the "current row" signal instead.
+   `__divider` is the `Separator` between the rail's three groups
+   (Appearance/Editor/Rendered view; Git & Sync/Sharing/Storage;
+   Packs/Keyboard) — no group labels, just the two thin lines. */
+.settings-nav-rail__list {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   width: 100%;
   gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.settings-nav-rail [role="tab"] {
+.settings-nav-rail__list + .settings-nav-rail__divider {
+  margin: 8px 0;
+}
+.settings-nav-rail__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  justify-content: flex-start;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius-ui-sm);
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  /* The current-row accent bar is a left border, not a box-shadow/pseudo,
+     so it never shifts layout when a row gains/loses "current" — the
+     inactive 2px transparent border reserves the same space. */
+  border-left: 2px solid transparent;
+}
+.settings-nav-rail__item:hover {
+  background: var(--color-surface);
+  color: var(--color-fg);
+}
+.settings-nav-rail__item[data-active="true"] {
+  color: var(--color-fg);
+  font-weight: 600;
+  border-left-color: var(--color-primary);
 }
 
 @media (max-width: 900px) {
@@ -542,14 +580,24 @@ textarea,
     max-height: none;
     overflow: visible;
   }
-  .settings-nav-rail [role="tablist"] {
+  .settings-nav-rail__list {
     flex-direction: row;
     flex-wrap: wrap;
     width: auto;
   }
-  .settings-nav-rail [role="tab"] {
+  .settings-nav-rail__list + .settings-nav-rail__divider {
+    margin: 0 8px;
+  }
+  .settings-nav-rail__item {
     width: auto;
-    justify-content: center;
+    /* Reflowed to a horizontal wrapping row: the "current" signal moves
+       from a left bar to a top bar so it still reads as a leading edge,
+       not a trailing underline. */
+    border-left: none;
+    border-top: 2px solid transparent;
+  }
+  .settings-nav-rail__item[data-active="true"] {
+    border-top-color: var(--color-primary);
   }
 }
 

@@ -38,7 +38,7 @@ test.describe("Settings view", () => {
     // Appearance is the top section, visible without scrolling, and its
     // nav item starts highlighted.
     await expect(page.getByTestId("settings-row-theme")).toBeVisible();
-    await expect(page.getByTestId("settings-nav-appearance")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("settings-nav-appearance")).toHaveAttribute("aria-current", "true");
     // Editor's rows are further down the SAME scroll, not a separate panel
     // — still attached to the DOM even before its section scrolls into view.
     await expect(page.getByTestId("settings-row-font-size")).toBeAttached();
@@ -48,7 +48,7 @@ test.describe("Settings view", () => {
     // Clicking scrolled the page: the previous section's highlight (and
     // Appearance's row) are gone from view, but Theme is still mounted —
     // this is a scroll position, not a remount.
-    await expect(page.getByTestId("settings-nav-editor")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("settings-nav-editor")).toHaveAttribute("aria-current", "true");
     await expect(page.getByTestId("settings-row-theme")).toBeAttached();
 
     await page.getByTestId("settings-nav-keyboard").click();
@@ -56,14 +56,14 @@ test.describe("Settings view", () => {
     await expect(shortcuts).toBeVisible();
     await expect(shortcuts.getByText("⌘K")).toBeVisible();
     await expect(shortcuts.getByText(/Command palette/)).toBeVisible();
-    await expect(page.getByTestId("settings-nav-keyboard")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("settings-nav-keyboard")).toHaveAttribute("aria-current", "true");
 
     // Scrolling manually (no click at all) also keeps the highlight synced
     // to whatever section is actually at the top — the spy, not just the
-    // click handler, drives `aria-selected`.
+    // click handler, drives `aria-current`.
     await page.mouse.move(700, 400);
     await page.mouse.wheel(0, -100000); // back to the very top
-    await expect(page.getByTestId("settings-nav-appearance")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("settings-nav-appearance")).toHaveAttribute("aria-current", "true");
   });
 
   test("search filters rows across every category, independent of the selected nav item", async ({ page }) => {

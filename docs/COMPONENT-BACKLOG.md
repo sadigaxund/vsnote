@@ -326,6 +326,34 @@ upstream candidates; no new information from the skill analysis changes their sp
   not re-filed. This local component unblocks the Settings split in the
   meantime, per CLAUDE.md rule 2's "missing component protocol."
 
+### 2.14 `SettingsNavRail` — vertical NavList/SideNav/TOC (Settings nav rail restyle, round 5)
+
+- **Gap:** `my-you-eye` has exactly one navigation-group component, `Tabs`
+  (`filing`/`pills`/`underline`), and all three render `role="tablist"`/
+  `role="tab"`/`aria-selected` with a filled or underlined "selected" look.
+  Settings' category rail (item 119, `SettingsView.tsx`) is a scroll-spy table
+  of contents, not a tab switcher: every category's section is always
+  mounted, and a rail click just smooth-scrolls to an already-rendered
+  section — the design-health critique named the mismatch directly ("rail
+  semantics contradict its look: pills + aria-selected over a
+  continuous-scroll TOC"). None of `Tabs`' three variants is a plain,
+  unfilled current-row look (icon + label, muted when inactive, a leading
+  accent bar when current) either, so even the visuals had to be fought.
+- **Built:** `src/components/local/SettingsNavRail.tsx` — `<nav
+  role="navigation">` wrapping one `role="list"` `<ul>` per group (three
+  groups, two `Separator` dividers, no group labels), `<button
+  aria-current="true">` on the current row instead of `aria-selected`, and
+  roving-tabindex up/down (vertical) / left/right (horizontal) keyboard nav
+  (Home/End jump to the first/last row) reimplementing what Radix's
+  `Tabs.Root` gave the old version for free. Visuals in `index.css`
+  (`.settings-nav-rail__item`/`__list`/`__divider`): no filled background at
+  any state, muted text inactive, a hover surface, and a 2px accent bar on
+  the row's leading edge (left at the wide/vertical layout, top once the
+  rail reflows horizontal below 900px) for the current row.
+- **Filed:** sadigaxund/my-you-eye#41 (checked `gh issue list -R
+  sadigaxund/my-you-eye --state all` first — highest existing number was
+  #40, no duplicate).
+
 ### 2.12 `Toast` variant styling (design polish round 2, 2026-09-07)
 
 - **Gap:** `my-you-eye`'s `ToastItem` (`node_modules/my-you-eye/dist/index.js`)

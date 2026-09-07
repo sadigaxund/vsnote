@@ -1418,35 +1418,123 @@ items OVERRIDE anything above them.
      tried first and replaced by this one on direct owner correction.)
      Below the title row, Settings is two columns: `.settings-content` (the
      reading column, still centering/capping at ~52rem, item 84 unchanged)
-     on the left, and a `.settings-nav-rail` on the right holding icon+label
-     pills in a `my-you-eye` `Tabs` row (`variant="pills"`, `orientation=
-     "vertical"` — `Tabs` is the library's navigation primitive; its
-     `SegmentedControl` entry documents itself as a form control for a
-     value, not for switching panels). The rail is `position: sticky` so it
-     stays in view while a long category's rows scroll past it. Its width
-     matches the title row's search field width exactly
-     (`--settings-side-column-width`, 280px) so both right-anchored blocks
-     share the same left edge — a first pass at ~180px left the rail's left
-     edge ~100px right of the search field's, reported as the menu "not
-     starting where the search bar starts." Below ~900px there is no room
-     for a fixed-width side rail beside a comfortable reading column, so
-     the layout reverses (rail first, i.e. on top) and the rail itself
-     reflows into a horizontal, wrapping row (`orientation="horizontal"`
-     for correct left/right roving-tabindex nav there) — still sticky.
+     on the left, and a `.settings-nav-rail` on the right. The rail is
+     `position: sticky` so it stays in view while a long category's rows
+     scroll past it. Its width matches the title row's search field width
+     exactly (`--settings-side-column-width`, 280px) so both right-anchored
+     blocks share the same left edge — a first pass at ~180px left the
+     rail's left edge ~100px right of the search field's, reported as the
+     menu "not starting where the search bar starts."
+
+     **Round 5 (design-health P1) — the rail is a plain-text TOC
+     (`SettingsNavRail`, `components/local/`), not a `my-you-eye` `Tabs`
+     row.** It had been built on `Tabs` (`variant="pills"`,
+     `orientation="vertical"`/`"horizontal"`), which rendered filled active
+     pills and `role="tablist"`/`role="tab"`/`aria-selected` even though the
+     rail never behaved like a tab switcher (see the follow-up below) — the
+     design-health critique named this directly: "rail semantics contradict
+     its look: pills + aria-selected over a continuous-scroll TOC."
+     `my-you-eye` has no vertical NavList/SideNav/TOC primitive to reach for
+     instead (`Tabs` is the only navigation-group component, and none of
+     its three variants — `filing`/`pills`/`underline` — is a plain,
+     unfilled current-row look with a leading accent bar), so per CLAUDE.md
+     rule 2 this is now a local component (filed upstream as
+     sadigaxund/my-you-eye#41, `docs/COMPONENT-BACKLOG.md`): plain text rows
+     (icon + label, no filled background at any state), muted text for an
+     inactive row, a hover surface, and a 2px accent bar on the row's
+     leading edge (left at the wide, vertical layout; top once the rail
+     reflows horizontal below ~900px) for the current row, with
+     `aria-current="true"` there instead of `aria-selected`. `role=
+     "navigation"` on the `<nav>` and `role="list"` on each group's `<ul>`
+     replace `role="tablist"`/`role="tab"`. The 8 categories are grouped
+     into three clusters with two thin, unlabeled dividers: Appearance /
+     Editor / Rendered view; Git & Sync / Sharing / Storage; Packs /
+     Keyboard. Roving-tabindex up/down (vertical) / left/right (horizontal)
+     keyboard nav, and the `matchMedia` orientation switch at the same
+     900px breakpoint, are unchanged in behavior — only reimplemented
+     without Radix's `Tabs.Root`. Every `data-testid="settings-nav-<id>"`
+     is unchanged.
 
      **The rail is a scroll-spy table of contents, not a category switcher
-     (owner follow-up, same round).** Content is every category's section
+     (owner follow-up, round 4).** Content is every category's section
      stacked in ONE continuous scroll — there is no more "only the active
      category's rows are mounted" behavior (search still filters rows per
      section, and drops a section entirely once nothing in it matches).
-     Clicking a `TabsTrigger` (`activationMode="manual"`, so arrow-key
-     roving focus alone never triggers a scroll — only Enter/Space or a
-     click does) smooth-scrolls that section's heading to a fixed offset
-     below the scrollport's top; a separate scroll listener watches every
-     section's position on ANY scroll (click-driven or manual) and keeps
-     `Tabs`' controlled `value` — and therefore `aria-selected` on the
-     rail's items — synced to whichever section's heading has actually
-     scrolled past that same offset, falling back to the last section once
-     the scroll has hit bottom (a final section shorter than one screenful
-     can never scroll its own heading up to the offset otherwise, and would
-     never highlight).
+     Clicking a rail row smooth-scrolls that section's heading to a fixed
+     offset below the scrollport's top without directly setting the current
+     row; a separate scroll listener watches every section's position on
+     ANY scroll (click-driven or manual) and keeps `activeCategory` — and
+     therefore `aria-current` on the rail's items — synced to whichever
+     section's heading has actually scrolled past that same offset, falling
+     back to the last section once the scroll has hit bottom (a final
+     section shorter than one screenful can never scroll its own heading up
+     to the offset otherwise, and would never highlight).
+
+## Amendments round 13 — 2026-09-08 (design-health pass, round 5)
+
+120. **Ctrl+, / Cmd+, opens Settings, focused on search.** Registered
+     alongside the app's other global shortcuts (`App.tsx`'s single
+     `keydown` owner — ⌘S/⌘F/⌘E/⌘K/⌘P/⌘W/⌘⇧Z), so it shows up in Settings →
+     Keyboard automatically. Opens the Settings tab (or just focuses it, if
+     already open — `useTabsStore.openFile` on the existing `"settings"`
+     tab is itself idempotent) and focuses the search field
+     (`lib/settingsTab.ts`'s `requestSettingsSearchFocus`/
+     `consumePendingSettingsSearchFocus` — a one-shot flag + `window`
+     `CustomEvent`, since the request has to reach `SettingsView` whether
+     it's already mounted or about to lazy-mount for the first time). The
+     search field's placeholder shows the platform-correct modifier —
+     "Search settings (Ctrl+,)" or "Search settings (⌘+,)" —
+     (`lib/platform.ts`'s `isMac`/`modKey`).
+121. **Git & Sync's connection setup is a guided three-step card —
+     supersedes the "Remote sync" + "Advanced: custom remote" rows
+     (items 41, 52-54).** Design-health critique this round: the token
+     field committed silently on blur with no confirmation (P0), the
+     "Fast-forward only" badge described the sync POLICY before any
+     connection existed (P1), and connection-test failures named the
+     failure without the fix (P2). All three fixed by collapsing the two
+     old rows into one `Connection` row (`settings/Git.tsx`) built around
+     the existing `Stepper` local component (`components/local/Stepper.tsx`
+     — already filed upstream as sadigaxund/my-you-eye#35 — now generalized
+     with a `testidPrefix`/`ariaLabel` so a second call site doesn't
+     collide with the Publish dialog's `publish-step-*` testids):
+       - **Step 1, Remote** — the built-in same-origin remote (repository
+         name shown read-only, from the existing identity chip's source of
+         truth) or, behind the existing "Advanced: custom remote" toggle, a
+         custom URL. Done when the URL is valid (or the toggle is off).
+       - **Step 2, Credential** — the personal access token field, unchanged
+         (`Personal access token`, `Generate token` when signed in). Done
+         when the resolved credential (token, or the override's own
+         credential while Advanced is on) is non-empty. Committing a token
+         — on blur, or via Generate — flashes an inline "Saved" (check icon
+         + text) for 1.5s, then hands off to a persistent "Token set, ends
+         in ...xxxx" line; the field itself stays a real `type="password"`
+         input the whole time, so the token is never rendered as text
+         anywhere, before or after saving.
+       - **Step 3, Test connection** — unchanged `Test connection` button
+         and result line, but the badge above it now reads "Not connected"
+         (neutral) until a test round-trip actually succeeds, then
+         "Connected, fast-forward only" (success) with an adjacent one-
+         sentence hint ("Fast-forward only: sync never force-pushes; a real
+         divergence auto-merges or opens conflict resolution instead").
+         Done only once `gitTestResult.ok` is true — clicking the button
+         is not enough on its own.
+     A step is marked done from real store/result state in all three cases,
+     never from "the user clicked past it" — there is no gating "Next"
+     button, since the built-in remote is already valid with zero input and
+     existing e2e flows generate a token or click Test connection without
+     ever visiting a "step 1" first. Connection-test errors now name the
+     recovery, not just the failure (`git/remote.ts`'s
+     `describeConnectionTest`): "Reached the host, credential rejected:
+     regenerate the token or check its scopes" (was "...but the credential
+     was rejected."), and the unreachable-host message adds "check the URL
+     and that the server is running." A `Docs: Git & Sync` link, opened in
+     a new tab, points at the README's own new `## Git & Sync` section
+     (`README.md#git--sync` — this client has no in-app doc viewer). Every
+     existing testid this category's e2e specs depend on
+     (`git-generate-token`, `git-test-connection`, `git-test-result`,
+     `git-override-enabled`, `git-override-url`, `git-override-token`,
+     `git-status-in-explorer`, `vault-identity-chip`, `sync-rerun-setup`)
+     and the `Personal access token`/`Custom remote URL`/`Custom remote
+     credential` labels are unchanged. Auto-sync's policy rows
+     (`git-sync-on-interval`/`-on-open-close`/`-on-save`/`-on-focus`) stay
+     below the card, unchanged.
