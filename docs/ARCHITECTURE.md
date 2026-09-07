@@ -4122,6 +4122,53 @@ express that distinction). The code header's wrap TOGGLE
 from `reader_prefs.code_wrap` — flipping it never writes anywhere, visitor
 or owner.
 
+## Reader rendering generalized to the registry (R6)
+
+`ShareApp.tsx` used to dispatch its own private isMarkdown/isHtml/isCode
+booleans, entirely independent of `filetypes/registry.ts` — the SAME
+per-kind `RendererKind` table `EditorContent.tsx`'s Rendered mode already
+reads. A new kind gaining a real renderer in the registry (a future R3-7-
+style addition) therefore never reached the public reader automatically;
+someone had to remember a second, parallel change in `ShareApp.tsx`. `src/
+share/shareRendererResolve.ts` closes that gap: `resolveShareRenderer(kind)`
+reads `filetypes/registry.ts::FileTypeEntry.renderer` directly (falling
+back to the plain/highlighted-text `"code"` renderer for an unmodeled kind,
+identical to the old catch-all), and `ShareApp.tsx`'s `ReaderPage` switches
+on ITS result instead of re-deriving kind classes locally.
+
+`shareSupportsSourceToggle(renderer)` is `true` only for `"html"`/`"csv"`/
+`"json"` — kinds whose Rendered view (iframe/table/tree) and Source view
+(raw highlighted text) are genuinely different presentations of the same
+content. Markdown and code kinds are deliberately excluded: markdown's raw-
+vs-rendered choice is a share-level MODE picked at publish time (not a
+per-visit reader toggle), and every code kind's "Rendered" view already IS
+`CodeBlock` — offering a "Source" alternative would be a no-op switch to
+the exact same output. When the toggle IS offered, both views share one
+32px header row: `RenderedSourceHeader` (defined in `ShareApp.tsx`, reusing
+`codeBlock.tsx`'s `.mk-static-codeblock__header`/`__filename` classNames
+for visual parity) for the Rendered side, and `CodeBlock` itself — passed
+the switch via its `headerExtra` prop, rendered first in its own toolbar,
+before the wrap/copy buttons it already owns — for the Source side, so the
+header never visibly changes shape when a visitor flips the switch. The
+Rendered-side components (`renderers/CsvTable.tsx`, `renderers/
+JsonView.tsx`, `renderers/HtmlPreview.tsx`) all take a bare `content: string`
+prop with zero vault/store dependency — the SAME components the app's own
+Rendered mode uses, reused completely unmodified — so requirement 1 (no
+`stores/use*Store` import on this route) still holds. The switch itself is
+transient and page-local: it always defaults to Rendered on a fresh load
+and is never persisted anywhere (distinct from the owner-level "Reader
+appearance" settings above, which govern theme/font/wrap/column-width, not
+per-kind view choice).
+
+Column-width defaults (`readerPrefsResolve.ts`'s `classifyShareContent`)
+now derive from the resolved `RendererKind` too: `"livepreview"` (markdown)
+-> narrow, `"html"` -> full (the sandboxed iframe still fills the viewport,
+unchanged from its original Rendered-mode behavior — a deliberate
+exception to "wide," since narrowing an iframe view would be a real
+regression, not a generalization), everything else (code/csv/json/image)
+-> wide. The owner's explicit `column_width` choice still overrides any of
+these per-kind defaults, exactly as before.
+
 ## Generic language coverage (R3-9)
 
 `filetypes/registry.ts` gained a generic `"code"` `FileKind` — the default

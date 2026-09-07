@@ -8,14 +8,17 @@ import { describe, expect, it } from "vitest";
 import { classifyShareContent, resolveReaderColumnWidth, resolveReaderThemeAttr } from "../../src/share/readerPrefsResolve";
 
 describe("classifyShareContent", () => {
-  it("classifies markdown", () => {
-    expect(classifyShareContent(true, false)).toBe("markdown");
+  it("classifies livepreview (markdown) as markdown", () => {
+    expect(classifyShareContent("livepreview")).toBe("markdown");
   });
-  it("classifies html", () => {
-    expect(classifyShareContent(false, true)).toBe("html");
+  it("classifies html as html", () => {
+    expect(classifyShareContent("html")).toBe("html");
   });
-  it("classifies everything else as code", () => {
-    expect(classifyShareContent(false, false)).toBe("code");
+  it("classifies csv/json/image/code as code", () => {
+    expect(classifyShareContent("csv")).toBe("code");
+    expect(classifyShareContent("json")).toBe("code");
+    expect(classifyShareContent("image")).toBe("code");
+    expect(classifyShareContent("code")).toBe("code");
   });
 });
 

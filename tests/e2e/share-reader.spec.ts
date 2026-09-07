@@ -237,6 +237,52 @@ test.describe("R3-5: selectable reading text + visitor reading preferences", () 
     await secondContext.close();
   });
 
+  test("feat(share) R6: a json share defaults to the tree renderer, and Source shows highlighted text", async ({ page, browser }) => {
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
+    const path = await createFileWithContent(page, "vault/notes", "r6-data.json", '{"name": "vsnote", "count": 3}');
+    const link = await publishFileViaContextMenu(page, { treePath: path, generalAccess: "link", renderMode: "rendered" });
+
+    const secondContext = await browser.newContext();
+    const secondPage = await secondContext.newPage();
+    await secondPage.goto(link);
+
+    // Defaults to the tree renderer — the library's TreeView, not raw text.
+    await expect(secondPage.getByText("name", { exact: true })).toBeVisible();
+    await expect(secondPage.getByText("vsnote", { exact: true })).toBeVisible();
+    await expect(secondPage.locator(".mk-static-codeblock")).toHaveCount(0);
+
+    // Switching to Source shows the raw, highlighted JSON text instead.
+    await secondPage.getByTestId("share-view-mode").getByText("Source", { exact: true }).click();
+    await expect(secondPage.locator(".mk-static-codeblock")).toBeVisible();
+    await expect(secondPage.locator(".mk-static-codeblock__text").first()).toContainText("vsnote");
+
+    await secondContext.close();
+  });
+
+  test("feat(share) R6: a csv share renders a table with header row cells", async ({ page, browser }) => {
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
+    const path = await createFileWithContent(page, "vault/notes", "r6-rows.csv", "name,score\nalpha,1\nbeta,2\n");
+    const link = await publishFileViaContextMenu(page, { treePath: path, generalAccess: "link", renderMode: "rendered" });
+
+    const secondContext = await browser.newContext();
+    const secondPage = await secondContext.newPage();
+    await secondPage.goto(link);
+
+    await expect(secondPage.getByRole("columnheader", { name: "name" })).toBeVisible();
+    await expect(secondPage.getByRole("columnheader", { name: "score" })).toBeVisible();
+    await expect(secondPage.getByRole("cell", { name: "alpha" })).toBeVisible();
+
+    // Source shows the raw CSV text.
+    await secondPage.getByTestId("share-view-mode").getByText("Source", { exact: true }).click();
+    await expect(secondPage.locator(".mk-static-codeblock__text").first()).toContainText("name");
+
+    await secondContext.close();
+  });
+
   test("feat(share): changing Settings > Sharing > Reader appearance changes what visitors see, and survives a reload", async ({
     page,
     browser,

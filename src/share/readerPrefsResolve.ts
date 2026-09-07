@@ -10,18 +10,20 @@
  * value: code/csv/json/html shares default to "wide"/"full" (they need the
  * room), markdown stays "narrow" (prose reads better in a narrower column).
  */
+import type { RendererKind } from "../filetypes/registry";
 import type { ReaderPrefs } from "./api";
 
-/** The three coarse "how does this kind render" buckets the reader itself
- * actually distinguishes today (`ShareApp.tsx`'s `isMarkdown`/`isHtml`/
- * `isCode` branches) — kept separate from `FileKind` itself since several
- * kinds share one bucket. */
+/** The three coarse "how wide does this content want to be" buckets — kept
+ * separate from `RendererKind` itself since several renderers (csv/json/
+ * code) share the same "wide" default. feat(share) R6: now derived from
+ * the registry's own `RendererKind` (`shareRendererResolve.ts`) instead of
+ * the reader's old private isMarkdown/isHtml booleans. */
 export type ShareContentClass = "markdown" | "html" | "code";
 
-export function classifyShareContent(isMarkdown: boolean, isHtml: boolean): ShareContentClass {
-  if (isMarkdown) return "markdown";
-  if (isHtml) return "html";
-  return "code";
+export function classifyShareContent(renderer: RendererKind): ShareContentClass {
+  if (renderer === "livepreview") return "markdown";
+  if (renderer === "html") return "html";
+  return "code"; // csv, json, image, code
 }
 
 const PER_CLASS_DEFAULT_WIDTH: Record<ShareContentClass, "narrow" | "wide" | "full"> = {

@@ -78,6 +78,13 @@ export interface CodeBlockProps {
   truncatedHint?: ReactNode;
   /** The file's name/path, shown left of the toolbar in one compact 32px header row (filename mono/muted, wrap+copy icon buttons right) — the public share reader's code-file panel passes this instead of rendering its own separate filename row, so filename and toolbar are ONE row, not two. Omitted callers (e.g. `CodeView.tsx`'s app-side Rendered mode, already inside its own chrome) get the toolbar alone, right-aligned, as before. */
   filename?: string;
+  /** feat(share) R6 — extra control rendered in the header's toolbar area,
+   * BEFORE the wrap/copy buttons (e.g. the public reader's Rendered/Source
+   * `SegmentedControl` for a csv/json/html kind — `ShareApp.tsx`'s
+   * `ReaderPage`). Forces the header to render even when there is
+   * otherwise no toolbar and no filename (an unlikely combination in
+   * practice, but kept correct rather than assumed away). */
+  headerExtra?: ReactNode;
 }
 
 function clipboardAvailable(): boolean {
@@ -94,6 +101,7 @@ export function CodeBlock({
   onWrapChange,
   truncatedHint,
   filename,
+  headerExtra,
 }: CodeBlockProps): ReactNode {
   const capped = capCodeLines(code, maxLines);
   const [language, setLanguage] = useState<Language | undefined>(undefined);
@@ -157,7 +165,7 @@ export function CodeBlock({
   const lines = buildHighlightedLines(capped.code, language);
   const lineNumberWidth = String(lines.length).length;
   const canCopy = clipboardAvailable();
-  const showToolbar = canToggleWrap || canCopy;
+  const showToolbar = canToggleWrap || canCopy || !!headerExtra;
 
   return (
     <div>
@@ -181,7 +189,8 @@ export function CodeBlock({
         >
           {filename && <span className="mk-static-codeblock__filename">{filename}</span>}
           {showToolbar && (
-            <div className="mk-static-codeblock__toolbar" style={{ display: "flex", gap: 4 }}>
+            <div className="mk-static-codeblock__toolbar" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              {headerExtra}
               {canToggleWrap && (
                 <Button
                   type="button"

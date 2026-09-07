@@ -76,8 +76,8 @@
  *    never written back anywhere.
  */
 import { useEffect, useState } from "react";
-import { AlertTriangle } from "lucide-react";
-import { Alert, Button, EmptyState, Input } from "my-you-eye";
+import { AlertTriangle, Check, Copy } from "lucide-react";
+import { Alert, Button, EmptyState, Input, SegmentedControl } from "my-you-eye";
 // `@markii/react/doc.css` — the 19 `--mk-*` tokens `.mk-doc` and its
 // children (headings/paragraph/table/callout typography) are all styled
 // from (see `src/theme.css`'s "Public share reader" block and
@@ -89,11 +89,14 @@ import "@markii/react/doc.css";
 import { Logo } from "../components/local/Logo";
 import { fetchOAuthProviders, oauthStartUrl } from "../share/oauth";
 import { HtmlPreview } from "../renderers/HtmlPreview";
+import { CsvTable } from "../renderers/CsvTable";
+import { JsonView } from "../renderers/JsonView";
 import { renderMarkdown } from "../markdown/render";
 import { CodeBlock } from "../markdown/codeBlock";
 import { inferFileKind } from "../lib/fileTree";
 import { getShareContentSameOrigin, postShareAuth, ShareApiError, type ShareContentOut } from "./api";
 import { classifyShareContent, resolveReaderColumnWidth, resolveReaderThemeAttr } from "./readerPrefsResolve";
+import { resolveShareRenderer, shareSupportsSourceToggle } from "./shareRendererResolve";
 
 export interface ShareAppProps {
   /** The `<slug>` (or custom alias) segment of `/share/<slug>` — parsed by
@@ -245,7 +248,77 @@ export function ShareApp({ identifier }: ShareAppProps) {
   return <ReaderPage content={content} />;
 }
 
-/** The loaded document — dispatched by kind, no chrome, no editor.
+/** feat(share) R6 — the small header row (filename + Rendered/Source switch
+ * + copy) that sits above a csv/json/html share's REAL renderer (table/
+ * tree/iframe), which — unlike `CodeBlock` — has no header of its own.
+ * Reuses `codeBlock.tsx`'s exact header classNames/tokens
+ * (`.mk-static-codeblock__header`/`__filename`) so the two look identical
+ * regardless of which view is currently showing; switching to Source swaps
+ * this component out for `CodeBlock` itself (which renders the SAME header
+ * shape, with the switch passed through as `headerExtra`). */
+function RenderedSourceHeader({
+  name,
+  viewMode,
+  onViewModeChange,
+  content,
+}: {
+  name: string;
+  viewMode: "rendered" | "source";
+  onViewModeChange: (mode: "rendered" | "source") => void;
+  content: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (!clipboard) return;
+    try {
+      await clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Permission denied / API unavailable — fail silently, same as
+      // `CodeBlock`'s own copy button.
+    }
+  }
+  return (
+    <div
+      className="mk-static-codeblock__header"
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, height: 32, padding: "0 8px", userSelect: "none" }}
+    >
+      <span className="mk-static-codeblock__filename">{name}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <SegmentedControl
+          size="xs"
+          value={viewMode}
+          onValueChange={onViewModeChange}
+          aria-label="Rendered or source"
+          data-testid="share-view-mode"
+          options={[
+            { value: "rendered", label: "Rendered" },
+            { value: "source", label: "Source" },
+          ]}
+        />
+        {typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function" && (
+          <Button type="button" size="icon-sm" variant="ghost" onClick={() => void handleCopy()} aria-label="Copy content" title="Copy content">
+            {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The loaded document — feat(share) R6: dispatched through
+ * `filetypes/registry.ts`'s own `renderer` field (`shareRendererResolve.ts`
+ * — the SAME table `EditorContent.tsx`'s Rendered mode reads), not a
+ * private isMarkdown/isHtml/isCode set of booleans — so a new kind that
+ * gains a real renderer in the registry reaches shares automatically, with
+ * zero reader changes. csv/json/html get a Rendered/Source switch (their
+ * "rendered" view is a genuinely different presentation — table/tree/
+ * iframe — from their raw text); markdown stays rendered-only (raw vs.
+ * rendered is a share-level MODE, chosen at publish time, not a per-visit
+ * toggle) and every code kind's "rendered" view already IS `CodeBlock`, so
+ * there is no second view to switch to.
  *
  * feat(share) R4: stamps the OWNER's `content.reader_prefs` (theme / font
  * size / code wrap) as `data-reader-theme`/`data-reader-fontsize`/
@@ -255,17 +328,14 @@ export function ShareApp({ identifier }: ShareAppProps) {
  * the `.share-reader` palette `theme.css` otherwise derives purely from
  * `prefers-color-scheme`. `theme === "system"` intentionally omits
  * `data-reader-theme` so that CSS keeps doing the media-query-driven
- * default rather than this file duplicating it. Binary/HTML views ignore
- * these (a sandboxed iframe has no typography to resize; a "binary file"
- * empty state has no code to wrap) — there's no floating control anymore to
- * render unconditionally for them either. */
+ * default rather than this file duplicating it. */
 function ReaderPage({ content }: { content: ShareContentOut }) {
   const name = baseName(content.source_path);
   const kind = inferFileKind(name);
-  const isMarkdown = kind === "md" || kind === "mkmd";
   const isBinary = content.content_encoding === "base64";
-  const isHtml = !isBinary && kind === "html";
-  const contentClass = classifyShareContent(isMarkdown, isHtml);
+  const renderer = resolveShareRenderer(kind);
+  const supportsToggle = !isBinary && shareSupportsSourceToggle(renderer);
+  const contentClass = classifyShareContent(renderer);
   const prefs = content.reader_prefs;
   const columnWidth = resolveReaderColumnWidth(contentClass, prefs.column_width);
   const pageClassName =
@@ -280,6 +350,25 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
   // code_wrap`, flips only this page's view, and is never written back
   // anywhere (no visitor localStorage, no server PUT from this route).
   const [codeWrap, setCodeWrap] = useState(prefs.code_wrap);
+  // feat(share) R6 — ALSO transient/page-local, never persisted: which
+  // view a csv/json/html share currently shows. Defaults to "rendered"
+  // (the table/tree/iframe) — visitors land on the friendlier view, with
+  // Source one click away.
+  const [viewMode, setViewMode] = useState<"rendered" | "source">("rendered");
+  const showSource = supportsToggle && viewMode === "source";
+  const sourceSwitch = supportsToggle ? (
+    <SegmentedControl
+      size="xs"
+      value={viewMode}
+      onValueChange={setViewMode}
+      aria-label="Rendered or source"
+      data-testid="share-view-mode"
+      options={[
+        { value: "rendered", label: "Rendered" },
+        { value: "source", label: "Source" },
+      ]}
+    />
+  ) : undefined;
 
   return (
     <div
@@ -296,10 +385,27 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
         )}
         {isBinary ? (
           <EmptyState title="Binary file" description="This file has no text view." />
-        ) : isHtml ? (
-          <HtmlPreview content={content.content} />
-        ) : isMarkdown ? (
+        ) : renderer === "livepreview" ? (
           <div data-testid="share-content">{renderMarkdown(content.content, { links: content.links, codeWrap })}</div>
+        ) : showSource ? (
+          <div className="share-reader__code-panel" data-testid="share-content">
+            <CodeBlock code={content.content} kind={kind} path={name} filename={name} wrap={codeWrap} onWrapChange={setCodeWrap} headerExtra={sourceSwitch} />
+          </div>
+        ) : renderer === "html" ? (
+          <div className="share-reader__code-panel" data-testid="share-content">
+            <RenderedSourceHeader name={name} viewMode={viewMode} onViewModeChange={setViewMode} content={content.content} />
+            <HtmlPreview content={content.content} />
+          </div>
+        ) : renderer === "csv" ? (
+          <div className="share-reader__code-panel" data-testid="share-content">
+            <RenderedSourceHeader name={name} viewMode={viewMode} onViewModeChange={setViewMode} content={content.content} />
+            <CsvTable content={content.content} />
+          </div>
+        ) : renderer === "json" ? (
+          <div className="share-reader__code-panel" data-testid="share-content">
+            <RenderedSourceHeader name={name} viewMode={viewMode} onViewModeChange={setViewMode} content={content.content} />
+            <JsonView content={content.content} />
+          </div>
         ) : (
           <div className="share-reader__code-panel" data-testid="share-content">
             <CodeBlock code={content.content} kind={kind} path={name} filename={name} wrap={codeWrap} onWrapChange={setCodeWrap} />

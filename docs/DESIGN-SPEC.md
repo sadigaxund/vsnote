@@ -1538,3 +1538,45 @@ items OVERRIDE anything above them.
      credential` labels are unchanged. Auto-sync's policy rows
      (`git-sync-on-interval`/`-on-open-close`/`-on-save`/`-on-focus`) stay
      below the card, unchanged.
+
+## Amendments round 14 — 2026-09-08 (reader rendering generalized to the registry)
+
+125. **A share renders what the editor's Rendered mode renders — SUPERSEDES
+     item 111's kind dispatch.** The public reader (`ShareApp.tsx`) used
+     to hardcode its own isMarkdown/isHtml/isCode set of booleans,
+     completely independent of `filetypes/registry.ts` (the SAME table the
+     app's own Rendered mode already reads via `RendererKind`) — so a new
+     kind gaining a real renderer in the registry never automatically
+     reached shares; someone had to remember to separately teach
+     `ShareApp.tsx` about it. Now `share/shareRendererResolve.ts`'s
+     `resolveShareRenderer(kind)` reads the registry's own `renderer` field
+     directly (falling back to the plain/highlighted-text `"code"` view for
+     an unmodeled kind, same as before) — one shared source, not a second
+     table that can drift.
+     - **Markdown** stays rendered-only: no Rendered/Source switch. Raw
+       vs. rendered is a MODE chosen at publish time (item 78's Mode
+       step), not a per-visit reader toggle.
+     - **Every code kind** (`ts`/`tsx`/`js`/`jsx`/`css`/generic `code`)
+       keeps `CodeBlock` only, exactly as before — its "rendered" view
+       already IS `CodeBlock`, so there is no second, different view a
+       switch could meaningfully offer.
+     - **csv, json, and html** are new: each gets a compact Rendered/
+       Source switch in the SAME header row as the filename and copy
+       button (`my-you-eye` `SegmentedControl`, `size="xs"`,
+       `data-testid="share-view-mode"`) — Rendered shows the real
+       component the app's own Rendered mode uses (`renderers/CsvTable`,
+       `renderers/JsonView`, `renderers/HtmlPreview` — no vault dependency
+       in any of the three, so they drop into the chrome-less reader
+       unmodified), Source shows the same highlighted `CodeBlock` text raw
+       code files already get. The switch is TRANSIENT and page-local
+       (defaults to Rendered every fresh load), never persisted anywhere —
+       distinct from item 111's owner-level "Reader appearance" settings,
+       which govern theme/font/wrap/column-width, not per-kind view choice.
+     - **Column width** (item 111's `resolveReaderColumnWidth`) is
+       unchanged in shape: markdown defaults "narrow", every non-markdown,
+       non-html kind (code/csv/json) defaults "wide", html stays "full"
+       (the sandboxed iframe still fills the viewport — full-bleed, not
+       merely widened, since that's what item 105's original HTML Rendered
+       mode already does and changing it would be a real UX regression,
+       not a generalization). The owner's explicit `column_width` choice
+       (item 111) still overrides any of these defaults, for any kind.

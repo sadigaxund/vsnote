@@ -902,6 +902,18 @@
   border-radius: var(--radius-ui);
   overflow: hidden;
   background: var(--mk-raised);
+  /* feat(share) R6 — an html share now wraps its header (filename +
+     Rendered/Source switch + copy) and the sandboxed iframe in THIS same
+     panel; `display: flex; flex-direction: column` stacks the two, and
+     `flex: 1; min-height: 0` lets the panel itself fill the remaining
+     height of `.share-reader__page--wide`'s flex column so the iframe
+     still fills the viewport below the header, exactly as it did with no
+     panel at all. A no-op for every other (non-flex, natural-height)
+     `.share-reader__page` context. */
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 .mk-static-codeblock__header {
   border-bottom: 1px solid var(--app-border-nested, var(--mk-border));
