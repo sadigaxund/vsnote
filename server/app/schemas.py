@@ -215,6 +215,32 @@ class ShareBackLinkOut(BaseModel):
     label: str
 
 
+class ReaderPrefs(BaseModel):
+    """feat(share) — R4 owner-side "Reader appearance" settings
+    (docs/ROADMAP-SHARING-AUTH.md): how ALL of this owner's Rendered-mode
+    shares present to visitors, replacing the R3-5b per-visitor floating
+    preferences pill. Every field a closed enum/bool (never a free string)
+    so a stored value is always one this client — or any future one — knows
+    how to render; pydantic rejects anything else as a 422 at the API
+    boundary. Defaults here are the exact ones the removed pill used, so an
+    owner who never opens the settings section gets byte-identical visitor
+    behavior to before this change."""
+
+    theme: Literal["system", "light", "dark"] = "system"
+    font_size: Literal["s", "m", "l"] = "m"
+    code_wrap: bool = True
+    # "narrow" (~72ch, prose) / "wide" (~1100px, code/csv/json/html) / "full"
+    # (fills the viewport, the sandboxed HTML iframe case). `None` means "no
+    # explicit owner preference" — deliberately NOT defaulted to one of the
+    # three literal values, so the client can still apply its own per-kind
+    # default (code/csv/json shares default to "wide", markdown to "narrow")
+    # exactly until the owner picks one explicitly, per this feature's own
+    # spec ("code shares default to wide unless the owner picked
+    # otherwise") — a non-optional default here could never express that
+    # distinction.
+    column_width: Optional[Literal["narrow", "wide", "full"]] = None
+
+
 class ShareContentOut(BaseModel):
     """The JSON contract for rendered-mode shares — consumed by the Phase 10
     client. See server/README.md's "Rendered share contract" section."""
@@ -242,6 +268,13 @@ class ShareContentOut(BaseModel):
     # zero filesystem access.
     links: Dict[str, str] = Field(default_factory=dict)
     back_link: Optional[ShareBackLinkOut] = None
+    # feat(share) — the SHARE OWNER's reader-appearance settings (never the
+    # visitor's — there is no visitor-side state anymore), included ONLY on
+    # a successful content fetch, never on the shell/deny responses (the
+    # uniform-404 posture is unchanged: `_error_response`/`policy.py` never
+    # construct a `ShareContentOut` at all, so there's no field here to leak
+    # on a deny).
+    reader_prefs: ReaderPrefs = Field(default_factory=ReaderPrefs)
 
 
 # --- Admin runtime settings (DESIGN-SPEC Amendments round 5, item 40) -----

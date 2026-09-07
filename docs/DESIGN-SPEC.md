@@ -1254,21 +1254,25 @@ items OVERRIDE anything above them.
      from below, where the existing cursor-reveal rule shows the raw
      source for editing, exactly as it does for inline syntax.
 
-111. **The public reader's document text is selectable, and a visitor gets
-     their own small reading controls.** `body`'s chrome-wide
-     `user-select: none` had opt-ins for the editor and form controls but
-     never for `.share-reader`, so a visitor could not select or copy a
-     word of a shared document; the reader now opts in, while a code
-     block's line-number gutter stays unselectable so copying code does
-     not drag the numbers along. The owner's Rendered-view settings do NOT
-     apply to visitors: the render is deterministic and the visitor is not
-     the owner. Instead the reader carries one unobtrusive floating pill,
-     bottom-right, fading when idle and returning on hover, focus or
-     pointer movement, holding exactly three visitor preferences: theme
-     (system, light, dark), font size (S, M, L) and code line-wrap. They
-     live in the visitor's own browser storage, apply only to the rendered
-     document, and add no other chrome, navigation or branding to the
-     page.
+111. **The public reader's document text is selectable, and its appearance
+     is the OWNER's choice, not a floating visitor pill (superseded).**
+     `body`'s chrome-wide `user-select: none` had opt-ins for the editor
+     and form controls but never for `.share-reader`, so a visitor could
+     not select or copy a word of a shared document; the reader now opts
+     in, while a code block's header row (filename + wrap/copy toolbar)
+     and its line-number gutter both stay unselectable so a select-all
+     never drags either along with the code. Reader appearance — theme
+     (system, light, dark), font size (S, M, L), code line-wrap, and
+     reading column width (narrow, wide, full) — is now set ONCE by the
+     OWNER in Settings > Sharing > "Reader appearance" and applies to
+     every one of that owner's rendered shares identically; there is no
+     longer a floating pill, no per-visitor `localStorage`, and no
+     per-visitor override of any kind. The setting is persisted
+     server-side and arrives on every successful share content fetch —
+     the render stays deterministic per share, it's just the OWNER who
+     determines what "deterministic" resolves to. The code header's wrap
+     toggle is the one remaining transient, page-local control: it flips
+     only the current view, never written back anywhere.
 
 112. **Code files have a real Rendered mode, not a disabled toggle.**
      `filetypes/registry.ts` gives every code kind `baseModes:

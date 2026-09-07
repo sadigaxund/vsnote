@@ -4087,28 +4087,40 @@ likely they are to bite again.
   restructurings as ONE atomic edit, and run `tsc -b` immediately after each
   step rather than batching.
 
-## Public reader visitor preferences (R3-5)
+## Public reader appearance — owner-side setting (R4, supersedes R3-5b)
 
-The public reader carries a preference layer deliberately separate from the
-rest of the app. `src/share/readerPrefs.ts` persists a visitor's theme,
-font size and code-wrap choice to that visitor's own `localStorage`
-(`vsnote-share-reader-prefs`), independent of the owner's
-`useSettingsStore`/`vsnote-settings` (never imported on this route) and
-never round-tripped to the server: the owner's Rendered-view settings do
-not reach visitors, because the render has to be deterministic and the
-visitor is not the owner. `ShareApp.tsx` resolves the stored values into
-`data-reader-theme` / `data-reader-fontsize` / `data-code-wrap` attributes
-on the `.share-reader` root, and plain attribute-selector CSS in
-`index.css` (kept out of `theme.css`, whose `.share-reader` block is the
-base palette) overrides palette, typography and wrap behaviour from there.
-No JS-driven style computation, no effect on what the server sends, and no
-effect on the owner's own editor. Every `localStorage` read and write is
-wrapped, so a private-mode visitor silently falls back to session-only
-state. The controls themselves are one floating pill
-(`src/share/ReaderPrefsPill.tsx`) built on the library's own
-`SegmentedControl` and `Switch`; it fades on an idle timer through
-`opacity` only, never `display`/`visibility`, so it never leaves the tab
-order.
+R3-5b's visitor-side floating preferences pill (`src/share/
+ReaderPrefsPill.tsx`, `src/share/readerPrefs.ts`'s `localStorage`-backed
+hook) was removed outright — no compatibility path for the old
+`vsnote-share-reader-prefs` key. The owner's feedback ("why would I want a
+floating settings pill on the bottom right") reframed reader appearance as
+an OWNER setting, not a per-visitor one: Settings > Sharing's "Reader
+appearance" group (`src/components/settings/Sharing.tsx`) lets the owner
+pick theme / font size / code wrap / reading column width ONCE, and every
+one of that owner's Rendered-mode shares presents that way to every
+visitor. Persisted server-side on the `User` row (`server/app/models.py`'s
+`reader_prefs` column, a JSON-encoded `schemas.ReaderPrefs` blob — see
+`server/app/reader_prefs.py`) behind `GET`/`PUT /api/reader-prefs`
+(`server/app/routers/reader_prefs.py`, `require_auth_context`, no
+`/share/*` policy-gate concern — same posture as `/api/admin/*`).
+
+The share CONTENT response (`ShareContentOut.reader_prefs`,
+`server/app/routers/share_public.py::_content_payload`) carries the
+share's OWNER's resolved prefs — looked up via `Share.owner_id` — on every
+SUCCESSFUL fetch only; the shell/deny paths never construct a
+`ShareContentOut` at all, so there's no field to leak on a 404. `ShareApp.
+tsx`'s `ReaderPage` reads `content.reader_prefs` directly (no separate
+fetch, no client-side store) and stamps `data-reader-theme` /
+`data-reader-fontsize` / `data-code-wrap` on the `.share-reader` root
+exactly as R3-5b did — only the source changed. `src/share/
+readerPrefsResolve.ts` holds the pure per-content-class column-width
+fallback (`column_width: null` on the stored prefs means "owner never
+chose" — code/csv/json/html shares then default to "wide"/"full", markdown
+to "narrow" — rather than a single hardcoded default that could never
+express that distinction). The code header's wrap TOGGLE
+(`markdown/codeBlock.tsx`) stays as a transient, page-local override seeded
+from `reader_prefs.code_wrap` — flipping it never writes anywhere, visitor
+or owner.
 
 ## Generic language coverage (R3-9)
 

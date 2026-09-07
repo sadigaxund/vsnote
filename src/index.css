@@ -320,19 +320,12 @@ textarea,
   user-select: text;
 }
 
-/* The floating prefs pill (`share/ReaderPrefsPill.tsx`) is a control, not
-   document text — same "chrome, not content" reasoning as the rest of the
-   app, just declared locally instead of relying on inheriting `body`'s
-   (here-overridden) default. Comes after `.share-reader` above so it wins
-   on source order at equal specificity. */
-.share-reader-prefs {
-  user-select: none;
-}
-
-/* Visitor reading preferences (`share/readerPrefs.ts`) — theme / font size
-   / code wrap, persisted to the VISITOR's own localStorage and applied
-   ONLY to this rendered document. `ReaderPage` (`ShareApp.tsx`) stamps the
-   resolved values as attributes on the same `.share-reader` root that
+/* Reader appearance (feat(share) R4 — `server/app/schemas.py::ReaderPrefs`,
+   the OWNER's Settings > Sharing setting, superseding the old R3-5b
+   visitor-localStorage pill) — theme / font size / code wrap, applied to
+   EVERY one of that owner's rendered shares. `ReaderPage` (`ShareApp.tsx`)
+   stamps the resolved values as attributes on the same `.share-reader` root
+   that
    carries the palette theme.css defines — these rules override that
    palette (an attribute selector on `.share-reader` outweighs theme.css's
    bare `.share-reader`/`@media` rules regardless of import order) and the
@@ -452,7 +445,7 @@ textarea,
   font-size: 15px;
 }
 
-/* Code wrap: default is ON (per readerPrefs.ts's stated default), which is
+/* Code wrap: default is ON (`schemas.ReaderPrefs.code_wrap`'s default), which is
    the OPPOSITE of theme.css's un-scoped `.mk-static-codeblock` default (no
    wrap, horizontal scroll — the right choice for the app's own Rendered
    mode and print/export, both untouched here). `ReaderPage` always sets
@@ -472,56 +465,18 @@ textarea,
   white-space: pre;
 }
 
-/* The pill itself: fixed bottom-right, fades to a low-opacity "present but
-   out of the way" state after `ReaderPrefsPill.tsx`'s 2.5s idle timer, and
-   is forced back to full opacity by `:hover`/`:focus-within` independent of
-   that JS timer — so a keyboard user who has Tab-focused a control inside
-   it is never faded out, and pointer users get an immediate response on
-   hover even a frame before the timer's own `pointermove` listener fires.
-   Never `display:none`/`visibility:hidden`: only `opacity`, so it stays in
-   the tab order and reachable by Tab at every idle state (reduced-motion
-   visitors get the instant snap from this file's global `prefers-reduced-
-   motion` rule above, which zeroes all transition durations). */
-.share-reader-prefs {
-  position: fixed;
-  right: 16px;
-  bottom: max(16px, env(safe-area-inset-bottom));
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: var(--mk-raised, var(--color-surface-elevated));
-  border: 1px solid var(--mk-border, var(--color-border));
-  box-shadow: var(--shadow-card);
-  opacity: 0.35;
-  transition: opacity 160ms ease;
-  z-index: 20;
-}
-.share-reader-prefs:hover,
-.share-reader-prefs:focus-within,
-.share-reader-prefs[data-awake="true"] {
-  opacity: 1;
-}
-.share-reader-prefs__wrap {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--mk-muted, var(--color-muted));
-  cursor: pointer;
-}
-
 /* ---- Settings layout: right-side sticky category "map" (R4 defect B,
    owner correction) ----
    `SettingsView.tsx` renders a flex row: `.settings-content` (the reading
    column, flex: 1) then `.settings-nav-rail` (the category list) — in that
    DOM order so the rail sits on the right at normal widths and, once
-   reversed below the breakpoint, on top. `.settings-nav-rail` wraps a
-   `my-you-eye` `Tabs`/`TabsList`/`TabsTrigger` (`orientation="vertical"`
-   for real up/down roving-tabindex nav at the wide layout); the rules here
-   only reflow ITS layout (flex direction, width, sticky), never fork the
-   component's own visuals.
+   reversed below the breakpoint, on top. `.settings-nav-rail` wraps the
+   local `SettingsNavRail` component (`components/local/SettingsNavRail.tsx`
+   — a plain-text-row TOC, not `my-you-eye`'s `Tabs`; see that file's doc
+   for why); the rules here reflow the rail's own layout (flex direction,
+   width, sticky) AND own its row visuals (`.settings-nav-rail__item`
+   below), since this is a local component built for this rail rather than
+   a library one whose visuals stay untouched.
 
    >=~900px: a `position: sticky` column so it stays in view while the
    (typically much taller) content column scrolls past it — `top: 0`

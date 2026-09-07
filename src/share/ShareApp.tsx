@@ -55,14 +55,25 @@
  *    `CodeBlock`'s line-number gutter (`.mk-static-codeblock__lineno`)
  *    already carried its own `user-select: none` in `theme.css` before this
  *    change, so a code-copy selection still excludes the numbers.
- * 6. **Visitor reading preferences** (`readerPrefs.ts`,
- *    `ReaderPrefsPill.tsx`): theme / font size / code-wrap, persisted to
- *    the VISITOR's own `localStorage` (never the server, never the app's
- *    `vsnote-settings`) and applied only to this rendered document via
- *    `data-reader-theme`/`data-reader-fontsize`/`data-code-wrap` on
- *    `.share-reader`, set by `ReaderPage` below. Explicitly NOT the owner's
- *    editor "Rendered view" settings — those are per-owner and this route
- *    never reads `useSettingsStore` (requirement 1 above still holds).
+ * 6. **Reader appearance is now the OWNER's setting, not the visitor's**
+ *    (feat(share) R4 — supersedes the R3-5b visitor floating preferences
+ *    pill, removed along with `readerPrefs.ts`/`ReaderPrefsPill.tsx` and
+ *    their `vsnote-share-reader-prefs` localStorage key entirely; no
+ *    backwards-compat reading of that old key). Theme / font size / code
+ *    wrap / column width are chosen once in Settings > Sharing > "Reader
+ *    appearance" (`components/settings/Sharing.tsx`) and apply to EVERY one
+ *    of that owner's rendered shares — arriving as `content.reader_prefs`
+ *    on every successful content fetch (`server/app/schemas.py::
+ *    ReaderPrefs`, included only on success, never on shell/deny), applied
+ *    via `data-reader-theme`/`data-reader-fontsize`/`data-code-wrap` on
+ *    `.share-reader` exactly as before — just sourced from the response
+ *    instead of `localStorage`. This still isn't `useSettingsStore` (this
+ *    route never imports it — requirement 1 above holds): it's a separate,
+ *    server-persisted, owner-scoped settings surface, reached only through
+ *    the share content response. The code header's wrap TOGGLE stays
+ *    (`codeBlock.tsx`'s header row) — it's transient, flips only the
+ *    current page's local state seeded from `reader_prefs.code_wrap`,
+ *    never written back anywhere.
  */
 import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
@@ -82,8 +93,7 @@ import { renderMarkdown } from "../markdown/render";
 import { CodeBlock } from "../markdown/codeBlock";
 import { inferFileKind } from "../lib/fileTree";
 import { getShareContentSameOrigin, postShareAuth, ShareApiError, type ShareContentOut } from "./api";
-import { ReaderPrefsPill } from "./ReaderPrefsPill";
-import { useReaderPrefs, useResolvedReaderTheme } from "./readerPrefs";
+import { classifyShareContent, resolveReaderColumnWidth, resolveReaderThemeAttr } from "./readerPrefsResolve";
 
 export interface ShareAppProps {
   /** The `<slug>` (or custom alias) segment of `/share/<slug>` — parsed by
@@ -237,42 +247,46 @@ export function ShareApp({ identifier }: ShareAppProps) {
 
 /** The loaded document — dispatched by kind, no chrome, no editor.
  *
- * R3-5b: renders the one floating `ReaderPrefsPill` (theme / font size /
- * code wrap, `readerPrefs.ts`) and stamps its resolved values as
- * `data-reader-theme`/`data-reader-fontsize`/`data-code-wrap` on this root
- * `.share-reader` element — `index.css`'s "Visitor reading preferences"
- * block reads those attributes to override `.mk-doc`/`.mk-static-
- * codeblock` typography and (for an explicit light/dark choice) the
- * `.share-reader` palette `theme.css` otherwise derives purely from
+ * feat(share) R4: stamps the OWNER's `content.reader_prefs` (theme / font
+ * size / code wrap) as `data-reader-theme`/`data-reader-fontsize`/
+ * `data-code-wrap` on this root `.share-reader` element — `index.css`'s
+ * "Reader appearance" block reads those attributes to override `.mk-doc`/
+ * `.mk-static-codeblock` typography and (for an explicit light/dark choice)
+ * the `.share-reader` palette `theme.css` otherwise derives purely from
  * `prefers-color-scheme`. `theme === "system"` intentionally omits
  * `data-reader-theme` so that CSS keeps doing the media-query-driven
  * default rather than this file duplicating it. Binary/HTML views ignore
  * these (a sandboxed iframe has no typography to resize; a "binary file"
- * empty state has no code to wrap), but the pill still renders for them —
- * it's a constant per-route affordance, not conditional on content kind. */
+ * empty state has no code to wrap) — there's no floating control anymore to
+ * render unconditionally for them either. */
 function ReaderPage({ content }: { content: ShareContentOut }) {
   const name = baseName(content.source_path);
   const kind = inferFileKind(name);
   const isMarkdown = kind === "md" || kind === "mkmd";
   const isBinary = content.content_encoding === "base64";
   const isHtml = !isBinary && kind === "html";
-  const isCode = !isBinary && !isHtml && !isMarkdown;
-  const wide = isHtml; // the sandboxed iframe fills the viewport; everything else reads in a column.
-  const pageClassName = wide
-    ? "share-reader__page share-reader__page--wide"
-    : isCode
-      ? "share-reader__page share-reader__page--code"
-      : "share-reader__page";
+  const contentClass = classifyShareContent(isMarkdown, isHtml);
+  const prefs = content.reader_prefs;
+  const columnWidth = resolveReaderColumnWidth(contentClass, prefs.column_width);
+  const pageClassName =
+    columnWidth === "full"
+      ? "share-reader__page share-reader__page--wide"
+      : columnWidth === "wide"
+        ? "share-reader__page share-reader__page--code"
+        : "share-reader__page";
 
-  const [prefs, updatePrefs] = useReaderPrefs();
-  const resolvedTheme = useResolvedReaderTheme(prefs.theme);
+  // feat(share) R4 — the code header's wrap toggle stays, but it's now
+  // TRANSIENT: local state seeded from the owner's `reader_prefs.
+  // code_wrap`, flips only this page's view, and is never written back
+  // anywhere (no visitor localStorage, no server PUT from this route).
+  const [codeWrap, setCodeWrap] = useState(prefs.code_wrap);
 
   return (
     <div
       className="share-reader"
-      data-reader-theme={prefs.theme === "system" ? undefined : resolvedTheme}
-      data-reader-fontsize={prefs.fontSize}
-      data-code-wrap={prefs.codeWrap ? "on" : "off"}
+      data-reader-theme={resolveReaderThemeAttr(prefs.theme)}
+      data-reader-fontsize={prefs.font_size}
+      data-code-wrap={codeWrap ? "on" : "off"}
     >
       <main id="share-main" className={pageClassName}>
         {content.back_link && (
@@ -285,14 +299,13 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
         ) : isHtml ? (
           <HtmlPreview content={content.content} />
         ) : isMarkdown ? (
-          <div data-testid="share-content">{renderMarkdown(content.content, { links: content.links, codeWrap: prefs.codeWrap })}</div>
+          <div data-testid="share-content">{renderMarkdown(content.content, { links: content.links, codeWrap })}</div>
         ) : (
           <div className="share-reader__code-panel" data-testid="share-content">
-            <CodeBlock code={content.content} kind={kind} path={name} filename={name} wrap={prefs.codeWrap} onWrapChange={(codeWrap) => updatePrefs({ codeWrap })} />
+            <CodeBlock code={content.content} kind={kind} path={name} filename={name} wrap={codeWrap} onWrapChange={setCodeWrap} />
           </div>
         )}
       </main>
-      <ReaderPrefsPill prefs={prefs} onChange={updatePrefs} />
     </div>
   );
 }

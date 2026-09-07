@@ -95,6 +95,7 @@ from ..audit import write_audit_event
 from ..auth import AuthDeps
 from ..config import Settings
 from ..linkmap import compute_link_map, resolve_back_link, title_for
+from ..reader_prefs import get_reader_prefs
 from ..runtime_settings import get_max_blob_bytes
 from ..vaultcommit import commit_share_edit
 
@@ -367,6 +368,11 @@ def _content_payload(db: Session, share: "models.Share", blob: "models.Blob", ro
     # (a link map over content with no markdown-link syntax is just {}).
     links = compute_link_map(db, share, content) if encoding == "utf-8" else {}
     resolved_back = resolve_back_link(db, share)
+    # feat(share) — the SHARE OWNER's reader-appearance settings, included
+    # ONLY here (a successful content fetch) — never on the shell/deny
+    # responses, which never construct a `ShareContentOut` at all.
+    owner = db.get(models.User, share.owner_id)
+    reader_prefs = get_reader_prefs(owner) if owner is not None else schemas.ReaderPrefs()
     out = schemas.ShareContentOut(
         slug=share.slug,
         role=role,
@@ -386,6 +392,7 @@ def _content_payload(db: Session, share: "models.Share", blob: "models.Blob", ro
         back_link=schemas.ShareBackLinkOut(href=resolved_back.href, label=resolved_back.label)
         if resolved_back
         else None,
+        reader_prefs=reader_prefs,
     )
     return out.model_dump()
 

@@ -34,12 +34,13 @@
  * caller passes it, a wrap toggle + copy button (both `my-you-eye` `Button`
  * `size="icon-sm" variant="ghost"`) on the right, sharing the block's own
  * background/border tokens. `wrap` is a simple optional CONTROLLED prop —
- * the public share reader's visitor reading-preferences pill (
- * `ReaderPrefsPill`/`readerPrefs.ts`) and this header's own wrap toggle are
- * the SAME single source of truth: a controlled caller must also pass
- * `onWrapChange` so the header toggle mutates the SAME state the pill
- * reads, rather than the two silently disagreeing (or the header toggle
- * doing nothing at all, the original bug — only copy rendered). When
+ * the public share reader (`ShareApp.tsx`'s `ReaderPage`) seeds it from the
+ * share owner's `reader_prefs.code_wrap` but keeps it TRANSIENT per page
+ * (local `useState`, never written back — feat(share) R4 removed the old
+ * R3-5b visitor-pill/localStorage mechanism entirely): a controlled caller
+ * must also pass `onWrapChange` so the header toggle actually does
+ * something, rather than the original bug (only copy rendered, wrap toggle
+ * silently missing). When
  * `wrap`/`onWrapChange` are both omitted, an internal toggle with local
  * `useState` takes over (`renderers/CodeView.tsx`'s editor-owned
  * Rendered-mode view, and any other caller that never passes the prop).

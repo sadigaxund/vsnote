@@ -90,6 +90,7 @@ from .routers import auth as auth_router
 from .routers import git_admin as git_admin_router
 from .routers import git_http as git_http_router
 from .routers import git_proxy as git_proxy_router
+from .routers import reader_prefs as reader_prefs_router
 from .routers import share_public as share_public_router
 from .routers import shares as shares_router
 from .routers import vault as vault_router
@@ -120,7 +121,12 @@ def _ensure_added_columns(engine) -> None:
             ("link_role", "VARCHAR(9) NOT NULL DEFAULT 'viewer'"),
             ("show_title", "BOOLEAN NOT NULL DEFAULT 0"),
             ("back_link", "VARCHAR(64)"),
-        ]
+        ],
+        # feat(share) — R4 owner-side "Reader appearance" settings, see
+        # models.py's `User.reader_prefs` doc.
+        "users": [
+            ("reader_prefs", "VARCHAR(512)"),
+        ],
     }
     inspector = inspect(engine)
     with engine.begin() as conn:
@@ -294,6 +300,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     api_app.include_router(shares_router.build_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(share_public_router.build_content_router(get_db, limiter, settings, secret_key, auth_deps))
     api_app.include_router(admin_router.build_router(get_db, auth_deps))
+    api_app.include_router(reader_prefs_router.build_router(get_db, auth_deps))
     api_app.include_router(git_admin_router.build_router(get_db, settings, auth_deps))
     # R3-2 — same-origin git CORS proxy for Settings → Git & Sync →
     # Advanced: custom remote. Deliberately under `/api` (auth required),

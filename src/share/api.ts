@@ -141,6 +141,37 @@ export interface ShareBackLinkOut {
   label: string;
 }
 
+/** feat(share) R4 — the SHARE OWNER's "Reader appearance" settings
+ * (Settings > Sharing), applied to every one of that owner's Rendered-mode
+ * shares. Mirrors `server/app/schemas.py::ReaderPrefs` field-for-field.
+ * `column_width: null` means "no explicit owner preference" — the reader
+ * then falls back to a per-kind default (code/csv/json shares default to
+ * "wide", markdown to "narrow") rather than a single hardcoded default that
+ * could never express "the owner hasn't chosen yet". */
+export interface ReaderPrefs {
+  theme: "system" | "light" | "dark";
+  font_size: "s" | "m" | "l";
+  code_wrap: boolean;
+  column_width: "narrow" | "wide" | "full" | null;
+}
+
+export const DEFAULT_READER_PREFS: ReaderPrefs = { theme: "system", font_size: "m", code_wrap: true, column_width: null };
+
+export async function getReaderPrefs(): Promise<ReaderPrefs> {
+  const res = await fetch(`/api/reader-prefs`, { credentials: "include" });
+  return parseJsonOrThrow<ReaderPrefs>(res);
+}
+
+export async function putReaderPrefs(prefs: ReaderPrefs): Promise<ReaderPrefs> {
+  const res = await fetch(`/api/reader-prefs`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(prefs),
+  });
+  return parseJsonOrThrow<ReaderPrefs>(res);
+}
+
 export interface ShareContentOut {
   slug: string;
   /** Round 6 items 11/12 — the caller's resolved role ("viewer"|"editor")
@@ -168,6 +199,10 @@ export interface ShareContentOut {
   links: Record<string, string>;
   /** §5 — resolved `back_link`, or `null` when unset/gone. */
   back_link?: ShareBackLinkOut | null;
+  /** feat(share) R4 — the share OWNER's reader-appearance settings,
+   * included only on a successful content fetch (never on a deny/shell
+   * response). */
+  reader_prefs: ReaderPrefs;
 }
 
 export interface TokenCreateOut {

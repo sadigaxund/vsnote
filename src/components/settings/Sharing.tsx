@@ -7,12 +7,120 @@
  * blob size limit.
  */
 import { useEffect, useState } from "react";
-import { Alert, Badge, Button, Input } from "my-you-eye";
+import { Alert, Badge, Button, Input, SegmentedControl, Switch } from "my-you-eye";
 import { Loader2 } from "lucide-react";
 import { SettingsRow } from "../local/SettingsRow";
 import { useShareStore } from "../../share/useShareStore";
 import { fetchOAuthProviders, oauthStartUrl } from "../../share/oauth";
+import { DEFAULT_READER_PREFS, getReaderPrefs, putReaderPrefs, type ReaderPrefs } from "../../share/api";
 import type { SettingRow } from "./types";
+
+const READER_THEME_OPTIONS: { value: ReaderPrefs["theme"]; label: string }[] = [
+  { value: "system", label: "Auto" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
+const READER_FONT_SIZE_OPTIONS: { value: ReaderPrefs["font_size"]; label: string }[] = [
+  { value: "s", label: "S" },
+  { value: "m", label: "M" },
+  { value: "l", label: "L" },
+];
+const READER_COLUMN_WIDTH_OPTIONS: { value: NonNullable<ReaderPrefs["column_width"]>; label: string }[] = [
+  { value: "narrow", label: "Narrow" },
+  { value: "wide", label: "Wide" },
+  { value: "full", label: "Full" },
+];
+
+/** feat(share) R4 — owner-side "Reader appearance": how ALL of this
+ * owner's Rendered-mode shares present to visitors, replacing the removed
+ * R3-5b visitor-side floating pill/localStorage. Fetched once on mount
+ * (gated on `authenticated` — the endpoint is `require_auth_context`) and
+ * saved on every control change (no separate Save button — same
+ * immediate-write pattern the admin blob-size row's "Save" button is the
+ * one exception to, kept there only because it's a free-typed number that
+ * needs validation before it's worth persisting). */
+function useReaderAppearanceRows(authenticated: boolean): SettingRow[] {
+  const [prefs, setPrefs] = useState<ReaderPrefs>(DEFAULT_READER_PREFS);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    void getReaderPrefs()
+      .then((p) => {
+        setPrefs(p);
+        setLoaded(true);
+      })
+      .catch(() => {
+        setError("Could not load reader appearance settings.");
+        setLoaded(true);
+      });
+  }, [authenticated]);
+
+  function save(patch: Partial<ReaderPrefs>) {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    setError(null);
+    void putReaderPrefs(next).catch(() => setError("Could not save reader appearance settings."));
+  }
+
+  if (!authenticated || !loaded) return [];
+
+  return [
+    {
+      id: "reader-appearance",
+      label: "Reader appearance",
+      keywords: "reader appearance visitor share theme font size wrap column width public page",
+      content: (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }} data-testid="reader-appearance-settings">
+          {error && (
+            <Alert variant="danger" size="sm">
+              {error}
+            </Alert>
+          )}
+          <SettingsRow label="Theme" hint="Applies to every one of your rendered shares.">
+            <SegmentedControl<ReaderPrefs["theme"]>
+              size="sm"
+              options={READER_THEME_OPTIONS}
+              value={prefs.theme}
+              onValueChange={(v) => save({ theme: v })}
+              aria-label="Reader theme"
+              data-testid="reader-appearance-theme"
+            />
+          </SettingsRow>
+          <SettingsRow label="Font size">
+            <SegmentedControl<ReaderPrefs["font_size"]>
+              size="sm"
+              options={READER_FONT_SIZE_OPTIONS}
+              value={prefs.font_size}
+              onValueChange={(v) => save({ font_size: v })}
+              aria-label="Reader font size"
+              data-testid="reader-appearance-fontsize"
+            />
+          </SettingsRow>
+          <SettingsRow label="Wrap long code lines">
+            <Switch
+              checked={prefs.code_wrap}
+              onCheckedChange={(v) => save({ code_wrap: v })}
+              aria-label="Wrap long code lines"
+              data-testid="reader-appearance-wrap"
+            />
+          </SettingsRow>
+          <SettingsRow label="Reading column width" hint="Code/CSV/JSON shares default to Wide unless set here.">
+            <SegmentedControl<NonNullable<ReaderPrefs["column_width"]>>
+              size="sm"
+              options={READER_COLUMN_WIDTH_OPTIONS}
+              value={prefs.column_width ?? "narrow"}
+              onValueChange={(v) => save({ column_width: v })}
+              aria-label="Reading column width"
+              data-testid="reader-appearance-column-width"
+            />
+          </SettingsRow>
+        </div>
+      ),
+    },
+  ];
+}
 
 export function useSharingRows(): SettingRow[] {
   const reachability = useShareStore((s) => s.reachability);
@@ -191,6 +299,8 @@ export function useSharingRows(): SettingRow[] {
       ),
     });
   }
+
+  rows.push(...useReaderAppearanceRows(authenticated));
 
   return rows;
 }

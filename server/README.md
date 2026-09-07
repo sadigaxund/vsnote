@@ -788,6 +788,24 @@ access (see `app/linkmap.py`'s module docstring for the full argument):
 `back_link: Optional[str]` (a slug or alias, default unset; `PATCH` with
 `back_link: ""` clears it, omitting the field leaves it unchanged).
 
+### Reader appearance (`reader_prefs`, feat(share) R4 — supersedes the old
+visitor-side pill/localStorage mechanism entirely, no compatibility path)
+
+`ShareContentOut` also carries **`reader_prefs`** — the SHARE OWNER's
+appearance settings (`ReaderPrefs`: `theme` `"system"|"light"|"dark"`,
+`font_size` `"s"|"m"|"l"`, `code_wrap: bool`, `column_width`
+`"narrow"|"wide"|"full"|null`), included ONLY on a successful content
+fetch — never on the shell/deny responses, which never construct a
+`ShareContentOut` at all. Owned by `GET`/`PUT /api/reader-prefs`
+(authenticated, same `/api/*` 401 deny posture as `/api/admin/*` — no
+`/share/*` policy-gate concern, the route's existence isn't sensitive):
+a `PUT` with a value outside the closed enums 422s; a `None`/never-saved
+`column_width` means "the owner hasn't chosen" and the CLIENT falls back
+to a per-kind default (code/csv/json/html shares "wide"/"full", markdown
+"narrow") rather than the server picking one. There is exactly ONE stored
+value per owner — every one of that owner's rendered shares presents
+identically, regardless of which visitor is looking.
+
 **`show_title` and the shell's `<title>`/OG meta — read this before
 building the reader page.** A share route's SPA-shell HTML gains a
 `<title>` and a couple of `og:*` meta tags ONLY when ALL THREE hold: (a)

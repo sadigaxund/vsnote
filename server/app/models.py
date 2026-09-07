@@ -60,6 +60,20 @@ class User(Base):
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    # feat(share) — R4 owner-side "Reader appearance" settings
+    # (docs/ROADMAP-SHARING-AUTH.md): how ALL of this owner's Rendered-mode
+    # shares present to visitors (theme/font size/code wrap/column width),
+    # replacing the R3-5b per-VISITOR floating preferences pill. A single
+    # JSON-encoded blob (`schemas.ReaderPrefs.model_dump_json()`), not a
+    # normalized table — four small closed-enum/bool fields with no
+    # relational shape worth a join, same "small settings blob" reasoning
+    # `runtime_settings.py`'s `RuntimeSettings` table uses for the
+    # admin-wide equivalent. `None` means "never saved" — the router
+    # returns `ReaderPrefs`'s own defaults in that case rather than
+    # persisting them, so an owner who never opens the settings section
+    # never gets a row-write. Added via `main.py`'s `_ensure_added_columns`
+    # (an existing table, so `create_all` alone won't add it).
+    reader_prefs: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
 
 class ApiToken(Base):
