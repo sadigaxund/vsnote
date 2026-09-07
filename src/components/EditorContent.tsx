@@ -10,8 +10,11 @@
  *    decorations on top (docs/PLAN-2026-09-05-refresh.md §6 Phase M2, see
  *    `LivePreviewEditor.tsx`'s own doc), `.html` a sandboxed iframe,
  *    `.csv` a `DataTable`, `.json` a tree view, images the checkerboard
- *    viewer. Phase 1's static single-note placeholder is gone — every kind
- *    now renders its own real, per-file content.
+ *    viewer, and (R3-7) every code kind (`ts`/`tsx`/`js`/`jsx`/`css`) a
+ *    read-only static highlighted `CodeBlock` (`renderers/CodeView.tsx`) —
+ *    NOT a second CodeMirror instance. Phase 1's static single-note
+ *    placeholder is gone — every kind now renders its own real, per-file
+ *    content.
  *  - **Source**: `editor/CodeMirrorEditor` (CM6) bound to the real file
  *    content via `useBufferStore`. A `D`-status tab has nothing on disk to
  *    edit, so it falls back to a read-only view of the last committed
@@ -49,6 +52,10 @@ const HtmlPreview = lazy(() => import("../renderers/HtmlPreview").then((m) => ({
 const CsvTable = lazy(() => import("../renderers/CsvTable").then((m) => ({ default: m.CsvTable })));
 const JsonView = lazy(() => import("../renderers/JsonView").then((m) => ({ default: m.JsonView })));
 const ImageView = lazy(() => import("../renderers/ImageView").then((m) => ({ default: m.ImageView })));
+// R3-7: Rendered mode for every code kind (ts/tsx/js/jsx/css) — a read-only
+// static highlighted view, not a second editor. See `filetypes/registry.ts`'s
+// `RendererKind` doc and `renderers/CodeView.tsx` itself.
+const CodeView = lazy(() => import("../renderers/CodeView").then((m) => ({ default: m.CodeView })));
 
 /** `.mk.md` Source mode only — see `CodeMirrorEditor`'s `loadExtraExtensions` doc for why this is a dynamic import rather than a static one. */
 async function loadMarkiiExtraExtensions() {
@@ -238,6 +245,15 @@ export function EditorContent({
             <MissingBanner missing={missing} />
             <Suspense fallback={<EditorLoading />}>
               <JsonView key={path} content={displayContent} />
+            </Suspense>
+          </div>
+        );
+      case "code":
+        return (
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+            <MissingBanner missing={missing} />
+            <Suspense fallback={<EditorLoading />}>
+              <CodeView key={path} content={displayContent} kind={kind} />
             </Suspense>
           </div>
         );

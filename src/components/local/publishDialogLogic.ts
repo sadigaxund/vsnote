@@ -6,6 +6,8 @@
  * non-component constants/helpers alongside the component) were cleared by
  * this split, not by suppressing the rule.
  */
+import { fileTypeForOrPlain } from "../../filetypes/registry";
+import type { FileKind } from "../../types";
 import type { AuthMode, GeneralAccess, RenderMode, ShareOut } from "../../share/api";
 
 /** `<input type="date">` value <-> epoch seconds (the backend's
@@ -72,6 +74,31 @@ export const GENERAL_ACCESS_DESCRIPTIONS: Record<GeneralAccess, string> = {
  */
 export function authModesFor(renderMode: RenderMode): AuthMode[] {
   return renderMode === "raw" ? ["none", "token"] : ["none", "password", "token"];
+}
+
+/**
+ * R3-7 fix — step 1 (Mode) is meant to offer exactly what a visitor can
+ * actually get (its own doc: "each with a one-line 'what a visitor gets'
+ * description"), but the "Viewer page" (`RenderMode: "rendered"`) option
+ * was never actually checked against anything: `PublishDialogProps.fileKind`
+ * was accepted and threaded all the way down from `App.tsx`'s
+ * `handleOpenPublish`, then never once read inside the component — a
+ * capability check that was clearly intended (why else plumb the prop
+ * through three call sites?) but never wired up, so the dialog would
+ * happily "publish" any file as a Viewer page even when nothing could
+ * actually render it as one.
+ *
+ * Mirrors `filetypes/registry.ts`'s own `baseModes` — the SAME "what can
+ * this file type do" table `EditorHeader`'s Rendered/Source/Diff toggle
+ * reads — rather than a second copy of it, so the two surfaces (the editor
+ * chrome and this dialog) can never disagree about which kinds render.
+ * `kind === undefined` (edit-policy mode, where the dialog never learns the
+ * ORIGINAL source file's kind — `App.tsx`'s `handleManageShare` opens it
+ * with `filePath`/`fileKind` both unset) is treated as renderable: "don't
+ * know" must never quietly narrow an already-published share's options.
+ */
+export function canPublishRendered(kind: FileKind | undefined): boolean {
+  return kind === undefined || fileTypeForOrPlain(kind).baseModes.includes("rendered");
 }
 
 export const AUTH_MODE_LABELS: Record<AuthMode, string> = {

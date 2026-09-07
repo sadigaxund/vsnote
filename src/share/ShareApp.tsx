@@ -283,7 +283,7 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
         ) : (
           <div className="share-reader__code-panel" data-testid="share-content">
             <div className="share-reader__code-filename">{name}</div>
-            <CodeBlock code={content.content} kind={kind} />
+            <CodeBlock code={content.content} kind={kind} wrap={prefs.codeWrap} />
           </div>
         )}
       </main>

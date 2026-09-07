@@ -92,7 +92,7 @@ buildable detail. When in doubt, open the image and match it.
 | `.html` | sandboxed iframe preview | CM6 highlighted | merge vs HEAD |
 | `.csv` | DataTable | CM6 plain/highlighted | merge vs HEAD |
 | `.json` | tree/pretty view | CM6 highlighted (default) | merge vs HEAD |
-| code (`.ts/.tsx/.css/…`) | — (disabled) | CM6 highlighted (default) | merge vs HEAD |
+| code (`.ts/.tsx/.js/.jsx/.css`) | static highlighted `CodeBlock`: line numbers, wrap toggle, copy button | CM6 highlighted (default) | merge vs HEAD |
 | images | image viewer (only mode) | — | — |
 
 ### Markdown live preview (the Obsidian behavior — non-negotiable)
@@ -1268,3 +1268,20 @@ items OVERRIDE anything above them.
      live in the visitor's own browser storage, apply only to the rendered
      document, and add no other chrome, navigation or branding to the
      page.
+
+112. **Code files have a real Rendered mode, not a disabled toggle.**
+     `filetypes/registry.ts` gives every code kind `baseModes:
+     ["rendered", "source"]` and a `"code"` renderer
+     (`renderers/CodeView.tsx`) built on the exact `CodeBlock` the public
+     reader already uses for a raw code file: line numbers, a wrap toggle
+     and a copy button, and never a second CodeMirror instance. The
+     default mode stays `"source"`, so Rendered is an option and never the
+     first thing you see, the same way `.json` behaves. Truncation at the
+     line cap says "switch to Source to see the rest of this file", since
+     the owner of a file is always one click from the real virtualized
+     editor. The toolbar never prints. Fixed alongside it: the Publish
+     dialog accepted a `fileKind` prop it never read, so it offered a
+     Viewer page for every file including ones nothing could render;
+     `canPublishRendered` now reads the same `baseModes` table and
+     disables that option, with an inline reason, for a kind the registry
+     cannot render.

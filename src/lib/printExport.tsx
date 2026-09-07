@@ -122,6 +122,9 @@ function ensurePrintStyle(): void {
    print palette here so a code block prints on light paper, not as a dark
    box. */
 #${PRINT_ROOT_ID} .mk-static-codeblock { background: var(--color-code-bg); color: var(--color-code-fg); }
+/* \`CodeBlock\`'s wrap/copy toolbar is an interactive control. On paper it
+   is a pair of dead buttons, so it never prints. */
+#${PRINT_ROOT_ID} .mk-static-codeblock__toolbar { display: none; }
 `;
   document.head.appendChild(style);
 }

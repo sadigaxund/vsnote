@@ -39,9 +39,23 @@ describe("filetypes/registry modeAvailabilityFor", () => {
     expect(modeAvailabilityFor("md", true)).toEqual(["rendered", "source", "diff"]);
   });
 
-  it("code kinds only ever offer source (+ diff when applicable), never rendered", () => {
-    expect(modeAvailabilityFor("ts", false)).toEqual(["source"]);
-    expect(modeAvailabilityFor("ts", true)).toEqual(["source", "diff"]);
+  it("code kinds (R3-7) offer rendered+source, plus diff when applicable", () => {
+    for (const kind of ["ts", "tsx", "js", "jsx", "css"] as const) {
+      expect(modeAvailabilityFor(kind, false)).toEqual(["rendered", "source"]);
+      expect(modeAvailabilityFor(kind, true)).toEqual(["rendered", "source", "diff"]);
+    }
+  });
+
+  it("code kinds still default to source even though rendered is now offered", () => {
+    for (const kind of ["ts", "tsx", "js", "jsx", "css"] as const) {
+      expect(defaultModeFor(kind)).toBe("source");
+    }
+  });
+
+  it("code kinds use the 'code' renderer (CodeView, read-only CodeBlock)", () => {
+    for (const kind of ["ts", "tsx", "js", "jsx", "css"] as const) {
+      expect(fileTypeFor(kind)?.renderer).toBe("code");
+    }
   });
 
   it("images never offer diff, even when hasDiff is true (supportsDiff: false)", () => {

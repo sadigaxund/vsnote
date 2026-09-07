@@ -91,6 +91,7 @@ import {
   STEP_IDS,
   STEP_LABELS,
   authModesFor,
+  canPublishRendered,
   dateInputToEpochSeconds,
   derivePublishMode,
   epochSecondsToDateInput,
@@ -121,7 +122,7 @@ const DELIVERY_OPTIONS: { value: RenderMode; label: string; icon: React.ReactNod
   { value: "raw", label: "Raw file", icon: <FileCode size={12} /> },
 ];
 
-export function PublishDialog({ open, onOpenChange, filePath, content, existingShare }: PublishDialogProps) {
+export function PublishDialog({ open, onOpenChange, filePath, fileKind, content, existingShare }: PublishDialogProps) {
   const { toast } = useToast();
   const reachability = useShareStore((s) => s.reachability);
   const authenticated = useShareStore((s) => s.authenticated);
@@ -135,9 +136,18 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
   const mode = derivePublishMode({ existingShare, filePath, content });
   const isEditKind = mode?.kind === "edit-file";
 
+  // R3-7 fix — see `publishDialogLogic.ts`'s `canPublishRendered` doc: the
+  // "Viewer page" delivery option is only ever real for a kind the app can
+  // actually render (`filetypes/registry.ts`'s `baseModes`), so it's
+  // disabled — and never the default — for anything else, `.py`/any other
+  // kind without a renderer included.
+  const canRenderKind = canPublishRendered(fileKind);
+
   const [step, setStep] = useState<StepId>("mode");
 
-  const [renderMode, setRenderMode] = useState<RenderMode>(() => (existingShare?.render_mode as RenderMode) ?? "rendered");
+  const [renderMode, setRenderMode] = useState<RenderMode>(
+    () => (existingShare?.render_mode as RenderMode) ?? (canRenderKind ? "rendered" : "raw"),
+  );
   const [generalAccess, setGeneralAccess] = useState<GeneralAccess>(() => (existingShare?.general_access as GeneralAccess) ?? "link");
   const [linkRole, setLinkRole] = useState<GrantRole>(() => existingShare?.link_role ?? "viewer");
   const [grants, setGrants] = useState<GrantIn[]>(() => existingShare?.grants ?? []);
@@ -225,6 +235,23 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
     setLastRenderMode(renderMode);
     if (!availableAuthModes.includes(authMode)) setAuthMode("none");
   }
+
+  // Same "adjust state when a derived value changes" pattern as
+  // `lastRenderMode` above, for `canRenderKind` — the dialog is normally
+  // remounted per file (no `key`, but `filePath`/`fileKind` only ever
+  // change while closed), so this mostly guards the rare case of the
+  // caller swapping targets on an already-open instance: Viewer page must
+  // not stay silently selected once it becomes unavailable.
+  const [lastCanRenderKind, setLastCanRenderKind] = useState(canRenderKind);
+  if (lastCanRenderKind !== canRenderKind) {
+    setLastCanRenderKind(canRenderKind);
+    if (!canRenderKind && renderMode === "rendered") setRenderMode("raw");
+  }
+
+  const deliveryOptions = useMemo(
+    () => DELIVERY_OPTIONS.map((opt) => (opt.value === "rendered" ? { ...opt, disabled: !canRenderKind } : opt)),
+    [canRenderKind],
+  );
 
   const backLinkOptions = useMemo(
     () =>
@@ -400,10 +427,15 @@ export function PublishDialog({ open, onOpenChange, filePath, content, existingS
 
             {step === "mode" && (
               <FormField label="Share as">
-                <SegmentedControl size="sm" fullWidth value={renderMode} onChange={setRenderMode} aria-label="Delivery" options={DELIVERY_OPTIONS} />
+                <SegmentedControl size="sm" fullWidth value={renderMode} onChange={setRenderMode} aria-label="Delivery" options={deliveryOptions} />
                 <p style={{ fontSize: 12, color: "var(--color-muted)", margin: "8px 0 0" }} data-testid="publish-mode-description">
                   {RENDER_MODE_DESCRIPTIONS[renderMode]}
                 </p>
+                {!canRenderKind && (
+                  <p style={{ fontSize: 11.5, color: "var(--color-muted)", margin: "4px 0 0" }} data-testid="publish-mode-no-renderer">
+                    This file type doesn't have a Viewer page yet — only Raw file is available.
+                  </p>
+                )}
               </FormField>
             )}
 

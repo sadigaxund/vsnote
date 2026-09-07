@@ -28,9 +28,30 @@
  * inventing a second palette. The pure line-cap/highlight-building logic
  * lives in `codeBlockLogic.ts` (split out so this file's only export is the
  * component, per ESLint's `react-refresh/only-export-components`).
+ *
+ * Toolbar (R3-7): a wrap toggle + copy button, top-right, above the `<pre>`.
+ * `wrap` is a simple optional CONTROLLED prop — the public share reader's
+ * visitor reading-preferences pill drives it from there (`ReaderPrefsPill`/
+ * `readerPrefs.ts`, wired by a different change) — so when a caller passes
+ * `wrap`, this component renders no toggle of its own (an uncontrollable
+ * button next to a prop-driven state would just be confusing) and simply
+ * reflects the given value; when `wrap` is omitted, an internal toggle with
+ * local `useState` takes over (`renderers/CodeView.tsx`'s editor-owned
+ * Rendered-mode view, and any other caller that never passes the prop).
+ * The copy button reads `navigator.clipboard` at render/click time and
+ * simply doesn't render at all when the API is unavailable (an insecure
+ * context, an old browser, a locked-down embed) rather than offering a
+ * button that would silently fail — "degrade gracefully" per the API's own
+ * contract, not a try/catch band-aid around a control nobody can use. The
+ * `.mk-static-codeblock__lineno` gutter is unselectable both via
+ * `theme.css`'s existing rule AND an inline `userSelect: "none"` here (this
+ * component's own guarantee, not one borrowed from a stylesheet a caller
+ * might render it without) — so dragging a selection across a highlighted
+ * line to copy it never drags the line number along too.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import type { Language } from "@codemirror/language";
+import { Check, Copy, WrapText } from "lucide-react";
 import { fileTypeForOrPlain } from "../filetypes/registry";
 import type { FileKind } from "../types";
 import { buildHighlightedLines, capCodeLines, CODE_BLOCK_MAX_LINES } from "./codeBlockLogic";
@@ -40,12 +61,40 @@ export interface CodeBlockProps {
   /** The file's `FileKind` (`src/types.ts`) — resolved to a CM6 language via `filetypes/registry.ts`'s existing `loadLanguage`, so this component never duplicates that table. Omitted/unrecognized kinds degrade to plain, correctly-escaped text. */
   kind?: FileKind;
   maxLines?: number;
+  /** Controlled wrap state — see the module doc's "Toolbar" section. Omit to let the component manage its own (starts unwrapped, matching `theme.css`'s un-scoped `.mk-static-codeblock` default). */
+  wrap?: boolean;
+  /** Extra text appended after the built-in "Showing the first N of M lines" notice — e.g. an editor-owned view can point at its own uncapped Source mode, which the public share reader (no such affordance) leaves unset. */
+  truncatedHint?: ReactNode;
+}
+
+function clipboardAvailable(): boolean {
+  return typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function";
+}
+
+function toolbarButtonStyle(active: boolean): CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 22,
+    height: 22,
+    padding: 0,
+    border: "1px solid var(--color-border)",
+    borderRadius: "var(--radius-ui-sm)",
+    background: active ? "color-mix(in oklab, var(--color-primary) 16%, transparent)" : "var(--color-surface)",
+    color: active ? "var(--color-primary)" : "var(--color-muted)",
+    cursor: "pointer",
+  };
 }
 
 /** Static highlighted `<pre>` with line numbers. Degrades to plain escaped text for an unknown/unsupported language (no `language.parser` resolved), and never chokes on a very large file (see `capCodeLines`/`CODE_BLOCK_MAX_LINES`). */
-export function CodeBlock({ code, kind, maxLines = CODE_BLOCK_MAX_LINES }: CodeBlockProps): ReactNode {
+export function CodeBlock({ code, kind, maxLines = CODE_BLOCK_MAX_LINES, wrap: wrapProp, truncatedHint }: CodeBlockProps): ReactNode {
   const capped = capCodeLines(code, maxLines);
   const [language, setLanguage] = useState<Language | undefined>(undefined);
+  const [localWrap, setLocalWrap] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const wrapControlled = wrapProp !== undefined;
+  const wrap = wrapControlled ? wrapProp : localWrap;
 
   useEffect(() => {
     let cancelled = false;
@@ -64,38 +113,100 @@ export function CodeBlock({ code, kind, maxLines = CODE_BLOCK_MAX_LINES }: CodeB
     };
   }, [kind]);
 
+  // Reset the transient "copied" glyph if the underlying code changes out
+  // from under a still-mounted block (e.g. the file being shown reloads).
+  // Same "adjust state during render, not in an effect" snapshot pattern
+  // `PublishDialog.tsx`'s `lastRenderMode` uses (`react-hooks/refs` blocks
+  // reading/writing a ref during render, and this avoids the
+  // `react-hooks/set-state-in-effect` cascading-render warning entirely
+  // rather than suppressing it).
+  const [lastCode, setLastCode] = useState(code);
+  if (lastCode !== code) {
+    setLastCode(code);
+    if (copied) setCopied(false);
+  }
+
+  async function handleCopy() {
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (!clipboard) return;
+    try {
+      await clipboard.writeText(capped.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Permission denied, or the API vanished between the availability
+      // check and the click — fail silently, never a crash or a stuck
+      // "copied" state.
+    }
+  }
+
   const lines = buildHighlightedLines(capped.code, language);
   const lineNumberWidth = String(lines.length).length;
+  const showToolbar = !wrapControlled || clipboardAvailable();
 
   return (
-    <pre className="mk-static-codeblock">
-      <code>
-        {lines.map((spans, index) => (
-          <span className="mk-static-codeblock__line" key={index}>
-            <span className="mk-static-codeblock__lineno" aria-hidden="true" style={{ minWidth: `${lineNumberWidth}ch` }}>
-              {index + 1}
-            </span>
-            <span className="mk-static-codeblock__text">
-              {spans.length === 0
-                ? " "
-                : spans.map((span, spanIndex) =>
-                    span.classes ? (
-                      <span key={spanIndex} className={span.classes}>
-                        {span.text}
-                      </span>
-                    ) : (
-                      span.text
-                    ),
-                  )}
-            </span>
-          </span>
-        ))}
-      </code>
-      {capped.truncated && (
-        <div className="mk-static-codeblock__truncated">
-          Showing the first {maxLines.toLocaleString()} of {capped.totalLines.toLocaleString()} lines.
+    <div>
+      {showToolbar && (
+        <div className="mk-static-codeblock__toolbar" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 4 }}>
+          {!wrapControlled && (
+            <button
+              type="button"
+              onClick={() => setLocalWrap((w) => !w)}
+              aria-pressed={wrap}
+              aria-label={wrap ? "Disable line wrap" : "Enable line wrap"}
+              title={wrap ? "Disable line wrap" : "Enable line wrap"}
+              style={toolbarButtonStyle(wrap)}
+            >
+              <WrapText size={13} aria-hidden />
+            </button>
+          )}
+          {clipboardAvailable() && (
+            <button
+              type="button"
+              onClick={() => void handleCopy()}
+              aria-label="Copy code"
+              title="Copy code"
+              style={toolbarButtonStyle(false)}
+            >
+              {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+            </button>
+          )}
         </div>
       )}
-    </pre>
+      <pre className="mk-static-codeblock" style={wrap ? { overflowX: "hidden" } : undefined}>
+        <code>
+          {lines.map((spans, index) => (
+            <span className="mk-static-codeblock__line" key={index}>
+              <span
+                className="mk-static-codeblock__lineno"
+                aria-hidden="true"
+                style={{ minWidth: `${lineNumberWidth}ch`, userSelect: "none" }}
+              >
+                {index + 1}
+              </span>
+              <span className="mk-static-codeblock__text" style={wrap ? { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } : undefined}>
+                {spans.length === 0
+                  ? " "
+                  : spans.map((span, spanIndex) =>
+                      span.classes ? (
+                        <span key={spanIndex} className={span.classes}>
+                          {span.text}
+                        </span>
+                      ) : (
+                        span.text
+                      ),
+                    )}
+              </span>
+            </span>
+          ))}
+        </code>
+        {capped.truncated && (
+          <div className="mk-static-codeblock__truncated">
+            Showing the first {maxLines.toLocaleString()} of {capped.totalLines.toLocaleString()} lines.
+            {truncatedHint}
+          </div>
+        )}
+      </pre>
+    </div>
   );
 }

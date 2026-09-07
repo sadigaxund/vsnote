@@ -42,8 +42,17 @@ import type { EditorMode, FileKind } from "../types";
  * its `baseModes`. `EditorContent.tsx` switches on this to pick the lazy
  * component — the renderer's own file lives in `renderers/` (or
  * `editor/LivePreviewEditor` for markdown, which is CM6 itself, not a
- * separate renderer). */
-export type RendererKind = "livepreview" | "html" | "csv" | "json" | "image";
+ * separate renderer).
+ *
+ * `"code"` (R3-7): a READ-ONLY static highlighted view (`renderers/
+ * CodeView.tsx`, wrapping the same `markdown/codeBlock.tsx::CodeBlock` the
+ * public share reader uses for a raw code file) — line numbers, a wrap
+ * toggle, a copy button, NO CodeMirror editor instance. Every code kind
+ * below (`ts`/`tsx`/`js`/`jsx`/`css`) lists this renderer so Rendered is a
+ * real, selectable mode for them; `defaultMode` for all of them stays
+ * `"source"` (DESIGN-SPEC's table marks code's default explicitly, same as
+ * `json`) — Rendered is an option, never the first thing you see. */
+export type RendererKind = "livepreview" | "html" | "csv" | "json" | "image" | "code";
 
 export interface FileTypeEntry {
   /** Status-bar language id, e.g. "TS", "MD", "JSON" (DESIGN-SPEC's `Ln 14,
@@ -102,35 +111,47 @@ const REGISTRY: Partial<Record<FileKind, FileTypeEntry>> = {
     supportsDiff: true,
     renderer: "livepreview",
   },
+  // R3-7: every code kind (ts/tsx/js/jsx/css below) now lists "rendered"
+  // alongside "source" — the `code` renderer (`renderers/CodeView.tsx`) is
+  // a read-only static highlighted view built on the exact same
+  // `CodeBlock` the public share reader already uses for a raw code file,
+  // reusing THIS entry's own `loadLanguage` (never a duplicate language
+  // table). `defaultMode` is unchanged ("source": DESIGN-SPEC's table
+  // marks code's default explicitly) — Rendered becomes a real, selectable
+  // option instead of being unconditionally disabled, never the default.
   ts: {
     languageId: "TS",
     loadLanguage: () =>
       import("@codemirror/lang-javascript").then((m) => m.javascript({ typescript: true })),
-    baseModes: ["source"],
+    baseModes: ["rendered", "source"],
     defaultMode: "source",
     supportsDiff: true,
+    renderer: "code",
   },
   tsx: {
     languageId: "TSX",
     loadLanguage: () =>
       import("@codemirror/lang-javascript").then((m) => m.javascript({ typescript: true, jsx: true })),
-    baseModes: ["source"],
+    baseModes: ["rendered", "source"],
     defaultMode: "source",
     supportsDiff: true,
+    renderer: "code",
   },
   js: {
     languageId: "JS",
     loadLanguage: () => import("@codemirror/lang-javascript").then((m) => m.javascript()),
-    baseModes: ["source"],
+    baseModes: ["rendered", "source"],
     defaultMode: "source",
     supportsDiff: true,
+    renderer: "code",
   },
   jsx: {
     languageId: "JSX",
     loadLanguage: () => import("@codemirror/lang-javascript").then((m) => m.javascript({ jsx: true })),
-    baseModes: ["source"],
+    baseModes: ["rendered", "source"],
     defaultMode: "source",
     supportsDiff: true,
+    renderer: "code",
   },
   json: {
     languageId: "JSON",
@@ -143,9 +164,10 @@ const REGISTRY: Partial<Record<FileKind, FileTypeEntry>> = {
   css: {
     languageId: "CSS",
     loadLanguage: () => import("@codemirror/lang-css").then((m) => m.css()),
-    baseModes: ["source"],
+    baseModes: ["rendered", "source"],
     defaultMode: "source",
     supportsDiff: true,
+    renderer: "code",
   },
   html: {
     languageId: "HTML",
