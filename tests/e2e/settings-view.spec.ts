@@ -29,23 +29,41 @@ test.describe("Settings view", () => {
     await expect(tab(page, "vault/notes/architecture.md")).toBeVisible();
   });
 
-  test("category nav switches which settings are shown", async ({ page }) => {
+  test("category nav is a scroll-spy TOC: it scrolls to and highlights the clicked category's section", async ({ page }) => {
     await gotoApp(page);
     await openSettingsTab(page);
 
-    // Appearance is the default category.
+    // Content is one continuous scroll now (R4 defect B follow-up) — every
+    // category's rows are mounted at once, not just the "active" one.
+    // Appearance is the top section, visible without scrolling, and its
+    // nav item starts highlighted.
     await expect(page.getByTestId("settings-row-theme")).toBeVisible();
-    await expect(page.getByTestId("settings-row-font-size")).toHaveCount(0);
+    await expect(page.getByTestId("settings-nav-appearance")).toHaveAttribute("aria-selected", "true");
+    // Editor's rows are further down the SAME scroll, not a separate panel
+    // — still attached to the DOM even before its section scrolls into view.
+    await expect(page.getByTestId("settings-row-font-size")).toBeAttached();
 
     await page.getByTestId("settings-nav-editor").click();
     await expect(page.getByTestId("settings-row-font-size")).toBeVisible();
-    await expect(page.getByTestId("settings-row-theme")).toHaveCount(0);
+    // Clicking scrolled the page: the previous section's highlight (and
+    // Appearance's row) are gone from view, but Theme is still mounted —
+    // this is a scroll position, not a remount.
+    await expect(page.getByTestId("settings-nav-editor")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("settings-row-theme")).toBeAttached();
 
     await page.getByTestId("settings-nav-keyboard").click();
     const shortcuts = page.getByTestId("settings-row-shortcuts");
     await expect(shortcuts).toBeVisible();
     await expect(shortcuts.getByText("⌘K")).toBeVisible();
     await expect(shortcuts.getByText(/Command palette/)).toBeVisible();
+    await expect(page.getByTestId("settings-nav-keyboard")).toHaveAttribute("aria-selected", "true");
+
+    // Scrolling manually (no click at all) also keeps the highlight synced
+    // to whatever section is actually at the top — the spy, not just the
+    // click handler, drives `aria-selected`.
+    await page.mouse.move(700, 400);
+    await page.mouse.wheel(0, -100000); // back to the very top
+    await expect(page.getByTestId("settings-nav-appearance")).toHaveAttribute("aria-selected", "true");
   });
 
   test("search filters rows across every category, independent of the selected nav item", async ({ page }) => {

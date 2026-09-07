@@ -511,3 +511,89 @@ textarea,
   color: var(--mk-muted, var(--color-muted));
   cursor: pointer;
 }
+
+/* ---- Settings layout: right-side sticky category "map" (R4 defect B,
+   owner correction) ----
+   `SettingsView.tsx` renders a flex row: `.settings-content` (the reading
+   column, flex: 1) then `.settings-nav-rail` (the category list) — in that
+   DOM order so the rail sits on the right at normal widths and, once
+   reversed below the breakpoint, on top. `.settings-nav-rail` wraps a
+   `my-you-eye` `Tabs`/`TabsList`/`TabsTrigger` (`orientation="vertical"`
+   for real up/down roving-tabindex nav at the wide layout); the rules here
+   only reflow ITS layout (flex direction, width, sticky), never fork the
+   component's own visuals.
+
+   >=~900px: a `position: sticky` column so it stays in view while the
+   (typically much taller) content column scrolls past it — `top: 0`
+   resolves against `ScrollArea`'s own scrollport since nothing between
+   here and there sets `overflow`/`transform`. Its width is
+   `--settings-side-column-width` (280px, defined below) — the SAME width
+   as the title row's search block (`SettingsView.tsx`'s inline
+   `width: 280`), not the ~180px first tried: both blocks are right-
+   anchored within the same padded container (the search block via the
+   title row's `justify-content: space-between`, the rail via
+   `.settings-content`'s `flex: 1 1 auto` pushing it flush right), so
+   giving them different widths made their RIGHT edges coincide but their
+   LEFT edges land ~100px apart — exactly the "menu doesn't start where
+   the search bar starts" misalignment reported after the first pass.
+   Matching the width makes both edges align without any grid rework.
+
+   <~900px: there is no room for a fixed-width side rail next to a
+   comfortably wide reading column, so the row direction reverses (rail
+   first, on top) and the rail itself becomes a horizontal, wrapping row,
+   matching the "compact wrapping row" the owner asked for. It stays
+   sticky here too, for the same "always in view while scrolling" reason. */
+:root {
+  --settings-side-column-width: 280px;
+}
+.settings-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+}
+.settings-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+.settings-nav-rail {
+  width: var(--settings-side-column-width);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.settings-nav-rail [role="tablist"] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  gap: 2px;
+}
+.settings-nav-rail [role="tab"] {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+@media (max-width: 900px) {
+  .settings-layout {
+    flex-direction: column-reverse;
+  }
+  .settings-nav-rail {
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+  }
+  .settings-nav-rail [role="tablist"] {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: auto;
+  }
+  .settings-nav-rail [role="tab"] {
+    width: auto;
+    justify-content: center;
+  }
+}

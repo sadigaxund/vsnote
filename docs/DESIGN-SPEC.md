@@ -1375,17 +1375,44 @@ items OVERRIDE anything above them.
      `.cm-scroller` now explicitly suppress both outline and box-shadow on
      `:focus-visible`; every other control (buttons, tabs, tree rows, the
      command palette, dialogs) keeps the full ring unchanged.
-119. **Settings' category nav is a horizontal, sticky row under the title,
-     not a left column — item 108 (round 11) superseded.** Item 108 only
+119. **Settings' category nav is a sticky vertical "map" on the right, not
+     a left column — item 108 (round 11) superseded.** Item 108 only
      compacted the search field onto the title row; the category list
      stayed a left column, so Settings still stacked activity bar, Explorer,
      category column, then content — the "cascading left panels" look the
-     owner asked to remove outright. The categories are now icon+label
-     pills in a `my-you-eye` `Tabs` row (`variant="pills"`; `Tabs` is the
-     navigation primitive by the library's own contract — its
+     owner asked to remove outright. (A horizontal top-row layout was
+     tried first and replaced by this one on direct owner correction.)
+     Below the title row, Settings is two columns: `.settings-content` (the
+     reading column, still centering/capping at ~52rem, item 84 unchanged)
+     on the left, and a `.settings-nav-rail` on the right holding icon+label
+     pills in a `my-you-eye` `Tabs` row (`variant="pills"`, `orientation=
+     "vertical"` — `Tabs` is the library's navigation primitive; its
      `SegmentedControl` entry documents itself as a form control for a
-     value, not for switching panels), wrapping onto a second line at
-     narrow widths, `position: sticky` flush under the title row so it
-     stays in view while a long category's rows scroll past. Content below
-     it spans the view's full width; its own reading column still centers
-     and caps at ~52rem (item 84, unchanged).
+     value, not for switching panels). The rail is `position: sticky` so it
+     stays in view while a long category's rows scroll past it. Its width
+     matches the title row's search field width exactly
+     (`--settings-side-column-width`, 280px) so both right-anchored blocks
+     share the same left edge — a first pass at ~180px left the rail's left
+     edge ~100px right of the search field's, reported as the menu "not
+     starting where the search bar starts." Below ~900px there is no room
+     for a fixed-width side rail beside a comfortable reading column, so
+     the layout reverses (rail first, i.e. on top) and the rail itself
+     reflows into a horizontal, wrapping row (`orientation="horizontal"`
+     for correct left/right roving-tabindex nav there) — still sticky.
+
+     **The rail is a scroll-spy table of contents, not a category switcher
+     (owner follow-up, same round).** Content is every category's section
+     stacked in ONE continuous scroll — there is no more "only the active
+     category's rows are mounted" behavior (search still filters rows per
+     section, and drops a section entirely once nothing in it matches).
+     Clicking a `TabsTrigger` (`activationMode="manual"`, so arrow-key
+     roving focus alone never triggers a scroll — only Enter/Space or a
+     click does) smooth-scrolls that section's heading to a fixed offset
+     below the scrollport's top; a separate scroll listener watches every
+     section's position on ANY scroll (click-driven or manual) and keeps
+     `Tabs`' controlled `value` — and therefore `aria-selected` on the
+     rail's items — synced to whichever section's heading has actually
+     scrolled past that same offset, falling back to the last section once
+     the scroll has hit bottom (a final section shorter than one screenful
+     can never scroll its own heading up to the offset otherwise, and would
+     never highlight).
