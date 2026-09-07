@@ -138,3 +138,38 @@ export function shouldShowShortAliasHint(generalAccess: GeneralAccess, alias: st
   const trimmed = alias.trim();
   return generalAccess === "link" && trimmed.length > 0 && trimmed.length < SHORT_ALIAS_THRESHOLD;
 }
+
+/**
+ * A share is "active" (fit to appear as a Back link target) only while it
+ * is neither revoked nor past its own expiry — the same two conditions the
+ * server itself would refuse to serve (`server/app/routers/shares.py`'s
+ * resolve path). `nowSeconds` is threaded in rather than read from `Date.now()`
+ * internally so the predicate stays a pure function callers can unit-test
+ * with a fixed clock.
+ */
+export function isShareActive(share: ShareOut, nowSeconds: number): boolean {
+  if (share.revoked_at != null) return false;
+  if (share.expires_at != null && share.expires_at <= nowSeconds) return false;
+  return true;
+}
+
+export interface BackLinkOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * Back-link dropdown options (step 4, "Link") — R3/R4 fix: the dropdown
+ * used to be built straight off whatever `useShareStore.shares` happened to
+ * hold client-side, so a share revoked or expired since the store last
+ * fetched, or one for a file that no longer exists, still showed up as a
+ * choosable target. Now it's a pure filter over ACTIVE shares only
+ * (`isShareActive`), excluding the share currently being edited (a share
+ * can't back-link to itself), labeled "source_path (alias or slug)" per the
+ * defect's spec.
+ */
+export function buildBackLinkOptions(shares: ShareOut[], excludeShareId: number | undefined, nowSeconds: number): BackLinkOption[] {
+  return shares
+    .filter((s) => isShareActive(s, nowSeconds) && s.id !== excludeShareId)
+    .map((s) => ({ value: s.alias ?? s.slug, label: `${s.source_path} (${s.alias ?? s.slug})` }));
+}

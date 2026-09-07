@@ -91,6 +91,7 @@ import {
   STEP_IDS,
   STEP_LABELS,
   authModesFor,
+  buildBackLinkOptions,
   canPublishRendered,
   dateInputToEpochSeconds,
   derivePublishMode,
@@ -133,6 +134,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
   const publish = useShareStore((s) => s.publish);
   const updateShare = useShareStore((s) => s.updateShare);
   const allShares = useShareStore((s) => s.shares);
+  const refreshShares = useShareStore((s) => s.refreshShares);
 
   const mode = derivePublishMode({ existingShare, filePath, content });
   const isEditKind = mode?.kind === "edit-file";
@@ -170,6 +172,26 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
   useEffect(() => {
     void fetchOAuthProviders().then((p) => setOauthGoogle(p.google));
   }, []);
+
+  // Back-link fix: the dropdown must reflect the CURRENT server-side share
+  // list, not whatever `useShareStore.shares` happened to hold from some
+  // earlier fetch (a share revoked, expired, or for a since-deleted file
+  // must never linger as a choosable target). Refetch every time the
+  // dialog opens while signed in; `refreshShares` is a no-op-safe fetch
+  // that never throws (failures land in `sharesError`). `nowSeconds` is
+  // read from the wall clock here (an effect, an "external system" per the
+  // Rules of React) rather than at render time — `Date.now()` may never be
+  // called during render (`react-hooks/purity`) — and feeds
+  // `isShareActive`'s expiry check below.
+  const [nowSeconds, setNowSeconds] = useState(0);
+  useEffect(() => {
+    if (open && authenticated) {
+      // setState happens after the fetch resolves (not synchronously in
+      // the effect body) — same async-setState shape as the OAuth-provider
+      // effect above, which keeps `react-hooks/set-state-in-effect` happy.
+      void refreshShares().then(() => setNowSeconds(Date.now() / 1000));
+    }
+  }, [open, authenticated, refreshShares]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -256,12 +278,25 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
   );
 
   const backLinkOptions = useMemo(
-    () =>
-      allShares
-        .filter((s) => !s.revoked_at && (!isEditKind || s.id !== existingShare?.id))
-        .map((s) => ({ value: s.alias ?? s.slug, label: `${s.source_path} (${s.alias ?? s.slug})` })),
-    [allShares, isEditKind, existingShare],
+    () => buildBackLinkOptions(allShares, existingShare?.id, nowSeconds),
+    [allShares, existingShare, nowSeconds],
   );
+
+  // If the stored `back_link` no longer resolves to an ACTIVE share (it was
+  // revoked, expired, or the option list simply hasn't loaded that alias
+  // yet), the Combobox must show "None" selected rather than an option that
+  // silently isn't there — and a save must drop the stale value instead of
+  // re-submitting it. Same "adjust state during render" pattern as
+  // `lastRenderMode`/`lastCanRenderKind` above (avoids the
+  // `react-hooks/set-state-in-effect` cascading-render warning): only acts
+  // once the share list has actually loaded (`allShares.length` guards the
+  // very first render before `refreshShares` resolves, so a legitimate
+  // back link isn't clobbered before its option exists yet).
+  const [lastBackLinkOptions, setLastBackLinkOptions] = useState(backLinkOptions);
+  if (lastBackLinkOptions !== backLinkOptions) {
+    setLastBackLinkOptions(backLinkOptions);
+    if (backLink && allShares.length > 0 && !backLinkOptions.some((o) => o.value === backLink)) setBackLink("");
+  }
 
   const stepIndex = STEP_IDS.indexOf(step);
   const canAdvanceFromLink = aliasCheck.valid && (!expiryEnabled || expiresLocal.length > 0);
