@@ -416,10 +416,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
           </DialogDescription>
         </DialogHeader>
 
-        <div
-          data-testid="publish-dialog-body"
-          style={{ minHeight: 360, maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column" }}
-        >
+        <div data-testid="publish-dialog-body" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
         {offline && (
           <Alert variant="warning" title="Backend not running" size="sm">
             Share links need the VSNote backend. Start it with <code>npm run server</code> (listens on 127.0.0.1:8787).
@@ -431,7 +428,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
             <Alert variant="info" size="sm" title="Sign in to publish">
               Publishing requires an owner session on the backend.
             </Alert>
-            <p style={{ fontSize: 12, color: "var(--color-muted)", margin: 0, whiteSpace: "nowrap" }}>
+            <p style={{ fontSize: 12, color: "var(--color-muted)", margin: 0, overflowWrap: "anywhere" }}>
               No account? Set the VSNOTE_BOOTSTRAP env vars on the server.
             </p>
             <div style={{ display: "flex", gap: 8 }}>
@@ -466,7 +463,22 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <Stepper steps={STEP_IDS.map((id) => ({ id, label: STEP_LABELS[id] }))} current={stepIndex} onStepClick={(i) => setStep(STEP_IDS[i])} />
 
-            {step === "mode" && (
+            {/* fix(share) R5 — every step panel below is ALWAYS mounted, in
+                the SAME grid cell (`gridArea: "1 / 1"` on each, no explicit
+                `gridTemplateAreas`/`gridTemplateRows`/`gridTemplateColumns`
+                needed: with no other placement, every item defaults into
+                row 1 / column 1 the moment more than one shares that area),
+                so the grid track's auto height is the MAX of all steps'
+                natural heights — measured by real layout, not a hardcoded
+                min/max-height guess. Only the active step is `visibility:
+                visible`; the rest stay `hidden` (still laid out and
+                therefore still contributing to that height) with
+                `pointerEvents: "none"` so a hidden step's controls can never
+                be tabbed/clicked into. This is what keeps the dialog's
+                height IDENTICAL across every step and the footer pinned by
+                construction, with no overflow-y anywhere in this body. */}
+            <div style={{ display: "grid", minWidth: 0 }}>
+              <div style={{ gridArea: "1 / 1", minWidth: 0, visibility: step === "mode" ? "visible" : "hidden", pointerEvents: step === "mode" ? undefined : "none" }}>
               <FormField label="Share as">
                 <SegmentedControl size="sm" fullWidth value={renderMode} onChange={setRenderMode} aria-label="Delivery" options={deliveryOptions} />
                 <p style={{ fontSize: 12, color: "var(--color-muted)", margin: "8px 0 0" }} data-testid="publish-mode-description">
@@ -478,9 +490,9 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                   </p>
                 )}
               </FormField>
-            )}
+              </div>
 
-            {step === "access" && (
+              <div style={{ gridArea: "1 / 1", minWidth: 0, visibility: step === "access" ? "visible" : "hidden", pointerEvents: step === "access" ? undefined : "none" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <FormField label="Who can open it">
                   <RadioGroup value={generalAccess} onValueChange={(v) => setGeneralAccess(v as GeneralAccess)} data-testid="publish-general-access" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -567,9 +579,9 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                   </FormField>
                 )}
               </div>
-            )}
+              </div>
 
-            {step === "protection" && (
+              <div style={{ gridArea: "1 / 1", minWidth: 0, visibility: step === "protection" ? "visible" : "hidden", pointerEvents: step === "protection" ? undefined : "none" }}>
               <FormField label="Protection" hint={authMode === "token" ? "A per-share token is minted for you after publishing; callers send it as an Authorization: Bearer header." : undefined}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Select value={authMode} onValueChange={(v) => setAuthMode(v as AuthMode)}>
@@ -606,12 +618,12 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                   </Alert>
                 )}
               </FormField>
-            )}
+              </div>
 
-            {step === "link" && (
+              <div style={{ gridArea: "1 / 1", minWidth: 0, visibility: step === "link" ? "visible" : "hidden", pointerEvents: step === "link" ? undefined : "none" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ display: "flex", gap: 12 }}>
-                  <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <FormField label="Expiry">
                       <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 32 }}>
                         <Switch
@@ -631,7 +643,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                       </div>
                     </FormField>
                   </div>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <FormField label="Custom alias" error={aliasCheck.valid ? undefined : aliasCheck.reason}>
                       <Input
                         size="sm"
@@ -705,13 +717,14 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                   </FormField>
                 )}
               </div>
-            )}
+              </div>
 
-            {step === "result" && result && link && (
+              <div style={{ gridArea: "1 / 1", minWidth: 0, visibility: step === "result" ? "visible" : "hidden", pointerEvents: step === "result" ? undefined : "none" }}>
+              {result && link && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <FormField label="Share link">
                   <div style={{ display: "flex", gap: 8 }}>
-                    <Input size="sm" readOnly value={link} data-testid="publish-result-link" style={{ flex: 1 }} onFocus={(e) => e.currentTarget.select()} />
+                    <Input size="sm" readOnly value={link} data-testid="publish-result-link" style={{ flex: 1, minWidth: 0 }} onFocus={(e) => e.currentTarget.select()} />
                     <Button type="button" size="sm" variant="secondary" onClick={() => void copyText("link", link)} data-testid="publish-copy-link">
                       {copiedField === "link" ? <Check size={13} /> : <Copy size={13} />}
                       {copiedField === "link" ? "Copied" : "Copy"}
@@ -754,7 +767,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                           value={mintedToken.token}
                           aria-label="Generated share token"
                           data-testid="publish-generated-token"
-                          style={{ flex: 1, fontFamily: "var(--font-mono)" }}
+                          style={{ flex: 1, minWidth: 0, fontFamily: "var(--font-mono)" }}
                           onFocus={(e) => e.currentTarget.select()}
                         />
                         <Button type="button" size="sm" variant="secondary" onClick={() => void copyText("token", mintedToken.token)} data-testid="publish-copy-token">
@@ -765,7 +778,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                     </FormField>
                     <FormField label="Try it">
                       <div style={{ display: "flex", gap: 8 }}>
-                        <Input size="sm" readOnly value={curlLine ?? ""} data-testid="publish-curl-line" style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 11.5 }} onFocus={(e) => e.currentTarget.select()} />
+                        <Input size="sm" readOnly value={curlLine ?? ""} data-testid="publish-curl-line" style={{ flex: 1, minWidth: 0, fontFamily: "var(--font-mono)", fontSize: 11.5 }} onFocus={(e) => e.currentTarget.select()} />
                         <Button type="button" size="sm" variant="secondary" onClick={() => curlLine && void copyText("curl", curlLine)} data-testid="publish-copy-curl">
                           {copiedField === "curl" ? <Check size={13} /> : <Copy size={13} />}
                           {copiedField === "curl" ? "Copied" : "Copy"}
@@ -780,7 +793,9 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                   </Alert>
                 )}
               </div>
-            )}
+              )}
+              </div>
+            </div>
 
             {error && (
               <Alert variant="danger" size="sm">

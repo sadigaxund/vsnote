@@ -861,13 +861,43 @@ dialog and its API-token-as-visitor-credential model.
     is non-empty, an inline warning says a password prompts once PER
     SHARE, so a linked set (a "blog") is better served by no credential or
     restricted access.
-80. **`Stepper` — a new local component, not an upstream import.** `my-you-
-    eye` has no Stepper/Wizard primitive (`skills/components.json`: zero
-    entries for either name; already filed as sadigaxund/my-you-eye#35,
-    not re-filed). `components/local/Stepper.tsx`: numbered dots + labels,
-    a connecting rule, a checkmark "done" state a user can click back to.
-    Deliberately thin — no branching/skip logic, since this dialog's five
-    steps are a fixed linear sequence.
+80. **`Stepper` — a new local component, not an upstream import. Fixed
+    dialog size + a segmented progress design (R5, owner correction) —
+    supersedes this item's original numbered-circle description.** `my-
+    you-eye` has no Stepper/Wizard/Progress primitive
+    (`skills/components.json`: zero entries for any of the three names;
+    already filed as sadigaxund/my-you-eye#35, not re-filed — a comment
+    describing the segmented variant below was added there instead).
+    `components/local/Stepper.tsx` now renders ONE text line ("Step 2 of 5
+    · Who can open" — muted "Step n of N", then the current step's own
+    label) above a 5-segment progress bar (4px-tall segments, 4px gaps,
+    filled solid up to the current step, done segments clickable back) —
+    the original numbered-circle design didn't fit the dialog's fixed
+    480px width once there were five steps (reported directly: "step 5 is
+    cut off, badge digits aren't centered"), and a bar segment, unlike a
+    circle+digit, has no meaningful minimum content width, so this scales
+    to any step count at any width. Same accessibility contract as before
+    (`role="tab"`/`aria-selected` per segment, done segments clickable) —
+    no test-facing regression.
+
+    The DIALOG itself is now a fixed 480px width with a height determined
+    by real layout, not a hardcoded number: every step panel renders
+    simultaneously into ONE CSS grid cell (`gridArea: "1 / 1"` on each),
+    so the grid track's height is the max of all five steps' natural
+    heights; only the active panel is `visibility: visible` (others
+    `hidden` + `pointer-events: none`, still laid out and therefore still
+    contributing to that height). This is what makes the dialog's height
+    IDENTICAL across every step (verified by measuring
+    `getBoundingClientRect()` across all 5 steps in an e2e check) and pins
+    the footer's Back/Continue/Publish row at a constant position by
+    construction, with no `overflow-y: auto`/min-max-height guess anywhere
+    in the body. A genuinely long line (the "No account? Set the
+    VSNOTE_BOOTSTRAP…" hint, previously `white-space: nowrap` with no
+    overflow handling) was the actual cause of the reported horizontal
+    scrollbar — fixed with `overflow-wrap: anywhere`, never `overflow-x:
+    hidden` as a bandage; every flex row holding a long alias/URL/token
+    value also gained `min-width: 0` so it can shrink instead of forcing
+    the row wider than the dialog.
 81. **"Links in this file" (Rendered mode, Link step) — the owner-side half
     of §5's blog feature.** Every relative markdown-file link found in the
     document being published (`share/linksInFile.ts`, built on

@@ -257,22 +257,35 @@ upstream candidates; no new information from the skill analysis changes their sp
   pre-tokenized line spans) doesn't need a from-scratch local component just to
   highlight a language `CodeBlock`'s built-in tokenizer doesn't cover.
 
-### 2.9 `Stepper` (Publish dialog rebuild, 2026-09-06)
+### 2.9 `Stepper` (Publish dialog rebuild, 2026-09-06; redesigned R5 2026-09-08)
 
-- **Gap:** `my-you-eye` has no Stepper/Wizard primitive — `skills/components.json`
-  returns zero entries for either name. Needed for the rebuilt `PublishDialog.tsx`
-  (docs/PLAN-2026-09-05-refresh.md §4): a five-step linear form (Mode -> Who can
-  open -> Protection -> Link -> Result).
-- **Built:** `src/components/local/Stepper.tsx` — numbered dots + labels, a
-  connecting rule, and a checkmark "done" state for a completed step a user can
-  click back to. Deliberately thin: no branching/skip logic, no animation, since
-  this dialog's steps are a fixed sequence, not a graph. Styled with the same
-  token vocabulary as `SegmentedControl.tsx` (this file's nearest local-component
-  sibling) rather than forking any library part.
+- **Gap:** `my-you-eye` has no Stepper/Wizard/Progress primitive —
+  `skills/components.json` returns zero entries for any of the three names.
+  Needed for the rebuilt `PublishDialog.tsx` (docs/PLAN-2026-09-05-refresh.md
+  §4): a five-step linear form (Mode -> Who can open -> Protection -> Link ->
+  Result), and later reused by Settings > Git & Sync's guided connection card.
+- **Built (original, 2026-09-06):** `src/components/local/Stepper.tsx` —
+  numbered dots + labels, a connecting rule, and a checkmark "done" state.
+- **Redesigned (R5, 2026-09-08, owner correction on the fix-1 dialog-height
+  pass):** the numbered-circle design does not scale down to a fixed 480px
+  width once there are five steps — reported as "step 5 is cut off, badge
+  digits aren't centered." Replaced with a compact segmented-progress design:
+  one text line ("Step 2 of 5 · Who can open") above a 5-segment bar (4px
+  tall, 4px gaps, filled solid up to the current step, done segments
+  clickable back). A bar segment has no minimum content width the way a
+  circle-plus-digit does, so this scales to any step count at any dialog
+  width. Same props interface (`steps`/`current`/`onStepClick`/`ariaLabel`/
+  `testidPrefix`) as before — the Git & Sync call site needed no changes.
+  Every existing `data-testid="<prefix>-step-<id>"` / `role="tab"` /
+  `aria-selected` contract (`tests/e2e/publish-dialog-steps.spec.ts`) is
+  unchanged; only what renders INSIDE that element changed.
 - **Filed:** ALREADY EXISTS upstream as sadigaxund/my-you-eye#35 (confirmed via
-  `gh issue list -R sadigaxund/my-you-eye --state all` before building this) — not
-  re-filed. This local component unblocks the dialog rebuild in the meantime, per
-  CLAUDE.md rule 2's "missing component protocol."
+  `gh issue list -R sadigaxund/my-you-eye --state all` before building this) —
+  not re-filed; a comment describing this segmented-progress variant (as a
+  second possible shape for the requested primitive, alongside the original
+  numbered-circle one) was added to that issue instead of opening a duplicate.
+  This local component unblocks both dialogs in the meantime, per CLAUDE.md
+  rule 2's "missing component protocol."
 
 ### 2.10 `Switch` unchecked-state contrast in dark themes (2026-09-06)
 
