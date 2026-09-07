@@ -4066,3 +4066,26 @@ likely they are to bite again.
   header that only surfaced as parser errors two gates later. Land such
   restructurings as ONE atomic edit, and run `tsc -b` immediately after each
   step rather than batching.
+
+## Public reader visitor preferences (R3-5)
+
+The public reader carries a preference layer deliberately separate from the
+rest of the app. `src/share/readerPrefs.ts` persists a visitor's theme,
+font size and code-wrap choice to that visitor's own `localStorage`
+(`vsnote-share-reader-prefs`), independent of the owner's
+`useSettingsStore`/`vsnote-settings` (never imported on this route) and
+never round-tripped to the server: the owner's Rendered-view settings do
+not reach visitors, because the render has to be deterministic and the
+visitor is not the owner. `ShareApp.tsx` resolves the stored values into
+`data-reader-theme` / `data-reader-fontsize` / `data-code-wrap` attributes
+on the `.share-reader` root, and plain attribute-selector CSS in
+`index.css` (kept out of `theme.css`, whose `.share-reader` block is the
+base palette) overrides palette, typography and wrap behaviour from there.
+No JS-driven style computation, no effect on what the server sends, and no
+effect on the owner's own editor. Every `localStorage` read and write is
+wrapped, so a private-mode visitor silently falls back to session-only
+state. The controls themselves are one floating pill
+(`src/share/ReaderPrefsPill.tsx`) built on the library's own
+`SegmentedControl` and `Switch`; it fades on an idle timer through
+`opacity` only, never `display`/`visibility`, so it never leaves the tab
+order.

@@ -278,3 +278,213 @@ textarea,
 :where(.atomic-cm-editor, .atomic-cm-editor .cm-scroller) .cm-line {
   padding-inline: 0.5rem;
 }
+
+/* ---- Public share reader — selection + R3-5b visitor reading prefs ----
+   `body`'s "Selection discipline" rule above (`user-select: none`, plus its
+   opt-ins on `.cm-editor`/`input`/`textarea`/`[data-selectable-content]`)
+   is a CHROME rule: it never anticipated `.share-reader` (`share/
+   ShareApp.tsx`), which is a static reading page with no editor surface at
+   all, so its prose/code inherited the app's chrome-wide "not selectable"
+   default with no opt-in of its own — visitors could not select or copy
+   the document. This is that opt-in, one class up from the root, same
+   pattern as the existing ones above.
+   The line-number gutter stays unselectable so a code-copy selection
+   doesn't drag the numbers along — `.mk-static-codeblock__lineno` in
+   theme.css already carries its own `user-select: none`; a direct rule on
+   the element itself wins over an ancestor's inherited value regardless of
+   selector specificity, so no change was needed there. */
+.share-reader {
+  user-select: text;
+}
+
+/* The floating prefs pill (`share/ReaderPrefsPill.tsx`) is a control, not
+   document text — same "chrome, not content" reasoning as the rest of the
+   app, just declared locally instead of relying on inheriting `body`'s
+   (here-overridden) default. Comes after `.share-reader` above so it wins
+   on source order at equal specificity. */
+.share-reader-prefs {
+  user-select: none;
+}
+
+/* Visitor reading preferences (`share/readerPrefs.ts`) — theme / font size
+   / code wrap, persisted to the VISITOR's own localStorage and applied
+   ONLY to this rendered document. `ReaderPage` (`ShareApp.tsx`) stamps the
+   resolved values as attributes on the same `.share-reader` root that
+   carries the palette theme.css defines — these rules override that
+   palette (an attribute selector on `.share-reader` outweighs theme.css's
+   bare `.share-reader`/`@media` rules regardless of import order) and the
+   base `.mk-doc`/`.mk-static-codeblock` typography (two-class selectors
+   below outweigh theme.css's one-class rules the same way). Kept here
+   rather than in theme.css since that file's `.share-reader` block is out
+   of scope for this change.
+
+   Theme: `theme === "system"` (the default) sets NO `data-reader-theme`
+   attribute at all, so theme.css's own `prefers-color-scheme` media query
+   keeps governing unmodified — only an explicit visitor override needs a
+   rule here. Values duplicated from theme.css's `.share-reader` light
+   block and its `@media (prefers-color-scheme: dark)` block; keep the two
+   in sync if either palette changes. */
+.share-reader[data-reader-theme="light"] {
+  --mk-bg: #f7f8fa;
+  --mk-raised: #ffffff;
+  --mk-fg: #1c1f26;
+  --mk-surface: #ffffff;
+  --mk-surface-strong: #eef0f2;
+  --mk-border: #dde1e6;
+  --mk-muted: #64707c;
+  --mk-faint: #9aa4ad;
+  --mk-accent: #0f8f86;
+  --mk-on-accent: #ffffff;
+  --color-bg: var(--mk-bg);
+  --color-fg: var(--mk-fg);
+  --color-muted: var(--mk-muted);
+  --color-border: var(--mk-border);
+  --color-surface: var(--mk-surface);
+  --color-surface-hover: var(--mk-surface-strong);
+  --color-surface-active: var(--mk-surface-strong);
+  --color-surface-elevated: var(--mk-raised);
+  --color-surface-opaque: var(--mk-surface);
+  --color-primary: var(--mk-accent);
+  --color-primary-fg: var(--mk-on-accent);
+  --color-ring: var(--mk-accent);
+  --color-secondary: var(--mk-surface-strong);
+  --color-secondary-fg: var(--mk-fg);
+  --color-code-bg: var(--mk-bg);
+  --color-code-fg: #0a6e66;
+  --color-code-muted: var(--mk-muted);
+  --app-editor-bg: var(--mk-bg);
+  --app-chrome-bg: var(--mk-bg);
+  --markdown-code-color: #0a6e66;
+  --syntax-keyword: #0f8f86;
+  --syntax-function: #0f8f86;
+  --syntax-type: #a06400;
+  --syntax-number: #a06400;
+  --syntax-variable: #1c1f26;
+  --syntax-punctuation: #1c1f26;
+  --syntax-operator: #0a6e66;
+  --syntax-string: #0a6e66;
+  --syntax-comment: #64707c;
+  color-scheme: light;
+  background: var(--mk-bg);
+  color: var(--mk-fg);
+}
+.share-reader[data-reader-theme="dark"] {
+  --mk-bg: #101318;
+  --mk-raised: #1c1f26;
+  --mk-fg: #d8dfe6;
+  --mk-surface: #15171c;
+  --mk-surface-strong: #1c1f26;
+  --mk-border: #23262d;
+  --mk-muted: #848a92;
+  --mk-faint: #4a4f57;
+  --mk-accent: #27d2c5;
+  --mk-on-accent: #04201c;
+  --color-bg: var(--mk-bg);
+  --color-fg: var(--mk-fg);
+  --color-muted: var(--mk-muted);
+  --color-border: var(--mk-border);
+  --color-surface: var(--mk-surface);
+  --color-surface-hover: var(--mk-surface-strong);
+  --color-surface-active: var(--mk-surface-strong);
+  --color-surface-elevated: var(--mk-raised);
+  --color-surface-opaque: var(--mk-surface);
+  --color-primary: var(--mk-accent);
+  --color-primary-fg: var(--mk-on-accent);
+  --color-ring: var(--mk-accent);
+  --color-secondary: var(--mk-surface-strong);
+  --color-secondary-fg: var(--mk-fg);
+  --color-code-bg: var(--mk-bg);
+  --color-code-fg: #a8d578;
+  --color-code-muted: var(--mk-muted);
+  --app-editor-bg: var(--mk-bg);
+  --app-chrome-bg: var(--mk-bg);
+  --markdown-code-color: #a8d578;
+  --syntax-keyword: #27d2c5;
+  --syntax-function: #27d2c5;
+  --syntax-type: #eab444;
+  --syntax-number: #eab444;
+  --syntax-variable: #d8dfe6;
+  --syntax-punctuation: #d8dfe6;
+  --syntax-operator: #a8d578;
+  --syntax-string: #a8d578;
+  --syntax-comment: #848a92;
+  color-scheme: dark;
+  background: var(--mk-bg);
+  color: var(--mk-fg);
+}
+
+/* Font size: "m" (medium, the default) sets no attribute and keeps
+   theme.css's base 16px/13px sizes. `.mk-doc`'s headings/inline code all
+   use `em`, so resizing its own `font-size` scales the whole document. */
+.share-reader[data-reader-fontsize="s"] .mk-doc {
+  font-size: 14px;
+}
+.share-reader[data-reader-fontsize="l"] .mk-doc {
+  font-size: 18px;
+}
+.share-reader[data-reader-fontsize="s"] .mk-static-codeblock {
+  font-size: 12px;
+}
+.share-reader[data-reader-fontsize="l"] .mk-static-codeblock {
+  font-size: 15px;
+}
+
+/* Code wrap: default is ON (per readerPrefs.ts's stated default), which is
+   the OPPOSITE of theme.css's un-scoped `.mk-static-codeblock` default (no
+   wrap, horizontal scroll — the right choice for the app's own Rendered
+   mode and print/export, both untouched here). `ReaderPage` always sets
+   this attribute (never omits it), so the "on" rule below is what visitors
+   actually see out of the box; "off" restores theme.css's scroll behavior. */
+.share-reader[data-code-wrap="on"] .mk-static-codeblock {
+  overflow-x: hidden;
+}
+.share-reader[data-code-wrap="on"] .mk-static-codeblock__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.share-reader[data-code-wrap="off"] .mk-static-codeblock {
+  overflow-x: auto;
+}
+.share-reader[data-code-wrap="off"] .mk-static-codeblock__text {
+  white-space: pre;
+}
+
+/* The pill itself: fixed bottom-right, fades to a low-opacity "present but
+   out of the way" state after `ReaderPrefsPill.tsx`'s 2.5s idle timer, and
+   is forced back to full opacity by `:hover`/`:focus-within` independent of
+   that JS timer — so a keyboard user who has Tab-focused a control inside
+   it is never faded out, and pointer users get an immediate response on
+   hover even a frame before the timer's own `pointermove` listener fires.
+   Never `display:none`/`visibility:hidden`: only `opacity`, so it stays in
+   the tab order and reachable by Tab at every idle state (reduced-motion
+   visitors get the instant snap from this file's global `prefers-reduced-
+   motion` rule above, which zeroes all transition durations). */
+.share-reader-prefs {
+  position: fixed;
+  right: 16px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--mk-raised, var(--color-surface-elevated));
+  border: 1px solid var(--mk-border, var(--color-border));
+  box-shadow: var(--shadow-card);
+  opacity: 0.35;
+  transition: opacity 160ms ease;
+  z-index: 20;
+}
+.share-reader-prefs:hover,
+.share-reader-prefs:focus-within,
+.share-reader-prefs[data-awake="true"] {
+  opacity: 1;
+}
+.share-reader-prefs__wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mk-muted, var(--color-muted));
+  cursor: pointer;
+}

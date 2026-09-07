@@ -145,3 +145,130 @@ test.describe("chrome-less public reader", () => {
     await secondContext.close();
   });
 });
+
+test.describe("R3-5: selectable reading text + visitor reading preferences", () => {
+  test("reader body text is selectable, and a code block's line-number gutter is excluded from the selection", async ({ page, browser }) => {
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
+    const content = [
+      "# Selectable text",
+      "",
+      "This paragraph is real reading content a visitor must be able to select and copy.",
+      "",
+      "```txt",
+      "line one",
+      "line two",
+      "line three",
+      "```",
+      "",
+    ].join("\n");
+    const path = await createFileWithContent(page, "vault/notes", "selection-doc.md", content);
+    const link = await publishFileViaContextMenu(page, { treePath: path, generalAccess: "link", renderMode: "rendered" });
+
+    const secondContext = await browser.newContext();
+    const secondPage = await secondContext.newPage();
+    await secondPage.goto(link);
+
+    // Prose: triple-clicking a paragraph must yield a real, non-empty
+    // selection (the bug: `body`'s chrome-wide `user-select: none` reached
+    // this route with no opt-in, so nothing was selectable at all).
+    await secondPage.getByText("This paragraph is real reading content", { exact: false }).click({ clickCount: 3 });
+    const proseSelection = await secondPage.evaluate(() => window.getSelection()?.toString() ?? "");
+    expect(proseSelection.trim().length).toBeGreaterThan(0);
+    expect(proseSelection).toContain("real reading content");
+
+    // Code block: drag-select from inside the first line's TEXT (never the
+    // gutter) down through the third line's text. A real browser excludes
+    // `user-select: none` subtrees from the resulting selection, so the
+    // line-number spans ("1"/"2"/"3") must not appear glued to their line's
+    // text even though they sit right next to it in the DOM.
+    const lines = secondPage.locator(".mk-static-codeblock__text");
+    const firstBox = await lines.nth(0).boundingBox();
+    const lastBox = await lines.nth(2).boundingBox();
+    if (!firstBox || !lastBox) throw new Error("code block lines not found");
+    await secondPage.mouse.move(firstBox.x + 2, firstBox.y + firstBox.height / 2);
+    await secondPage.mouse.down();
+    await secondPage.mouse.move(lastBox.x + lastBox.width - 2, lastBox.y + lastBox.height / 2, { steps: 5 });
+    await secondPage.mouse.up();
+    const codeSelection = await secondPage.evaluate(() => window.getSelection()?.toString() ?? "");
+    const normalized = codeSelection.replace(/\s+/g, "");
+    expect(normalized).toContain("lineone");
+    expect(normalized).toContain("linethree");
+    // The tell-tale sign of a gutter digit leaking into the selection: it
+    // would sit immediately before its line's text with nothing between.
+    expect(normalized).not.toMatch(/1lineone/);
+    expect(normalized).not.toMatch(/2linetwo/);
+    expect(normalized).not.toMatch(/3linethree/);
+
+    await secondContext.close();
+  });
+
+  test("reading-preferences pill: exists, its controls visibly change the document, and the choice survives a reload", async ({
+    page,
+    browser,
+  }) => {
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
+    const content = [
+      "# Reading preferences",
+      "",
+      "Some prose whose rendered size changes with the font-size control.",
+      "",
+      "```txt",
+      "a single very long unbroken line of code that behaves differently wrapped vs scrolled",
+      "```",
+      "",
+    ].join("\n");
+    const path = await createFileWithContent(page, "vault/notes", "prefs-doc.md", content);
+    const link = await publishFileViaContextMenu(page, { treePath: path, generalAccess: "link", renderMode: "rendered" });
+
+    const secondContext = await browser.newContext();
+    const secondPage = await secondContext.newPage();
+    await secondPage.goto(link);
+
+    const pill = secondPage.getByTestId("share-reader-prefs");
+    await expect(pill).toBeVisible();
+    await expect(pill).toHaveAttribute("role", "group");
+
+    const readerRoot = secondPage.locator(".share-reader");
+    const doc = secondPage.locator(".mk-doc");
+    const codeText = secondPage.locator(".mk-static-codeblock__text").first();
+
+    // Defaults, stated in `readerPrefs.ts`: system theme (no override
+    // attribute), medium font, wrap on.
+    await expect(readerRoot).not.toHaveAttribute("data-reader-theme");
+    await expect(readerRoot).toHaveAttribute("data-reader-fontsize", "m");
+    await expect(readerRoot).toHaveAttribute("data-code-wrap", "on");
+    await expect(codeText).toHaveCSS("white-space", "pre-wrap");
+
+    // Font size: choosing "L" visibly grows the document's base font-size.
+    const baseFontSize = await doc.evaluate((el) => getComputedStyle(el).fontSize);
+    await pill.getByRole("radio", { name: "L", exact: true }).click({ force: true });
+    await expect(readerRoot).toHaveAttribute("data-reader-fontsize", "l");
+    await expect.poll(async () => doc.evaluate((el) => getComputedStyle(el).fontSize)).not.toBe(baseFontSize);
+
+    // Theme: choosing "Dark" visibly changes the reader's background.
+    const baseBg = await readerRoot.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await pill.getByRole("radio", { name: "Dark", exact: true }).click({ force: true });
+    await expect(readerRoot).toHaveAttribute("data-reader-theme", "dark");
+    await expect.poll(async () => readerRoot.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(baseBg);
+
+    // Wrap: turning it off switches the code line from wrapping to a
+    // single unbroken (scrollable) line.
+    await pill.getByTestId("share-reader-prefs-wrap").click({ force: true });
+    await expect(readerRoot).toHaveAttribute("data-code-wrap", "off");
+    await expect(codeText).toHaveCSS("white-space", "pre");
+
+    // All three choices survive a reload (persisted to the VISITOR's own
+    // localStorage, `vsnote-share-reader-prefs`).
+    await secondPage.reload();
+    await expect(secondPage.locator(".share-reader")).toHaveAttribute("data-reader-theme", "dark");
+    await expect(secondPage.locator(".share-reader")).toHaveAttribute("data-reader-fontsize", "l");
+    await expect(secondPage.locator(".share-reader")).toHaveAttribute("data-code-wrap", "off");
+    await expect(secondPage.locator(".mk-static-codeblock__text").first()).toHaveCSS("white-space", "pre");
+
+    await secondContext.close();
+  });
+});

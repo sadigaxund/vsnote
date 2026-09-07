@@ -44,6 +44,25 @@
  * document's first H1 after a successful load (client-side only — the
  * server's own `show_title` meta injection is a separate, narrower
  * mechanism, untouched by this file).
+ *
+ * R3-5 additions:
+ * 5. **Selectable reading text.** `index.css`'s global chrome rule (`body {
+ *    user-select: none }`, meant for the tree/tabs/bars/menus) was reaching
+ *    this route too since `.share-reader` never opted back in the way
+ *    `.cm-editor`/`[data-selectable-content]` do — visitors could not
+ *    select or copy the document. `index.css`'s "Visitor reading
+ *    preferences" block now sets `.share-reader { user-select: text }`;
+ *    `CodeBlock`'s line-number gutter (`.mk-static-codeblock__lineno`)
+ *    already carried its own `user-select: none` in `theme.css` before this
+ *    change, so a code-copy selection still excludes the numbers.
+ * 6. **Visitor reading preferences** (`readerPrefs.ts`,
+ *    `ReaderPrefsPill.tsx`): theme / font size / code-wrap, persisted to
+ *    the VISITOR's own `localStorage` (never the server, never the app's
+ *    `vsnote-settings`) and applied only to this rendered document via
+ *    `data-reader-theme`/`data-reader-fontsize`/`data-code-wrap` on
+ *    `.share-reader`, set by `ReaderPage` below. Explicitly NOT the owner's
+ *    editor "Rendered view" settings — those are per-owner and this route
+ *    never reads `useSettingsStore` (requirement 1 above still holds).
  */
 import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
@@ -63,6 +82,8 @@ import { renderMarkdown } from "../markdown/render";
 import { CodeBlock } from "../markdown/codeBlock";
 import { inferFileKind } from "../lib/fileTree";
 import { getShareContentSameOrigin, postShareAuth, ShareApiError, type ShareContentOut } from "./api";
+import { ReaderPrefsPill } from "./ReaderPrefsPill";
+import { useReaderPrefs, useResolvedReaderTheme } from "./readerPrefs";
 
 export interface ShareAppProps {
   /** The `<slug>` (or custom alias) segment of `/share/<slug>` — parsed by
@@ -214,7 +235,21 @@ export function ShareApp({ identifier }: ShareAppProps) {
   return <ReaderPage content={content} />;
 }
 
-/** The loaded document — dispatched by kind, no chrome, no editor. */
+/** The loaded document — dispatched by kind, no chrome, no editor.
+ *
+ * R3-5b: renders the one floating `ReaderPrefsPill` (theme / font size /
+ * code wrap, `readerPrefs.ts`) and stamps its resolved values as
+ * `data-reader-theme`/`data-reader-fontsize`/`data-code-wrap` on this root
+ * `.share-reader` element — `index.css`'s "Visitor reading preferences"
+ * block reads those attributes to override `.mk-doc`/`.mk-static-
+ * codeblock` typography and (for an explicit light/dark choice) the
+ * `.share-reader` palette `theme.css` otherwise derives purely from
+ * `prefers-color-scheme`. `theme === "system"` intentionally omits
+ * `data-reader-theme` so that CSS keeps doing the media-query-driven
+ * default rather than this file duplicating it. Binary/HTML views ignore
+ * these (a sandboxed iframe has no typography to resize; a "binary file"
+ * empty state has no code to wrap), but the pill still renders for them —
+ * it's a constant per-route affordance, not conditional on content kind. */
 function ReaderPage({ content }: { content: ShareContentOut }) {
   const name = baseName(content.source_path);
   const kind = inferFileKind(name);
@@ -223,8 +258,16 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
   const isHtml = !isBinary && kind === "html";
   const wide = isHtml; // the sandboxed iframe fills the viewport; everything else reads in a column.
 
+  const [prefs, updatePrefs] = useReaderPrefs();
+  const resolvedTheme = useResolvedReaderTheme(prefs.theme);
+
   return (
-    <div className="share-reader">
+    <div
+      className="share-reader"
+      data-reader-theme={prefs.theme === "system" ? undefined : resolvedTheme}
+      data-reader-fontsize={prefs.fontSize}
+      data-code-wrap={prefs.codeWrap ? "on" : "off"}
+    >
       <main id="share-main" className={wide ? "share-reader__page share-reader__page--wide" : "share-reader__page"}>
         {content.back_link && (
           <a href={content.back_link.href} className="share-reader__backlink" data-testid="share-back-link">
@@ -244,6 +287,7 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
           </div>
         )}
       </main>
+      <ReaderPrefsPill prefs={prefs} onChange={updatePrefs} />
     </div>
   );
 }

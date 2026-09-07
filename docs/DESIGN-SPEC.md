@@ -1252,3 +1252,19 @@ items OVERRIDE anything above them.
      first line when arriving from above and its last line when arriving
      from below, where the existing cursor-reveal rule shows the raw
      source for editing, exactly as it does for inline syntax.
+
+111. **The public reader's document text is selectable, and a visitor gets
+     their own small reading controls.** `body`'s chrome-wide
+     `user-select: none` had opt-ins for the editor and form controls but
+     never for `.share-reader`, so a visitor could not select or copy a
+     word of a shared document; the reader now opts in, while a code
+     block's line-number gutter stays unselectable so copying code does
+     not drag the numbers along. The owner's Rendered-view settings do NOT
+     apply to visitors: the render is deterministic and the visitor is not
+     the owner. Instead the reader carries one unobtrusive floating pill,
+     bottom-right, fading when idle and returning on hover, focus or
+     pointer movement, holding exactly three visitor preferences: theme
+     (system, light, dark), font size (S, M, L) and code line-wrap. They
+     live in the visitor's own browser storage, apply only to the rendered
+     document, and add no other chrome, navigation or branding to the
+     page.
