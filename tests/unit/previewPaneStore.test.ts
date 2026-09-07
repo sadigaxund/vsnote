@@ -1,67 +1,42 @@
 /**
- * R3-11 — pins `useTabsStore`'s per-tab Preview-pane view state
- * (`OpenTab.previewOpen` + `togglePreview`): a fresh tab starts with
- * preview closed, the toggle flips it (and only for the targeted tab, not
- * every open tab), and closing the tab discards the flag along with the
- * rest of the tab entry — "closes when the source tab closes" falls out of
- * the flag living ON the `OpenTab`, so this test asserts that by reopening
- * the same path and checking the flag reset to falsy, exactly the
- * behavior a fresh open (never explicitly toggled) already has.
+ * R3-11 — the per-tab Preview-pane view state's reducer
+ * (`togglePreviewInTabs`, the pure half of `useTabsStore`'s
+ * `togglePreview`): the flag starts closed, the toggle flips exactly one
+ * tab, and it lives ON the `OpenTab`, which is what makes "the preview
+ * closes when its tab closes" fall out of `closeTab` discarding the entry
+ * rather than needing its own cleanup.
+ *
+ * Deliberately tests the reducer and not the store: `useTabsStore`
+ * transitively imports `fs/client.ts`, which instantiates lightning-fs at
+ * import time and is barred from the unit suite by
+ * `tests/unit/fsIsolation.test.ts`. The store-to-reducer wiring and the
+ * toggle's UI are covered end to end by `tests/e2e/preview-pane.spec.ts`.
  */
-import { beforeEach, describe, expect, it } from "vitest";
-import { findLeaf, useTabsStore } from "../../src/stores/useTabsStore";
+import { describe, expect, it } from "vitest";
+import { togglePreviewInTabs, type PreviewTogglableTab } from "../../src/stores/previewViewState";
 
-const FILE_A = { path: "vault/notes/architecture.md", name: "architecture.md", kind: "md" as const };
-const FILE_B = { path: "vault/notes/other.md", name: "other.md", kind: "md" as const };
+const A: PreviewTogglableTab = { path: "vault/notes/architecture.md" };
+const B: PreviewTogglableTab = { path: "vault/notes/other.md" };
 
-function resetStore(): void {
-  useTabsStore.setState({
-    tree: { type: "leaf", id: "root", tabs: [], activeTabId: undefined },
-    activePaneId: "root",
-  });
-}
-
-beforeEach(() => {
-  resetStore();
-});
-
-describe("useTabsStore preview pane view state (R3-11)", () => {
-  it("a newly opened tab has preview closed by default", () => {
-    useTabsStore.getState().openFile(FILE_A, { pin: true });
-    const leaf = findLeaf(useTabsStore.getState().tree, "root");
-    expect(leaf?.tabs[0]?.previewOpen).toBeFalsy();
+describe("togglePreviewInTabs (R3-11)", () => {
+  it("a tab that was never toggled has preview closed", () => {
+    expect(A.previewOpen).toBeFalsy();
   });
 
-  it("togglePreview flips only the targeted tab's flag", () => {
-    useTabsStore.getState().openFile(FILE_A, { pin: true });
-    useTabsStore.getState().openFile(FILE_B, { pin: true });
-
-    useTabsStore.getState().togglePreview(FILE_A.path, "root");
-    let leaf = findLeaf(useTabsStore.getState().tree, "root");
-    expect(leaf?.tabs.find((t) => t.path === FILE_A.path)?.previewOpen).toBe(true);
-    expect(leaf?.tabs.find((t) => t.path === FILE_B.path)?.previewOpen).toBeFalsy();
-
-    useTabsStore.getState().togglePreview(FILE_A.path, "root");
-    leaf = findLeaf(useTabsStore.getState().tree, "root");
-    expect(leaf?.tabs.find((t) => t.path === FILE_A.path)?.previewOpen).toBe(false);
+  it("flips only the targeted tab", () => {
+    const once = togglePreviewInTabs([A, B], A.path);
+    expect(once.find((t) => t.path === A.path)?.previewOpen).toBe(true);
+    expect(once.find((t) => t.path === B.path)?.previewOpen).toBeFalsy();
   });
 
-  it("togglePreview defaults to the focused pane when no paneId is given", () => {
-    useTabsStore.getState().openFile(FILE_A, { pin: true });
-    useTabsStore.getState().togglePreview(FILE_A.path);
-    const leaf = findLeaf(useTabsStore.getState().tree, useTabsStore.getState().activePaneId);
-    expect(leaf?.tabs[0]?.previewOpen).toBe(true);
+  it("flips back off, and leaves the tab order alone", () => {
+    const twice = togglePreviewInTabs(togglePreviewInTabs([A, B], A.path), A.path);
+    expect(twice.map((t) => t.path)).toEqual([A.path, B.path]);
+    expect(twice.find((t) => t.path === A.path)?.previewOpen).toBe(false);
   });
 
-  it("closing a tab and reopening the same path starts with preview closed again", () => {
-    useTabsStore.getState().openFile(FILE_A, { pin: true });
-    useTabsStore.getState().togglePreview(FILE_A.path, "root");
-    expect(findLeaf(useTabsStore.getState().tree, "root")?.tabs[0]?.previewOpen).toBe(true);
-
-    useTabsStore.getState().closeTab(FILE_A.path, "root");
-    expect(findLeaf(useTabsStore.getState().tree, "root")?.tabs).toHaveLength(0);
-
-    useTabsStore.getState().openFile(FILE_A, { pin: true });
-    expect(findLeaf(useTabsStore.getState().tree, "root")?.tabs[0]?.previewOpen).toBeFalsy();
+  it("returns the same array when no tab matches, so a caller can skip the update", () => {
+    const tabs = [A, B];
+    expect(togglePreviewInTabs(tabs, "vault/notes/missing.md")).toBe(tabs);
   });
 });

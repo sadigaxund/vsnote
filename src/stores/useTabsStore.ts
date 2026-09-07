@@ -38,6 +38,7 @@ import { persist } from "zustand/middleware";
 import { defaultModeFor, modeAvailabilityFor } from "../filetypes/registry";
 import { useSettingsStore } from "./useSettingsStore";
 import type { DiffLayout, DockEdge, EditorMode, FileKind } from "../types";
+import { togglePreviewInTabs } from "./previewViewState";
 
 /** A newly-opened file's mode: the Settings dialog's per-file-type default
  * (DESIGN-SPEC "Misc / settings": "'reading view lock' default mode per
@@ -608,7 +609,7 @@ export const useTabsStore = create<TabsStoreState>()(
         set((state) => ({
           tree: updateLeaf(state.tree, paneId, (pane) => ({
             ...pane,
-            tabs: pane.tabs.map((t) => (t.path === path ? { ...t, previewOpen: !t.previewOpen } : t)),
+            tabs: [...togglePreviewInTabs(pane.tabs, path)],
           })),
         }));
       },
