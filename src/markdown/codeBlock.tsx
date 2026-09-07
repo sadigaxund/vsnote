@@ -29,14 +29,19 @@
  * lives in `codeBlockLogic.ts` (split out so this file's only export is the
  * component, per ESLint's `react-refresh/only-export-components`).
  *
- * Toolbar (R3-7): a wrap toggle + copy button, top-right, above the `<pre>`.
- * `wrap` is a simple optional CONTROLLED prop — the public share reader's
- * visitor reading-preferences pill drives it from there (`ReaderPrefsPill`/
- * `readerPrefs.ts`, wired by a different change) — so when a caller passes
- * `wrap`, this component renders no toggle of its own (an uncontrollable
- * button next to a prop-driven state would just be confusing) and simply
- * reflects the given value; when `wrap` is omitted, an internal toggle with
- * local `useState` takes over (`renderers/CodeView.tsx`'s editor-owned
+ * Toolbar (R3-7, revised for the header-row fix): ONE compact 32px header
+ * row above the `<pre>` — `filename` (mono, muted) on the left when a
+ * caller passes it, a wrap toggle + copy button (both `my-you-eye` `Button`
+ * `size="icon-sm" variant="ghost"`) on the right, sharing the block's own
+ * background/border tokens. `wrap` is a simple optional CONTROLLED prop —
+ * the public share reader's visitor reading-preferences pill (
+ * `ReaderPrefsPill`/`readerPrefs.ts`) and this header's own wrap toggle are
+ * the SAME single source of truth: a controlled caller must also pass
+ * `onWrapChange` so the header toggle mutates the SAME state the pill
+ * reads, rather than the two silently disagreeing (or the header toggle
+ * doing nothing at all, the original bug — only copy rendered). When
+ * `wrap`/`onWrapChange` are both omitted, an internal toggle with local
+ * `useState` takes over (`renderers/CodeView.tsx`'s editor-owned
  * Rendered-mode view, and any other caller that never passes the prop).
  * The copy button reads `navigator.clipboard` at render/click time and
  * simply doesn't render at all when the API is unavailable (an insecure
@@ -49,9 +54,10 @@
  * might render it without) — so dragging a selection across a highlighted
  * line to copy it never drags the line number along too.
  */
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Language } from "@codemirror/language";
 import { Check, Copy, WrapText } from "lucide-react";
+import { Button } from "my-you-eye";
 import { fileTypeForOrPlain } from "../filetypes/registry";
 import type { FileKind } from "../types";
 import { buildHighlightedLines, capCodeLines, CODE_BLOCK_MAX_LINES } from "./codeBlockLogic";
@@ -65,38 +71,43 @@ export interface CodeBlockProps {
   maxLines?: number;
   /** Controlled wrap state — see the module doc's "Toolbar" section. Omit to let the component manage its own (starts unwrapped, matching `theme.css`'s un-scoped `.mk-static-codeblock` default). */
   wrap?: boolean;
+  /** Required alongside a controlled `wrap` for the header's own wrap toggle to do anything — R3-defect fix: the public reader's `ReaderPrefsPill` and this component's header toggle must be the SAME single source of truth (`prefs.codeWrap`), not two independent switches, so a controlled caller wires this straight to its own setter instead of the toggle silently doing nothing. Ignored when `wrap` is omitted (the internal `localWrap` toggle handles itself). */
+  onWrapChange?: (next: boolean) => void;
   /** Extra text appended after the built-in "Showing the first N of M lines" notice — e.g. an editor-owned view can point at its own uncapped Source mode, which the public share reader (no such affordance) leaves unset. */
   truncatedHint?: ReactNode;
+  /** The file's name/path, shown left of the toolbar in one compact 32px header row (filename mono/muted, wrap+copy icon buttons right) — the public share reader's code-file panel passes this instead of rendering its own separate filename row, so filename and toolbar are ONE row, not two. Omitted callers (e.g. `CodeView.tsx`'s app-side Rendered mode, already inside its own chrome) get the toolbar alone, right-aligned, as before. */
+  filename?: string;
 }
 
 function clipboardAvailable(): boolean {
   return typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function";
 }
 
-function toolbarButtonStyle(active: boolean): CSSProperties {
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 22,
-    height: 22,
-    padding: 0,
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-ui-sm)",
-    background: active ? "color-mix(in oklab, var(--color-primary) 16%, transparent)" : "var(--color-surface)",
-    color: active ? "var(--color-primary)" : "var(--color-muted)",
-    cursor: "pointer",
-  };
-}
-
 /** Static highlighted `<pre>` with line numbers. Degrades to plain escaped text for an unknown/unsupported language (no `language.parser` resolved), and never chokes on a very large file (see `capCodeLines`/`CODE_BLOCK_MAX_LINES`). */
-export function CodeBlock({ code, kind, path, maxLines = CODE_BLOCK_MAX_LINES, wrap: wrapProp, truncatedHint }: CodeBlockProps): ReactNode {
+export function CodeBlock({
+  code,
+  kind,
+  path,
+  maxLines = CODE_BLOCK_MAX_LINES,
+  wrap: wrapProp,
+  onWrapChange,
+  truncatedHint,
+  filename,
+}: CodeBlockProps): ReactNode {
   const capped = capCodeLines(code, maxLines);
   const [language, setLanguage] = useState<Language | undefined>(undefined);
   const [localWrap, setLocalWrap] = useState(false);
   const [copied, setCopied] = useState(false);
   const wrapControlled = wrapProp !== undefined;
   const wrap = wrapControlled ? wrapProp : localWrap;
+  const canToggleWrap = !wrapControlled || onWrapChange !== undefined;
+  function toggleWrap() {
+    if (wrapControlled) {
+      onWrapChange?.(!wrap);
+    } else {
+      setLocalWrap((w) => !w);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -144,34 +155,45 @@ export function CodeBlock({ code, kind, path, maxLines = CODE_BLOCK_MAX_LINES, w
 
   const lines = buildHighlightedLines(capped.code, language);
   const lineNumberWidth = String(lines.length).length;
-  const showToolbar = !wrapControlled || clipboardAvailable();
+  const canCopy = clipboardAvailable();
+  const showToolbar = canToggleWrap || canCopy;
 
   return (
     <div>
-      {showToolbar && (
-        <div className="mk-static-codeblock__toolbar" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 4 }}>
-          {!wrapControlled && (
-            <button
-              type="button"
-              onClick={() => setLocalWrap((w) => !w)}
-              aria-pressed={wrap}
-              aria-label={wrap ? "Disable line wrap" : "Enable line wrap"}
-              title={wrap ? "Disable line wrap" : "Enable line wrap"}
-              style={toolbarButtonStyle(wrap)}
-            >
-              <WrapText size={13} aria-hidden />
-            </button>
-          )}
-          {clipboardAvailable() && (
-            <button
-              type="button"
-              onClick={() => void handleCopy()}
-              aria-label="Copy code"
-              title="Copy code"
-              style={toolbarButtonStyle(false)}
-            >
-              {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
-            </button>
+      {(filename || showToolbar) && (
+        <div
+          className="mk-static-codeblock__header"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: filename ? "space-between" : "flex-end",
+            gap: 6,
+            height: 32,
+            padding: "0 8px",
+          }}
+        >
+          {filename && <span className="mk-static-codeblock__filename">{filename}</span>}
+          {showToolbar && (
+            <div className="mk-static-codeblock__toolbar" style={{ display: "flex", gap: 4 }}>
+              {canToggleWrap && (
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={toggleWrap}
+                  aria-pressed={wrap}
+                  aria-label={wrap ? "Disable line wrap" : "Enable line wrap"}
+                  title={wrap ? "Disable line wrap" : "Enable line wrap"}
+                >
+                  <WrapText size={14} aria-hidden />
+                </Button>
+              )}
+              {canCopy && (
+                <Button type="button" size="icon-sm" variant="ghost" onClick={() => void handleCopy()} aria-label="Copy code" title="Copy code">
+                  {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+                </Button>
+              )}
+            </div>
           )}
         </div>
       )}

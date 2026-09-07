@@ -256,7 +256,13 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
   const isMarkdown = kind === "md" || kind === "mkmd";
   const isBinary = content.content_encoding === "base64";
   const isHtml = !isBinary && kind === "html";
+  const isCode = !isBinary && !isHtml && !isMarkdown;
   const wide = isHtml; // the sandboxed iframe fills the viewport; everything else reads in a column.
+  const pageClassName = wide
+    ? "share-reader__page share-reader__page--wide"
+    : isCode
+      ? "share-reader__page share-reader__page--code"
+      : "share-reader__page";
 
   const [prefs, updatePrefs] = useReaderPrefs();
   const resolvedTheme = useResolvedReaderTheme(prefs.theme);
@@ -268,7 +274,7 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
       data-reader-fontsize={prefs.fontSize}
       data-code-wrap={prefs.codeWrap ? "on" : "off"}
     >
-      <main id="share-main" className={wide ? "share-reader__page share-reader__page--wide" : "share-reader__page"}>
+      <main id="share-main" className={pageClassName}>
         {content.back_link && (
           <a href={content.back_link.href} className="share-reader__backlink" data-testid="share-back-link">
             ← {content.back_link.label}
@@ -282,8 +288,7 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
           <div data-testid="share-content">{renderMarkdown(content.content, { links: content.links, codeWrap: prefs.codeWrap })}</div>
         ) : (
           <div className="share-reader__code-panel" data-testid="share-content">
-            <div className="share-reader__code-filename">{name}</div>
-            <CodeBlock code={content.content} kind={kind} path={name} wrap={prefs.codeWrap} />
+            <CodeBlock code={content.content} kind={kind} path={name} filename={name} wrap={prefs.codeWrap} onWrapChange={(codeWrap) => updatePrefs({ codeWrap })} />
           </div>
         )}
       </main>

@@ -882,22 +882,38 @@
   margin: 12px 20px;
 }
 
+/* A code file's lines run long — the 72ch prose column (`.share-reader__page`'s
+   default, tuned for reading paragraphs) wraps/scrolls code far too
+   aggressively. Widened, not full-bleed like `--wide`'s HTML iframe case:
+   still a centered reading column, just a code-appropriate one. Prose
+   (markdown) is untouched. */
+.share-reader__page--code {
+  max-width: 1100px;
+}
+
 /* A shared code/text file reads as a document too — a raised, bordered
    panel with its filename, rather than bare highlighted text floating on
    the page background. `<CodeBlock>` keeps its own flush background
-   inside this panel (theme.css's `.mk-static-codeblock`, unchanged). */
+   inside this panel (theme.css's `.mk-static-codeblock`, unchanged) — its
+   own header row now carries the filename + wrap/copy toolbar as ONE
+   32px row, so this wrapper adds no filename row of its own. */
 .share-reader__code-panel {
   border: 1px solid var(--mk-border);
   border-radius: var(--radius-ui);
   overflow: hidden;
   background: var(--mk-raised);
 }
-.share-reader__code-filename {
-  padding: 8px 16px;
+.mk-static-codeblock__header {
   border-bottom: 1px solid var(--app-border-nested, var(--mk-border));
+  background: var(--mk-raised);
+}
+.mk-static-codeblock__filename {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--mk-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .share-reader__backlink {
