@@ -40,6 +40,17 @@ export interface CodeTableEntry {
 /** One render call's code-fence side table, provided by `render.tsx`'s `renderMarkdown` around its output tree. Empty array default so a component rendered outside that provider (e.g. a unit test) degrades to "no entry found" rather than throwing. */
 export const CodeTableContext = createContext<readonly CodeTableEntry[]>([]);
 
+/**
+ * Whether a rendered document's fenced code blocks wrap, when the SURFACE
+ * owns that choice rather than each block. The public reader does: its
+ * visitor pill (R3-5) sets one wrap preference for the whole document, so
+ * a per-block wrap button there would be a second control fighting the
+ * first, and losing, since the reader applies its choice through CSS on
+ * the document root. `undefined` (the default, and every other surface)
+ * leaves each block with its own toggle.
+ */
+export const CodeWrapContext = createContext<boolean | undefined>(undefined);
+
 /** Fence info-string language names (as commonly written in markdown, lowercased) -> `filetypes/registry.ts`'s `FileKind`. Deliberately small: only the kinds VSNote's own registry has a CM6 language for. Anything else (python, rust, go, an unrecognized alias, or no language at all) returns `undefined`, and `codeBlock.tsx`'s `CodeBlock` already degrades an unrecognized kind to plain, correctly-escaped text — never a crash, never mis-highlighted output. */
 const LANG_ALIASES: Record<string, FileKind> = {
   js: "js",

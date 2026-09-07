@@ -111,7 +111,7 @@ import { createRegistry, mergeRegistries, renderMarkNode, type Registry, type Re
 import type { ValueStore } from "@markii/runtime";
 import { defaultRegistry } from "@markii/react/components";
 import { VSNoteCodeBlock } from "./vsnoteCodeDirective";
-import { CodeTableContext, VSNOTE_CODE_DIRECTIVE_NAME, type CodeTableEntry } from "./vsnoteCodeTable";
+import { CodeTableContext, CodeWrapContext, VSNOTE_CODE_DIRECTIVE_NAME, type CodeTableEntry } from "./vsnoteCodeTable";
 import { buildPackRegistry, type PackForRegistry } from "./packPlaceholderLogic";
 
 export interface RenderMarkdownOptions {
@@ -133,6 +133,14 @@ export interface RenderMarkdownOptions {
    * link there is just a relative link, not a broken share).
    */
   degradeUnresolvedRelativeLinks?: boolean;
+  /**
+   * Wrap every fenced code block, or not, for the whole document, taking
+   * the choice away from each block's own toggle. Set by a surface that
+   * owns wrapping itself: the public reader, whose visitor pill (R3-5)
+   * carries one wrap control for the page. Left undefined everywhere else,
+   * so each block keeps its own button.
+   */
+  codeWrap?: boolean;
   /** Extra directive components merged OVER `@markii/react`'s `defaultRegistry` and this file's own `vsnote-code` entry (later wins). */
   registry?: Registry;
   /**
@@ -334,11 +342,13 @@ export function renderMarkdown(text: string, options: RenderMarkdownOptions = {}
 
   return (
     <CodeTableContext.Provider value={codeTable}>
-      <div className="mk-doc">
-        {root.children.map((node, index) => (
-          <Fragment key={index}>{renderMarkNode(node, registry, options.valueStore, undefined, renderOptions)}</Fragment>
-        ))}
-      </div>
+      <CodeWrapContext.Provider value={options.codeWrap}>
+        <div className="mk-doc">
+          {root.children.map((node, index) => (
+            <Fragment key={index}>{renderMarkNode(node, registry, options.valueStore, undefined, renderOptions)}</Fragment>
+          ))}
+        </div>
+      </CodeWrapContext.Provider>
     </CodeTableContext.Provider>
   );
 }

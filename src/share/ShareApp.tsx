@@ -279,7 +279,7 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
         ) : isHtml ? (
           <HtmlPreview content={content.content} />
         ) : isMarkdown ? (
-          <div data-testid="share-content">{renderMarkdown(content.content, { links: content.links })}</div>
+          <div data-testid="share-content">{renderMarkdown(content.content, { links: content.links, codeWrap: prefs.codeWrap })}</div>
         ) : (
           <div className="share-reader__code-panel" data-testid="share-content">
             <div className="share-reader__code-filename">{name}</div>

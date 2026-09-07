@@ -7,10 +7,11 @@
 import { useContext } from "react";
 import type { MarkComponentProps } from "@markii/react";
 import { CodeBlock } from "./codeBlock";
-import { CodeTableContext, langToFileKind } from "./vsnoteCodeTable";
+import { CodeTableContext, CodeWrapContext, langToFileKind } from "./vsnoteCodeTable";
 
 export function VSNoteCodeBlock({ attributes }: MarkComponentProps) {
   const table = useContext(CodeTableContext);
+  const wrap = useContext(CodeWrapContext);
   const idx = Number(attributes.idx);
   const entry = Number.isInteger(idx) ? table[idx] : undefined;
   // Malformed/missing index (e.g. this component somehow reached without
@@ -18,5 +19,5 @@ export function VSNoteCodeBlock({ attributes }: MarkComponentProps) {
   // degrade to nothing rather than throw, matching Architecture rule 3's
   // never-throw spirit the rest of this pipeline already follows.
   if (!entry) return null;
-  return <CodeBlock code={entry.code} kind={langToFileKind(entry.lang)} />;
+  return <CodeBlock code={entry.code} kind={langToFileKind(entry.lang)} wrap={wrap} />;
 }
