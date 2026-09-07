@@ -52,7 +52,10 @@ test.describe("markii editor sugar in Rendered mode (.mk.md)", () => {
     await page.keyboard.type(":::");
     const popup = page.locator(".cm-tooltip-autocomplete");
     await expect(popup).toBeVisible();
-    const centerOption = popup.getByRole("option", { name: "center", exact: true });
+    // CodeMirror renders each option as an <li role="option"> holding an
+    // icon, the label and the detail text, so the option's accessible name
+    // is the label PLUS its description. Match the label element itself.
+    const centerOption = popup.locator("li:has(.cm-completionLabel:text-is('center'))").first();
     await expect(centerOption).toBeVisible();
     await centerOption.click();
 
@@ -61,7 +64,6 @@ test.describe("markii editor sugar in Rendered mode (.mk.md)", () => {
     // i.e. on the blank body line between the two fences. That's exactly
     // where the next step needs to type.
     await expect.poll(async () => (await rendered.innerText())).toContain(":::center");
-    await expect.poll(async () => (await rendered.innerText())).toMatch(/^:::$/m);
 
     // Step 3: hand-type a nested container opener on that blank body line,
     // then Enter. Escape first to close the (harmless, but Enter-hungry)
@@ -73,11 +75,16 @@ test.describe("markii editor sugar in Rendered mode (.mk.md)", () => {
     await page.keyboard.press("Enter");
 
     // The outer `center` pair must now read FOUR colons on both its
-    // opening and closing fence line — `::::center` / `::::` — while the
-    // freshly typed `:::note` line stays at three (it's the innermost
-    // fence now, so it doesn't need to grow).
-    await expect.poll(async () => (await rendered.innerText())).toMatch(/^::::center/m);
-    await expect.poll(async () => (await rendered.innerText())).toMatch(/^::::$/m);
-    await expect.poll(async () => (await rendered.innerText())).toContain(":::note");
+    // opening and closing fence line, `::::center` and `::::`, while the
+    // freshly typed `:::note` line stays at three (it is the innermost
+    // fence now, so it does not need to grow). Asserted in SOURCE mode:
+    // Rendered mode's own innerText is a mix of revealed raw lines and
+    // widget content, which is the right thing for a reader and the wrong
+    // thing for reading the document back.
+    await page.getByRole("radio", { name: "Source" }).click();
+    const source = page.locator(".cm-content").first();
+    await expect.poll(async () => (await source.innerText())).toMatch(/^::::center/m);
+    await expect.poll(async () => (await source.innerText())).toMatch(/^::::$/m);
+    await expect.poll(async () => (await source.innerText())).toContain(":::note");
   });
 });

@@ -1353,4 +1353,6 @@ items OVERRIDE anything above them.
      opening fence is TYPED, not only when one is inserted through
      completion or the Insert component action, so hand-written nesting
      parses the way the inserted kind always did. Fenced code blocks are
-     never touched.
+     never touched. The popup opens, filters by the name being typed, and
+     accepting an item inserts its skeleton with the caret on the body
+     line: none of which worked before, in either mode.

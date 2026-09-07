@@ -33,9 +33,9 @@
  * duplication that gap required, and the HANDOVER note this is recorded
  * against.
  */
-import { EditorSelection, Prec, type Extension } from "@codemirror/state";
+import { EditorSelection, Prec, type ChangeSet, type Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap, type Tooltip } from "@codemirror/view";
-import { autocompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { autocompletion, completionStatus, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import {
   buildComponentCatalog,
   completionAt,
@@ -90,6 +90,24 @@ function lineAndColumnAt(context: CompletionContext): { lineText: string; column
  * explicit requirement. Shared by the completion popup (`toCmCompletion`)
  * and the standalone "Insert component" command below.
  */
+/**
+ * Where the caret goes after an inserted skeleton.
+ *
+ * `insertCursorOffset` is an offset INTO THE INSERTED TEXT (the blank body
+ * line of a container skeleton), not a document position, so it must be
+ * added to where the insertion lands, never mapped through the changeset
+ * itself. Mapping it directly is what this did before, and on any document
+ * shorter than the offset it threw outright ("Position 13 is out of range
+ * for changeset of length 6"), which is why accepting a completion did
+ * nothing at all: the exception happened inside the accept handler, before
+ * the transaction was dispatched. `mapPos(from, -1)` keeps the position at
+ * the START of the insertion, after any fence-lengthening edits earlier in
+ * the document have shifted it.
+ */
+export function markiiInsertionCursorPos(changes: ChangeSet, from: number, insertCursorOffset: number): number {
+  return changes.mapPos(from, -1) + insertCursorOffset;
+}
+
 function applyMarkiiInsertion(view: EditorView, insertText: string, insertCursorOffset: number, from: number, to: number): void {
   const doc = view.state.doc;
   const insertionLine = doc.lineAt(from).number - 1; // fenceExtensionEdits' lines are zero-based
@@ -105,7 +123,7 @@ function applyMarkiiInsertion(view: EditorView, insertText: string, insertCursor
   ];
 
   const tr = view.state.update({ changes });
-  const cursorPos = tr.changes.mapPos(from + insertCursorOffset, 1);
+  const cursorPos = markiiInsertionCursorPos(tr.changes, from, insertCursorOffset);
   view.dispatch(tr);
   view.dispatch({ selection: EditorSelection.cursor(cursorPos) });
 }
@@ -125,18 +143,47 @@ function toCmCompletion(item: ReturnType<typeof completionAt>["items"][number], 
   };
 }
 
+/**
+ * Where CodeMirror should treat the completion as starting, which is NOT
+ * the same position the accepted item replaces from.
+ *
+ * `completionAt` reports `replaceStart` at the START OF THE FENCE for a
+ * directive name on an otherwise empty line (`completion.ts`'s
+ * `directiveNameCompletionContext`), because the accepted skeleton
+ * replaces the whole `:::` line. That is right for the Obsidian reference
+ * host, whose suggest modal filters against its own query, but wrong as a
+ * `CompletionResult.from`: CodeMirror filters the options against the
+ * document text between `from` and the cursor, so with `from` at the fence
+ * the filter text is `":::"`, which no component label starts with, every
+ * option is filtered out and the popup never opens. That was the real
+ * reason the sugar looked absent, in Source mode as much as in Rendered.
+ *
+ * So the RESULT starts at the token being typed (the name after the colon
+ * run), while each option's `apply` still replaces the full
+ * `replaceStart`..`replaceEnd` range it was built for.
+ */
+function completionTokenStart(lineText: string, column: number, replaceStart: number, kind: string): number {
+  if (kind !== "directive-name") return replaceStart;
+  const typed = lineText.slice(replaceStart, column);
+  const colons = /^:*/.exec(typed)?.[0].length ?? 0;
+  return replaceStart + colons;
+}
+
 /** `@codemirror/autocomplete` `CompletionSource` backed by `@markii/host`'s `completionAt`. */
 export function markiiCompletionSource(context: CompletionContext): CompletionResult | null {
   const { lineText, column, lineFrom } = lineAndColumnAt(context);
   const ctx = completionAt(lineText, column, currentCatalog());
   if (ctx.kind === "none" || ctx.items.length === 0) return null;
 
-  const from = lineFrom + ctx.replaceStart;
-  const to = lineFrom + ctx.replaceEnd;
+  const applyFrom = lineFrom + ctx.replaceStart;
+  const applyTo = lineFrom + ctx.replaceEnd;
+  const from = lineFrom + completionTokenStart(lineText, column, ctx.replaceStart, ctx.kind);
   return {
     from,
-    to,
-    options: ctx.items.map((item) => toCmCompletion(item, from, to)),
+    // Re-filter in place while a name is still being typed instead of
+    // re-querying the catalog on every keystroke.
+    validFor: /^[\w-]*$/,
+    options: ctx.items.map((item) => toCmCompletion(item, applyFrom, applyTo)),
   };
 }
 
@@ -299,6 +346,11 @@ export function manualContainerOpenFenceEdits(documentText: string, openLine: nu
  */
 function handleContainerOpenFenceEnter(view: EditorView): boolean {
   const { state } = view;
+  // While the completion popup is open, Enter belongs to it: accepting
+  // "center" from the list must insert the skeleton, not break the line and
+  // lengthen fences around a half-typed name. This keymap sits at
+  // Prec.highest so it would otherwise shadow the completion keymap.
+  if (completionStatus(state) === "active") return false;
   const sel = state.selection.main;
   if (!sel.empty) return false;
 
