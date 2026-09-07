@@ -36,9 +36,9 @@ export function useEditorRows(): SettingRow[] {
       keywords: "indent spaces tabs",
       content: (
         <SettingsRow label="Tab size" controlWidth="text">
-          <RadioGroup value={String(tabSize)} onValueChange={(v) => setTabSize(Number(v))} style={{ display: "flex", gap: 18 }} aria-label="Tab size">
+          <RadioGroup value={String(tabSize)} onValueChange={(v) => setTabSize(Number(v))} style={{ display: "flex", gap: "var(--settings-control-gap-lg)" }} aria-label="Tab size">
             {TAB_SIZES.map((n) => (
-              <label key={n} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+              <label key={n} style={{ display: "flex", alignItems: "center", gap: "var(--settings-control-gap)", fontSize: 13, cursor: "pointer" }}>
                 <RadioGroupItem value={String(n)} />
                 {n} spaces
               </label>

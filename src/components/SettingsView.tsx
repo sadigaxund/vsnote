@@ -347,15 +347,15 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             (right-side column above ~900px, a wrapping top row below it). */}
         <div className="settings-layout">
           <div className="settings-content">
-            <div style={{ width: "100%", maxWidth: "52rem", display: "flex", flexDirection: "column", gap: 22 }}>
+            <div style={{ width: "100%", maxWidth: "52rem", display: "flex", flexDirection: "column", gap: "var(--settings-section-gap)" }}>
               {sections.map(({ category, rows }, groupIndex) => (
                 <div key={category.id} ref={setSectionRef(category.id)} data-testid={`settings-group-${category.id}`}>
-                  {groupIndex > 0 && <Separator style={{ marginBottom: 22 }} />}
+                  {groupIndex > 0 && <Separator style={{ marginBottom: "var(--settings-section-gap)" }} />}
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: 6,
+                      gap: "var(--settings-control-gap)",
                       fontSize: 11,
                       fontWeight: 700,
                       letterSpacing: "0.06em",
@@ -367,7 +367,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     {category.icon}
                     {category.label}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--settings-row-gap)" }}>
                     {rows.map((row) => (
                       <div key={row.id} data-testid={`settings-row-${row.id}`}>
                         {row.content}

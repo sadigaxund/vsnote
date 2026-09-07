@@ -70,7 +70,7 @@ export function useStorageRows({ persistence, onExportVault, onRequestResetVault
         <SettingsRow label="Restore from remote" controlWidth="full">
           <Alert variant="note" size="sm" data-testid="storage-restore-offer">
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <span style={{ fontSize: 12.5, color: "var(--color-fg)" }}>
+              <span className="settings-hint" style={{ color: "var(--color-fg)" }}>
                 This vault looks new and sync is set up. Pull everything already saved on the server instead of starting from scratch.
               </span>
               <Button
@@ -96,9 +96,9 @@ export function useStorageRows({ persistence, onExportVault, onRequestResetVault
     keywords: "storage persist indexeddb quota durability",
     content: (
       <SettingsRow label="Persistence status" hint="Whether the browser has granted this vault a persistent IndexedDB bucket." controlWidth="text">
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--settings-control-gap)" }}>
           {persistence === undefined ? (
-            <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>Checking…</span>
+            <span className="settings-hint" style={{ color: "var(--color-muted)" }}>Checking…</span>
           ) : (
             <Badge variant={persistence === "granted" ? "success" : persistence === "denied" ? "warning" : "neutral"} tone="soft">
               {persistence === "granted" ? "Persistent storage granted" : persistence === "denied" ? "Storage not persisted" : "Unsupported in this browser"}

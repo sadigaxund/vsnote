@@ -183,21 +183,7 @@ export function useGitRows(): SettingRow[] {
         <SettingsRow label="Vault identity" hint="What Sync talks to right now, not a guess." controlWidth="full">
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <span
-                data-testid="vault-identity-chip"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 7,
-                  padding: "5px 12px",
-                  borderRadius: "var(--radius-ui)",
-                  border: "1px solid var(--color-border)",
-                  background: "var(--color-surface)",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 12.5,
-                  color: "var(--color-fg)",
-                }}
-              >
+              <span data-testid="vault-identity-chip" className="settings-chip">
                 <GitBranch size={13} style={{ color: "var(--color-primary)" }} aria-hidden />
                 {gitRepoName.trim() || DEFAULT_GIT_REPO_NAME}
                 <span style={{ color: "var(--color-muted)" }}>·</span>
@@ -205,7 +191,7 @@ export function useGitRows(): SettingRow[] {
               </span>
               <Badge variant="neutral" tone="soft">{`↑${ahead} ↓${behind}`}</Badge>
             </div>
-            <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>
+            <span className="settings-hint" style={{ color: "var(--color-muted)" }}>
               {gitRemoteOverrideEnabled && gitRemoteOverrideUrl.trim() !== ""
                 ? `Syncs with ${gitRemoteOverrideUrl.trim()}`
                 : "Syncs with this VSNote server. The server's own vault folder is the durable copy of your notes."}
@@ -245,7 +231,7 @@ export function useGitRows(): SettingRow[] {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-fg)" }}>1. Remote</span>
               {!gitRemoteOverrideEnabled && (
-                <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>
+                <span className="settings-hint" style={{ color: "var(--color-muted)" }}>
                   Built-in remote: repository <code style={{ fontFamily: "var(--font-mono)" }}>{gitRepoName.trim() || DEFAULT_GIT_REPO_NAME}</code> on
                   this VSNote server.
                 </span>
@@ -432,7 +418,8 @@ export function useGitRows(): SettingRow[] {
                 {gitTestResult && !gitTesting && (
                   <span
                     data-testid="git-test-result"
-                    style={{ fontSize: 12.5, color: gitTestResult.ok ? "var(--color-muted)" : "var(--git-deleted)" }}
+                    className="settings-hint"
+                    style={{ color: gitTestResult.ok ? "var(--color-muted)" : "var(--git-deleted)" }}
                   >
                     {describeConnectionTest(gitTestResult, gitRemoteOverrideEnabled).message}
                   </span>
@@ -453,7 +440,8 @@ export function useGitRows(): SettingRow[] {
               target="_blank"
               rel="noreferrer"
               data-testid="git-sync-docs-link"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--color-primary)", alignSelf: "flex-start" }}
+              className="settings-hint"
+              style={{ display: "inline-flex", alignItems: "center", gap: "var(--settings-control-gap)", color: "var(--color-primary)", alignSelf: "flex-start" }}
             >
               <ExternalLink size={13} aria-hidden />
               Docs: Git &amp; Sync

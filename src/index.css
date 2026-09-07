@@ -601,6 +601,62 @@ textarea,
   }
 }
 
+/* ---- Settings-scoped spacing/type tokens (round 6, static-pass cleanup:
+   90+ inline `style={{...}}` layout literals across `SettingsView.tsx` +
+   `settings/*.tsx`, several off the 4px grid — a 12.5px "hint" font size
+   repeated a dozen times, gaps of 6/7/14/18/22, a 22px section margin next
+   to an on-grid-but-unnamed 20px one, and one `5px 12px` chip padding).
+   These give every settings call site the SAME handful of values instead
+   of each row picking its own nearby number — colors stay as the
+   `var(--color-*)` tokens they already were; only the layout numbers move
+   here. */
+:root {
+  /* The ONE small "secondary/meta" text size used across every settings
+     category (status chips, inline confirmations, per-shortcut
+     descriptions) — was 12.5px in a dozen places, an off-grid, non-integer
+     size that existed nowhere else in the app's type scale. */
+  --settings-hint-size: 0.8125rem; /* 13px */
+  /* Gap between stacked SettingsRow items within one category's section
+     (SettingsRow.tsx's `SettingsSection`, SettingsView.tsx's per-category
+     row list) — already 20px everywhere it was used; named here so it's a
+     token instead of a repeated magic number. */
+  --settings-row-gap: 20px;
+  /* Gap between one category's whole section and the next — was 22px
+     (the outer column's `gap` and the between-sections `Separator`'s
+     `marginBottom`), snapped to the 4px grid. */
+  --settings-section-gap: 24px;
+  /* Small inline gap for tightly-grouped controls (an icon + its label, a
+     chip's internal spacing) — was 6px/7px in different call sites. */
+  --settings-control-gap: 8px;
+  /* Slightly larger inline gap for a row of short label+control pairs
+     (radio rows, the shortcut list's key/description pairs) — was
+     14px/18px in different call sites. */
+  --settings-control-gap-lg: 16px;
+}
+/* The shared "meta text" look: font-size only — every call site keeps its
+   own `color` (already a `var(--color-*)` token, sometimes muted, sometimes
+   fg, sometimes success/danger) since that varies by row and stays as an
+   inline style. */
+.settings-hint {
+  font-size: var(--settings-hint-size);
+}
+/* The vault-identity chip (`Git.tsx`) — was a one-off inline object with a
+   `5px 12px` padding (the `5` off-grid); consolidated into a class since
+   it's the only settings-category chip and unlikely to grow a second
+   caller. */
+.settings-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--settings-control-gap);
+  padding: 4px 12px;
+  border-radius: var(--radius-ui);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-family: var(--font-mono);
+  font-size: var(--settings-hint-size);
+  color: var(--color-fg);
+}
+
 /* ---- markii directive completion popup (round 5, MK item 2) ----
    `@codemirror/autocomplete`'s default theme renders each option as an
    `<li>` holding `.cm-completionLabel` immediately followed by

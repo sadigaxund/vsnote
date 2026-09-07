@@ -72,7 +72,7 @@ function useReaderAppearanceRows(authenticated: boolean): SettingRow[] {
       label: "Reader appearance",
       keywords: "reader appearance visitor share theme font size wrap column width public page",
       content: (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }} data-testid="reader-appearance-settings">
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--settings-control-gap-lg)" }} data-testid="reader-appearance-settings">
           {error && (
             <Alert variant="danger" size="sm">
               {error}
@@ -188,7 +188,7 @@ export function useSharingRows(): SettingRow[] {
               </Button>
               {reachability === "online" && authenticated && (
                 <>
-                  <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>Signed in as {shareUsername}</span>
+                  <span className="settings-hint" style={{ color: "var(--color-muted)" }}>Signed in as {shareUsername}</span>
                   <Button type="button" variant="ghost" size="sm" data-testid="share-signout" onClick={() => void logoutShareBackend()}>
                     Sign out
                   </Button>
@@ -268,7 +268,7 @@ export function useSharingRows(): SettingRow[] {
                 data-testid="admin-max-blob-mb"
                 style={{ width: 90 }}
               />
-              <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>MB</span>
+              <span className="settings-hint" style={{ color: "var(--color-muted)" }}>MB</span>
               <Button
                 type="button"
                 variant="secondary"

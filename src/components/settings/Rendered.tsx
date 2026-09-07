@@ -92,7 +92,7 @@ export function useRenderedRows(): SettingRow[] {
               const value = readingViewDefaultMode[kind] ?? defaultModeFor(kind);
               return (
                 <div key={kind} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                  <span style={{ fontSize: 12.5, color: "var(--color-fg)" }}>Default view when opening {label}:</span>
+                  <span className="settings-hint" style={{ color: "var(--color-fg)" }}>Default view when opening {label}:</span>
                   <Select value={value} onValueChange={(v) => setReadingViewDefaultMode(kind, v as EditorMode)}>
                     <SelectTrigger size="sm" style={{ width: "12rem" }}>
                       <SelectValue />

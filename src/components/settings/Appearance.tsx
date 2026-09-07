@@ -84,7 +84,7 @@ export function useAppearanceRows(): SettingRow[] {
       keywords: "compact default comfortable spacing density layout tree rows tabs chrome bands",
       content: (
         <SettingsRow label="UI density" hint="Scales chrome height, row/tab padding, and icon spacing." controlWidth="text">
-          <RadioGroup value={uiDensity} onValueChange={(v) => setUiDensity(v as UiDensity)} style={{ display: "flex", gap: 18 }} aria-label="UI density">
+          <RadioGroup value={uiDensity} onValueChange={(v) => setUiDensity(v as UiDensity)} style={{ display: "flex", gap: "var(--settings-control-gap-lg)" }} aria-label="UI density">
             {(
               [
                 { value: "compact", label: "Compact" },
@@ -92,7 +92,7 @@ export function useAppearanceRows(): SettingRow[] {
                 { value: "comfortable", label: "Comfortable" },
               ] as const
             ).map((d) => (
-              <label key={d.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+              <label key={d.value} style={{ display: "flex", alignItems: "center", gap: "var(--settings-control-gap)", fontSize: 13, cursor: "pointer" }}>
                 <RadioGroupItem value={d.value} />
                 {d.label}
               </label>

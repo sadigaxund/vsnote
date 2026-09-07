@@ -29,9 +29,9 @@ export function useKeyboardRows(): SettingRow[] {
         <SettingsRow label="Keyboard shortcuts" controlWidth="full">
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {SHORTCUTS.map((s) => (
-              <div key={s.keys} style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div key={s.keys} style={{ display: "flex", alignItems: "center", gap: "var(--settings-control-gap-lg)" }}>
                 <Kbd style={{ minWidth: 56, textAlign: "center" }}>{s.keys}</Kbd>
-                <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>{s.description}</span>
+                <span className="settings-hint" style={{ color: "var(--color-muted)" }}>{s.description}</span>
               </div>
             ))}
           </div>

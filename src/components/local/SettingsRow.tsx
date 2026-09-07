@@ -101,7 +101,7 @@ export interface SettingsSectionProps {
 /** Vertical rhythm wrapper for one settings category's row list. */
 export function SettingsSection({ children, ...rest }: SettingsSectionProps) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }} data-testid={rest["data-testid"]}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--settings-row-gap)" }} data-testid={rest["data-testid"]}>
       {children}
     </div>
   );

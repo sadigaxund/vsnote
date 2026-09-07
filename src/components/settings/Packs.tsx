@@ -65,9 +65,9 @@ function renderInstalledPacksRow(args: {
           </Alert>
         )}
         {packs.length === 0 ? (
-          <p style={{ fontSize: 12.5, color: "var(--color-muted)", margin: 0 }}>No packs installed yet.</p>
+          <p className="settings-hint" style={{ color: "var(--color-muted)", margin: 0 }}>No packs installed yet.</p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--settings-control-gap)" }}>
             {packs.map((pack) => (
               <div
                 key={pack.namespace}
@@ -84,7 +84,7 @@ function renderInstalledPacksRow(args: {
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                   <Package size={14} aria-hidden />
-                  <span style={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{pack.namespace}</span>
+                  <span className="settings-hint" style={{ fontFamily: "var(--font-mono)" }}>{pack.namespace}</span>
                   {pack.manifest.version && <span style={{ fontSize: 11, color: "var(--color-muted)" }}>v{pack.manifest.version}</span>}
                   <Badge variant={pack.enabled ? "success" : "neutral"} tone="soft">
                     {pack.enabled ? "Enabled" : "Disabled"}
@@ -122,9 +122,9 @@ function renderGrantsRow(args: { grants: GrantRecord[]; onRevoke: (key: string) 
   return (
     <SettingsRow label="Script permissions" hint="Every grant this vault has recorded, per note. Revoking one asks again next time that note runs." controlWidth="full">
       {grants.length === 0 ? (
-        <p style={{ fontSize: 12.5, color: "var(--color-muted)", margin: 0 }}>No scripts have been granted permissions yet.</p>
+        <p className="settings-hint" style={{ color: "var(--color-muted)", margin: 0 }}>No scripts have been granted permissions yet.</p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="markii-grants-list">
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--settings-control-gap)" }} data-testid="markii-grants-list">
           {grants.map((grant) => (
             <div
               key={grant.key}
@@ -140,7 +140,7 @@ function renderGrantsRow(args: { grants: GrantRecord[]; onRevoke: (key: string) 
               }}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                <span style={{ fontSize: 12.5, fontFamily: "var(--font-mono)" }}>{grant.path}</span>
+                <span className="settings-hint" style={{ fontFamily: "var(--font-mono)" }}>{grant.path}</span>
                 <span style={{ fontSize: 11, color: "var(--color-muted)" }}>
                   {grant.permissions.net.get.length > 0 && `read: ${grant.permissions.net.get.join(", ")} `}
                   {grant.permissions.net.post.length > 0 && `send: ${grant.permissions.net.post.join(", ")} `}
