@@ -46,7 +46,8 @@
  * root/trigger/content belong to the tab bar.
  */
 import { Bold, Code, FileDown, Italic, Link2, Minus, Play, SquareCode, Strikethrough, Table2 } from "lucide-react";
-import { DropdownMenuItem, DropdownMenuSeparator, useToast } from "my-you-eye";
+import { DropdownMenuItem, DropdownMenuSeparator } from "my-you-eye";
+import { useToast } from "./useToast";
 import { DropdownSubmenu, DropdownSubmenuContent, DropdownSubmenuTrigger } from "./DropdownSubmenu";
 import { applyFormatAction, applyInsertAction, type FormatActionId, type InsertActionId } from "../../editor/formatActions";
 import { getActiveEditorView } from "../../editor/activeView";

@@ -26,7 +26,7 @@ function summarizeFailures(summary: RunSummary): string {
 }
 
 /** Runs `path`'s scripts (manual trigger) and reports the outcome through
- * `toast` (`my-you-eye`'s `useToast().toast`). Shared by `RunScriptsButton`
+ * `toast` (`local/Toast.tsx`'s `useToast().toast`). Shared by `RunScriptsButton`
  * and `OverflowMenuItems`' mirror entry so the outcome copy is identical
  * regardless of which affordance started the run. */
 export async function runMkMdScriptsWithToast(

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { ConfirmDialog, useToast } from "my-you-eye";
+import { ConfirmDialog } from "my-you-eye";
+import { useToast } from "./components/local/useToast";
 import { AppActivityBar, type ActivityPanel } from "./components/ActivityBar";
 import { AppTitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";

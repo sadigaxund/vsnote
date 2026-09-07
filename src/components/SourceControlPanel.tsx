@@ -26,7 +26,8 @@
  * auto-commit and merge commits — one source of truth, three call sites.
  */
 import { useState } from "react";
-import { Alert, Button, ConfirmDialog, ScrollArea, Textarea, Tooltip, useToast } from "my-you-eye";
+import { Alert, Button, ConfirmDialog, ScrollArea, Textarea, Tooltip } from "my-you-eye";
+import { useToast } from "./local/useToast";
 import { ArrowDownToLine, ArrowUpFromLine, GitCommitHorizontal } from "lucide-react";
 import { FileIcon } from "./local/FileIcon";
 import { SidebarContainer } from "./local/SidebarContainer";

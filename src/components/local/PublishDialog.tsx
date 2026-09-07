@@ -70,8 +70,8 @@ import {
   SelectTrigger,
   SelectValue,
   Switch,
-  useToast,
 } from "my-you-eye";
+import { useToast } from "./useToast";
 import { Check, Copy, ExternalLink, FileCode, Globe2, Loader2, Lock, Share2, X } from "lucide-react";
 import { SegmentedControl } from "./SegmentedControl";
 import { Stepper } from "./Stepper";

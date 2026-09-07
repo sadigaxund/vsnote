@@ -45,7 +45,8 @@
  * whether or not a gate happened to run first).
  */
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Spinner, TooltipProvider, Toaster } from "my-you-eye";
+import { Spinner, TooltipProvider } from "my-you-eye";
+import { Toaster } from "./components/local/Toast";
 import { getAppConfig, whoami } from "./share/api";
 import { LoginGate } from "./components/LoginGate";
 
@@ -146,12 +147,14 @@ export function Boot() {
 
   return (
     <TooltipProvider>
-      {/* `Toaster` IS the toast context provider (`ToastContext.Provider`,
-          confirmed in node_modules/my-you-eye/dist/index.js) as well as the
-          viewport that renders active toasts — it must WRAP whatever calls
-          `useToast()`, not sit as a sibling (Phase 5a's `App.tsx` is the
-          first real `useToast` consumer; this wiring predates this file and
-          simply moved here verbatim from `main.tsx`). */}
+      {/* `Toaster` IS the toast context provider (`ToastContext.Provider`)
+          as well as the viewport that renders active toasts — it must WRAP
+          whatever calls `useToast()`, not sit as a sibling (Phase 5a's
+          `App.tsx` is the first real `useToast` consumer; this wiring
+          predates this file and simply moved here verbatim from
+          `main.tsx`). `local/Toast.tsx` (docs/COMPONENT-BACKLOG.md §2.12,
+          design-polish round 2) replaced `my-you-eye`'s `Toaster` here —
+          same drop-in shape, restyled variants. */}
       <Toaster>
         <Suspense fallback={<BootSplash />}>
           <LazyApp />

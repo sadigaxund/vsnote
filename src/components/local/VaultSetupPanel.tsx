@@ -22,7 +22,8 @@
  *
  * Pure composition — `Alert`/`Button`/`ConfirmDialog`/`DataList`/`DataTable`/
  * `Dialog`/`DropdownMenu`/`FormField`/`Input`/`Select`/`Skeleton`/`Switch`/
- * `Textarea`/`Tooltip`/`useToast` from `my-you-eye`, same "solved by
+ * `Textarea`/`Tooltip` from `my-you-eye` (plus `useToast` from
+ * `local/Toast.tsx`, design-polish round 2), same "solved by
  * composition" precedent `docs/COMPONENT-BACKLOG.md`'s Notes section
  * already records for `SharedPanel`/`PublishDialog` — no new local
  * primitive needed, so this file gets no backlog table row of its own
@@ -71,9 +72,9 @@ import {
   Switch,
   Textarea,
   Tooltip,
-  useToast,
   type DataTableColumn,
 } from "my-you-eye";
+import { useToast } from "./useToast";
 import { Loader2, MoreHorizontal, Pencil, PlugZap, RefreshCw, Server, Trash2 } from "lucide-react";
 import { DEFAULT_BRANCH } from "../../git/client";
 import { deriveVaultWizardPhase, hasVaultBranchMismatch } from "../../git/vaultWizard";

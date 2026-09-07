@@ -312,3 +312,43 @@ upstream candidates; no new information from the skill analysis changes their sp
   `gh issue list -R sadigaxund/my-you-eye --state all` before building this) —
   not re-filed. This local component unblocks the Settings split in the
   meantime, per CLAUDE.md rule 2's "missing component protocol."
+
+### 2.12 `Toast` variant styling (design polish round 2, 2026-09-07)
+
+- **Gap:** `my-you-eye`'s `ToastItem` (`node_modules/my-you-eye/dist/index.js`)
+  hardcodes its `success`/`danger` variants as a SOLID color fill —
+  `"border-success bg-success text-success-fg"` — via an internal, unexported
+  `toastVariants` `cva()` call. `ToastData` (the public type `toast({ ... })`
+  takes) has no `className` field (`node_modules/my-you-eye/dist/index.d.ts`),
+  so there is no supported prop OR token to restyle it — the color IS the
+  fill, not a remappable role token, and recoloring `--color-success`/
+  `--color-danger` globally would also repaint git status, alerts, and badges
+  everywhere else those tokens carry real semantic meaning. Found during the
+  round-2 design-polish pass: a solid saturated green toast was named as the
+  single loudest, crudest element on screen in two of the six review
+  screenshots.
+- **Built:** `src/components/local/Toast.tsx` (+ `useToast.ts`, split out
+  only to satisfy `react-refresh/only-export-components` — a module can't
+  mix a component export with a plain hook export) — same underlying Radix
+  primitive the library itself uses (`@radix-ui/react-toast`, added as a
+  direct dependency), restyled with this app's own token vocabulary instead
+  of a solid fill: `--color-surface-elevated` background, 1px `--color-border`
+  border, `--radius-ui` corners, `--shadow-elevated`, and a 3px left accent
+  bar (title text matches the accent) in the status color — teal for
+  `default`, `--color-success` for `success`, `--color-danger` for `danger`.
+  `ToastData`/`useToast()`/`Toaster` match the library's own shapes
+  byte-for-byte, so every existing `toast({ title, description, variant })`
+  call site (`App.tsx`, `SourceControlPanel.tsx`, `SharedView.tsx`,
+  `PublishDialog.tsx`, `VaultSetupPanel.tsx`, `RunScriptsButton.tsx`,
+  `OverflowMenu.tsx`, `boot.tsx`'s `<Toaster>` mount) only needed its import
+  source changed, never its call shape. Accessibility behavior — the Radix
+  `Provider`'s duplicate visually-hidden `role="status"` announcer alongside
+  the visible toast, depended on by `tests/e2e/markii-scripts.spec.ts` — is
+  preserved exactly, since it comes from the Radix primitives themselves,
+  not from `my-you-eye`'s styling layer.
+- **Filed:** NOT YET — this agent does not file upstream issues (CLAUDE.md
+  rule 1: the orchestrator files them after confirming the gap). Flagged in
+  the round-2 design-polish report for the orchestrator to file; suggested
+  shape: either a `className`/`variantClassName` escape hatch on `ToastData`,
+  or per-variant CSS custom properties (`--toast-success-bg` etc.) the way
+  this app's own token files already do for its local components.

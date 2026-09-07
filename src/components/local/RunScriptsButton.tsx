@@ -24,7 +24,8 @@
  * overflow-menu mirror entry).
  */
 import { useMemo } from "react";
-import { Button, useToast } from "my-you-eye";
+import { Button } from "my-you-eye";
+import { useToast } from "./useToast";
 import { Loader2, Play } from "lucide-react";
 import { useMarkiiStore } from "../../stores/useMarkiiStore";
 import { useBufferStore } from "../../stores/useBufferStore";
