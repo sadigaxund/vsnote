@@ -1375,3 +1375,17 @@ items OVERRIDE anything above them.
      `.cm-scroller` now explicitly suppress both outline and box-shadow on
      `:focus-visible`; every other control (buttons, tabs, tree rows, the
      command palette, dialogs) keeps the full ring unchanged.
+119. **Settings' category nav is a horizontal, sticky row under the title,
+     not a left column — item 108 (round 11) superseded.** Item 108 only
+     compacted the search field onto the title row; the category list
+     stayed a left column, so Settings still stacked activity bar, Explorer,
+     category column, then content — the "cascading left panels" look the
+     owner asked to remove outright. The categories are now icon+label
+     pills in a `my-you-eye` `Tabs` row (`variant="pills"`; `Tabs` is the
+     navigation primitive by the library's own contract — its
+     `SegmentedControl` entry documents itself as a form control for a
+     value, not for switching panels), wrapping onto a second line at
+     narrow widths, `position: sticky` flush under the title row so it
+     stays in view while a long category's rows scroll past. Content below
+     it spans the view's full width; its own reading column still centers
+     and caps at ~52rem (item 84, unchanged).

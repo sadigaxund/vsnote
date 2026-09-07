@@ -21,14 +21,36 @@
  * unchanged by the split.
  *
  * **Page width (plan §2 item 1).** The content column caps at ~52rem,
- * centered in the space left over after the 172px nav — replacing the old
- * unbounded full-bleed view plus its per-row `ROW_MAX_WIDTH` ("36rem")
- * stand-in. `SettingsRow`'s own `controlWidth` (plan §2 item 3) sizes
- * individual fields (numbers/short enums ~12rem, text ~24rem, full-row for
- * textareas/tables) inside that column — see `local/SettingsRow.tsx`.
+ * centered in the full width of the view — `SettingsRow`'s own
+ * `controlWidth` (plan §2 item 3) sizes individual fields (numbers/short
+ * enums ~12rem, text ~24rem, full-row for textareas/tables) inside that
+ * column — see `local/SettingsRow.tsx`.
+ *
+ * **R4 defect B — category nav is a horizontal row, not a left column.**
+ * R3-3 (round 10 item 103, superseded here) only compacted the search
+ * field onto the title row and left the category list as a VSCode-style
+ * left column — stacked behind the activity bar, the Explorer, AND that
+ * column, the exact "cascading left panels" look the owner asked to kill.
+ * The category nav is now a sticky, horizontal, wrapping row of icon+label
+ * tabs directly under the title row, and content spans the view's full
+ * width below it (its own reading column still centers/caps at 52rem).
+ * Built on `my-you-eye`'s `Tabs`/`TabsList`/`TabsTrigger` (`pills` variant
+ * — a discrete "switch which panel is showing" choice, which is exactly
+ * what the library's own docs say `Tabs` is for and `SegmentedControl` is
+ * NOT: `components.json`'s `SegmentedControl` entry describes itself as "a
+ * form control... not navigation. Use it instead of Tabs when the choice
+ * sets a value"). `Tabs`/`TabsList` give the row native roving-tabindex
+ * keyboard nav (arrow keys move focus between triggers) for free; only
+ * `TabsContent` is skipped since this shell already renders exactly one
+ * category's rows itself (search-filtered grouping needs that same manual
+ * control). Sticky like the old left nav was: `top` matches the page's
+ * top padding, and there is no `overflow`/`transform` between it and
+ * `ScrollArea`'s own scrollport, so it stops flush with the top of the
+ * view as the content scrolls beneath it — only the title row scrolls
+ * away.
  */
 import { useMemo, useState } from "react";
-import { Button, Input, ScrollArea, Separator } from "my-you-eye";
+import { Input, ScrollArea, Separator, Tabs, TabsList, TabsTrigger } from "my-you-eye";
 import {
   Eye,
   GitBranch,
@@ -108,11 +130,9 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           the default — the native inputs above remain selectable/typeable
           via `index.css`'s `input, textarea` exception regardless. */}
       <div style={{ padding: "40px 40px 120px" }}>
-        {/* R3-3 — compact header (DESIGN-SPEC Amendments): title stays left,
-            the search field + its hint move onto the SAME row to the right
-            instead of stacking full-width below the title. Kills the
-            cascading-left-panels look where title, hint, and search each ran
-            the full content width before the category nav even started. */}
+        {/* Title row: title left, search field (~280px) + its hint beneath
+            it on the right. This row is free to scroll away — only the
+            category tabs below stay sticky (R4 defect B). */}
         <div
           style={{
             display: "flex",
@@ -120,7 +140,7 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             justifyContent: "space-between",
             alignItems: "flex-start",
             gap: "8px 24px",
-            marginBottom: 24,
+            marginBottom: 20,
           }}
         >
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--color-fg)", margin: 0 }}>Settings</h1>
@@ -146,52 +166,50 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 28, alignItems: "flex-start" }}>
-          {/* Sticky nav (R3-3): the containing chain up to the scrolling
-              ancestor — this flex row, the padding div, `ScrollArea` itself
-              (a single `overflow-auto` div, no wrapper) — has no
-              `overflow`/`transform` in between, so `position: sticky` resolves
-              against `ScrollArea`'s own scrollport rather than getting stuck
-              static. `top` matches the page's 40px top padding so the nav
-              stops flush with it instead of jumping under it. `maxHeight` +
-              `overflowY` cap it against the real viewport height so a
-              category list longer than the screen scrolls internally rather
-              than running off the bottom. */}
-          <nav
-            aria-label="Settings categories"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 2,
-              width: 172,
-              flexShrink: 0,
-              position: "sticky",
-              top: 40,
-              maxHeight: "calc(100vh - 40px)",
-              overflowY: "auto",
-            }}
-          >
-            {categories.map((c) => (
-              <Button
-                key={c.id}
-                type="button"
-                variant={!searching && c.id === activeCategory ? "secondary" : "ghost"}
-                size="sm"
-                data-testid={`settings-nav-${c.id}`}
-                onClick={() => setActiveCategory(c.id)}
-                style={{ justifyContent: "flex-start", gap: 8, width: "100%" }}
-              >
-                {c.icon}
-                {c.label}
-              </Button>
-            ))}
-          </nav>
+        {/* R4 defect B — horizontal, sticky, wrapping category row (replaces
+            the left nav column). `top` matches the page's 40px top padding
+            and there is no `overflow`/`transform` between this and
+            `ScrollArea`'s own scrollport, so it sticks flush with the top of
+            the view once the title row scrolls past it. A background is set
+            explicitly (not just inherited) so content scrolling underneath
+            doesn't show through the sticky row. */}
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+            marginInline: -40,
+            paddingInline: 40,
+            paddingBlock: "10px 12px",
+            marginBottom: 20,
+            background: "var(--app-editor-bg)",
+            borderBottom: "1px solid var(--app-border-nested, var(--color-border))",
+          }}
+        >
+          <Tabs value={activeCategory} onValueChange={setActiveCategory} variant="pills">
+            <TabsList
+              aria-label="Settings categories"
+              style={{ flexWrap: "wrap", rowGap: 6, width: "100%" }}
+            >
+              {categories.map((c) => (
+                <TabsTrigger
+                  key={c.id}
+                  value={c.id}
+                  data-testid={`settings-nav-${c.id}`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                >
+                  {c.icon}
+                  {c.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
 
-          {/* Plan §2 item 1 — the content column caps at ~52rem, CENTERED in
-              whatever space is left over after the nav's fixed 172px (not
-              just left-aligned against the nav with a cap): this wrapper
-              spans the full remaining width and centers its capped child. */}
-          <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", justifyContent: "center" }}>
+        {/* Plan §2 item 1 — the content column caps at ~52rem, centered in
+            the view's full width now that there is no left nav column
+            eating into it. */}
+        <div style={{ display: "flex", justifyContent: "center" }}>
           <div style={{ width: "100%", maxWidth: "52rem", display: "flex", flexDirection: "column", gap: 22 }}>
             {searching ? (
               categories
@@ -237,7 +255,6 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
             {searching && !categories.some((c) => c.rows.some((r) => rowMatches(r, trimmedQuery))) && (
               <p style={{ fontSize: 13, color: "var(--color-muted)" }}>No settings match "{trimmedQuery}".</p>
             )}
-          </div>
           </div>
         </div>
       </div>
