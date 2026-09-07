@@ -192,6 +192,16 @@ contexts. Deliverables:
   `TitleBar.tsx`, `ShareApp.tsx`, and adding the mark to `LoginGate.tsx`.
 - README hero and `vite.config.ts` manifest updated.
 
+**Shipped (2026-09-05).** All four deliverables landed. `generate-pwa-icons.mjs`
+rasterizes `public/favicon.svg` on `#0e1015` via the already-installed
+Playwright Chromium (192/512/maskable-512 at 62%, apple-touch 180); `index.html`
+gained `apple-touch-icon` and `theme-color`; `src/components/local/Logo.tsx`
+(size/mono/title props) replaced the duplicated gradient chips in `TitleBar`,
+`ShareApp` and `LoginGate`, and the lucide `Layout` placeholder is gone. The
+orchestrator visually verified both PNGs (mark centred, maskable inside the
+safe zone). Round-10 items were renumbered 47/48 -> 62/63 on landing, since
+47/48 were already taken.
+
 ## 4. Sharing model and modal
 
 Server-side changes:
@@ -232,6 +242,17 @@ Publish dialog (`local/PublishDialog.tsx`) rebuilt as a stepped form:
 copy, and for token mode the one-time token with a ready-made `curl` line.
 Same form drives "edit policy". Uses my-you-eye `RadioGroup`, `FormField`,
 `Input`, `Combobox`; nothing hand-rolled.
+
+**Shipped (2026-09-05 to 2026-09-06).** Folder shares removed entirely,
+server and client, with no migration by explicit owner directive (a stale
+database is an operator concern). Raw content is bytes: a NUL-scan plus strict
+UTF-8 decode picks exactly one of two content types, with RFC 6266 escaped
+filenames, `?download=1`, and `nosniff` plus a `default-src 'none'; sandbox`
+CSP. Per-share tokens replaced API tokens as visitor credentials, scoped to one
+share, with owner tokens explicitly rejected. The publish dialog was rebuilt as
+a five-step flow (Mode, Who can open, Protection, Link, Result) filtered to
+exactly match the server's auth matrix, and share management moved out of
+Settings to its own full-width Shared tab.
 
 ## 5. "Blog" from linked shares — how serving works
 
@@ -276,6 +297,16 @@ Aliases: allow a `/`-free prefix convention (`blog-hello-world`); nested alias
 paths (`blog/hello`) would collide with the folder-share URL shape we are
 removing and complicate the gate, so not now.
 
+**Shipped (2026-09-06).** `server/app/linkmap.py` computes the map purely
+lexically (no realpath, no filesystem, ever). Restricted and password-protected
+targets ARE included in a public share's link map, deliberately: a capability
+URL still enforces its own policy on click, and excluding them would silently
+break an owner's blog. `show_title` and `back_link` shipped, with OG/title meta
+injected only when `show_title` is on AND `auth_mode` is none AND access was
+granted, asserted with both a positive and a negative case. The public reader
+was rewritten as a chrome-less document page with its own `.share-reader` token
+scope and no CodeMirror on the route.
+
 ## 6. Markii extension
 
 Phased; decision: all three phases in this arc.
@@ -310,6 +341,40 @@ stabilizes.
 trigger tiers, value persistence, `.mkz` bundles, pack settings panel.
 Render stays side-effect-free; scripts run only on explicit action.
 
+**Shipped (2026-09-06 to 2026-09-07), all three phases.**
+
+**M1** — `src/markdown/render.tsx` is the single static renderer (share reader,
+print/export, `.mk.md`), with links rewritten in the mdast because
+`@markii/react` exposes no link hook, and fenced code routed through a
+synthetic directive so VSNote's own highlighter survives. `@markii/host` is
+unpublished upstream, so its pure functions are vendored with MIT attribution.
+
+**M2** — `src/markdown/directiveLezer/` adds a Lezer `MarkdownExtension` for the
+three directive forms plus block widgets from a `StateField` and inline widgets
+from a `ViewPlugin`. `.mk.md`'s Rendered mode became the same live-preview
+editor plain `.md` uses; the static split preview was deleted. The module has
+zero VSNote imports and is liftable as `@markii/codemirror`.
+
+**M3** — scripts run ONLY inside a dedicated Web Worker running `@markii/lua`,
+under a main-thread `terminate()` watchdog that sits above the library's own
+in-VM limits (those run between Lua instructions and cannot see a hang while
+Lua is suspended in a host call). wasmoon's `glue.wasm` ships as a same-origin
+Vite asset, because the default would fetch unpkg.com at runtime and break rule
+3. Tier enforcement is at the host: an auto or scheduled run never has a `post`
+allowlist constructed for it, whatever the stored grant says. Grants are keyed
+by a content hash, so editing a script invalidates its grant. `.mkz` bundles
+load with a structurally enforced path jail. Packs register namespaces and
+resolve Lua modules, but their `webview.js` is never executed and their
+components render as labelled placeholders (owner-confirmed; see the handover's
+limitations).
+
+**Not shipped, declared rather than hidden**: a `.mkz` Explorer browsing and
+editing surface (bundles load by sibling-path convention only), and any actual
+auto or scheduled trigger. The host-side tier gate for a non-manual trigger is
+built and tested, but nothing calls it, so no "run automatically" control ships
+either. Attribute-VALUE completion for pack-declared enums is still trimmed out
+of the vendored host.
+
 ## 7. Design polish (last, revertable)
 
 Owner verdict: "too crude and sharp on the edges, but organized nicely". Pass
@@ -338,3 +403,21 @@ Playwright for UI, pytest for server. Docs updated in the same change:
 ROADMAP-SHARING-AUTH (§5.1 folder shares superseded), DESIGN-SPEC (reader,
 logo, settings layout), ARCHITECTURE (renderer pipeline, storage policy),
 COMPONENT-BACKLOG (every local component).
+
+**Shipped (2026-09-07).** Round 10 items 98 to 107. Radii 4/6 -> 6/8 with
+dialogs unchanged at 10; the shadow scale kept its three-tier shape but raised
+alpha, because the library's values are tuned for a near-white canvas and
+composited to almost nothing on this near-black shell; a new
+`--app-border-nested` softens only dividers nested inside an already-bordered
+surface, leaving structural dividers alone; off-grid paddings snapped to the
+4/8 rhythm; the focus ring was softened AROUND rather than weakened, since the
+ui-audit WCAG gate measures the ring itself (10.07:1 against a 3:1 floor); tabs
+gained a hover state and lost their boxing dividers; toasts became an elevated
+panel with a status accent bar.
+
+Two items went beyond tokens, each committed separately so it can be reverted
+alone: a local `Toast` component (the library hardcodes its variants as a solid
+fill with no restyle lever, filed as my-you-eye#40) and the Shared-view column
+split. Reviewed against before/after screenshots over two rounds; round 1 was
+judged too subtle to answer the verdict and round 2 added the toast, tab and
+palette work.
