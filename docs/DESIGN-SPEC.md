@@ -1210,3 +1210,18 @@ forms inside `.mk.md` files.
      surfaces, so fixing it locally would mean force-styling library
      internals against rule 1. Left unpatched on purpose; recorded on
      sadigaxund/my-you-eye#37.
+
+## Amendments round 11 — 2026-09-07 (owner feedback, round 3)
+
+Round 3 of hands-on owner feedback after the 2026-09 refresh arc. These
+items OVERRIDE anything above them.
+
+108. **The Settings header is one compact row and the category nav is
+     sticky.** The page title sits alone on the left; the search field
+     (~280px) and its one-line hint move to the right of the title on the
+     same row instead of each stacking full width beneath it, and the left
+     category nav is `position: sticky` (offset to the page's top padding,
+     capped and internally scrollable against the viewport) so it stays in
+     view while a long category's rows scroll past. Together these remove
+     the cascading-left-panels look, where the title, hint, search box and
+     nav each stepped down the left edge before any content began.

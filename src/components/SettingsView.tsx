@@ -108,29 +108,69 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
           the default — the native inputs above remain selectable/typeable
           via `index.css`'s `input, textarea` exception regardless. */}
       <div style={{ padding: "40px 40px 120px" }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--color-fg)", margin: "0 0 4px" }}>Settings</h1>
-        <p style={{ fontSize: 13, color: "var(--color-muted)", margin: "0 0 20px" }}>
-          Editor, theme, and per-file-type defaults, saved automatically.
-        </p>
-
-        <div style={{ position: "relative", marginBottom: 24, maxWidth: "28rem" }}>
-          <SearchIcon
-            size={14}
-            style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-muted)", pointerEvents: "none" }}
-          />
-          <Input
-            size="sm"
-            placeholder="Search settings…"
-            aria-label="Search settings"
-            data-testid="settings-search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{ paddingLeft: 30, width: "100%" }}
-          />
+        {/* R3-3 — compact header (DESIGN-SPEC Amendments): title stays left,
+            the search field + its hint move onto the SAME row to the right
+            instead of stacking full-width below the title. Kills the
+            cascading-left-panels look where title, hint, and search each ran
+            the full content width before the category nav even started. */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: "8px 24px",
+            marginBottom: 24,
+          }}
+        >
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--color-fg)", margin: 0 }}>Settings</h1>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, width: 280, maxWidth: "100%", flexShrink: 0 }}>
+            <div style={{ position: "relative" }}>
+              <SearchIcon
+                size={14}
+                style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-muted)", pointerEvents: "none" }}
+              />
+              <Input
+                size="sm"
+                placeholder="Search settings…"
+                aria-label="Search settings"
+                data-testid="settings-search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                style={{ paddingLeft: 30, width: "100%" }}
+              />
+            </div>
+            <p style={{ fontSize: 11, color: "var(--color-muted)", margin: 0 }}>
+              Editor, theme, and per-file-type defaults, saved automatically.
+            </p>
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 28, alignItems: "flex-start" }}>
-          <nav aria-label="Settings categories" style={{ display: "flex", flexDirection: "column", gap: 2, width: 172, flexShrink: 0 }}>
+          {/* Sticky nav (R3-3): the containing chain up to the scrolling
+              ancestor — this flex row, the padding div, `ScrollArea` itself
+              (a single `overflow-auto` div, no wrapper) — has no
+              `overflow`/`transform` in between, so `position: sticky` resolves
+              against `ScrollArea`'s own scrollport rather than getting stuck
+              static. `top` matches the page's 40px top padding so the nav
+              stops flush with it instead of jumping under it. `maxHeight` +
+              `overflowY` cap it against the real viewport height so a
+              category list longer than the screen scrolls internally rather
+              than running off the bottom. */}
+          <nav
+            aria-label="Settings categories"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
+              width: 172,
+              flexShrink: 0,
+              position: "sticky",
+              top: 40,
+              maxHeight: "calc(100vh - 40px)",
+              overflowY: "auto",
+            }}
+          >
             {categories.map((c) => (
               <Button
                 key={c.id}
