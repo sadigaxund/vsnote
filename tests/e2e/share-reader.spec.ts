@@ -214,6 +214,29 @@ test.describe("R3-5: selectable reading text + visitor reading preferences", () 
     await secondContext.close();
   });
 
+  test("fix(markdown): select-all in a code file share never sweeps up the header's filename", async ({ page, browser }) => {
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
+    const path = await createFileWithContent(page, "vault/notes", "select-all-code.ts", "const answer = 42;\nexport default answer;\n");
+    const link = await publishFileViaContextMenu(page, { treePath: path, generalAccess: "link", renderMode: "rendered" });
+
+    const secondContext = await browser.newContext();
+    const secondPage = await secondContext.newPage();
+    await secondPage.goto(link);
+
+    const filename = secondPage.locator(".mk-static-codeblock__filename");
+    await expect(filename).toHaveText("select-all-code.ts");
+
+    await secondPage.locator(".mk-static-codeblock__text").first().click();
+    await secondPage.keyboard.press("Control+a");
+    const selection = await secondPage.evaluate(() => window.getSelection()?.toString() ?? "");
+    expect(selection).toContain("const answer = 42");
+    expect(selection).not.toContain("select-all-code.ts");
+
+    await secondContext.close();
+  });
+
   test("reading-preferences pill: exists, its controls visibly change the document, and the choice survives a reload", async ({
     page,
     browser,

@@ -906,6 +906,14 @@
 .mk-static-codeblock__header {
   border-bottom: 1px solid var(--app-border-nested, var(--mk-border));
   background: var(--mk-raised);
+  /* fix(markdown) — a Ctrl+A/select-all over the code panel used to sweep
+     the filename (and toolbar button labels) up into the selection along
+     with the code text. Same "component's own guarantee, not one borrowed
+     from a stylesheet a caller might render it without" reasoning
+     `codeBlock.tsx`'s module doc gives for the lineno gutter's unselectable
+     rule below — this class rule is paired with an inline `userSelect:
+     "none"` on the header element itself. */
+  user-select: none;
 }
 .mk-static-codeblock__filename {
   font-family: var(--font-mono);

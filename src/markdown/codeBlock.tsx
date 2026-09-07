@@ -170,6 +170,12 @@ export function CodeBlock({
             gap: 6,
             height: 32,
             padding: "0 8px",
+            // fix(markdown) — this component's own guarantee (not just
+            // theme.css's `.mk-static-codeblock__header` rule) that a
+            // Ctrl+A/select-all over the code panel never sweeps the
+            // filename/toolbar into the selection — same discipline the
+            // `.mk-static-codeblock__lineno` gutter below already uses.
+            userSelect: "none",
           }}
         >
           {filename && <span className="mk-static-codeblock__filename">{filename}</span>}
