@@ -32,7 +32,7 @@
  * active tab) pays only for `LivePreviewEditor` + `@codemirror/lang-markdown`
  * + `@lezer/markdown`, never Source/Diff's extra chunks.
  */
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { EmptyState, Spinner } from "my-you-eye";
 import { FileQuestion } from "lucide-react";
 import type { DiffLayout, EditorMode, FileKind } from "../types";
@@ -40,22 +40,28 @@ import { readHeadFileContent, type FileDiffResult } from "../git/diff";
 import { fileTypeForOrPlain } from "../filetypes/registry";
 import type { CursorPos } from "../editor/CodeMirrorEditor";
 import type { StoragePersistenceStatus } from "../fs/persistence";
+// fix(pwa) — every lazy point below is wrapped so a stale tab (an
+// already-open session whose service worker activated a new build out
+// from under it — see that module's doc for the exact failure mode) reloads
+// itself once instead of surfacing "Failed to fetch dynamically imported
+// module" to the user.
+import { lazyWithReload } from "../lib/lazyWithReload";
 
-const CodeMirrorEditor = lazy(() =>
+const CodeMirrorEditor = lazyWithReload(() =>
   import("../editor/CodeMirrorEditor").then((m) => ({ default: m.CodeMirrorEditor })),
 );
-const DiffView = lazy(() => import("../editor/DiffView").then((m) => ({ default: m.DiffView })));
-const LivePreviewEditor = lazy(() =>
+const DiffView = lazyWithReload(() => import("../editor/DiffView").then((m) => ({ default: m.DiffView })));
+const LivePreviewEditor = lazyWithReload(() =>
   import("../editor/LivePreviewEditor").then((m) => ({ default: m.LivePreviewEditor })),
 );
-const HtmlPreview = lazy(() => import("../renderers/HtmlPreview").then((m) => ({ default: m.HtmlPreview })));
-const CsvTable = lazy(() => import("../renderers/CsvTable").then((m) => ({ default: m.CsvTable })));
-const JsonView = lazy(() => import("../renderers/JsonView").then((m) => ({ default: m.JsonView })));
-const ImageView = lazy(() => import("../renderers/ImageView").then((m) => ({ default: m.ImageView })));
+const HtmlPreview = lazyWithReload(() => import("../renderers/HtmlPreview").then((m) => ({ default: m.HtmlPreview })));
+const CsvTable = lazyWithReload(() => import("../renderers/CsvTable").then((m) => ({ default: m.CsvTable })));
+const JsonView = lazyWithReload(() => import("../renderers/JsonView").then((m) => ({ default: m.JsonView })));
+const ImageView = lazyWithReload(() => import("../renderers/ImageView").then((m) => ({ default: m.ImageView })));
 // R3-7: Rendered mode for every code kind (ts/tsx/js/jsx/css) — a read-only
 // static highlighted view, not a second editor. See `filetypes/registry.ts`'s
 // `RendererKind` doc and `renderers/CodeView.tsx` itself.
-const CodeView = lazy(() => import("../renderers/CodeView").then((m) => ({ default: m.CodeView })));
+const CodeView = lazyWithReload(() => import("../renderers/CodeView").then((m) => ({ default: m.CodeView })));
 
 /** `.mk.md` Source mode only — see `CodeMirrorEditor`'s `loadExtraExtensions` doc for why this is a dynamic import rather than a static one. */
 async function loadMarkiiExtraExtensions() {
@@ -67,10 +73,12 @@ async function loadMarkiiExtraExtensions() {
 // pulls in a real slice of the library (`Select`/`Slider`/`Switch`/
 // `RadioGroup`/`Input`/`Button`/`DataList`/`Kbd`) that shouldn't cost the
 // cold-boot bundle anything until someone actually clicks the gear.
-const SettingsView = lazy(() => import("./SettingsView").then((m) => ({ default: m.SettingsView })));
+const SettingsView = lazyWithReload(() => import("./SettingsView").then((m) => ({ default: m.SettingsView })));
 // docs/PLAN-2026-09-05-refresh.md §2 — the Shared VIEW, same lazy/virtual-
-// tab treatment as Settings above (see `lib/sharedTab.ts`'s doc).
-const SharedView = lazy(() => import("./SharedView").then((m) => ({ default: m.SharedView })));
+// tab treatment as Settings above (see `lib/sharedTab.ts`'s doc). This is
+// the exact lazy point the reported bug hit ("Failed to fetch dynamically
+// imported module: .../SharedView-<hash>.js").
+const SharedView = lazyWithReload(() => import("./SharedView").then((m) => ({ default: m.SharedView })));
 
 export interface EditorContentProps {
   /** Which pane this content belongs to (Phase 6) — threaded to every CM6

@@ -45,7 +45,7 @@
  * view has direct vault access and doesn't need a second server endpoint
  * for the same computation.
  */
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -78,11 +78,13 @@ import { readTextFile } from "../fs/operations";
 import { displayToFsPath } from "../fs/paths";
 import { listShareTokens, revokeShareToken } from "../share/api";
 import type { ShareOut, ShareTokenOut } from "../share/api";
+import { lazyWithReload } from "../lib/lazyWithReload";
 
 // Lazy, matching every other overlay import in this app (`App.tsx`'s own
 // `PublishDialog` instance) — most sessions open Shared without ever
-// clicking "Edit policy…".
-const PublishDialog = lazy(() => import("./local/PublishDialog").then((m) => ({ default: m.PublishDialog })));
+// clicking "Edit policy…". `lazyWithReload` (fix(pwa)): self-heals a stale
+// tab whose service worker activated a new build out from under it.
+const PublishDialog = lazyWithReload(() => import("./local/PublishDialog").then((m) => ({ default: m.PublishDialog })));
 
 export function SharedView() {
   const { toast } = useToast();

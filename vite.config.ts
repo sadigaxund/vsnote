@@ -462,6 +462,32 @@ export default defineConfig({
               }
             },
           },
+          // fix(pwa) — the other half of the stale-chunk fix
+          // (`src/lib/lazyWithReload.ts`'s doc has the full root-cause
+          // writeup). Without this, every navigation request is served
+          // CACHE-FIRST from the precached `index.html` — the entry HTML
+          // that names every OTHER chunk's hashed filename — by generateSW
+          // mode's own default `NavigationRoute`. A rebuild that deletes an
+          // old chunk plus a client that still has the OLD `index.html`
+          // precache entry live (a race the client-side reload fix reduces
+          // but cannot fully close: the SW record itself is only replaced
+          // once THIS route's own precache-vs-network resolution runs) is
+          // exactly the shape of the reported bug. NetworkFirst tries the
+          // real network first (a live server always has the CURRENT
+          // `index.html`, per `server/app/main.py`'s per-request disk read
+          // — see that file's `_spa_shell_bytes` doc) and only falls back
+          // to the cached shell when the network genuinely fails, which is
+          // precisely what `tests/e2e/probes.spec.ts`'s offline-cold-start
+          // probe needs to keep passing. A short timeout keeps a slow (not
+          // dead) network from stalling every navigation.
+          {
+            urlPattern: ({ request }) => request.mode === "navigate",
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "html-shell",
+              networkTimeoutSeconds: 3,
+            },
+          },
         ],
       },
     }),

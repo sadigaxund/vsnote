@@ -4,6 +4,25 @@ import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 import "./index.css";
 import { applyDomSettings, useSettingsStore } from "./stores/useSettingsStore";
+import { reloadOnceForStaleChunk } from "./lib/lazyWithReload";
+
+// fix(pwa) — Vite's own preload-failure signal: `import()` calls Vite
+// itself injects (dynamic `import()` of a CSS/asset-only module, or a
+// `<link rel="modulepreload">` Vite adds for a chunk's static
+// dependencies) that 404 fire this `vite:preloadError` window event
+// instead of rejecting a promise a React component's `.catch` could see —
+// `lazyWithReload.ts` (see its doc for the full root-cause writeup: a new
+// service worker activating under an already-open tab, via `skipWaiting`/
+// `clientsClaim`, mid-session) only covers the `React.lazy` factories
+// this app wraps with it; this covers the same stale-chunk failure at
+// Vite's OWN, separate signal so nothing falls through the gap between
+// the two. `event.preventDefault()` stops the unhandled-rejection console
+// spam Vite's default behavior would otherwise produce for an error we are
+// deliberately handling here.
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault();
+  reloadOnceForStaleChunk();
+});
 
 // Phase 5b PWA (IMPLEMENTATION-PLAN.md Phase 5): explicit `virtual:pwa-
 // register` registration, not `vite.config.ts`'s `injectRegister: 'auto'`
