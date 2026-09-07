@@ -70,7 +70,7 @@ async function flush(): Promise<void> {
   await Promise.resolve();
 }
 
-const OK_GATE: AutoSyncGateState = { syncing: false, authenticated: true, conflict: null };
+const OK_GATE: AutoSyncGateState = { syncing: false, authenticated: true, conflict: null, hasCredential: true };
 const OFF: SyncTriggers = {
   interval: false,
   openClose: false,
@@ -104,10 +104,17 @@ function makeScheduler(opts: {
 
 describe("git/autoSyncPolicy.ts — pure gate functions", () => {
   it("isAutoSyncAllowed: true only when authenticated, not syncing, and no pending conflict", () => {
-    expect(isAutoSyncAllowed({ syncing: false, authenticated: true, conflict: null })).toBe(true);
-    expect(isAutoSyncAllowed({ syncing: "sync", authenticated: true, conflict: null })).toBe(false);
-    expect(isAutoSyncAllowed({ syncing: false, authenticated: false, conflict: null })).toBe(false);
-    expect(isAutoSyncAllowed({ syncing: false, authenticated: true, conflict: { some: "conflict" } })).toBe(false);
+    expect(isAutoSyncAllowed({ syncing: false, authenticated: true, conflict: null, hasCredential: true })).toBe(true);
+    expect(isAutoSyncAllowed({ syncing: "sync", authenticated: true, conflict: null, hasCredential: true })).toBe(false);
+    expect(isAutoSyncAllowed({ syncing: false, authenticated: false, conflict: null, hasCredential: true })).toBe(false);
+    expect(isAutoSyncAllowed({ syncing: false, authenticated: true, conflict: { some: "conflict" }, hasCredential: true })).toBe(false);
+  });
+
+  // fix(git) — signed in (authenticated) but no git token configured must
+  // never be allowed to fire; this is the exact repeated-401 bug (see
+  // `autoSyncPolicy.ts`'s `AutoSyncGateState.hasCredential` doc).
+  it("isAutoSyncAllowed: false when signed in but no git credential is configured", () => {
+    expect(isAutoSyncAllowed({ syncing: false, authenticated: true, conflict: null, hasCredential: false })).toBe(false);
   });
 
   it("clampSyncIntervalMinutes: floors at MIN_SYNC_INTERVAL_MINUTES", () => {
@@ -297,7 +304,7 @@ describe("git/autoSyncPolicy.ts — createAutoSyncScheduler", () => {
   });
 
   it("never fires while a sync is already running (manual click), including onFocus", () => {
-    const busyGate: AutoSyncGateState = { syncing: "sync", authenticated: true, conflict: null };
+    const busyGate: AutoSyncGateState = { syncing: "sync", authenticated: true, conflict: null, hasCredential: true };
     const onFocus = makeScheduler({ clock, triggers: { onFocus: true }, gate: busyGate, runSync });
     onFocus.scheduler.triggerFocus();
     expect(runSync).not.toHaveBeenCalled();
@@ -350,7 +357,7 @@ describe("git/autoSyncPolicy.ts — createAutoSyncScheduler", () => {
   });
 
   it("never fires while a sync is already running (manual click), for every trigger", () => {
-    const busyGate: AutoSyncGateState = { syncing: "sync", authenticated: true, conflict: null };
+    const busyGate: AutoSyncGateState = { syncing: "sync", authenticated: true, conflict: null, hasCredential: true };
     const interval = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 1 }, gate: busyGate, runSync });
     interval.scheduler.start();
     clock.advance(60_000);
@@ -363,7 +370,7 @@ describe("git/autoSyncPolicy.ts — createAutoSyncScheduler", () => {
   });
 
   it("never fires while signed out, for every trigger", () => {
-    const signedOutGate: AutoSyncGateState = { syncing: false, authenticated: false, conflict: null };
+    const signedOutGate: AutoSyncGateState = { syncing: false, authenticated: false, conflict: null, hasCredential: true };
     const interval = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 1 }, gate: signedOutGate, runSync });
     interval.scheduler.start();
     clock.advance(60_000);
@@ -371,6 +378,19 @@ describe("git/autoSyncPolicy.ts — createAutoSyncScheduler", () => {
     onSave.scheduler.notifySaveSettled();
     clock.advance(ON_SAVE_DEBOUNCE_MS);
     const openClose = makeScheduler({ clock, triggers: { openClose: true }, gate: signedOutGate, runSync });
+    openClose.scheduler.triggerOpenClose();
+    expect(runSync).not.toHaveBeenCalled();
+  });
+
+  it("never fires with no git credential configured, for every trigger — the auto-sync gets silently skipped, not retried/looped", () => {
+    const noCredentialGate: AutoSyncGateState = { syncing: false, authenticated: true, conflict: null, hasCredential: false };
+    const interval = makeScheduler({ clock, triggers: { interval: true, intervalMinutes: 1 }, gate: noCredentialGate, runSync });
+    interval.scheduler.start();
+    clock.advance(60_000);
+    const onSave = makeScheduler({ clock, triggers: { onSave: true }, gate: noCredentialGate, runSync });
+    onSave.scheduler.notifySaveSettled();
+    clock.advance(ON_SAVE_DEBOUNCE_MS);
+    const openClose = makeScheduler({ clock, triggers: { openClose: true }, gate: noCredentialGate, runSync });
     openClose.scheduler.triggerOpenClose();
     expect(runSync).not.toHaveBeenCalled();
   });
@@ -383,7 +403,7 @@ describe("git/autoSyncPolicy.ts — createAutoSyncScheduler", () => {
       getGateState: () => gate,
       runSync: async () => {
         runCount++;
-        gate = { syncing: false, authenticated: true, conflict: { conflicts: ["notes/a.md"] } };
+        gate = { syncing: false, authenticated: true, conflict: { conflicts: ["notes/a.md"] }, hasCredential: true };
       },
       setTimeoutFn: clock.setTimeout,
       clearTimeoutFn: clock.clearTimeout,

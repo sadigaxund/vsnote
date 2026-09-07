@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GIT_REPO_NAME,
   describeConnectionTest,
+  hasConfiguredGitCredential,
   mapError,
   resolveGitCorsProxy,
   resolveGitCredential,
@@ -78,6 +79,36 @@ describe("resolveGitCredential() — mirrors resolveGitRemoteUrl's override prec
   it("falls back to the implicit token when the override is enabled but blank", () => {
     expect(resolveGitCredential({ token: "vsn_token", overrideEnabled: true, overrideUrl: "  ", overrideToken: "ghp_token" })).toBe(
       "vsn_token",
+    );
+  });
+});
+
+describe("hasConfiguredGitCredential() — fix(git): the auto-sync gate's credential check", () => {
+  const base = { repoName: "vault", overrideEnabled: false, overrideUrl: "", token: "", overrideToken: "" };
+
+  it("false when no token is set at all", () => {
+    expect(hasConfiguredGitCredential(ORIGIN, base)).toBe(false);
+  });
+
+  it("true once the implicit-remote token is set", () => {
+    expect(hasConfiguredGitCredential(ORIGIN, { ...base, token: "vsn_token" })).toBe(true);
+  });
+
+  it("false when only the override token is set but the override is disabled (resolves the empty implicit token instead)", () => {
+    expect(hasConfiguredGitCredential(ORIGIN, { ...base, overrideEnabled: false, overrideUrl: "https://x/y.git", overrideToken: "ghp_token" })).toBe(
+      false,
+    );
+  });
+
+  it("true when the override is enabled, URL filled in, and override token set", () => {
+    expect(
+      hasConfiguredGitCredential(ORIGIN, { ...base, overrideEnabled: true, overrideUrl: "https://x/y.git", overrideToken: "ghp_token" }),
+    ).toBe(true);
+  });
+
+  it("false when the override is enabled+URLed but its own token is blank (falls back to the still-empty implicit token)", () => {
+    expect(hasConfiguredGitCredential(ORIGIN, { ...base, overrideEnabled: true, overrideUrl: "https://x/y.git", overrideToken: "" })).toBe(
+      false,
     );
   });
 });

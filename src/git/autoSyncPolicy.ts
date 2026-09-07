@@ -101,15 +101,29 @@ export interface AutoSyncGateState {
    * leave a paused conflict exactly as a manual run would and never loop on
    * it — see this module's own doc + the Phase 17 brief. */
   conflict: unknown;
+  /** fix(git) — the server log filled with repeated 401s from a signed-in
+   * session that had simply never configured a git token: this scheduler's
+   * gate previously checked ONLY `authenticated` (the owner's VSNote
+   * sign-in, `useShareStore`) with nothing at all verifying the SEPARATE
+   * git credential (`useSettingsStore`'s `gitAuthToken`/override fields,
+   * resolved via `git/remote.ts`'s `resolveGitCredential`) actually
+   * resolves to something non-empty — so every enabled trigger kept firing
+   * `syncNow()` against the implicit remote with no credential to send,
+   * over and over, one 401 per attempt, forever. `true` here means
+   * `resolveGitCredential(...)` resolved a non-empty string AND
+   * `computeGitRemoteUrl(...)` resolved a non-empty remote URL — see
+   * `App.tsx`'s `getGateState` for exactly how this is computed. */
+  hasCredential: boolean;
 }
 
 /** Whether an auto-sync attempt is allowed to fire AT ALL, independent of
  * which policy triggered it — every trigger path below (`attemptSync`)
  * funnels through this one function, so "never while a sync is already
- * running", "never while signed out", and "never retry a paused conflict in
- * a loop" are each enforced in exactly one place. */
+ * running", "never while signed out", "never retry a paused conflict in a
+ * loop", and (fix(git)) "never with no git credential configured" are each
+ * enforced in exactly one place. */
 export function isAutoSyncAllowed(state: AutoSyncGateState): boolean {
-  return state.authenticated && state.syncing === false && state.conflict == null;
+  return state.authenticated && state.syncing === false && state.conflict == null && state.hasCredential;
 }
 
 export interface AutoSyncSchedulerDeps {

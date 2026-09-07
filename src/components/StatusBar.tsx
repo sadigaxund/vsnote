@@ -62,9 +62,16 @@ export interface AppStatusBarProps {
    * safeguard); "granted"/"unsupported"/undefined (still resolving at
    * boot) render nothing — never nags, per the brief. */
   storagePersistence?: "granted" | "denied" | "unsupported";
+  /** fix(git) — true when auto-sync is configured to fire (Settings → Git
+   * & Sync setup complete + at least one trigger toggle on) but no git
+   * credential resolves (`App.tsx`'s `autoSyncNoCredential`). Auto-sync
+   * itself stays completely silent in this state (no request, no toast —
+   * `autoSyncPolicy.ts`'s `hasCredential` gate) so this is the ONLY
+   * visible signal that it isn't running. */
+  autoSyncNoCredential?: boolean;
 }
 
-export function AppStatusBar({ git, encoding, eol, language, onSync, storagePersistence }: AppStatusBarProps) {
+export function AppStatusBar({ git, encoding, eol, language, onSync, storagePersistence, autoSyncNoCredential }: AppStatusBarProps) {
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), SYNCED_LABEL_TICK_MS);
@@ -169,6 +176,14 @@ export function AppStatusBar({ git, encoding, eol, language, onSync, storagePers
               icon={<ShieldAlert size={12} />}
               label="storage not persisted"
               tooltip="Storage wasn't persisted; this vault may be evicted under disk pressure."
+            />
+          )}
+          {autoSyncNoCredential && (
+            <StatusBarItem
+              icon={<ShieldAlert size={12} />}
+              label="sync off: no token"
+              tooltip="Auto-sync is configured but no git token is set. Add one in Settings → Git & Sync."
+              tone="warning"
             />
           )}
         </>

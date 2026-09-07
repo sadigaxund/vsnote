@@ -16,7 +16,7 @@ import { useGitStore } from "./stores/useGitStore";
 import { findLeaf, useTabsStore } from "./stores/useTabsStore";
 import { useBufferStore } from "./stores/useBufferStore";
 import { useSettingsStore } from "./stores/useSettingsStore";
-import { computeGitRemoteUrl, resolveGitCredential } from "./git/remote";
+import { computeGitRemoteUrl, computeHasConfiguredGitCredential, resolveGitCredential } from "./git/remote";
 import { restoreFromRemote } from "./git/restore";
 import { flushDraftSave } from "./fs/drafts";
 import { useDecoratedTree } from "./stores/useDecoratedTree";
@@ -256,10 +256,23 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
       // doc for why.
       getGateState: () => {
         const gitState = useGitStore.getState();
+        const st = useSettingsStore.getState();
         return {
           syncing: gitState.syncing,
           authenticated: useShareStore.getState().authenticated,
           conflict: gitState.conflict,
+          // fix(git) — see `autoSyncPolicy.ts`'s `AutoSyncGateState.
+          // hasCredential` doc: signed in (the check above) is a SEPARATE
+          // concept from having a git token configured; without this, a
+          // signed-in session with no token kept auto-syncing straight
+          // into repeated 401s.
+          hasCredential: computeHasConfiguredGitCredential({
+            repoName: st.gitRepoName,
+            overrideEnabled: st.gitRemoteOverrideEnabled,
+            overrideUrl: st.gitRemoteOverrideUrl,
+            token: st.gitAuthToken,
+            overrideToken: st.gitRemoteOverrideToken,
+          }),
         };
       },
       // The ONE real sync entry point — same pipeline `handleSyncNow` below
@@ -328,6 +341,25 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const gitSyncOnInterval = useSettingsStore((s) => s.gitSyncOnInterval);
   const gitSyncSetupComplete = useSettingsStore((s) => s.gitSyncSetupComplete);
   const gitSyncIntervalMinutes = useSettingsStore((s) => s.gitSyncIntervalMinutes);
+  // fix(git) — status bar durability indicator: true only when auto-sync is
+  // actually configured to fire (setup complete AND at least one trigger
+  // toggle on) but no git credential resolves — see
+  // `autoSyncPolicy.ts`'s `AutoSyncGateState.hasCredential` doc for the bug
+  // this covers (repeated silent 401s from a signed-in-but-token-less
+  // session). One targeted selector, same discipline as every other
+  // `useSettingsStore` read here — recomputes only when one of these
+  // specific fields changes.
+  const autoSyncNoCredential = useSettingsStore((s) => {
+    const anyTriggerOn = s.gitSyncSetupComplete && (s.gitSyncOnInterval || s.gitSyncOnOpenClose || s.gitSyncOnSave || s.gitSyncOnFocus);
+    if (!anyTriggerOn) return false;
+    return !computeHasConfiguredGitCredential({
+      repoName: s.gitRepoName,
+      overrideEnabled: s.gitRemoteOverrideEnabled,
+      overrideUrl: s.gitRemoteOverrideUrl,
+      token: s.gitAuthToken,
+      overrideToken: s.gitRemoteOverrideToken,
+    });
+  });
   // Phase 10.5 — the Explorer tree's share indicator glyph (roadmap §5.1)
   // reads whatever `useShareStore.shares` currently holds. That list is
   // populated lazily (Settings → Sharing's mount effect, or the first
@@ -1537,6 +1569,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
           language={(activeTab?.kind === "code" ? codeLanguageId : undefined) ?? fileTypeFor(activeTab?.kind)?.languageId ?? "PLAIN"}
           onSync={() => void handleSyncNow()}
           storagePersistence={storagePersistence}
+          autoSyncNoCredential={autoSyncNoCredential}
         />
       )}
 

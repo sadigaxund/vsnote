@@ -202,6 +202,28 @@ export function resolveGitCredential(settings: GitCredentialSettings): string {
   return settings.token;
 }
 
+/** fix(git) — the auto-sync scheduler's gate (`git/autoSyncPolicy.ts`'s
+ * `AutoSyncGateState.hasCredential`). Pure (an explicit `origin`, same
+ * `resolveGitRemoteUrl` reasoning) so it's directly unit-testable: `true`
+ * only when BOTH `resolveGitCredential` resolves a non-empty token AND
+ * `resolveGitRemoteUrl` resolves a non-empty remote URL. The remote half is
+ * mostly a defensive belt-and-suspenders check — the implicit remote always
+ * resolves to something (`<origin>/git/<repoName>.git`, `repoName` falling
+ * back to `DEFAULT_GIT_REPO_NAME` when blank) — but a credential with
+ * nothing to send it to is exactly as useless as no credential at all, so
+ * both are checked explicitly rather than assuming the remote half can
+ * never be the reason. */
+export function hasConfiguredGitCredential(origin: string, settings: GitRemoteSettings & GitCredentialSettings): boolean {
+  return resolveGitCredential(settings).trim() !== "" && resolveGitRemoteUrl(origin, settings).trim() !== "";
+}
+
+/** Real-`window` wrapper — see `computeGitRemoteUrl`/`computeGitCorsProxy`'s
+ * identical pattern. The one real call site (`App.tsx`'s auto-sync
+ * scheduler `getGateState`) uses this, never the pure function directly. */
+export function computeHasConfiguredGitCredential(settings: GitRemoteSettings & GitCredentialSettings): boolean {
+  return hasConfiguredGitCredential(window.location.origin, settings);
+}
+
 export interface SyncStatus extends AheadBehind {
   /** Whether `refs/remotes/origin/<branch>` exists at all yet — false
    * before the very first fetch/pull/push against this remote (or if the
