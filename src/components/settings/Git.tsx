@@ -6,10 +6,11 @@
  * which governs local-git display, not sync, and stays visible on both
  * sides of the gate).
  */
-import { useMemo, useState } from "react";
-import { Alert, Badge, Button, FormField, Input, Switch } from "my-you-eye";
-import { GitBranch, Loader2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { Alert, Badge, Button, FormField, Input, Separator, Switch } from "my-you-eye";
+import { Check, ExternalLink, GitBranch, Loader2 } from "lucide-react";
 import { SettingsRow } from "../local/SettingsRow";
+import { Stepper, type StepperStep } from "../local/Stepper";
 import { VaultSetupPanel } from "../local/VaultSetupPanel";
 import { SyncSetupPanel } from "../SyncSetupPanel";
 import { useSettingsStore, DEFAULT_GIT_COMMIT_TEMPLATE } from "../../stores/useSettingsStore";
@@ -28,6 +29,26 @@ import { buildTemplateVars, renderCommitTemplate } from "../../git/commitTemplat
 import { createApiToken } from "../../share/api";
 import { useShareStore } from "../../share/useShareStore";
 import type { SettingRow } from "./types";
+
+/** Round 5 (design-health P1/P2, `.impeccable/critique/…settingsview…`) —
+ * "Remote sync" + "Advanced: custom remote" collapsed into one guided
+ * three-step card: a step is marked done from REAL state (a valid remote,
+ * a non-empty resolved credential, a last test that actually succeeded),
+ * never from "the user clicked through" — there's no separate "Next"
+ * button gating step 2/3, since the built-in remote is valid with zero
+ * input and existing e2e flows generate a token / click Test connection
+ * without ever "completing" step 1 first. */
+const CONNECTION_STEPS: StepperStep[] = [
+  { id: "remote", label: "Remote" },
+  { id: "credential", label: "Credential" },
+  { id: "test", label: "Test connection" },
+];
+
+/** How long the inline "Saved" confirmation (check + text) shows in the
+ * token row before it hands off to the persistent "Token set, ends in
+ * ...xxxx" summary line — design-health P0 ("token generation fills field
+ * silently, no 'saved'"). */
+const TOKEN_SAVED_FLASH_MS = 1500;
 
 function gitStatusRow(showGitStatusInExplorer: boolean, setShowGitStatusInExplorer: (v: boolean) => void): SettingRow {
   return {
@@ -97,6 +118,13 @@ export function useGitRows(): SettingRow[] {
   const [gitTokenGenerating, setGitTokenGenerating] = useState(false);
   const [gitTokenGenerateError, setGitTokenGenerateError] = useState<string | null>(null);
   const [gitOverrideTokenDraft, setGitOverrideTokenDraft] = useState(gitRemoteOverrideToken);
+  const [tokenJustSaved, setTokenJustSaved] = useState(false);
+  const tokenSavedTimeoutRef = useRef<number | undefined>(undefined);
+  const flashTokenSaved = () => {
+    setTokenJustSaved(true);
+    window.clearTimeout(tokenSavedTimeoutRef.current);
+    tokenSavedTimeoutRef.current = window.setTimeout(() => setTokenJustSaved(false), TOKEN_SAVED_FLASH_MS);
+  };
 
   const gitRemoteSettings = useMemo(
     () => ({ repoName: gitRepoName, overrideEnabled: gitRemoteOverrideEnabled, overrideUrl: gitRemoteOverrideUrl }),
@@ -109,6 +137,24 @@ export function useGitRows(): SettingRow[] {
       : null;
 
   const statusRow = gitStatusRow(showGitStatusInExplorer, setShowGitStatusInExplorer);
+
+  // Guided-card step state, derived from real store state — never from
+  // "has the user clicked past this step" (design-health P1: "a step is
+  // marked done only from real state").
+  const remoteStepDone = !gitRemoteOverrideEnabled || (gitRemoteOverrideUrl.trim() !== "" && !overrideUrlError);
+  const committedCredential = resolveGitCredential({
+    token: gitAuthToken,
+    overrideEnabled: gitRemoteOverrideEnabled,
+    overrideUrl: gitRemoteOverrideUrl,
+    overrideToken: gitRemoteOverrideToken,
+  });
+  const credentialStepDone = committedCredential.trim() !== "";
+  const testStepDone = gitTestResult?.ok === true;
+  // `Stepper`'s `current` marks every index BELOW it "done" — passing one
+  // past the last index (3) once the test has actually passed is what lets
+  // step 3 itself show as done too, for a real "clear end state" rather
+  // than forever sitting on "current".
+  const connectionStepIndex = !remoteStepDone ? 0 : !credentialStepDone ? 1 : testStepDone ? 3 : 2;
 
   if (!gitSyncSetupComplete) {
     return [
@@ -180,171 +226,238 @@ export function useGitRows(): SettingRow[] {
     },
     statusRow,
     {
-      id: "remote-sync",
-      label: "Remote sync",
-      keywords: "remote url https token sync auth push pull ssh key test connection generate",
+      // Round 5 (design-health P1/P0/P2) — "Remote sync" and "Advanced:
+      // custom remote" collapsed into one guided three-step card. Every
+      // testid a spec depends on (`git-generate-token`, `git-test-
+      // connection`, `git-test-result`, `git-override-enabled`,
+      // `git-override-url`, `git-override-token`) and the "Personal access
+      // token" / "Custom remote URL" / "Custom remote credential" labels
+      // are unchanged — only their grouping and copy changed.
+      id: "connection",
+      label: "Connection",
+      keywords: "remote url https token credential sync auth push pull ssh key test connection generate advanced custom fast-forward",
       content: (
-        <SettingsRow label="Remote sync" controlWidth="full">
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Badge variant={gitTestResult?.ok ? "success" : "neutral"} tone="soft">
-                {gitTestResult?.ok ? (gitTestResult.repoExists ? "Connected" : "Connected, repo not created yet") : "Fast-forward only"}
-              </Badge>
-            </div>
-            <FormField label="Personal access token" hint="Authenticates sync to this server. Generate one right here once signed in.">
-              <div style={{ display: "flex", gap: 8 }}>
-                <Input
-                  size="sm"
-                  type="password"
-                  placeholder="vsn_••••••••••••••••"
-                  value={gitTokenDraft}
-                  disabled={gitRemoteOverrideEnabled}
-                  onChange={(e) => setGitTokenDraft(e.target.value)}
-                  onBlur={() => setGitAuthToken(gitTokenDraft)}
-                  aria-label="Personal access token"
-                  style={{ flex: 1 }}
+        <SettingsRow label="Connection" hint="Where sync sends your vault, and proof it can reach it." controlWidth="full">
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <Stepper steps={CONNECTION_STEPS} current={connectionStepIndex} testidPrefix="git-sync" ariaLabel="Git & Sync connection steps" />
+
+            {/* Step 1 — Remote */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-fg)" }}>1. Remote</span>
+              {!gitRemoteOverrideEnabled && (
+                <span style={{ fontSize: 12.5, color: "var(--color-muted)" }}>
+                  Built-in remote: repository <code style={{ fontFamily: "var(--font-mono)" }}>{gitRepoName.trim() || DEFAULT_GIT_REPO_NAME}</code> on
+                  this VSNote server.
+                </span>
+              )}
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <Switch
+                  checked={gitRemoteOverrideEnabled}
+                  onCheckedChange={setGitRemoteOverrideEnabled}
+                  aria-label="Advanced: custom remote override"
+                  data-testid="git-override-enabled"
                 />
+                <span style={{ fontSize: 13, color: "var(--color-muted)" }}>Advanced: use a custom remote instead (GitHub, Gitea, another VSNote)</span>
+              </label>
+              {gitRemoteOverrideEnabled && (
+                <>
+                  <FormField label="Custom remote URL" hint="A full http or https git remote URL." error={overrideUrlError ?? undefined}>
+                    <Input
+                      size="sm"
+                      value={gitRemoteOverrideUrl}
+                      invalid={!!overrideUrlError}
+                      placeholder="https://github.com/you/notes.git"
+                      onChange={(e) => setGitRemoteOverrideUrl(e.target.value)}
+                      aria-label="Custom remote URL"
+                      data-testid="git-override-url"
+                      style={{ width: "100%", fontFamily: "var(--font-mono)" }}
+                    />
+                  </FormField>
+                  <FormField label="Custom remote credential" hint="A personal access token for that remote. Kept separate from the token below.">
+                    <Input
+                      size="sm"
+                      type="password"
+                      placeholder="ghp_••••••••••••••••"
+                      value={gitOverrideTokenDraft}
+                      onChange={(e) => setGitOverrideTokenDraft(e.target.value)}
+                      onBlur={() => setGitRemoteOverrideToken(gitOverrideTokenDraft)}
+                      aria-label="Custom remote credential"
+                      data-testid="git-override-token"
+                      style={{ width: "100%" }}
+                    />
+                  </FormField>
+                  <Alert variant="note" size="sm">
+                    Sync stays fast-forward or auto-merge here too. It never force-pushes.
+                  </Alert>
+                </>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Step 2 — Credential */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-fg)" }}>2. Credential</span>
+              <FormField label="Personal access token" hint="Authenticates sync to this server. Generate one right here once signed in.">
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Input
+                    size="sm"
+                    type="password"
+                    placeholder="vsn_••••••••••••••••"
+                    value={gitTokenDraft}
+                    disabled={gitRemoteOverrideEnabled}
+                    onChange={(e) => setGitTokenDraft(e.target.value)}
+                    onBlur={() => {
+                      const changed = gitTokenDraft !== gitAuthToken;
+                      setGitAuthToken(gitTokenDraft);
+                      if (changed && gitTokenDraft.trim() !== "") flashTokenSaved();
+                    }}
+                    aria-label="Personal access token"
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={!authenticated || gitTokenGenerating || gitRemoteOverrideEnabled}
+                    data-testid="git-generate-token"
+                    onClick={() => {
+                      setGitTokenGenerating(true);
+                      setGitTokenGenerateError(null);
+                      createApiToken("vsnote-git-sync", "write")
+                        .then((created) => {
+                          setGitTokenDraft(created.token);
+                          setGitAuthToken(created.token);
+                          flashTokenSaved();
+                        })
+                        .catch((err) => {
+                          setGitTokenGenerateError(err instanceof Error ? err.message : "Could not generate a token.");
+                        })
+                        .finally(() => setGitTokenGenerating(false));
+                    }}
+                  >
+                    {gitTokenGenerating ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Generate token"}
+                  </Button>
+                </div>
+              </FormField>
+              {/* Design-health P0 — token commit (blur OR Generate) gets an
+                  explicit "Saved" transition, then hands off to a
+                  persistent summary that never shows the token itself,
+                  only its last 4 characters. */}
+              {tokenJustSaved ? (
+                <span data-testid="git-token-saved" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--color-success)" }}>
+                  <Check size={12} aria-hidden /> Saved
+                </span>
+              ) : (
+                !gitRemoteOverrideEnabled &&
+                gitAuthToken.trim() !== "" && (
+                  <span data-testid="git-token-summary" style={{ fontSize: 12, color: "var(--color-muted)" }}>
+                    Token set, ends in ...{gitAuthToken.trim().slice(-4)}
+                  </span>
+                )
+              )}
+              {gitRemoteOverrideEnabled && (
+                <span style={{ fontSize: 12, color: "var(--color-muted)" }}>Unused while the custom remote override above is on.</span>
+              )}
+              {!authenticated && !gitRemoteOverrideEnabled && (
+                <span style={{ fontSize: 12, color: "var(--color-muted)" }}>Sign in under Sharing to generate a token, or paste one you have.</span>
+              )}
+              {gitTokenGenerateError && (
+                <Alert variant="danger" size="sm">
+                  {gitTokenGenerateError}
+                </Alert>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Step 3 — Test connection */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-fg)" }}>3. Test connection</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Badge variant={testStepDone ? "success" : "neutral"} tone="soft">
+                  {testStepDone ? "Connected, fast-forward only" : "Not connected"}
+                </Badge>
+                {testStepDone && (
+                  <span style={{ fontSize: 12, color: "var(--color-muted)" }}>
+                    Fast-forward only: sync never force-pushes; a real divergence auto-merges or opens conflict resolution instead.
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
-                  disabled={!authenticated || gitTokenGenerating || gitRemoteOverrideEnabled}
-                  data-testid="git-generate-token"
+                  data-testid="git-test-connection"
+                  style={{ whiteSpace: "nowrap", flexShrink: 0 }}
                   onClick={() => {
-                    setGitTokenGenerating(true);
-                    setGitTokenGenerateError(null);
-                    createApiToken("vsnote-git-sync", "write")
-                      .then((created) => {
-                        setGitTokenDraft(created.token);
-                        setGitAuthToken(created.token);
-                      })
-                      .catch((err) => {
-                        setGitTokenGenerateError(err instanceof Error ? err.message : "Could not generate a token.");
-                      })
-                      .finally(() => setGitTokenGenerating(false));
+                    if (gitRemoteOverrideEnabled) setGitRemoteOverrideToken(gitOverrideTokenDraft);
+                    else setGitAuthToken(gitTokenDraft);
+                    // A blank or malformed override URL, with the override
+                    // toggle ON, must never silently test the IMPLICIT remote
+                    // instead (that would report "Connected" while the user
+                    // believes their custom remote works) nor produce the
+                    // generic "Could not reach the remote host" copy —
+                    // `resolveGitRemoteUrl` falls back to the implicit remote
+                    // for real sync on purpose (a half-filled Advanced section
+                    // must not break sync), but "Test connection" specifically
+                    // must call out the misconfiguration instead of testing
+                    // something the user didn't ask for.
+                    if (gitRemoteOverrideEnabled && (gitRemoteOverrideUrl.trim() === "" || overrideUrlError)) {
+                      setGitTestResult({
+                        ok: false,
+                        code: "not-configured",
+                        message: gitRemoteOverrideUrl.trim() === "" ? "Enter a custom remote URL first." : "Fix the custom remote URL first.",
+                      });
+                      return;
+                    }
+                    setGitTesting(true);
+                    setGitTestResult(null);
+                    void testGitConnection({
+                      url: resolvedRemoteUrl,
+                      token: resolveGitCredential({
+                        token: gitTokenDraft,
+                        overrideEnabled: gitRemoteOverrideEnabled,
+                        overrideUrl: gitRemoteOverrideUrl,
+                        overrideToken: gitOverrideTokenDraft,
+                      }),
+                    })
+                      .then(setGitTestResult)
+                      .finally(() => setGitTesting(false));
                   }}
                 >
-                  {gitTokenGenerating ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Generate token"}
+                  {gitTesting ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Test connection"}
                 </Button>
+                {gitTestResult && !gitTesting && (
+                  <span
+                    data-testid="git-test-result"
+                    style={{ fontSize: 12.5, color: gitTestResult.ok ? "var(--color-muted)" : "var(--git-deleted)" }}
+                  >
+                    {describeConnectionTest(gitTestResult, gitRemoteOverrideEnabled).message}
+                  </span>
+                )}
               </div>
-            </FormField>
-            {gitRemoteOverrideEnabled && (
-              <span style={{ fontSize: 12, color: "var(--color-muted)" }}>Unused while the custom remote override below is on.</span>
-            )}
-            {!authenticated && !gitRemoteOverrideEnabled && (
-              <span style={{ fontSize: 12, color: "var(--color-muted)" }}>Sign in under Sharing to generate a token, or paste one you have.</span>
-            )}
-            {gitTokenGenerateError && (
-              <Alert variant="danger" size="sm">
-                {gitTokenGenerateError}
-              </Alert>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                data-testid="git-test-connection"
-                style={{ whiteSpace: "nowrap", flexShrink: 0 }}
-                onClick={() => {
-                  if (gitRemoteOverrideEnabled) setGitRemoteOverrideToken(gitOverrideTokenDraft);
-                  else setGitAuthToken(gitTokenDraft);
-                  // A blank or malformed override URL, with the override
-                  // toggle ON, must never silently test the IMPLICIT remote
-                  // instead (that would report "Connected" while the user
-                  // believes their custom remote works) nor produce the
-                  // generic "Could not reach the remote host" copy —
-                  // `resolveGitRemoteUrl` falls back to the implicit remote
-                  // for real sync on purpose (a half-filled Advanced section
-                  // must not break sync), but "Test connection" specifically
-                  // must call out the misconfiguration instead of testing
-                  // something the user didn't ask for.
-                  if (gitRemoteOverrideEnabled && (gitRemoteOverrideUrl.trim() === "" || overrideUrlError)) {
-                    setGitTestResult({
-                      ok: false,
-                      code: "not-configured",
-                      message: gitRemoteOverrideUrl.trim() === "" ? "Enter a custom remote URL first." : "Fix the custom remote URL first.",
-                    });
-                    return;
-                  }
-                  setGitTesting(true);
-                  setGitTestResult(null);
-                  void testGitConnection({
-                    url: resolvedRemoteUrl,
-                    token: resolveGitCredential({
-                      token: gitTokenDraft,
-                      overrideEnabled: gitRemoteOverrideEnabled,
-                      overrideUrl: gitRemoteOverrideUrl,
-                      overrideToken: gitOverrideTokenDraft,
-                    }),
-                  })
-                    .then(setGitTestResult)
-                    .finally(() => setGitTesting(false));
-                }}
-              >
-                {gitTesting ? <span style={{ display: "inline-flex" }}><Loader2 size={13} className="animate-spin" /></span> : "Test connection"}
-              </Button>
-              {gitTestResult && !gitTesting && (
-                <span
-                  data-testid="git-test-result"
-                  style={{ fontSize: 12.5, color: gitTestResult.ok ? "var(--color-muted)" : "var(--git-deleted)" }}
-                >
-                  {describeConnectionTest(gitTestResult, gitRemoteOverrideEnabled).message}
-                </span>
-              )}
             </div>
-          </div>
-        </SettingsRow>
-      ),
-    },
-    {
-      id: "custom-remote",
-      label: "Advanced: custom remote",
-      keywords: "advanced custom remote external github gitea token credential override",
-      content: (
-        <SettingsRow label="Advanced: custom remote" hint="For an external GitHub, Gitea, or other VSNote remote. Off by default." controlWidth="full">
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, opacity: gitRemoteOverrideEnabled ? 1 : 0.85 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-              <Switch
-                checked={gitRemoteOverrideEnabled}
-                onCheckedChange={setGitRemoteOverrideEnabled}
-                aria-label="Advanced: custom remote override"
-                data-testid="git-override-enabled"
-              />
-              <span style={{ fontSize: 13, color: "var(--color-muted)" }}>Use a custom remote instead of this server</span>
-            </label>
-            {gitRemoteOverrideEnabled && (
-              <>
-                <FormField label="Custom remote URL" hint="A full http or https git remote URL." error={overrideUrlError ?? undefined}>
-                  <Input
-                    size="sm"
-                    value={gitRemoteOverrideUrl}
-                    invalid={!!overrideUrlError}
-                    placeholder="https://github.com/you/notes.git"
-                    onChange={(e) => setGitRemoteOverrideUrl(e.target.value)}
-                    aria-label="Custom remote URL"
-                    data-testid="git-override-url"
-                    style={{ width: "100%", fontFamily: "var(--font-mono)" }}
-                  />
-                </FormField>
-                <FormField label="Custom remote credential" hint="A personal access token for that remote. Kept separate from the token above.">
-                  <Input
-                    size="sm"
-                    type="password"
-                    placeholder="ghp_••••••••••••••••"
-                    value={gitOverrideTokenDraft}
-                    onChange={(e) => setGitOverrideTokenDraft(e.target.value)}
-                    onBlur={() => setGitRemoteOverrideToken(gitOverrideTokenDraft)}
-                    aria-label="Custom remote credential"
-                    data-testid="git-override-token"
-                    style={{ width: "100%" }}
-                  />
-                </FormField>
-                <Alert variant="note" size="sm">
-                  Sync stays fast-forward or auto-merge here too. It never force-pushes.
-                </Alert>
-              </>
-            )}
+
+            <Separator />
+
+            {/* Design-health "help/documentation" gap ("no docs link on
+                Git & Sync") — the README's own "Git & Sync" section
+                (`README.md#git--sync`), not an in-app page: this client
+                has no doc viewer, and the README is the one place this
+                card's guided flow, the fast-forward-only policy, and the
+                full sync roadmap pointer are already written up. */}
+            <a
+              href="https://github.com/sadigaxund/vsnote/blob/main/README.md#git--sync"
+              target="_blank"
+              rel="noreferrer"
+              data-testid="git-sync-docs-link"
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--color-primary)", alignSelf: "flex-start" }}
+            >
+              <ExternalLink size={13} aria-hidden />
+              Docs: Git &amp; Sync
+            </a>
           </div>
         </SettingsRow>
       ),

@@ -237,18 +237,52 @@ test.describe("Settings view", () => {
     await expect(tokenInput).toBeEnabled();
     await expect(page.getByTestId("git-test-connection")).toBeVisible();
 
+    // Round 5 — the badge reads "Not connected" before any test has
+    // passed, never "Fast-forward only" (that phrase only ever described
+    // the sync POLICY, not connection state — see the new hint once
+    // connected, below).
+    await expect(page.getByText("Not connected")).toBeVisible();
+    await expect(page.getByText("Fast-forward only", { exact: true })).toHaveCount(0);
+    // Round 5 — a "Docs" link row, opened in a new tab.
+    const docsLink = page.getByTestId("git-sync-docs-link");
+    await expect(docsLink).toBeVisible();
+    await expect(docsLink).toHaveAttribute("target", "_blank");
+    await expect(docsLink).toHaveAttribute("href", /README\.md#git--sync/);
+
     // Item 54 — three combinable switches, not an exclusive select.
     await expect(page.getByTestId("git-sync-on-interval")).toBeVisible();
     await expect(page.getByTestId("git-sync-on-open-close")).toBeVisible();
     await expect(page.getByTestId("git-sync-on-save")).toBeVisible();
 
     // Unsigned "Test connection" still degrades to a clear, specific
-    // message against the real backend (a real 401, never a hang/crash).
+    // message against the real backend (a real 401, never a hang/crash) —
+    // round 5: the message now names the recovery, not just the failure.
     await page.getByTestId("git-test-connection").click();
     await expect(page.getByTestId("git-test-result")).toHaveText(/credential|auth/i);
+    await expect(page.getByTestId("git-test-result")).toContainText("regenerate the token");
+    // A rejected test doesn't flip the badge to connected.
+    await expect(page.getByText("Not connected")).toBeVisible();
     // No SSH-key management anywhere in this category (DESIGN-SPEC
     // Amendments item 11: browsers can't speak SSH).
     await expect(page.getByText(/SSH key/i)).toHaveCount(0);
+  });
+
+  test("Git & Sync: token commit gets a Saved confirmation, then a persistent summary that never shows the token (round 5)", async ({ page }) => {
+    await seedSettings(page, { gitSyncSetupComplete: true });
+    await gotoApp(page);
+    await openSettingsTab(page);
+    await page.getByTestId("settings-nav-git-sync").click();
+
+    const tokenInput = page.getByLabel("Personal access token");
+    await tokenInput.fill("vsn_faketokenabcd1234");
+    await tokenInput.blur();
+
+    await expect(page.getByTestId("git-token-saved")).toBeVisible();
+    await expect(page.getByTestId("git-token-saved")).toContainText("Saved");
+    await expect(page.getByTestId("git-token-summary")).toBeVisible({ timeout: 3000 });
+    await expect(page.getByTestId("git-token-summary")).toHaveText("Token set, ends in ...1234");
+    // The persistent line never shows the token itself.
+    await expect(page.getByText("vsn_faketokenabcd1234")).toHaveCount(0);
   });
 
   test("Storage category exposes persistence status, export, and reset actions", async ({ page }) => {

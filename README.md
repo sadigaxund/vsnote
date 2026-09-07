@@ -66,6 +66,24 @@ Everything is an environment variable with a working default; see [`.env.example
 > [!IMPORTANT]
 > For any deployment reachable from the internet, set `VSNOTE_ENV=prod` with a real `VSNOTE_SECRET_KEY`, and front the app with HTTPS (a Cloudflare tunnel pointed at the container works out of the box; the server honors forwarded proto and host headers).
 
+## Git & Sync
+
+Settings → Git & Sync is a guided three-step card: **Remote** (the built-in
+same-origin remote, named after your repository, or an Advanced custom
+remote URL for GitHub/Gitea/another VSNote instance), **Credential** (a
+personal access token — generate one in place once signed in, or paste an
+existing one; it's saved on blur and never shown again, only "Token set,
+ends in ...xxxx"), and **Test connection** (a real reachability + auth
+round-trip; the badge reads "Not connected" until a test actually passes,
+then "Connected, fast-forward only"). Sync itself is always fast-forward or
+safe auto-merge — it never force-pushes; a real divergence gets a backup ref
+and either an automatic merge commit or the in-editor conflict resolver, per
+[`docs/ROADMAP-SHARING-AUTH.md`](docs/ROADMAP-SHARING-AUTH.md)'s sibling
+sync roadmap and detailed in [`server/README.md`'s "Real git sync"
+section](server/README.md#real-git-sync-phase-11). Auto-sync policy (on an
+interval, on app open/close, after each save, on window focus — any
+combination) lives below the card in the same category.
+
 ## Testing
 
 ```bash

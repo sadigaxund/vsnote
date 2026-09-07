@@ -630,10 +630,12 @@ export function describeConnectionTest(result: ConnectionTestResult, isCustomRem
     return { outcome: "ok", message: "Reachable, authenticated, and the repository exists." };
   }
   if (result.code === "offline") {
-    return { outcome: "unreachable", message: "Could not reach the remote host." };
+    return { outcome: "unreachable", message: "Could not reach the remote host: check the URL and that the server is running." };
   }
   if (result.code === "auth") {
-    return { outcome: "auth-rejected", message: "Reached the host, but the credential was rejected." };
+    // Round 5 — names the recovery, not just the failure (design-health
+    // "error recovery" gap: "token error says failed, not what to do").
+    return { outcome: "auth-rejected", message: "Reached the host, credential rejected: regenerate the token or check its scopes." };
   }
   if (result.code === "not-configured") {
     return { outcome: "misconfigured", message: result.message };
