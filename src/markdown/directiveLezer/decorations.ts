@@ -85,6 +85,7 @@ import type { ValueStore } from "@markii/runtime";
 import "@markii/react/doc.css";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { cursorLineDown, cursorLineUp } from "@codemirror/commands";
+import { completionStatus } from "@codemirror/autocomplete";
 import { EditorSelection, Prec, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { MK_DIRECTIVE_CONTAINER, MK_DIRECTIVE_LEAF, MK_DIRECTIVE_TEXT } from "./extension";
@@ -377,6 +378,22 @@ function findEnclosingBlockRange(state: EditorState, pos: number): { from: numbe
  */
 function mkBlockVerticalNavigation(direction: 1 | -1) {
   return (view: EditorView): boolean => {
+    // This keymap sits at `Prec.highest` and, per the module's compartment
+    // ordering (`LivePreviewEditor.tsx`: decorations compartment installed
+    // BEFORE the completion compartment), runs ahead of
+    // `@codemirror/autocomplete`'s own `Prec.highest` ArrowUp/ArrowDown
+    // bindings (`moveCompletionSelection`) at equal precedence — CM6 tries
+    // same-precedence keymap extensions in the order they were added, first
+    // match wins (`@codemirror/view`'s `runHandlers`). Since this command
+    // always returns whatever `cursorLineDown`/`cursorLineUp` returned
+    // (`true` on any non-empty document), it was unconditionally winning
+    // that race and the popup's own highlight never moved: ArrowDown/Up
+    // moved the CARET instead of the selected completion item. Falling
+    // through here (returning `false`) while the popup is open lets the
+    // completion keymap's binding run instead, exactly like
+    // `handleContainerOpenFenceEnter`'s own `completionStatus` guard below
+    // in `markiiCompletion.ts` does for Enter.
+    if (completionStatus(view.state) === "active") return false;
     const before = view.state.selection.main.head;
     const ran = direction === 1 ? cursorLineDown(view) : cursorLineUp(view);
     if (!ran) return ran;

@@ -87,4 +87,54 @@ test.describe("markii editor sugar in Rendered mode (.mk.md)", () => {
     await expect.poll(async () => (await source.innerText())).toMatch(/^::::$/m);
     await expect.poll(async () => (await source.innerText())).toContain(":::note");
   });
+
+  test("popup is keyboard-navigable: ArrowDown moves the highlight, Enter accepts the highlighted item", async ({
+    page,
+  }) => {
+    // Round 5 MK item 1: with the popup open, ArrowUp/ArrowDown used to move
+    // the CARET (via `decorations.ts`'s block-navigation keymap, which never
+    // checked `completionStatus` and always won the same-precedence race
+    // against `@codemirror/autocomplete`'s own arrow bindings — see that
+    // file's `mkBlockVerticalNavigation` doc for the fix) instead of the
+    // selected option, and Enter inserted a newline instead of accepting.
+    await gotoApp(page);
+
+    await treeRow(page, "vault/src").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New File" }).click();
+    const newFileRow = treeRow(page, "vault/src/.vsnote-draft-file");
+    await expect(newFileRow).toBeVisible();
+    await newFileRow.locator("input").fill("rendered-sugar-nav.mk.md");
+    await newFileRow.locator("input").press("Enter");
+    const fileRow = treeRow(page, "vault/src/rendered-sugar-nav.mk.md");
+    await expect(fileRow).toBeVisible();
+    await fileRow.click();
+
+    await expect(page.getByRole("radio", { name: "Rendered" })).toBeChecked();
+    const rendered = page.locator(".cm-content").first();
+    await expect(rendered).toBeVisible();
+    await rendered.click();
+
+    await page.keyboard.type(":::");
+    const popup = page.locator(".cm-tooltip-autocomplete");
+    await expect(popup).toBeVisible();
+    const options = popup.locator("li .cm-completionLabel");
+    await expect(options).toHaveCount(await options.count()); // settle before reading
+    const optionCount = await options.count();
+    expect(optionCount).toBeGreaterThanOrEqual(3);
+    const thirdLabel = await options.nth(2).innerText();
+
+    // Two ArrowDowns from the first (auto-selected) option land on the
+    // third; grab the currently-highlighted item's text at each step to
+    // prove the HIGHLIGHT is moving, not just the caret.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    const selected = popup.locator("li[aria-selected] .cm-completionLabel");
+    await expect(selected).toHaveText(thirdLabel);
+
+    await page.keyboard.press("Enter");
+    await expect(popup).toBeHidden();
+    // Enter must have ACCEPTED the third item's skeleton, not inserted a
+    // bare newline — the fence line now names that directive.
+    await expect.poll(async () => (await rendered.innerText())).toContain(`:::${thirdLabel}`);
+  });
 });

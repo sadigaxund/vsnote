@@ -552,3 +552,47 @@ textarea,
     justify-content: center;
   }
 }
+
+/* ---- markii directive completion popup (round 5, MK item 2) ----
+   `@codemirror/autocomplete`'s default theme renders each option as an
+   `<li>` holding `.cm-completionLabel` immediately followed by
+   `.cm-completionDetail`, with the spacing between them coming from that
+   default theme's own `margin-left` on `.cm-completionDetail`. Tailwind's
+   preflight (imported at the top of this file, per CLAUDE.md's UI-library
+   setup) zeroes margin on every element project-wide, which silently ate
+   that spacing — `label` and `detail` are genuinely separate `Completion`
+   fields already (`editor/markiiCompletion.ts`'s `toCmCompletion`), the
+   glued-together look ("centerCenters its content") was CSS only, not a
+   data bug. Restoring the margin here (plus a muted color and an
+   interpunct so the two fields read as distinct even without color) fixes
+   it without touching the popup's DOM structure.
+
+   `.cm-tooltip-autocomplete` also had no app styling at all before this —
+   it inherited CM6's plain default theme (flat white/black, no radius, no
+   shadow), which looked out of place next to the command palette's own
+   surface/border/radius/shadow tokens (round 10 polish, `[role="dialog"]`
+   rule above). Matched here rather than forked: same tokens, not a copy of
+   the palette's own CSS. */
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: var(--color-surface-elevated, var(--color-surface));
+  border: 1px solid var(--app-border-nested, var(--color-border));
+  border-radius: var(--radius-ui-sm);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+}
+.cm-tooltip.cm-tooltip-autocomplete > ul {
+  font-family: var(--font-sans, inherit);
+}
+.cm-tooltip-autocomplete ul li[aria-selected] {
+  background: var(--color-surface-hover, var(--color-surface));
+  color: var(--color-fg);
+}
+.cm-completionDetail {
+  margin-left: 0.6em;
+  color: var(--color-muted);
+  font-style: normal;
+}
+.cm-completionDetail::before {
+  content: "\00B7"; /* interpunct separator between label and detail */
+  margin-right: 0.4em;
+}
