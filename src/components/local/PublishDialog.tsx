@@ -435,7 +435,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                 </p>
                 {!canRenderKind && (
                   <p style={{ fontSize: 11.5, color: "var(--color-muted)", margin: "4px 0 0" }} data-testid="publish-mode-no-renderer">
-                    This file type doesn't have a Viewer page yet — only Raw file is available.
+                    This file type has no Viewer page, so only Raw file is available.
                   </p>
                 )}
               </FormField>
