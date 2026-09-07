@@ -1341,3 +1341,16 @@ items OVERRIDE anything above them.
      muted hint at the end of the block says it renders again when the
      cursor leaves, so the Obsidian rule is discoverable once rather than
      never.
+
+117. **Markii editor sugar works in Rendered mode, and fence nesting
+     survives manual typing.** The directive completion, hover docs and
+     component insertion were installed only in Source mode, so a `.mk.md`
+     file in its default Rendered mode offered none of them. They are now
+     installed in live preview too, over the revealed raw fence line. The
+     completion list opens on the second colon of a directive fence, the
+     same threshold the Obsidian reference host uses. Separately, an
+     enclosing container pair now lengthens transitively when a nested
+     opening fence is TYPED, not only when one is inserted through
+     completion or the Insert component action, so hand-written nesting
+     parses the way the inserted kind always did. Fenced code blocks are
+     never touched.

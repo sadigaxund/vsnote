@@ -56,7 +56,7 @@
  * (`markdown/directiveLezer/decorations.ts`) plug into THIS component,
  * gated on `path.endsWith(".mk.md")` — the only VSNote-specific fact this
  * file adds to `directiveLezer`'s otherwise app-state-free extension pair.
- * Two things are needed for `.mk.md`, both applied only when that check
+ * Three things are needed for `.mk.md`, all applied only when that check
  * passes:
  *
  * 1. The decorations `ViewPlugin` itself (`markiiLivePreviewDecorations()`)
@@ -64,7 +64,26 @@
  *    different from `CaptureView`/`EscapeClosesPanel`.
  * 2. A markdown LANGUAGE that actually contains `MkDirectiveContainer`/
  *    `MkDirectiveLeaf`/`MkDirectiveText` nodes for those decorations to
- *    find — atomic-editor builds its own `markdown({ base: markdownLanguage,
+ *    find
+ * 3. (R3-12) The SAME directive completion/hover/insert bundle
+ *    (`editor/markiiCompletion.ts`'s `markiiEditorExtensions()`) Source
+ *    mode already gets via `CodeMirrorEditor`'s `extraExtensions` — the
+ *    owner's report that Rendered mode had none of it was this ticket.
+ *    Loaded through its OWN compartment (`mkMdCompletionCompartmentRef`
+ *    below), independent of the language/decorations compartments: unlike
+ *    `markiiLivePreviewDecorations`'s `StateField`, nothing in
+ *    `markiiEditorExtensions()` reads the syntax tree — `markiiCompletionSource`/
+ *    `markiiHoverTooltip` work off raw `(lineText, column)` pairs off
+ *    `state.doc` directly — so it carries none of the "two compartments,
+ *    two dispatches" ordering hazard the language/decorations pair
+ *    documents below, and can be installed in its own effect with no
+ *    dependency on the other two having landed first. The completion
+ *    popup positions itself off `state.doc` coordinates the same way CM6's
+ *    autocomplete always does, and the hover tooltip's `pos`/`end` are doc
+ *    offsets too — both resolve correctly against whatever the live-preview
+ *    decorations plugin currently has on screen (a revealed raw fence line
+ *    under the cursor, or collapsed elsewhere) because neither one inspects
+ *    decorations at all, only the document. — atomic-editor builds its own `markdown({ base: markdownLanguage,
  *    codeLanguages, extensions: highlightMarkdown })` internally (see
  *    `@atomic-editor/editor`'s `AtomicCodeMirrorEditor.js`, MIT, and this
  *    file's `mkMdLanguageOverride` below, adapted from that exact call so
@@ -212,6 +231,18 @@ async function loadMkMdDecorations(enabledPacks: readonly EnabledPack[], valueSt
   return markiiLivePreviewDecorations(enabledPacks, valueStore);
 }
 
+/**
+ * `.mk.md`'s directive completion/hover/insert bundle — see this file's
+ * module doc, point 3. Dynamically imported for the same reason as the
+ * language/decorations loaders above: a plain `.md` tab never pays for
+ * `markiiCompletion.ts` (or, transitively, the vendored `@markii/host`
+ * chunk it pulls in).
+ */
+async function loadMkMdCompletionExtensions(): Promise<Extension[]> {
+  const { markiiEditorExtensions } = await import("./markiiCompletion");
+  return markiiEditorExtensions();
+}
+
 export interface LivePreviewEditorProps {
   /** Which pane this instance belongs to — see `editor/activeView.ts`'s
    * module doc (Phase 6: one registered view per pane, not one global). */
@@ -266,6 +297,11 @@ export function LivePreviewEditor({
   // call out this ordering requirement for a from-scratch language swap).
   const mkMdLanguageCompartmentRef = useRef(new Compartment());
   const mkMdDecorationsCompartmentRef = useRef(new Compartment());
+  // (R3-12) `.mk.md` only — see this file's module doc, point 3. No
+  // ordering dependency on the two compartments above (nothing in
+  // `markiiEditorExtensions()` reads the syntax tree), so it gets its own
+  // effect below rather than being folded into either existing dispatch.
+  const mkMdCompletionCompartmentRef = useRef(new Compartment());
 
   const onChangeRef = useRef(onChange);
   const onCursorChangeRef = useRef(onCursorChange);
@@ -337,6 +373,7 @@ export function LivePreviewEditor({
       }),
       mkMdLanguageCompartmentRef.current.of([]),
       mkMdDecorationsCompartmentRef.current.of([]),
+      mkMdCompletionCompartmentRef.current.of([]),
     ];
   }, [paneId]);
 
@@ -395,6 +432,28 @@ export function LivePreviewEditor({
     // a live instance and must re-trigger this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runVersion, enabledPacks]);
+
+  // `.mk.md` directive completion/hover/insert (R3-12) — see this file's
+  // module doc, point 3. Runs once at mount, same "`path` fixed for this
+  // mount" reasoning as the language effect above; no dependency on
+  // `runVersion`/`enabledPacks` (pack-awareness for completion/hover is
+  // module-level state inside `markiiCompletion.ts` itself, set by
+  // `setMarkiiDiscoveredPacks` and read fresh on every keystroke/hover —
+  // this bundle doesn't need to be re-installed when packs change).
+  useEffect(() => {
+    if (!isMkMdPath(path)) return;
+    let cancelled = false;
+    loadMkMdCompletionExtensions().then((extensions) => {
+      if (cancelled) return;
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ effects: mkMdCompletionCompartmentRef.current.reconfigure(extensions) });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above: `path` is fixed for this mount.
+  }, []);
 
   useEffect(() => {
     const view = viewRef.current;
