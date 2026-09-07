@@ -156,4 +156,38 @@ test.describe("live preview (Rendered mode)", () => {
       expect(Math.abs(r.right - column.right)).toBeLessThanOrEqual(1);
     }
   });
+
+  /**
+   * R4 defect A — clicking into the editor previously painted a low-alpha
+   * halo (`box-shadow`) at `.cm-content`'s own box edges: the reading
+   * column's centered `max-width` + `margin-inline: auto` box (see
+   * `index.css`'s "Live-preview selection alignment" note), which reads as
+   * two vertical lines exactly where the margins end. Root cause: the
+   * generic `:focus-visible` outline+halo rule (`index.css`, round 10 item
+   * 102) matches `.cm-content` because it is `contenteditable` — same as
+   * `input`/`textarea`, it matches on a plain mouse click, not just
+   * keyboard nav. Fixed by suppressing outline/box-shadow on
+   * `.cm-editor`/`.cm-content`/`.cm-scroller` specifically (the caret
+   * already indicates focus); this guards the regression directly instead
+   * of only visually.
+   */
+  test("clicking into the editor paints no outline/halo on .cm-editor/.cm-content", async ({ page }) => {
+    await gotoApp(page);
+    const content = page.locator(".cm-content").first();
+    await content.getByText("append-only", { exact: false }).click();
+
+    const painted = await page.evaluate(() => {
+      const offenders: string[] = [];
+      for (const sel of [".cm-editor", ".cm-content", ".cm-scroller"]) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        const s = getComputedStyle(el);
+        const hasOutline = s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0;
+        const hasShadow = s.boxShadow !== "none";
+        if (hasOutline || hasShadow) offenders.push(`${sel}: outline=${s.outline} boxShadow=${s.boxShadow}`);
+      }
+      return offenders;
+    });
+    expect(painted).toEqual([]);
+  });
 });

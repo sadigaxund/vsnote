@@ -1356,3 +1356,22 @@ items OVERRIDE anything above them.
      never touched. The popup opens, filters by the name being typed, and
      accepting an item inserts its skeleton with the caret on the body
      line: none of which worked before, in either mode.
+
+## Amendments round 12 — 2026-09-07 (owner feedback, round 4)
+
+118. **The live-preview editor never paints an outline or halo of its own —
+     the caret is the only focus indicator.** The generic `:focus-visible`
+     outline-plus-halo rule (round 10 item 102) matches `.cm-content`
+     because CodeMirror makes it `contenteditable`, the same reason
+     `input`/`textarea` match it on a plain click, not just keyboard nav.
+     `.cm-content`'s box is the centered reading column (`max-width` +
+     `margin-inline: auto`), so every click into a paragraph painted a
+     low-alpha halo at exactly the column's left and right margins — two
+     vertical lines the owner reported as "highlights the borders where the
+     margin ends." Confirmed disappearing at the "full" content-width
+     setting (`.cm-content` then has no `max-width` to paint a halo
+     around), which is what pinned it to this box rather than to selection
+     drawing or the active-line background. `.cm-editor`/`.cm-content`/
+     `.cm-scroller` now explicitly suppress both outline and box-shadow on
+     `:focus-visible`; every other control (buttons, tabs, tree rows, the
+     command palette, dialogs) keeps the full ring unchanged.

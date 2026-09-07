@@ -83,6 +83,29 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-ring, var(--color-primary)) 18%, transparent);
 }
 
+/* R4 defect A — the CM6 live-preview editor must never get the generic
+   outline-plus-halo treatment above. `.cm-content` is `contenteditable`,
+   which (like `input`/`textarea` above) matches `:focus-visible` on a
+   plain mouse click, not just keyboard nav. Its box is the centered
+   reading column (`max-width` + `margin-inline: auto`, see the
+   "Live-preview selection alignment" note below), so the halo painted at
+   its edges every time a user clicked into a paragraph — reading as two
+   vertical lines exactly where the reading column's margins end, and
+   moving with it whenever `renderedContentWidth` narrows/widens the
+   column (invisible at the "full" width setting, where `.cm-content` has
+   no max-width to paint a halo around). The editor's own caret already
+   indicates focus; keyboard users still get the ring on every other
+   control (buttons, tabs, the tree, tabs bar, dialogs, etc.) unaffected
+   by this. Specificity here (two classes + the pseudo-class) beats both
+   the bare `:focus-visible` rule and the `input`/`textarea` one above with
+   no `!important` and no source-order dependency. */
+.cm-editor:focus-visible,
+.cm-editor .cm-content:focus-visible,
+.cm-editor .cm-scroller:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 /* Honor prefers-reduced-motion globally: collapse animation/transition
    durations to near-zero (rather than removing them outright, which would
    hide state changes) and stop smooth scrolling. DESIGN-SPEC's motion
