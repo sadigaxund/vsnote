@@ -1896,3 +1896,88 @@ these are additive, checkable standards, not taste.
      is what already lined its right edge up with the nav rail below it
      (item 119) — this round only touched the title's own box, not the
      search block or the rail.
+
+## Amendments round 17 (continued) — 2026-09-08 (R5-7 markdown typography: one token set)
+
+140. **The static renderer and the live-preview CM6 engine now derive
+     line-height, paragraph spacing, and list-item spacing from ONE shared
+     token set**, instead of the static side (`.mk-doc`, `theme.css` — the
+     public reader, the `MarkdownPreviewPane` "Preview" pane, and
+     print/export all go through it) silently inheriting whatever ambient
+     line-height the surrounding page happened to have (it declared none at
+     all) while the live-preview CM6 engine (`editor/LivePreviewEditor.tsx`)
+     always rendered at `DEFAULT_RENDERED_LINE_SPACING` (1.8,
+     `useSettingsStore.ts`) via `--atomic-editor-body-leading`. That gap —
+     the static side reading roughly the browser default (~1.2, nowhere
+     near 1.8) — was the "lines and rows too close together" report.
+     `index.css`'s new `:root` block (near its top, right after
+     `@import "./theme.css"`) defines `--mk-line-height: 1.8`,
+     `--mk-paragraph-spacing: 1em`, `--mk-list-item-spacing: 0.25em` —
+     theme-independent (rhythm numbers, not colors, so unaffected by
+     `data-theme`/`.share-reader[data-reader-theme=...]`). `theme.css`'s
+     `.mk-doc` rules (base line-height; `p`/`ul`/`ol`/`blockquote`/`table`
+     bottom margin; `li` margin) now read these variables instead of
+     literal numbers, as does `.share-reader__page`'s own ambient
+     line-height (previously a THIRD, independently hand-picked "1.7").
+     `LivePreviewEditor.tsx`'s wrapper wall also sets `--mk-line-height` to
+     the same `renderedLineSpacing` setting value alongside
+     `--atomic-editor-body-leading`, so a future change to either surface's
+     rhythm only has to move these three values in one place. Verified with
+     computed-style comparisons (not hardcoded pixel assertions, since
+     `.mk-doc`'s 16px base font-size and Rendered mode's 17px prose baseline
+     differ) — `tests/e2e/preview-pane.spec.ts`'s new
+     "Preview pane and Rendered mode agree on line-height" test compares the
+     `line-height / font-size` RATIO on each side.
+
+141. **`@markii/react`'s Tier 2 (derived) `--mk-*` tokens — callout/badge
+     fill colors, "ink" text colors, the keycap shadow — now actually follow
+     theme, in the app AND the public reader.** `@markii/react/dist/doc.css`
+     computes these 15 tokens from the 19 Tier 1 tokens via `color-mix()`,
+     but scopes the whole derivation to `.doc` — the upstream library's own
+     wrapper class. This app has always rendered into `.mk-doc` instead
+     (`render.tsx`, deliberately, to avoid colliding with a page that embeds
+     `doc.css` globally), and the live-preview directive widgets
+     (`directiveLezer/decorations.ts`) render into `.mk-live-preview-block`
+     — neither of which `.doc` ever matches — so every Tier 2 token was
+     permanently unset: a `:::callout{type="warning"}` (or any severity)
+     rendered with a flat, theme-independent gray fill everywhere in the
+     app, reader included, in both light and dark. This was the "directive
+     tokens stay on one palette" half of the owner's theme report — the
+     page background DID flip with theme (the 19 Tier 1 tokens were already
+     correctly remapped at every themed scope, app `.dark`/`data-theme` and
+     `.share-reader[data-reader-theme=...]` alike), only the derived
+     component colors didn't. Fix: `theme.css` now carries its own copy of
+     `doc.css`'s exact `@supports (color: color-mix(...))` derivation
+     formulas, scoped to `.mk-doc, .mk-live-preview-block` (not to a single
+     `:root`/`.dark` selector) — inherited custom properties pass down
+     already-resolved values, so computing the derivation once at `:root`
+     would freeze it to `:root`'s own Tier 1 colors and never re-derive for
+     a descendant scope that remaps Tier 1 locally (`.dark`, a reader theme
+     override); declaring it directly on the consuming class means
+     `var(--mk-info)` etc. resolve against whatever Tier 1 palette is
+     already cascaded to that exact element. Verified end-to-end:
+     `tests/e2e/share-reader.spec.ts`'s new "reader theme reaches markii's
+     own directive tokens" test asserts a callout's computed background
+     differs from `.mk-doc`'s own flat surface color (proof Tier 2 actually
+     derived) AND differs between the reader's light and dark settings
+     (proof it follows theme, not one hardcoded palette).
+
+142. **Reader mobile reflow (360/480 CSS px): tables now scroll inside their
+     own block instead of pushing the page wide.** `@markii/react`'s emitted
+     `<table>` ships with no scroll wrapper of its own (verified against the
+     compiled component output). `.mk-doc table` (`theme.css`) is now
+     `display: block; overflow-x: auto` — table-internal elements
+     (`table-row-group`/`table-cell`) keep their native layout; only the
+     outer table element itself becomes its own horizontally-scrolling
+     block, the same widely-supported technique `.mk-static-codeblock`
+     already used for code. `:::row`/`:::cell` stacking at narrow widths
+     needed no VSNote-side fix at all — `doc.css` already ships its own
+     unscoped `@media (max-width: 40rem)` rule collapsing `.mk-row`'s grid
+     to one column, which applies regardless of `.doc` vs. `.mk-doc` since
+     it carries no class-scoped parent selector. Covered by
+     `tests/e2e/share-reader.spec.ts`'s new "mobile reflow (360/480)" suite
+     (one publish per content kind — md/mk.md/code/csv — asserting zero
+     page-level horizontal scroll at both widths, plus a `:::row` stacking
+     check) and additively in `tests/e2e/ui-audit.spec.ts`'s
+     `VSNOTE_UI_AUDIT=1` pass (a new "reader content reflow" test, and 360
+     added to the existing app-shell reflow width loop alongside 320/480).

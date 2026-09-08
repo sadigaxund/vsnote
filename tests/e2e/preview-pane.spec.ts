@@ -92,6 +92,62 @@ test.describe("side-by-side Preview pane (.mk.md / .md)", () => {
     await expect(page.getByTestId("markdown-preview-pane")).toHaveCount(0);
   });
 
+  /**
+   * R5-7: the static renderer (`.mk-doc`, this pane) and the live-preview
+   * CM6 engine (Rendered mode) must render the SAME document with the same
+   * line rhythm — before this fix `.mk-doc` had no `line-height` at all
+   * (theme.css) while Rendered mode always rendered at
+   * `DEFAULT_RENDERED_LINE_SPACING` (1.8). Measures computed styles rather
+   * than asserting a hardcoded pixel constant (per the task brief) — the
+   * ratio of computed `line-height` to computed `font-size` is compared
+   * (not raw px, since the two surfaces have different base font sizes:
+   * `.mk-doc` is 16px, Rendered mode's prose baseline is 17px) so the test
+   * tracks the SHARED TOKEN's multiplier (`--mk-line-height`) rather than
+   * either surface's independent font-size choice.
+   */
+  test("Preview pane and Rendered mode agree on line-height (same token, not just close numbers)", async ({ page }) => {
+    await gotoApp(page);
+
+    await treeRow(page, "vault/src").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New File" }).click();
+    const newFileRow = treeRow(page, "vault/src/.vsnote-draft-file");
+    await expect(newFileRow).toBeVisible();
+    await newFileRow.locator("input").fill("preview-pane-rhythm.md");
+    await newFileRow.locator("input").press("Enter");
+    const fileRow = treeRow(page, "vault/src/preview-pane-rhythm.md");
+    await expect(fileRow).toBeVisible();
+    await fileRow.click();
+
+    await page.getByRole("radio", { name: "Source" }).click();
+    const source = page.locator('[data-pane-source] .cm-content').first();
+    await source.click();
+    await page.keyboard.type("First paragraph of prose.\n\nSecond paragraph of prose.\n");
+
+    await page.getByRole("radio", { name: "Rendered" }).click();
+    await expect(page.getByTestId("tabbar-preview-toggle")).toBeVisible();
+    await page.getByTestId("tabbar-preview-toggle").click();
+    const preview = page.getByTestId("markdown-preview-pane");
+    await expect(preview).toContainText("First paragraph of prose.");
+
+    // Rendered mode's own line rhythm — `.cm-scroller` is the element
+    // `--atomic-editor-body-leading` is applied to (`atomic-theme.js`).
+    const renderedRatio = await page
+      .locator('[data-pane-source] .cm-scroller')
+      .first()
+      .evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return parseFloat(cs.lineHeight) / parseFloat(cs.fontSize);
+      });
+
+    // The static renderer's rhythm — a real `<p>` inside `.mk-doc`.
+    const previewRatio = await preview.locator(".mk-doc p").first().evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return parseFloat(cs.lineHeight) / parseFloat(cs.fontSize);
+    });
+
+    expect(previewRatio).toBeCloseTo(renderedRatio, 1);
+  });
+
   test("the command palette's Toggle preview command opens and closes the pane", async ({ page }) => {
     await gotoApp(page);
 

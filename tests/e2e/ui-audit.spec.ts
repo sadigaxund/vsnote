@@ -84,7 +84,10 @@ test("UI audit: reflow, text-spacing, contrast, vision-deficiency evidence", asy
   );
 
   // ---- 1. Narrow-viewport reflow ------------------------------------
-  for (const width of [320, 480]) {
+  // R5-7(c) added 360 alongside the app shell's existing 320/480 pair —
+  // the reader's own reflow cases (md/mk.md/code/csv share content) are
+  // covered separately below, in "reader content reflow (360/480)".
+  for (const width of [320, 360, 480]) {
     await page.setViewportSize({ width, height: 720 });
     // Narrow widths may legitimately collapse/hide tree+tab chrome, so the
     // reflow probe only waits for the shell itself.
@@ -284,4 +287,87 @@ test("design polish: six before/after screens (round 10 items 98-103)", async ({
   await expect(palette.getByText("Commands", { exact: true })).toBeVisible();
   await page.screenshot({ path: `${AUDIT_DIR}/polish-06-command-palette.png`, fullPage: false });
   await page.keyboard.press("Escape");
+});
+
+/**
+ * R5-7(c): reader CONTENT reflow at 360/480 CSS px, for every content kind
+ * the public reader renders — additive to this file's existing app-shell
+ * reflow probe (which only exercises the app's own chrome, never a
+ * published share). Uses the real share backend, same pattern as "design
+ * polish" above. The page body must never scroll horizontally: tables
+ * scroll inside their own container (`.mk-doc table`, theme.css — was a
+ * bare `width: 100%` with no scroll wrapper), code blocks scroll
+ * horizontally within their own block (`.mk-static-codeblock`, unchanged),
+ * and a `.mk.md`'s `:::row` cells stack rather than squeeze
+ * (`@markii/react/dist/doc.css`'s own `@media (max-width: 40rem)` rule).
+ */
+test("reader content reflow (360/480): md, mk.md, code, csv shares never scroll the page horizontally", async ({
+  page,
+  browser,
+}) => {
+  test.skip(SKIP, "run with VSNOTE_UI_AUDIT=1");
+  mkdirSync(AUDIT_DIR, { recursive: true });
+  findings = [];
+
+  await gotoApp(page);
+  await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
+  const { createFileWithContent, publishFileViaContextMenu } = await import("./shareUiHelpers");
+
+  const mdContent = [
+    "# A long heading that could conceivably overflow a narrow phone viewport",
+    "",
+    "| Column A | Column B | Column C | Column D | Column E |",
+    "| --- | --- | --- | --- | --- |",
+    "| aaaaaaaaaa | bbbbbbbbbb | cccccccccc | dddddddddd | eeeeeeeeee |",
+    "",
+  ].join("\n");
+  const mkContent = [
+    "# Row layout",
+    "",
+    '::::row{cols="3"}',
+    ":::cell\nOne\n:::",
+    ":::cell\nTwo\n:::",
+    ":::cell\nThree\n:::",
+    "::::",
+    "",
+  ].join("\n");
+  const codeContent = `const veryLongIdentifierThatShouldNotWrapTheWholePage = "${"x".repeat(120)}";\n`;
+  const csvContent = "name,description\n" + Array.from({ length: 3 }, (_, i) => `row${i},${"long value ".repeat(6)}`).join("\n") + "\n";
+
+  const mdPath = await createFileWithContent(page, "vault/notes", "ui-audit-reflow.md", mdContent);
+  const mkPath = await createFileWithContent(page, "vault/notes", "ui-audit-reflow.mk.md", mkContent);
+  const codePath = await createFileWithContent(page, "vault/notes", "ui-audit-reflow.ts", codeContent);
+  const csvPath = await createFileWithContent(page, "vault/notes", "ui-audit-reflow.csv", csvContent);
+
+  const links = {
+    md: await publishFileViaContextMenu(page, { treePath: mdPath, generalAccess: "link", renderMode: "rendered" }),
+    mk: await publishFileViaContextMenu(page, { treePath: mkPath, generalAccess: "link", renderMode: "rendered" }),
+    code: await publishFileViaContextMenu(page, { treePath: codePath, generalAccess: "link", renderMode: "rendered" }),
+    csv: await publishFileViaContextMenu(page, { treePath: csvPath, generalAccess: "link", renderMode: "rendered" }),
+  };
+
+  for (const width of [360, 480]) {
+    for (const [kind, link] of Object.entries(links)) {
+      const ctx = await browser.newContext({ viewport: { width, height: 800 } });
+      const visitorPage = await ctx.newPage();
+      await visitorPage.goto(link);
+      await expect(visitorPage.locator(".share-reader")).toBeVisible();
+
+      const overflow = await visitorPage.evaluate(() => {
+        const doc = document.scrollingElement;
+        return doc ? doc.scrollWidth - doc.clientWidth : -1;
+      });
+      const verdict = overflow <= 2 ? "OK" : "MUST";
+      record(verdict, `reader reflow @${width}px`, `${kind} share: ${overflow}px overflow`);
+      if (kind === "mk" && width === 360) {
+        await visitorPage.screenshot({ path: `${AUDIT_DIR}/reader-reflow-mkmd-${width}.png`, fullPage: false });
+      }
+
+      await ctx.close();
+    }
+  }
+
+  writeFileSync(`${AUDIT_DIR}/REPORT-reader-reflow.md`, `# Reader content reflow — ${new Date().toISOString()}\n\n\`\`\`\n${findings.join("\n")}\n\`\`\`\n`);
+  console.log(findings.join("\n"));
 });

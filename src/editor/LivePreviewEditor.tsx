@@ -137,6 +137,7 @@ import {
   RENDERED_CONTENT_WIDTH_FULL,
 } from "../stores/useSettingsStore";
 import { useMarkiiStore, selectEnabledPacks } from "../stores/useMarkiiStore";
+import { useMarkiiExtensionSettingsStore } from "../stores/useMarkiiExtensionSettingsStore";
 import { loadPersistedValues } from "../markii/platform/browser";
 import { hydrateValueStore } from "../markii/host/valuePersistence";
 import type { EnabledPack } from "../markii/host/packs";
@@ -202,11 +203,21 @@ function isMkMdPath(path: string): boolean {
  * highlight setup (see this file's module doc) plus `directiveLezer`'s
  * grammar. Dynamically imported so plain `.md` never loads it.
  */
-async function loadMkMdLanguage(): Promise<Extension> {
-  const [{ markdown, markdownLanguage }, { markiiDirectiveGrammar }] = await Promise.all([
-    import("@codemirror/lang-markdown"),
-    import("../markdown/directiveLezer/extension"),
-  ]);
+/**
+ * R5-9 — `includeDirectives` is the Markii Extensions row's master
+ * `Enabled` switch (`useMarkiiExtensionSettingsStore`): off means this
+ * `.mk.md` tab gets the SAME grammar a plain `.md` file would (no
+ * `markiiDirectiveGrammar`), which is what turns off directive syntax AND
+ * fence sugar together — both come from that one grammar chunk, so there
+ * is no finer split to gate them independently (see that store's module
+ * doc for exactly what's real vs. state-only this round).
+ */
+async function loadMkMdLanguage(includeDirectives: boolean): Promise<Extension> {
+  const { markdown, markdownLanguage } = await import("@codemirror/lang-markdown");
+  if (!includeDirectives) {
+    return Prec.high(markdown({ base: markdownLanguage, codeLanguages, extensions: [highlightMarkdown] }));
+  }
+  const { markiiDirectiveGrammar } = await import("../markdown/directiveLezer/extension");
   return Prec.high(
     markdown({
       base: markdownLanguage,
@@ -383,10 +394,18 @@ export function LivePreviewEditor({
   // remounts — this effect's empty dep array runs it exactly once for
   // this mount's fixed `path`, no need to guard against `path` changing
   // under it.
+  // R5-9 — the Markii extension's master `Enabled` switch. Not a hook
+  // dependency array oversight: this DOES need to re-run the language
+  // effect below when the switch flips (unlike `path`, which is fixed for
+  // this mount), so it's listed explicitly in that effect's deps.
+  const markiiEnabled = useMarkiiExtensionSettingsStore((s) => s.enabled);
+  const directiveRenderingEnabled = useMarkiiExtensionSettingsStore((s) => s.directiveRenderingEnabled);
+  const completionEnabled = useMarkiiExtensionSettingsStore((s) => s.completionEnabled);
+
   useEffect(() => {
     if (!isMkMdPath(path)) return;
     let cancelled = false;
-    loadMkMdLanguage().then((language) => {
+    loadMkMdLanguage(markiiEnabled).then((language) => {
       if (cancelled) return;
       const view = viewRef.current;
       if (!view) return;
@@ -395,8 +414,7 @@ export function LivePreviewEditor({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above: `path` is fixed for this mount.
-  }, []);
+  }, [path, markiiEnabled]);
 
   // `.mk.md` directive decorations, threaded with the currently ENABLED
   // packs and this note's already-persisted script values (Phase M3,
@@ -414,6 +432,15 @@ export function LivePreviewEditor({
   useEffect(() => {
     if (!isMkMdPath(path)) return;
     let cancelled = false;
+    // R5-9 — the master `Enabled` switch OR the finer "directive rendering
+    // in live preview" toggle (Rendering section of the extension page)
+    // being off both mean: no decorations, full stop. Skip the persisted-
+    // values load entirely rather than compute decorations nobody sees.
+    if (!markiiEnabled || !directiveRenderingEnabled) {
+      const view = viewRef.current;
+      if (view) view.dispatch({ effects: mkMdDecorationsCompartmentRef.current.reconfigure([]) });
+      return;
+    }
     (async () => {
       const persisted = await loadPersistedValues(path).catch(() => undefined);
       if (cancelled) return;
@@ -427,11 +454,12 @@ export function LivePreviewEditor({
     return () => {
       cancelled = true;
     };
-    // `path` is fixed for this mount (see the comment above); `runVersion`
-    // and `enabledPacks` are the two things that legitimately change under
-    // a live instance and must re-trigger this effect.
+    // `path` is fixed for this mount (see the comment above); `runVersion`,
+    // `enabledPacks`, and the two Markii extension toggles are what
+    // legitimately change under a live instance and must re-trigger this
+    // effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runVersion, enabledPacks]);
+  }, [runVersion, enabledPacks, markiiEnabled, directiveRenderingEnabled]);
 
   // `.mk.md` directive completion/hover/insert (R3-12) — see this file's
   // module doc, point 3. Runs once at mount, same "`path` fixed for this
@@ -442,6 +470,13 @@ export function LivePreviewEditor({
   // this bundle doesn't need to be re-installed when packs change).
   useEffect(() => {
     if (!isMkMdPath(path)) return;
+    // R5-9 — same master switch, plus the Editor section's own
+    // "Completion" toggle: either off means no directive completion/hover.
+    if (!markiiEnabled || !completionEnabled) {
+      const view = viewRef.current;
+      if (view) view.dispatch({ effects: mkMdCompletionCompartmentRef.current.reconfigure([]) });
+      return;
+    }
     let cancelled = false;
     loadMkMdCompletionExtensions().then((extensions) => {
       if (cancelled) return;
@@ -452,8 +487,7 @@ export function LivePreviewEditor({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above: `path` is fixed for this mount.
-  }, []);
+  }, [path, markiiEnabled, completionEnabled]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -479,6 +513,14 @@ export function LivePreviewEditor({
     "--atomic-editor-font-mono": "var(--font-mono)",
     "--atomic-editor-body-size": `${renderedFontSize(fontSize)}px`,
     "--atomic-editor-body-leading": String(lineSpacing),
+    // R5-7: same value, under the token name `.mk-doc` (the static
+    // renderer — `theme.css`, `index.css`'s `:root` default) and
+    // `.mk-live-preview-block` (this file's own directive widgets) read —
+    // see `index.css`'s `--mk-line-height` doc for why this is the single
+    // source of truth both surfaces derive from, and `theme.css`'s Tier 2
+    // markii-token block for why the derivation is scoped per-element
+    // rather than at a single root.
+    "--mk-line-height": String(lineSpacing),
     // Amendments round 4 item 25: "Full" removes the cap entirely rather
     // than clamping to a large ch value.
     "--atomic-editor-measure":

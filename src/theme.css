@@ -553,6 +553,53 @@
   --mk-width-full: 100%;
 }
 
+/* ---- Markii Tier 2 (derived) tokens — R5-7 theme-propagation fix ----
+   `@markii/react/dist/doc.css` computes its own Tier 2 tokens (callout/badge
+   fills, "ink" text colors, the keycap shadow) FROM the 19 Tier 1 tokens via
+   `color-mix()`, but it does so scoped to `.doc` — the upstream library's OWN
+   wrapper class. This app renders into `.mk-doc` instead (`render.tsx`,
+   deliberately not `.doc` — see that file's header), and the live-preview
+   directive widgets (`directiveLezer/decorations.ts`) render into
+   `.mk-live-preview-block`, neither of which `doc.css`'s `.doc` selector
+   ever matches — so every Tier 2 token was permanently unset in this app:
+   `.mk-callout--info`/`.mk-badge--warning`/etc. all fell through to the same
+   flat `--mk-surface` fallback regardless of variant OR theme (the owner's
+   "directive tokens stay on one palette" report — colored callouts/badges
+   read as plain gray in every theme, reader included, light or dark).
+   Mirrors `doc.css`'s own `@supports` derivation verbatim (same formulas),
+   scoped to OUR wrapper classes instead of `.doc`, and to EACH element that
+   uses `.mk-doc`/`.mk-live-preview-block` (not a single `:root`/`.dark`
+   declaration) — custom properties are inherited as already-resolved
+   values, so computing the derivation up at `:root` would freeze it to
+   `:root`'s own Tier 1 colors and never re-derive for a descendant scope
+   that remaps Tier 1 locally (`.dark`, `.share-reader[data-reader-theme=
+   ...]`); declaring it here means `var(--mk-info)` etc. resolve against
+   WHATEVER Tier 1 palette is already cascaded to this exact element,
+   correctly following app theme, reader theme, and light/dark alike. */
+@supports (color: color-mix(in srgb, red, red)) {
+  .mk-doc,
+  .mk-live-preview-block {
+    --mk-shadow-sm: color-mix(in srgb, var(--mk-fg) 8%, transparent);
+
+    --mk-info-fill: color-mix(in srgb, var(--mk-info) 14%, var(--mk-bg));
+    --mk-info-strong-fill: color-mix(in srgb, var(--mk-info) 18%, var(--mk-bg));
+    --mk-info-ink: color-mix(in srgb, var(--mk-info) 85%, var(--mk-fg));
+
+    --mk-success-strong-fill: color-mix(in srgb, var(--mk-success) 18%, var(--mk-bg));
+    --mk-success-ink: color-mix(in srgb, var(--mk-success) 85%, var(--mk-fg));
+
+    --mk-warning-fill: color-mix(in srgb, var(--mk-warning) 14%, var(--mk-bg));
+    --mk-warning-strong-fill: color-mix(in srgb, var(--mk-warning) 18%, var(--mk-bg));
+    --mk-warning-ink: color-mix(in srgb, var(--mk-warning) 85%, var(--mk-fg));
+
+    --mk-danger-fill: color-mix(in srgb, var(--mk-danger) 14%, var(--mk-bg));
+    --mk-danger-strong-fill: color-mix(in srgb, var(--mk-danger) 18%, var(--mk-bg));
+    --mk-danger-ink: color-mix(in srgb, var(--mk-danger) 85%, var(--mk-fg));
+
+    --mk-limit-ink: color-mix(in srgb, var(--mk-limit) 85%, var(--mk-fg));
+  }
+}
+
 /* ---- Markii doc chrome (docs/PLAN-2026-09-05-refresh.md §6 Phase M1) ----
    The "muted, non-clickable text carrying title" degrade for an unresolved
    relative link (`src/markdown/render.tsx`'s header explains why this is an
@@ -869,7 +916,13 @@
   margin: 0 auto;
   padding: max(48px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(64px, env(safe-area-inset-bottom))
     max(20px, env(safe-area-inset-left));
-  line-height: 1.7;
+  /* R5-7: was a third, independently-hand-picked "1.7" here (a different
+     number from both `.mk-doc`'s and the live-preview editor's) — reads off
+     the same shared token now so the ambient reading-column rhythm agrees
+     with `.mk-doc`'s own (which still wins for the markdown case itself via
+     source order below; this is what non-`.mk-doc` reader content, e.g. the
+     code/csv panel's surrounding page chrome, inherits). */
+  line-height: var(--mk-line-height, 1.8);
 }
 .share-reader__page--wide {
   max-width: none;
@@ -970,6 +1023,13 @@
 .mk-doc {
   color: var(--mk-fg);
   font-size: 16px;
+  /* R5-7: shared with the live-preview CM6 engine's
+     `--atomic-editor-body-leading` — see `index.css`'s `:root` block for the
+     single-source-of-truth token this reads (default matches the editor's
+     `DEFAULT_RENDERED_LINE_SPACING`, 1.8). This was previously unset here
+     (inherited the ambient page line-height, ~1.5) — the root cause of the
+     "rows too close together" report vs. Rendered mode. */
+  line-height: var(--mk-line-height, 1.8);
 }
 .mk-doc h1,
 .mk-doc h2,
@@ -1005,7 +1065,7 @@
   letter-spacing: 0.04em;
 }
 .mk-doc p {
-  margin: 0 0 1em;
+  margin: 0 0 var(--mk-paragraph-spacing, 1em);
 }
 .mk-doc strong {
   font-weight: 700;
@@ -1025,7 +1085,7 @@
    browser default that Tailwind has already reset out from under it. */
 .mk-doc ul,
 .mk-doc ol {
-  margin: 0 0 1em;
+  margin: 0 0 var(--mk-paragraph-spacing, 1em);
   padding-left: 1.4em;
 }
 .mk-doc ul {
@@ -1041,7 +1101,7 @@
   list-style: decimal outside;
 }
 .mk-doc li {
-  margin: 0.25em 0;
+  margin: var(--mk-list-item-spacing, 0.25em) 0;
   display: list-item;
 }
 /* Task-list items (a checkbox as the item's first child) get no bullet —
@@ -1051,10 +1111,10 @@
 }
 .mk-doc li > ul,
 .mk-doc li > ol {
-  margin: 0.25em 0;
+  margin: var(--mk-list-item-spacing, 0.25em) 0;
 }
 .mk-doc blockquote {
-  margin: 0 0 1em;
+  margin: 0 0 var(--mk-paragraph-spacing, 1em);
   padding: 0.2em 0 0.2em 1em;
   border-left: 3px solid var(--mk-accent);
   color: var(--mk-muted);
@@ -1073,10 +1133,19 @@
   border-top: 1px solid var(--app-border-nested, var(--mk-border));
   margin: 2em 0;
 }
+/* R5-7 mobile reflow: `@markii/react`'s emitted `<table>` has no scroll
+   wrapper of its own (verified against the compiled component output — it's
+   a bare mdast->hast table, nothing else). `display: block` on the table
+   element itself (children stay `table-row-group`/`table-cell` internally —
+   this is a standard, widely-supported technique, not a layout hack) turns
+   it into its own horizontally-scrolling container so a wide table scrolls
+   INSIDE its block instead of pushing `.share-reader`'s page width out. */
 .mk-doc table {
+  display: block;
+  overflow-x: auto;
   border-collapse: collapse;
   width: 100%;
-  margin: 0 0 1em;
+  margin: 0 0 var(--mk-paragraph-spacing, 1em);
   font-size: 0.95em;
 }
 .mk-doc th,

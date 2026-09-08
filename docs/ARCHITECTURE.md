@@ -2326,6 +2326,61 @@ immediately:
    section's own "Rendering" note), so there is no real run-script control
    inside a widget today for it to select.
 
+**One typography token set for both consumers (R5-7).** `render.tsx`'s
+static output (`.mk-doc`) and the live-preview CM6 engine
+(`editor/LivePreviewEditor.tsx`) render the SAME markdown document through
+two entirely different DOM mechanisms — real `<p>`/`<ul>`/`<li>` elements
+with CSS margins on one side, a single CM6 `line-height` plus literal blank
+source lines on the other — and had drifted: `.mk-doc` declared no
+`line-height` at all (theme.css), silently inheriting the page's ambient
+value, while the CM6 side always rendered at `DEFAULT_RENDERED_LINE_SPACING`
+(1.8, `useSettingsStore.ts`) via atomic-editor's `--atomic-editor-body-leading`
+custom property. `index.css` now defines `--mk-line-height: 1.8`,
+`--mk-paragraph-spacing: 1em`, `--mk-list-item-spacing: 0.25em` once, at
+`:root` (theme-independent — these are rhythm numbers, not colors); `.mk-doc`
+(theme.css) and `.share-reader__page`'s own ambient line-height read them
+instead of literal numbers, and `LivePreviewEditor.tsx`'s wrapper style sets
+`--mk-line-height` to the same `renderedLineSpacing` value it already hands
+`--atomic-editor-body-leading`. A future change to either surface's rhythm
+now only needs to move these three values in one place. Verified with
+computed-style RATIO comparisons (`line-height / font-size`, not a hardcoded
+pixel constant — the two surfaces have different base font sizes, 16px vs.
+17px) in `tests/e2e/preview-pane.spec.ts`.
+
+**`@markii/react`'s Tier 2 (derived) tokens, re-scoped onto this app's own
+wrapper classes.** `doc.css` computes 15 tokens (callout/badge fills, "ink"
+text colors, the keycap shadow) from its 19 Tier 1 tokens via `color-mix()`,
+scoped to `.doc` — the upstream library's own class, which this app never
+uses (it renders into `.mk-doc` instead, precisely to avoid colliding with a
+host page that embeds `doc.css` globally — see that file's own header). The
+live-preview directive widgets (`directiveLezer/decorations.ts`) render into
+`.mk-live-preview-block`, which `.doc` also never matches. Both gaps meant
+every Tier 2 token was permanently unset in this app: a colored callout or
+badge rendered with a flat, theme-independent gray fill everywhere — the
+page background flipped correctly with theme (the 19 Tier 1 tokens were
+already remapped at every themed scope) while the derived component colors
+never did. `theme.css` now carries its own copy of `doc.css`'s exact
+`@supports (color: color-mix(...))` derivation, scoped to
+`.mk-doc, .mk-live-preview-block` directly (not to a single `:root`/`.dark`
+declaration): inherited custom properties pass down already-resolved values,
+so deriving once at `:root` would freeze the result to `:root`'s own Tier 1
+colors and never re-derive for a descendant that remaps Tier 1 locally
+(`.dark`, `.share-reader[data-reader-theme=...]`) — declaring the derivation
+directly on the consuming class means `var(--mk-info)` etc. resolve against
+whatever Tier 1 palette is already cascaded to that exact element.
+
+**Reader mobile reflow.** `.mk-doc table` (theme.css) is now
+`display: block; overflow-x: auto` — `@markii/react`'s emitted `<table>`
+ships with no scroll wrapper of its own, so a wide table now scrolls inside
+its own block instead of pushing `.share-reader`'s page width out, the same
+technique `.mk-static-codeblock` already used for code. `:::row`/`:::cell`
+stacking below 40rem needed no fix: `doc.css` already ships its own
+class-unscoped `@media (max-width: 40rem)` rule collapsing `.mk-row`'s grid
+to one column, so it applies to `.mk-doc` content exactly as it would to
+`.doc` content. `tests/e2e/share-reader.spec.ts`'s "mobile reflow (360/480)"
+suite and `tests/e2e/ui-audit.spec.ts`'s additive "reader content reflow"
+case (`VSNOTE_UI_AUDIT=1`) cover md/mk.md/code/csv shares at both widths.
+
 ## Phase M3 — script isolate, grants, value persistence (the 2026-09-05 refresh plan (retired) §6)
 
 Worker 1 of 3 for M3 (bundles + scripts, L2/L3 of the original host/platform

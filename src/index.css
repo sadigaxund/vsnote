@@ -13,6 +13,27 @@
 
 @import "./theme.css";
 
+/* ---- Markdown typography tokens — R5-7: ONE source shared by the static
+   renderer (`.mk-doc`, theme.css — used by the public reader, the
+   `MarkdownPreviewPane` "Preview" pane, and print/export) and the live-preview
+   CM6 engine (`editor/LivePreviewEditor.tsx`'s `--atomic-editor-body-leading`,
+   which reads `useSettingsStore`'s `renderedLineSpacing`, default
+   `DEFAULT_RENDERED_LINE_SPACING = 1.8`). Before this, `.mk-doc` had NO
+   `line-height` declared at all — it silently inherited whatever ambient
+   value the surrounding page happened to have — while the editor always
+   rendered at 1.8; that gap was the "lines and rows too close together"
+   report. Defined once, at `:root`, theme-independent (these are rhythm
+   numbers, not colors — the per-theme `--mk-*` color blocks in theme.css and
+   below are untouched): a future change to either surface's rhythm now only
+   needs to move these three values, matched to the editor's existing 1.8
+   default so `.mk-doc` renders the SAME line/paragraph/list rhythm as
+   Rendered mode for the same document. */
+:root {
+  --mk-line-height: 1.8;
+  --mk-paragraph-spacing: 1em;
+  --mk-list-item-spacing: 0.25em;
+}
+
 /* Theming guard (TODO §5.1 audit): NEVER use Tailwind `dark:` utilities in
    this app. Appearance is token-driven — theme blocks in theme.css keyed off
    `data-theme` + the VSNote-default palette, with zero `dark:` usage today.

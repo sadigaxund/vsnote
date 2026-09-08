@@ -343,4 +343,147 @@ test.describe("R3-5: selectable reading text + visitor reading preferences", () 
     await secondContext.close();
     await thirdContext.close();
   });
+
+  /**
+   * R5-7(b): the owner's reader-appearance theme must propagate to markii's
+   * OWN `--mk-*` tokens, not just the page background. `@markii/react/dist/
+   * doc.css` derives callout/badge fill colors from the 19 base `--mk-*`
+   * tokens via `color-mix()`, scoped to `.doc` — a class this app never
+   * uses (it renders into `.mk-doc` instead, see `render.tsx`) — so those
+   * derived tokens were unset here regardless of theme; a callout rendered
+   * as flat gray in every theme was the visible symptom. Asserts a
+   * `:::callout{type="warning"}` actually picks up a DIFFERENT, non-neutral
+   * background in light vs. dark (proof the Tier 2 derivation now runs) and
+   * that its background differs from `.mk-doc`'s own flat surface color
+   * (proof it's not just inheriting the neutral fallback).
+   */
+  test("feat(share): reader theme reaches markii's own directive tokens (callout fill), not just the page background", async ({
+    page,
+    browser,
+  }) => {
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
+    const content = [
+      "# Directive theming",
+      "",
+      ':::callout{type="warning"}',
+      "A warning callout whose fill must be color-coded, in every theme.",
+      ":::",
+      "",
+    ].join("\n");
+    const path = await createFileWithContent(page, "vault/notes", "r5-7-callout-theme.mk.md", content);
+    const link = await publishFileViaContextMenu(page, { treePath: path, generalAccess: "link", renderMode: "rendered" });
+
+    await page.getByRole("tab", { name: "Settings" }).click();
+    const settings = page.getByTestId("reader-appearance-settings");
+    await expect(settings).toBeVisible();
+
+    async function readCalloutColors(theme: "Light" | "Dark") {
+      const save = page.waitForResponse((r) => r.url().includes("/api/reader-prefs") && r.request().method() === "PUT");
+      await settings.getByTestId("reader-appearance-theme").getByText(theme, { exact: true }).click();
+      await save;
+
+      const ctx = await browser.newContext();
+      const visitorPage = await ctx.newPage();
+      await visitorPage.goto(link);
+      await expect(visitorPage.locator(".mk-callout")).toBeVisible();
+      const colors = await visitorPage.evaluate(() => {
+        const callout = document.querySelector(".mk-callout") as HTMLElement;
+        const doc = document.querySelector(".mk-doc") as HTMLElement;
+        return {
+          calloutBg: getComputedStyle(callout).backgroundColor,
+          docBg: getComputedStyle(doc).backgroundColor,
+        };
+      });
+      await ctx.close();
+      return colors;
+    }
+
+    const light = await readCalloutColors("Light");
+    const dark = await readCalloutColors("Dark");
+
+    // Not the flat/neutral fallback — proof the Tier 2 derivation ran.
+    expect(light.calloutBg).not.toBe(light.docBg);
+    expect(dark.calloutBg).not.toBe(dark.docBg);
+    // Genuinely different palettes, not the same hardcoded color regardless
+    // of theme.
+    expect(light.calloutBg).not.toBe(dark.calloutBg);
+  });
+
+  /**
+   * R5-7(c): mobile reflow at 360/480 CSS px for every reader content kind —
+   * the page body must never scroll horizontally; a `.mk.md`'s `:::row`
+   * cells must stack (doc.css's own `@media (max-width: 40rem)` rule);
+   * tables/code scroll inside their own block. One publish per kind, one
+   * assertion pass per width.
+   */
+  test.describe("mobile reflow (360/480)", () => {
+    test("md, mk.md, code, and csv shares reflow with no page-level horizontal scroll", async ({ page, browser }) => {
+      await gotoApp(page);
+      await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
+      const mdContent = [
+        "# A long heading that could conceivably overflow a narrow phone viewport",
+        "",
+        "| Column A | Column B | Column C | Column D | Column E |",
+        "| --- | --- | --- | --- | --- |",
+        "| aaaaaaaaaa | bbbbbbbbbb | cccccccccc | dddddddddd | eeeeeeeeee |",
+        "",
+      ].join("\n");
+      const mkContent = [
+        "# Row layout",
+        "",
+        // Directive container nesting rule: the enclosing `row` fence needs
+        // MORE colons than its `cell` children (`@markii/stdlib`'s own
+        // `row`/`cell` contract doc) — `::::row` wrapping `:::cell`.
+        '::::row{cols="3"}',
+        ":::cell\nOne\n:::",
+        ":::cell\nTwo\n:::",
+        ":::cell\nThree\n:::",
+        "::::",
+        "",
+      ].join("\n");
+      const codeContent = `const veryLongIdentifierThatShouldNotWrapTheWholePage = "${"x".repeat(120)}";\n`;
+      const csvContent = "name,description\n" + Array.from({ length: 3 }, (_, i) => `row${i},${"long value ".repeat(6)}`).join("\n") + "\n";
+
+      const mdPath = await createFileWithContent(page, "vault/notes", "r5-7-reflow.md", mdContent);
+      const mkPath = await createFileWithContent(page, "vault/notes", "r5-7-reflow.mk.md", mkContent);
+      const codePath = await createFileWithContent(page, "vault/notes", "r5-7-reflow.ts", codeContent);
+      const csvPath = await createFileWithContent(page, "vault/notes", "r5-7-reflow.csv", csvContent);
+
+      const links = {
+        md: await publishFileViaContextMenu(page, { treePath: mdPath, generalAccess: "link", renderMode: "rendered" }),
+        mk: await publishFileViaContextMenu(page, { treePath: mkPath, generalAccess: "link", renderMode: "rendered" }),
+        code: await publishFileViaContextMenu(page, { treePath: codePath, generalAccess: "link", renderMode: "rendered" }),
+        csv: await publishFileViaContextMenu(page, { treePath: csvPath, generalAccess: "link", renderMode: "rendered" }),
+      };
+
+      for (const width of [360, 480]) {
+        for (const [kind, link] of Object.entries(links)) {
+          const ctx = await browser.newContext({ viewport: { width, height: 800 } });
+          const visitorPage = await ctx.newPage();
+          await visitorPage.goto(link);
+          await expect(visitorPage.locator(".share-reader")).toBeVisible();
+
+          if (kind === "mk") {
+            // `:::row{cols="3"}` must stack to a single column below
+            // doc.css's own 40rem breakpoint — cells sit at the same X.
+            const cells = visitorPage.locator(".mk-cell");
+            await expect(cells.first()).toBeVisible();
+            const xs = await cells.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
+            expect(new Set(xs).size).toBe(1);
+          }
+
+          const overflow = await visitorPage.evaluate(() => {
+            const doc = document.scrollingElement;
+            return doc ? doc.scrollWidth - doc.clientWidth : -1;
+          });
+          expect(overflow, `${kind} share overflows page body at ${width}px`).toBeLessThanOrEqual(2);
+
+          await ctx.close();
+        }
+      }
+    });
+  });
 });
