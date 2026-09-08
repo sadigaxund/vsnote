@@ -1,5 +1,5 @@
 /**
- * UI copy: error-toast standards (docs/UI-STANDARDS.md rule 3, TODO §7.5).
+ * UI copy: error-toast standards (docs/DESIGN-SPEC.md (Amendments round 16) rule 3, TODO §7.5).
  *
  * Static scan over all src tsx files for `toast({ ... variant: "danger" })`
  * literals. Every danger toast must:
@@ -75,7 +75,7 @@ describe("danger-toast copy standards (TODO §7.5)", () => {
     }
     expect(
       violations,
-      `Danger toasts must follow docs/UI-STANDARDS.md rule 3\n${violations.join("\n")}`,
+      `Danger toasts must follow docs/DESIGN-SPEC.md (Amendments round 16) rule 3\n${violations.join("\n")}`,
     ).toEqual([]);
   });
 });

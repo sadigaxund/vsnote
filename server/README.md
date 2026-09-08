@@ -4,8 +4,9 @@ FastAPI + SQLite backend providing sharing, auth (Phase 9), and real git sync
 (Phase 11) for the VSNote SPA — and, as of Phase 10.5a's single-origin
 refactor (`../docs/ROADMAP-SHARING-AUTH.md` §5.4), the SPA's own web server.
 Spec: `../docs/ROADMAP-SHARING-AUTH.md` (the security posture in §1 is
-binding) and `../docs/IMPLEMENTATION-PLAN-V2.md`'s "Phase 9"/"Phase
-10.5"/"Phase 11" sections. See `../docs/ARCHITECTURE.md`'s "Backend (v2)",
+binding) and `../docs/ARCHITECTURE.md`'s "Phase 9"/"Phase
+10.5"/"Phase 11" sections (the 2026-08-15 v2-scope decision that put a
+backend in scope at all). See `../docs/ARCHITECTURE.md`'s "Backend (v2)",
 "Single-origin deployment (Phase 10.5a)", and "Real sync (Phase 11)"
 sections for how this maps onto the rest of the project's docs.
 
@@ -396,7 +397,7 @@ network with anything sensitive.
 
 ## Durable storage
 
-PLAN-2026-09-05-refresh.md §1 ("get the vault out of browser storage"): the
+The 2026-09-05 refresh plan §1 (retired; "get the vault out of browser storage"): the
 browser's copy of the vault (lightning-fs over IndexedDB) is not durable on
 its own — clearing site data, a browser reinstall, or storage eviction under
 disk pressure can lose it. `VSNOTE_VAULT_PATH` is what makes an edit
@@ -636,7 +637,7 @@ content-negotiates:
   otherwise-clean sniff toward binary, as a secondary signal only — never
   the other way, and never toward any third value). `text/html` is
   structurally unreachable on this path, by construction (`§4.1`,
-  `docs/PLAN-2026-09-05-refresh.md`). Also set: `X-Content-Type-Options:
+  the 2026-09-05 refresh plan (retired, see git history)). Also set: `X-Content-Type-Options:
   nosniff`, a locked-down `Content-Security-Policy`, and
   `Content-Disposition: inline; filename="<basename>"` — `<basename>` is
   the sanitized basename of `source_path` (control characters, quotes, and
@@ -662,7 +663,7 @@ content-negotiates:
   `render_mode`, `media_type_hint`, `blob_id`, `size`, `live`, `content`
   (UTF-8 text, or base64 with `content_encoding: "base64"` for non-UTF-8
   blobs), `created_at`, `last_access_at`, `hit_count`, plus (§5,
-  `docs/PLAN-2026-09-05-refresh.md`) **`links`** and **`back_link`** — see
+  the 2026-09-05 refresh plan (retired, see git history)) **`links`** and **`back_link`** — see
   "Dynamic link map and back link" below for both. `X-Content-Type-
   Options: nosniff` is set here too; the server never inlines share content
   into an HTML document itself.
@@ -695,7 +696,7 @@ the content re-fetch alone is enough to count.
 
 The Shared panel's "Hits" column header says what counts, in a tooltip.
 
-**Reserved aliases and expiry (§4.5, `docs/PLAN-2026-09-05-refresh.md`).**
+**Reserved aliases and expiry (§4.5, the 2026-09-05 refresh plan (retired, see git history)).**
 `POST /api/shares` and `PATCH /api/shares/{id}` both reject an alias that
 matches, case-insensitively, `api`, `share`, `git`, or `assets` (every real
 top-level route prefix this server mounts, plus the SPA's static-asset
@@ -726,7 +727,7 @@ names a real record.
 creates a new content-addressed blob and repoints the share at it. Same
 gate, same opaque denial shape for anyone who isn't an editor.
 
-### Per-share bearer tokens (§4.2, `docs/PLAN-2026-09-05-refresh.md`)
+### Per-share bearer tokens (§4.2, the 2026-09-05 refresh plan (retired, see git history))
 
 `auth_mode="token"` visitor credentials are now scoped to exactly ONE
 share, never the owner's account-wide `ApiToken`s. Owner-side (behind the
@@ -759,7 +760,7 @@ keep working for the owner's `/api/*` calls exactly as before — they are
 explicitly NOT accepted as visitor credentials for any share, token-mode
 or otherwise.
 
-### Dynamic link map and back link (§5, `docs/PLAN-2026-09-05-refresh.md`)
+### Dynamic link map and back link (§5, the 2026-09-05 refresh plan (retired, see git history))
 
 A rendered share's JSON content response (`ShareContentOut`) carries two
 extra fields, both computed fresh on every fetch with zero filesystem
@@ -821,7 +822,7 @@ falling back to the basename of `source_path`, HTML-escaped before being
 spliced into the shell.
 
 **Folder shares were removed entirely, 2026-09-05**
-(`docs/PLAN-2026-09-05-refresh.md` §4.4) — sharing is single-file only
+(the 2026-09-05 refresh plan (retired, see git history) §4.4) — sharing is single-file only
 again. Any request shaped like the old folder route
 (`/share/{identifier}/<anything>`, any method) now denies uniformly, the
 same as every other deny reason (`app/routers/share_public.py`'s
@@ -929,7 +930,7 @@ repo — this backend's job is to work flawlessly BEHIND that proxy:
 
 ## Cloudflare Access production topology (sketch — not deployed this phase)
 
-Local `uvicorn` only, per `docs/IMPLEMENTATION-PLAN-V2.md`'s explicit
+Local `uvicorn` only, per `docs/ARCHITECTURE.md`'s explicit
 sequencing note ("Deployment (Cloudflare, domains) stays out of scope").
 This section sketches the intended SSO shape (layered on top of the tunnel
 above) so a later phase doesn't have to re-derive it:

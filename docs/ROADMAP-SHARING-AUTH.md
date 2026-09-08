@@ -1,7 +1,7 @@
 # Roadmap v2 — sharing, auth, backend
 
 Status: requirements captured 2026-08-15; v2 approved and IN SCOPE the same day
-(see `docs/IMPLEMENTATION-PLAN-V2.md`). §5 records the second round of user
+(see `docs/ARCHITECTURE.md`). §5 records the second round of user
 decisions (folder shares, sync merge policy, commit templates) — it amends and
 overrides earlier sections where they touch the same topic.
 
@@ -15,7 +15,7 @@ overrides earlier sections where they touch the same topic.
   - **Raw**: served as `text/plain` (correct charset, `X-Content-Type-Options:
     nosniff`, never `text/html` — a raw share must never execute).
   - **Rendered**: read-only, no shell chrome. > **AMENDED 2026-09-05/06**
-    (§4.3, `docs/PLAN-2026-09-05-refresh.md`): not the app's own zen/fullscreen
+    (§4.3, the 2026-09-05 refresh plan (retired, see git history)): not the app's own zen/fullscreen
     view reused in read-only mode — a wholly separate, standalone document
     page (`src/share/ShareApp.tsx`) that never imports the editor, the vault
     stores, or the app's theme store. Markdown renders through the static
@@ -35,7 +35,7 @@ overrides earlier sections where they touch the same topic.
   default, with an opt-in "live" toggle that tracks the working file. Default
   snapshot = no accidental leaking of later edits.
 
-> **AMENDED 2026-09-05** (§4.2, `docs/PLAN-2026-09-05-refresh.md`): `Show title`
+> **AMENDED 2026-09-05** (§4.2, the 2026-09-05 refresh plan (retired, see git history)): `Show title`
 > is an explicit, OPT-IN publication of the document's title — off by
 > default per share. Turning it on for a `none`-auth share deliberately
 > exposes that share's H1 (or filename) in the page's `<title>`/OG meta; it
@@ -78,7 +78,7 @@ overrides earlier sections where they touch the same topic.
 - Sessions: short-lived signed session cookie after any successful share auth,
   scoped to that slug only (`Path=/share/<slug>`).
 
-> **AMENDED 2026-09-05** (§4.2, `docs/PLAN-2026-09-05-refresh.md`): "bearer
+> **AMENDED 2026-09-05** (§4.2, the 2026-09-05 refresh plan (retired, see git history)): "bearer
 > token (for scripts/curl)" above originally meant ANY of the owner's
 > account-wide API tokens — a real gap, since one leaked script token then
 > unlocked every token-mode share AND the owner's own `/api/*` automation.
@@ -119,7 +119,7 @@ Notes from evaluation:
   isomorphic-git HTTP; optionally GitHub/Gitea + PAT later. Turns the simulated
   ↑3 ↓1 into reality.
 - **Grid split view** — now specced in DESIGN-SPEC Amendments item 8 and scheduled
-  as Phase 6 in IMPLEMENTATION-PLAN. Termux/tmux-grade grid arranging, mouse-first.
+  as Phase 6 (see docs/ARCHITECTURE.md). Termux/tmux-grade grid arranging, mouse-first.
 
 ### Rejected (user: skip the Obsidian extras)
 Callouts, KaTeX, Mermaid, footnotes, global Tasks view, tags index, daily notes,
@@ -148,7 +148,7 @@ templates, saved searches, quick capture / web clipper. Do not build.
 ### 5.1 Folder ("group") shares — approved
 
 > **SUPERSEDED 2026-09-05.** Folder shares were removed entirely per
-> `docs/PLAN-2026-09-05-refresh.md` §4.4 — sharing is single-file only again.
+> the 2026-09-05 refresh plan (retired, see git history) §4.4 — sharing is single-file only again.
 > The decision below (and everything under it) is kept as HISTORY, not
 > current policy; see `docs/ARCHITECTURE.md`'s "Folder shares (Phase
 > 10.5) — SUPERSEDED, removed 2026-09-05" section for what was removed and

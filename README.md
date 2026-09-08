@@ -93,6 +93,27 @@ server/.venv/bin/python -m pytest server/tests -q   # backend suite
 
 CI runs the full suite with retries disabled, so a green check means every test passed on the first try.
 
+## Development
+
+```bash
+npm run build             # production bundle
+npm run build:demo        # demo-vault bundle; required for e2e (plain `build` fails ~18/20 e2e specs on missing files)
+npm run lint               # must print "ESLint: No issues found"
+npm run typecheck          # tsc -b — NEVER `npx tsc --noEmit`, the root tsconfig.json is a solution file (`"files": []`) so that command typechecks nothing and always exits 0
+npx vitest run             # unit tests
+VSNOTE_SHARE_PROXY_TARGET=http://127.0.0.1:8788 npx playwright test   # e2e, after build:demo
+VSNOTE_UI_AUDIT=1 npx playwright test tests/e2e/ui-audit.spec.ts      # WCAG/reflow gate + design screenshots
+cd server && .venv/bin/python -m pytest    # backend suite
+```
+
+Two machine traps, both of which have cost real debugging time:
+
+- **Never `pkill -f uvicorn`.** The pattern matches your own shell's command
+  line too, so it kills your shell along with the server. Use a narrower match
+  (e.g. a specific PID or a more specific pattern).
+- **Never run a build and Playwright at the same time.** This class of
+  development machine OOMs when both run concurrently.
+
 ## How it is built
 
 The client is React 18 + TypeScript (strict) with zustand stores, [my-you-eye](https://github.com/sadigaxund/my-you-eye) components, CodeMirror 6, and isomorphic-git over lightning-fs. The backend is FastAPI + SQLite, serving the built SPA, the share API, and bare git repos from one origin, so there is no CORS anywhere. Design and architecture decisions live in [`docs/`](docs/), including the security posture for sharing ([`docs/ROADMAP-SHARING-AUTH.md`](docs/ROADMAP-SHARING-AUTH.md)) and the component backlog tracking what was built locally versus provided by the library.

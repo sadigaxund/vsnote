@@ -3,8 +3,9 @@
 **Scope (refocused 2026-08-21, consolidated 2026-09-08):** this file tracks ONLY
 component-library gaps and component import/abstain decisions — per CLAUDE.md rule 2
 it is where a library gap gets logged, not a general notes file for app work.
-App-level queued/deferred work, review checklists, and the phase log live in
-`docs/TODO.md`; per-source skill reports live in `skills/ANALYSIS.md`. Part 2 is now
+App-level queued/deferred work (the former `docs/TODO.md`, retired 2026-09-08 —
+its still-open items are now issues on `sadigaxund/vsnote`) and per-source skill
+reports (`skills/ANALYSIS.md`) live elsewhere. Part 2 is now
 the single registry of every local component and gap ever tracked here (the former
 `docs/COMPONENT-BACKLOG-Issued_20260821.md` has been merged in and deleted).
 
@@ -33,7 +34,8 @@ lands in.
   supported surface. Any one of these justifies the dependency.
 - **Constraints if imported:** must be styled to produce the exact same visual
   affordances we have today (2px teal insertion line, red invalid ring, folder
-  highlight); keyboard alternative still required regardless (see docs/TODO.md §3.5) because
+  highlight); keyboard alternative still required regardless (see
+  sadigaxund/vsnote#4) because
   WIG's rule ("drag gestures need tap/click and keyboard alternatives unless essential")
   applies to both native and library DnD.
 

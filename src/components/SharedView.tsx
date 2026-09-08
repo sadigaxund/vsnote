@@ -165,7 +165,7 @@ export function SharedView() {
   // /", clipped) for any non-trivial count, so the number that mattered
   // most was exactly the one hidden. Split into two independently-narrow
   // numeric columns instead (`width: "xs"`, right-aligned, `type: "number"`
-  // for tabular-nums per docs/UI-STANDARDS.md rule 7) — each column only
+  // for tabular-nums per docs/DESIGN-SPEC.md (Amendments round 16) rule 7) — each column only
   // ever holds a short integer, so `xs` never truncates. This shifts every
   // column after it right by one; `tests/e2e/share-panel.spec.ts`'s
   // `td.nth(...)` index for Hits is updated to match.

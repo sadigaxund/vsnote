@@ -223,7 +223,7 @@ Do NOT implement any of it until explicitly scheduled; v1 stays fully client-sid
       unused). **v2 Phase 11 (current)**: wired up for real — enabled
       inputs, a "Generate token" action, and a "Test connection" action
       reporting a real result; see `docs/ARCHITECTURE.md`'s "Real sync
-      (Phase 11)" section and `docs/IMPLEMENTATION-PLAN-V2.md`'s Phase 11.
+      (Phase 11)" section and the 2026-08-15 v2-scope decision (see `docs/ARCHITECTURE.md`)'s Phase 11.
       NO SSH-key management, in v1 or v2: browsers cannot speak SSH (no raw
       TCP) — sync uses HTTPS + token via isomorphic-git, against the v2
       backend's `/git/*` smart-HTTP endpoint.
@@ -677,7 +677,7 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     `theme-color` meta.
 64. **Folder shares removed — SUPERSEDES item 58.** Item 58 ("folder
     shares follow the folder") is superseded: sharing is single-file only
-    again (`docs/PLAN-2026-09-05-refresh.md` §4.4). The `ShareKind` enum,
+    again (the 2026-09-05 refresh plan (retired, see git history) §4.4). The `ShareKind` enum,
     `Share.kind` column, `ShareManifestEntry` table, every folder route
     (owner-side manifest CRUD and the public `/share/{id}/{relpath}`
     family), and the folder-browsing client UI are gone. There is
@@ -687,7 +687,7 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     `docs/ROADMAP-SHARING-AUTH.md`'s §5.1 marker for the full history.
 65. **Raw sharing hardened, not regressed — item 57's byte-sharing clause
     preserved.** Item 57 required that "raw byte sharing must not regress";
-    this round's server-side work (`docs/PLAN-2026-09-05-refresh.md` §4.1)
+    this round's server-side work (the 2026-09-05 refresh plan (retired, see git history) §4.1)
     is exactly that guarantee made explicit and testable: a raw share's
     `Content-Type` is decided by sniffing the blob's bytes (never the
     client-declared `media_type_hint`, never derived from an extension
@@ -739,7 +739,7 @@ client-side AUTO-REPUBLISH (debounced manifest update), not live server reads.
     or dangling.
 69. **Publish dialog and Shared view surfaces for 66-68 — not built this
     pass.** This round's items 66-68 are server-only
-    (`docs/PLAN-2026-09-05-refresh.md` §4.2 and all of §5); the publish
+    (the 2026-09-05 refresh plan (retired, see git history) §4.2 and all of §5); the publish
     dialog's token mint/rotate UI, the reader's link-rewriting, and the
     `Show title`/`Back link` toggles are client work for a later pass (the
     plan's step 5, "Public reader rewrite + dynamic link map"). Nothing
@@ -951,7 +951,7 @@ dialog and its API-token-as-visitor-credential model.
 
 ## Amendments round 10 (continued) — 2026-09-06 (Settings layout refresh + storage onboarding)
 
-Items 84-87 implement docs/PLAN-2026-09-05-refresh.md §2 (the Settings layout
+Items 84-87 implement the 2026-09-05 refresh plan (retired) §2 (the Settings layout
 refresh) and §1 item 4 (storage onboarding).
 
 84. **Settings gets a real page width — a bounded content column, not a
@@ -1017,7 +1017,7 @@ refresh) and §1 item 4 (storage onboarding).
 
 ## Amendments round 10 (continued) — 2026-09-06 (Markii directive live preview, Phase M2)
 
-Items 90-92 implement docs/PLAN-2026-09-05-refresh.md §6 Phase M2 — the
+Items 90-92 implement the 2026-09-05 refresh plan (retired) §6 Phase M2 — the
 Obsidian live-preview rule (item 61) applied to markii's three directive
 forms inside `.mk.md` files.
 
@@ -1624,3 +1624,44 @@ items OVERRIDE anything above them.
        real run-script action element to mark with `[data-markii-action]`
        in the first place — VSNote's live-preview rendering is deliberately
        pure/static, per item 91).
+
+## Amendments round 16 — 2026-09-08 (fold in docs/UI-STANDARDS.md, deleted)
+
+`docs/UI-STANDARDS.md` (IA glossary + copy rules, written 2026-08-21 from the
+vendored UXUI skill cluster) is folded in here and deleted; this spec is now the
+sole visual AND copy authority, per CLAUDE.md rule 4. The em-dash ban
+(`tests/unit/uiCopyEmDash.test.ts`) and everything above remain authoritative;
+these are additive, checkable standards, not taste.
+
+**IA glossary — one noun per concept**
+
+| Term | Means | Never call it |
+|---|---|---|
+| vault | the whole workspace (one per browser) | workspace, project |
+| note | a markdown file in the vault | document, entry |
+| file | any non-markdown file | asset, attachment |
+| tab | an open editor view of a path | editor, window |
+| pane | a split region holding its own tab strip | split, column |
+| share | a published link with policy + snapshot | link (the URL itself), publish |
+| sync | fetch + push/auto-merge against the remote | backup, upload |
+| remote | the git server the vault syncs to | mirror (that's a secondary remote), origin (git plumbing) |
+
+**Copy rules**
+
+1. **Sentence case everywhere** — titles, buttons, palette entries, Settings
+   categories, status segments. Never Title Case; never fake it with
+   `text-transform: capitalize`.
+2. **Confirm buttons name the consequence.** Bare Yes/No/OK/Submit are banned
+   on consequential dialogs (`Reset settings` / `Keep changes`;
+   `Wipe & pull`; `Replace file` / `Keep both`).
+3. **Error toasts follow `[What failed]. [Why]. [Next imperative step].`**
+   Banned: "Something went wrong", "Invalid …", exclamation marks, passive
+   voice without an actor.
+4. **Wizard vocabulary**: enter = `Get started`, advance = `Continue`,
+   finish = `Done`. No synonyms across steps.
+5. **Filter-empty states name the query** ("No settings matching 'sync'")
+   with exactly one recovery action.
+6. **Settings labels**: toggles describe the ON state positively; no
+   possessives ("Favorites" not "Your Favorites"); "Select", never "Click";
+   failures say what couldn't load, never "We're having trouble".
+7. **Numbers are `tabular-nums`** on every comparing/ticking surface.

@@ -82,8 +82,8 @@ persistence of tabs/settings/unsaved buffers) that overrides the base spec.
 ## Backend (v2)
 
 FastAPI + SQLite under `server/`, built in Phase 9 per `docs/ROADMAP-SHARING-AUTH.md`
-(§1's security posture is binding) and `docs/IMPLEMENTATION-PLAN-V2.md`'s Phase 9
-section. Full run/config/API-contract documentation lives in `server/README.md` —
+(§1's security posture is binding) and this document's own Phase 9
+section (the 2026-08-15 decision that put v2 in scope at all). Full run/config/API-contract documentation lives in `server/README.md` —
 this section is the "how it's built" summary CLAUDE.md rule 4 asks for. The SPA
 stays fully usable with this backend down (CLAUDE.md rule 3); nothing under `server/`
 is a build/runtime dependency of `src/`.
@@ -165,7 +165,7 @@ section for the intended CF Access deployment shape (not deployed this phase —
 
 Client-side sharing UI + integration, built entirely under `src/` against the frozen
 Phase 9 backend (`server/`, not touched this phase). Full requirements:
-`docs/IMPLEMENTATION-PLAN-V2.md`'s Phase 10 section, `docs/ROADMAP-SHARING-AUTH.md` §1,
+this document's own Phase 10 section, `docs/ROADMAP-SHARING-AUTH.md` §1,
 `server/README.md`'s "Public share contract".
 
 **Modules** (`src/share/`):
@@ -191,7 +191,7 @@ Phase 9 backend (`server/`, not touched this phase). Full requirements:
 - `ShareApp.tsx` — the standalone `/share/<slug>` route. See "Routing" and "No vault
   access" below.
 
-**The reader, rewritten chrome-less (docs/PLAN-2026-09-05-refresh.md §4.3 + §5,
+**The reader, rewritten chrome-less (the 2026-09-05 refresh plan (retired) §4.3 + §5,
 2026-09-06).** `ShareApp.tsx` no longer reuses ANY of the app shell's local
 components (no `TitleBar`, no `ExplorerTree`, no `EditorTabBar`, no
 Rendered/Source `SegmentedControl`, no role badge) — a visitor gets the document
@@ -238,7 +238,7 @@ list/index view, no folder-share revival; an index note with an alias is just
 another ordinary share whose own markdown happens to link to the others.
 
 **UI surfaces — rebuilt as a stepped dialog + a Shared activity-bar view
-(docs/PLAN-2026-09-05-refresh.md §4/§5/§2, 2026-09-06). SUPERSEDES the single-form
+(the 2026-09-05 refresh plan (retired) §4/§5/§2, 2026-09-06). SUPERSEDES the single-form
 dialog and Settings-embedded panel described in the paragraph this replaces.**
 
 `components/local/PublishDialog.tsx` is now a FIVE-STEP form (Mode -> Who can open ->
@@ -448,8 +448,8 @@ the client has a concept of "pull from a remote":
    the OWNER's vault changes yet — the owner's local git history is untouched, and the
    share's edit lives only in the backend's blob store until reconciled.
 3. When the owner's client next syncs against the Phase 11 remote (isomorphic-git
-   push/pull against the backend-hosted bare repo — see IMPLEMENTATION-PLAN-V2.md's
-   Phase 11 section), that sync step is where the share's current blob gets fetched,
+   push/pull against the backend-hosted bare repo — see this document's own
+   "Real sync (Phase 11)" section), that sync step is where the share's current blob gets fetched,
    diffed against the owner's working tree at `share.source_path`, and — if it differs —
    written into the vault and committed as a normal git commit (author = the share's
    principal if known, falling back to a generic "via share" author), giving the edit a
@@ -473,7 +473,7 @@ CURRENT working-tree content for a `live: true` share — both `GET` handlers in
 doesn't render one; snapshot-by-default (the backend's actual behavior) is exactly what
 the roadmap specs as the safe default anyway.
 
-**Server-side audit, 2026-09-05 (`docs/PLAN-2026-09-05-refresh.md` §4.1/4.5/4.6).**
+**Server-side audit, 2026-09-05 (the 2026-09-05 refresh plan (retired, see git history) §4.1/4.5/4.6).**
 Four hardening passes on the existing Phase 9/10 backend, none of which
 change the policy gate's shape:
 
@@ -541,7 +541,7 @@ change the policy gate's shape:
 ### Per-share tokens, the dynamic link map, and conditional title/OG meta (§4.2, §5 — 2026-09-05)
 
 Three server-only additions on top of the audit above, all landed the same
-day (`docs/PLAN-2026-09-05-refresh.md` §4.2 and §5).
+day (the 2026-09-05 refresh plan (retired, see git history) §4.2 and §5).
 
 **Per-share bearer tokens.** `auth_mode="token"` used to accept ANY of the
 owner's account-wide `ApiToken` rows as a visitor credential — one leaked
@@ -625,7 +625,7 @@ success_alike` byte-identity matrix rather than replacing it.
 
 ## Folder shares (Phase 10.5) — SUPERSEDED, removed 2026-09-05
 
-**This entire feature was removed** by `docs/PLAN-2026-09-05-refresh.md` §4.4
+**This entire feature was removed** by the 2026-09-05 refresh plan (retired, see git history) §4.4
 (DESIGN-SPEC Amendments round 10, items 64-65) — "folder shares follow the
 folder" (item 58) is superseded: sharing is single-file only again, matching
 the original Phase 9/10 shape. What follows is kept as HISTORY (what existed,
@@ -656,7 +656,7 @@ the parent share for a deep link that no longer means anything would hand a
 visitor content they were never linked to.
 
 **Why removed, not just deprecated:** the roadmap's "blog" use case (§5 of
-`docs/PLAN-2026-09-05-refresh.md`) turned out not to need a folder share at
+the 2026-09-05 refresh plan (retired, see git history)) turned out not to need a folder share at
 all — a dynamic link map between INDIVIDUAL file shares gives the same
 cross-linked-notes experience without a second content-addressing shape,
 a manifest table, or a parallel security argument to maintain. Keeping
@@ -1257,7 +1257,7 @@ completed run is older than the coalescing queue's quiet window), so
 repeated tab-switching can't build up a backlog of pending runs the way the
 other three triggers deliberately can.
 
-## Storage durability model (PLAN-2026-09-05-refresh.md §1)
+## Storage durability model (2026-09-05 refresh plan §1, retired)
 
 The owner's stated worry: a vault living only in the browser's IndexedDB
 clone is a data-loss risk (cleared site data, a browser reinstall, storage
@@ -1306,7 +1306,7 @@ the thing edits reach quickly and by default:
   the exact same dialog the palette command opens. Hidden in demo builds
   exactly like that command (`isDemoVaultBuild()` gates both).
 
-## Settings layout (docs/PLAN-2026-09-05-refresh.md §2)
+## Settings layout (the 2026-09-05 refresh plan (retired) §2)
 
 `SettingsView.tsx` was a single ~1400-line file: every category's rows,
 inline styles, and a per-row `ROW_MAX_WIDTH` ("36rem") standing in for a
@@ -1755,7 +1755,7 @@ this phase — the container is purely a packaging/runtime concern layered
 on top of the exact same single-origin process `npm run server` already
 runs locally.
 
-## Markdown rendering pipeline (docs/PLAN-2026-09-05-refresh.md §6 Phase M1)
+## Markdown rendering pipeline (the 2026-09-05 refresh plan (retired) §6 Phase M1)
 
 The app's first unified/remark dependency: `@markii/core@0.13.0` (parse +
 sanitize) and `@markii/react@0.13.0` (React rendering + a directive
@@ -1920,7 +1920,7 @@ all — print/export's case) is replaced with a text placeholder
 the hand-rolled parser this pipeline replaced used to show for a
 vault-relative image a print window has no `blob:` access to.
 
-**Markii upstream findings** (docs/PLAN-2026-09-05-refresh.md's required
+**Markii upstream findings** (the 2026-09-05 refresh plan (retired)'s required
 output — nothing here is filed as a markii-org/markii issue per the task's
 own instruction not to):
 
@@ -1988,7 +1988,7 @@ own instruction not to):
    phase faster and less likely to diverge from the VS Code host's actual
    UX conventions.
 
-### Phase M2 — live-preview directive decorations (docs/PLAN-2026-09-05-refresh.md §6)
+### Phase M2 — live-preview directive decorations (the 2026-09-05 refresh plan (retired) §6)
 
 **The module: `src/markdown/directiveLezer/`.** Zero VSNote application
 imports — only `@lezer/markdown`, `@codemirror/*`, and `@markii/*` — so it
@@ -2160,9 +2160,10 @@ immediately:
    section's own "Rendering" note), so there is no real run-script control
    inside a widget today for it to select.
 
-## Phase M3 — script isolate, grants, value persistence (docs/PLAN-2026-09-05-refresh.md §6)
+## Phase M3 — script isolate, grants, value persistence (the 2026-09-05 refresh plan (retired) §6)
 
-Worker 1 of 3 for M3 (bundles + scripts, L2/L3 of `docs/temp-plan-add-extension.md`).
+Worker 1 of 3 for M3 (bundles + scripts, L2/L3 of the original host/platform
+integration brief, since shipped and removed from `docs/`).
 This slice is the non-UI foundation only: a terminatable Worker running
 `@markii/lua`, a persisted `GrantStore`, tier-enforced capability
 construction, and per-note value persistence. Worker 2 builds `.mkz`
@@ -2189,8 +2190,8 @@ action or a scheduled trigger, never on note open.
   sibling `platform/` folder implementing the same four Ports with zero
   changes to `host/`.
 
-This mirrors the split `docs/temp-plan-add-extension.md` sketched before M1/
-M2 existed, adapted to what M1 (the static renderer) and M2 (the CM6
+This mirrors the host/platform split the original integration brief sketched
+before M1/M2 existed, adapted to what M1 (the static renderer) and M2 (the CM6
 live-preview grammar) actually built: neither of those pipelines executes
 anything, and M3 does not change that — `runScripts()` is additive, called
 from wherever worker 3 wires the "Run scripts" action, never from
@@ -2360,7 +2361,7 @@ so there is nothing to resolve rather than something left unresolved.
   (`platform/browser/index.ts`) — the real adapters `runScripts`'s `deps`
   are built from in the app.
 
-## Phase M3, worker 2 — `.mkz` bundles, cache, packs (docs/PLAN-2026-09-05-refresh.md §6)
+## Phase M3, worker 2 — `.mkz` bundles, cache, packs (the 2026-09-05 refresh plan (retired) §6)
 
 Worker 2 of 3 for M3. Builds on worker 1's ports/orchestration unchanged:
 `.mkz` bundle support (`@markii/bundle`) against `FileBackend`, the
@@ -2605,7 +2606,7 @@ nothing for that section to hold.
   and `enabledPacks` (`readonly EnabledPack[]`) — both optional, both
   additive to worker 1's existing deps.
 
-## Phase M3, worker 3 — grant dialog, "Run scripts", Packs settings, values in Rendered mode (docs/PLAN-2026-09-05-refresh.md §6)
+## Phase M3, worker 3 — grant dialog, "Run scripts", Packs settings, values in Rendered mode (the 2026-09-05 refresh plan (retired) §6)
 
 Worker 3 of 3 for M3 — the UI layer, built entirely on workers 1/2's API
 surface above with no changes to `src/markii/host/` or `src/markii/
@@ -2936,7 +2937,7 @@ message. Independently, `cleanErrorMessage` runs on EVERY failure's
 message regardless of kind: it drops everything from `stack traceback:`
 onward, strips the `[string "..."]:<line>:` chunk-location prefix that is
 where `__smd_user_chunk` (markii's internal chunk-wrapper name,
-`docs/UI-STANDARDS.md`: no internal module names in user-facing copy)
+`docs/DESIGN-SPEC.md (Amendments round 16)`: no internal module names in user-facing copy)
 would otherwise leak, collapses to one line, and caps the length — a
 toast can no longer show a multi-line traceback anywhere near a third of
 the editor's height (found in review via a real screenshot). `my-you-eye`
@@ -3021,7 +3022,7 @@ stack choices in this doc.
 - **Mode availability this phase covers `.md` (Rendered) + every type (Source); the
   full DESIGN-SPEC "Modes" table (json tree view, csv `DataTable`, html iframe, image
   viewer) waits for Phase 4's renderers.** Building throwaway renderers now to satisfy
-  the full per-type matrix would contradict IMPLEMENTATION-PLAN.md Phase 2's own
+  the full per-type matrix would contradict docs/ARCHITECTURE.md Phase 2's own
   instruction to keep Phase 1's static Rendered placeholder rather than build a second
   markdown renderer — the same reasoning extends to json/csv/html. Diff is enabled
   whenever the active file's real computed diff is nonzero; images get no mode this
@@ -3230,7 +3231,7 @@ stack choices in this doc.
   `registerType: 'autoUpdate'`'s documented "no stale index.html after a
   deploy" behavior at all — it only injects a bare
   `navigator.serviceWorker.register('/sw.js')` call with zero update-
-  detection logic.** IMPLEMENTATION-PLAN.md Phase 5's PWA bullet ("cache
+  detection logic.** docs/ARCHITECTURE.md Phase 5's PWA bullet ("cache
   strategy must never serve a stale index.html after a deploy (standard
   autoUpdate registration)") reads as if setting `registerType: 'autoUpdate'`
   alone is sufficient; it isn't — that option only changes which template
@@ -4109,9 +4110,10 @@ stack choices in this doc.
 
 ### Hard-won notes — Phases A–D skills-application pass (2026-08-21)
 
-Findings from the systematic improvement pass (`skills/ANALYSIS.md`,
-`docs/TODO.md`) that aren't recorded anywhere else durable. Ordered by how
-likely they are to bite again.
+Findings from the systematic improvement pass (`skills/ANALYSIS.md`, and the
+now-retired `docs/TODO.md`, whose still-open items were filed as issues on
+`sadigaxund/vsnote` during the 2026-09-08 docs prune) that aren't recorded
+anywhere else durable. Ordered by how likely they are to bite again.
 
 - **Statement-level tree-shaking defeats `sideEffects`.** Rollup cannot prove
   `Ng.displayName = "GraphNode"` pure (property write → possible setter), so an
@@ -4274,3 +4276,76 @@ ref. The toggle has two mount points for one action: the mode group in
 `EditorHeader.tsx` exists only when more than one pane is open, so the
 single-pane case gets the same toggle through the tab bar's new
 `trailingActions` slot.
+
+## Known limitations
+
+Consolidated 2026-09-08 from the retired `docs/HANDOVER-2026-08-22.md` and
+`docs/HANDOVER-2026-09-06.md`. These are either permanent design tradeoffs or
+gaps not yet worth closing; none of them are secretly-broken features.
+
+**Packs cannot render their components.** A `.mkp` pack's only rendering
+artifact is a prebuilt third-party `webview.js`. VSNote never executes it: our
+directive rendering is plain React on the app origin with no sandbox, so
+running it would hand a pack the vault, the lightning-fs IndexedDB, and any
+in-memory share tokens the instant a note was opened, and would break the
+"rendering executes nothing" rule outright. A pack that works in VS Code or
+Obsidian shows only a labelled placeholder here. Owner-confirmed 2026-09-06;
+permanent while no component sandbox exists. Upstream ask: see below.
+
+**No `.mkz` browsing or editing surface.** A bundle is picked up by
+sibling-path convention (`note.mk.md` -> `note.mkz`) and loaded into a run.
+There is no bundle browser and no write-back wiring.
+
+**No auto or scheduled script trigger.** The host-side tier gate is built and
+tested, but nothing calls `runScripts` with a non-manual trigger, so no
+"run automatically" control ships. A dead toggle was removed rather than
+shipped.
+
+**Pack attribute-value completion is absent.** `componentCatalog.ts` was
+re-vendored untrimmed so directive names and hover are pack-aware, but
+`completion.ts`/`documentation.ts` keep their `packAttributesFor` trim. Low
+value while packs cannot render.
+
+**A `Switch` off-state is nearly invisible in dark themes.** Library defect,
+no track-scoped token to retarget, left unpatched rather than force-styled.
+See my-you-eye#37 and this document's "Modules" section for the design-token
+posture.
+
+**`vaultModules` in the grant closure is permanently `{}`.** VSNote has no
+vault-wide shared-Lua-module concept, so there is nothing to resolve. A scope
+boundary, not a gap.
+
+**Cross-column alias/slug race.** Uniqueness is checked case-insensitively by
+query, and same-column races are backstopped by the DB's own case-sensitive
+unique indexes. A newly generated random slug racing a concurrent alias equal
+to it is not covered; closing it needs a case-folded functional index, i.e. a
+migration this repo does not yet have. Pre-existing, not urgent.
+
+**The git proxy follows redirects for GET only.** Re-streaming an already
+consumed POST body is not worth the complexity for a case real git hosts do
+not hit.
+
+**The live-preview reveal hint is once per session and unmeasured.** It
+passes the UI audit, but no one has watched a real writing session with it on.
+
+**The service worker precache exclusion is structural, not by name.** A
+chunk is dropped from the precache when every module in it comes from a
+lazily catalogued language package. Forcing those into named chunks with
+`manualChunks` was tried and reverted: it pulled the catalog into the boot
+chunk's static graph and broke the offline cold-start probe.
+
+### Upstream asks
+
+Findings from integrating Markii (parse, render, live preview, Lua scripts in
+a Worker isolate, packs) that turned out to be gaps in markii itself rather
+than VSNote bugs, filed as issues on `markii-org/markii`:
+
+- Publish `@markii/host` (or a `@markii/core/editor` subpath) — [#41](https://github.com/markii-org/markii/issues/41)
+- Export the text-directive recognition predicate — [#43](https://github.com/markii-org/markii/issues/43)
+- Renderer extension seams for links, code, whole-Root and inline directives — [#44](https://github.com/markii-org/markii/issues/44)
+- Async pack module resolver and documented `ValueStore` params — [#45](https://github.com/markii-org/markii/issues/45)
+- Diagnostic for dropped non-react packs, and a sandboxed component contract — [#46](https://github.com/markii-org/markii/issues/46)
+- Typed capability-denied stubs and script-declared capabilities — [#47](https://github.com/markii-org/markii/issues/47)
+- Publish the CodeMirror host layer as `@markii/codemirror`, with a reference web host — [#48](https://github.com/markii-org/markii/issues/48)
+- Name `@markii/stdlib` as a required install dependency in the docs — [#49](https://github.com/markii-org/markii/issues/49)
+- Document `completionAt`'s `replaceStart` as a replace range, not a filter anchor — [#50](https://github.com/markii-org/markii/issues/50)

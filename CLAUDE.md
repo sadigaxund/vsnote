@@ -29,8 +29,8 @@ the sole visual authority — read it before building UI.
    it's used. Do not silently inline one-offs. Do not simplify the design to avoid
    building a missing piece.
 3. **Client stays server-optional.** Git runs in-browser (isomorphic-git +
-   lightning-fs). No terminal, no code running. As of 2026-08-15 v2 is IN SCOPE
-   (`docs/IMPLEMENTATION-PLAN-V2.md`): a FastAPI backend under `server/` provides
+   lightning-fs). No terminal, no code running. As of 2026-08-15 v2 is IN SCOPE:
+   a FastAPI backend under `server/` provides
    sharing, auth, and real remote sync per `docs/ROADMAP-SHARING-AUTH.md` (its
    security posture is binding). Front + back deploy as ONE origin: the backend
    serves the built SPA, all client URLs are relative, no CORS anywhere
@@ -39,8 +39,13 @@ the sole visual authority — read it before building UI.
    gracefully — the SPA bundle must never require the API to boot, render, or
    edit. Python work uses `server/.venv`.
 4. **Docs are law.** `docs/DESIGN-SPEC.md` (what it looks like),
-   `docs/ARCHITECTURE.md` (how it's built), `docs/IMPLEMENTATION-PLAN.md` (phases).
-   If you must deviate, update the doc in the same commit and say why.
+   `docs/ARCHITECTURE.md` (how it's built, including its "Known limitations"
+   section for open gaps), `docs/ROADMAP-SHARING-AUTH.md` (the sharing/auth
+   security posture), `docs/COMPONENT-BACKLOG.md` (the component registry).
+   These four are the only living planning/reference docs under `docs/`; phase
+   history lives in git log and ARCHITECTURE.md's per-phase sections, not a
+   separate plan file. If you must deviate, update the doc in the same commit
+   and say why.
 5. **Quality gates before claiming done:** `npm run build`, `npm run lint`, and
    `npm run typecheck` all pass. Verify UI changes visually when a browser tool is
    available. Do NOT use `npx tsc --noEmit`: the root `tsconfig.json` is a solution
