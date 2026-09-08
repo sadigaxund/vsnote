@@ -4350,3 +4350,5 @@ than VSNote bugs, filed as issues on `markii-org/markii`:
 - Name `@markii/stdlib` as a required install dependency in the docs — [#49](https://github.com/markii-org/markii/issues/49)
 - Document `completionAt`'s `replaceStart` as a replace range, not a filter anchor — [#50](https://github.com/markii-org/markii/issues/50)
 - Home the `@lezer/markdown` `BlockContext.input`/`.to` lookahead cast in `@markii/codemirror`; ask Lezer upstream for typed multi-line lookahead (reminder, not a markii bug) — [#51](https://github.com/markii-org/markii/issues/51)
+- Omit the bare `{}` from `componentSkeleton` when a directive has no required attributes — [#52](https://github.com/markii-org/markii/issues/52)
+- Mark interactive elements in rendered directives so editor hosts can separate click-to-act from click-to-edit — [#53](https://github.com/markii-org/markii/issues/53)
