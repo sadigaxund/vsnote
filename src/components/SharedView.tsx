@@ -69,11 +69,12 @@ import {
   type DataTableColumn,
 } from "my-you-eye";
 import { useToast } from "./local/useToast";
-import { Copy, KeyRound, MoreHorizontal, Pencil, RefreshCcw, RotateCw, Share2, Trash2, X } from "lucide-react";
+import { Copy, KeyRound, MoreHorizontal, Pencil, RefreshCcw, RotateCw, Share2, Trash2, UploadCloud, X } from "lucide-react";
 import { useShareStore } from "../share/useShareStore";
 import { buildShareLink } from "../share/shareLinks";
 import { formatRelativeEpochSeconds } from "../lib/relativeTime";
 import { computeShareLinkCounts, type ShareLinkCounts } from "../share/shareLinkGraph";
+import { computeShareFreshness, type ShareFreshness } from "../share/contentHash";
 import { readTextFile } from "../fs/operations";
 import { displayToFsPath } from "../fs/paths";
 import { listShareTokens, revokeShareToken } from "../share/api";
@@ -95,6 +96,7 @@ export function SharedView() {
   const refreshShares = useShareStore((s) => s.refreshShares);
   const revoke = useShareStore((s) => s.revoke);
   const regenerate = useShareStore((s) => s.regenerate);
+  const updateShareContent = useShareStore((s) => s.updateShareContent);
 
   const [revokeTarget, setRevokeTarget] = useState<ShareOut | null>(null);
   const [editingShare, setEditingShare] = useState<ShareOut | null>(null);
@@ -102,6 +104,20 @@ export function SharedView() {
   const [tokens, setTokens] = useState<ShareTokenOut[]>([]);
   const [tokensLoading, setTokensLoading] = useState(false);
   const [linkCounts, setLinkCounts] = useState<Map<number, ShareLinkCounts>>(new Map());
+  // R5-6 — per-share freshness (fresh/stale/missing), recomputed whenever
+  // the active set OR any share's pinned `blob_id` changes (an "Update
+  // share" swaps `blob_id` without touching `active`'s id list, so the
+  // effect below keys on both — see the dependency array's comment).
+  const [freshness, setFreshness] = useState<Map<number, ShareFreshness>>(new Map());
+  const [updatingShareId, setUpdatingShareId] = useState<number | null>(null);
+  // R5-6 — the `id:blob_id` dependency key below only changes when a
+  // share's PINNED snapshot changes (an "Update share"). Editing the vault
+  // FILE itself changes nothing about the share record, so a plain
+  // content edit needs its own trigger to re-hash and pick up the drift —
+  // "Refresh" is the natural place for it (it already means "re-derive
+  // everything shown"), bumped alongside its existing `refreshShares()`
+  // call below.
+  const [freshnessRefreshNonce, setFreshnessRefreshNonce] = useState(0);
 
   useEffect(() => {
     if (authenticated) void refreshShares();
@@ -128,6 +144,47 @@ export function SharedView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active.map((s) => s.id).join(",")]);
+
+  // R5-6 — same best-effort, never-blocks-the-table discipline as the link
+  // counts effect above: a share whose file can't be read resolves to
+  // "missing" (see `contentHash.ts::computeShareFreshness`) rather than
+  // failing the whole batch. Keyed on `id:blob_id` pairs (not just ids) so
+  // "Update share" — which changes a row's `blob_id` without adding or
+  // removing any share — still triggers a recompute.
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve()
+      .then(() =>
+        active.length === 0
+          ? new Map<number, ShareFreshness>()
+          : computeShareFreshness(active, async (sourcePath) => readTextFile(displayToFsPath(sourcePath))),
+      )
+      .then((result) => {
+        if (!cancelled) setFreshness(result);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active.map((s) => `${s.id}:${s.blob_id ?? ""}`).join(","), freshnessRefreshNonce]);
+
+  async function handleUpdateShare(share: ShareOut) {
+    setUpdatingShareId(share.id);
+    try {
+      const content = await readTextFile(displayToFsPath(share.source_path));
+      const filename = share.source_path.slice(share.source_path.lastIndexOf("/") + 1);
+      await updateShareContent(share.id, filename, content);
+      toast({ title: "Share updated", variant: "success" });
+    } catch (err) {
+      toast({
+        title: "Couldn't update the share",
+        description: err instanceof Error ? err.message : "The file may no longer exist in the vault. Check the path and try again.",
+        variant: "danger",
+      });
+    } finally {
+      setUpdatingShareId(null);
+    }
+  }
 
   // Same idiom as `ShareApp.tsx`'s boot-time `load()`: a plain async
   // function whose OWN first line is the synchronous "start loading"
@@ -169,11 +226,24 @@ export function SharedView() {
   // ever holds a short integer, so `xs` never truncates. This shifts every
   // column after it right by one; `tests/e2e/share-panel.spec.ts`'s
   // `td.nth(...)` index for Hits is updated to match.
+  // R5-6 — "Freshness" is a badge column, same `type: "badge"` mechanism
+  // "Mode"/"Access" already use. `CellType`'s badge cell always renders
+  // this column's ONE fixed `badgeVariant` (`DataTableColumn` has no
+  // per-row variant hook — only `statusVariant` accepts a function, and
+  // that's a status dot, not a chip), so a row that's up to date carries a
+  // `null` cell value instead: `CellType` renders `null`/`undefined` as a
+  // plain muted em dash regardless of `type`, which reads as "nothing to
+  // report" rather than a false "Stale"/"Missing" chip forced into some
+  // third color. Both attention states share "warning" (soft) — the
+  // distinction an owner needs is the WORDING, not a second color, since
+  // both mean "the link doesn't currently point at what's in the vault
+  // right now, go look".
   const columns: DataTableColumn[] = [
     { key: "source", header: "Source", width: "xl" },
     { key: "link", header: "Link", width: "lg" },
     { key: "mode", header: "Mode", type: "badge", width: "sm" },
     { key: "access", header: "Access", type: "badge", width: "md" },
+    { key: "freshness", header: "Freshness", type: "badge", badgeVariant: "warning", badgeStyle: "soft", width: "sm" },
     { key: "linksTo", header: "Links to", type: "number", width: "xs", align: "right" },
     { key: "linkedFrom", header: "Linked from", type: "number", width: "xs", align: "right" },
     { key: "hits", header: "Hits", type: "number", width: "xs", align: "right" },
@@ -182,12 +252,21 @@ export function SharedView() {
 
   const rows = active.map((share) => {
     const counts = linkCounts.get(share.id);
+    const shareFreshness = freshness.get(share.id);
     return {
       id: share.id,
       source: share.source_path,
       link: `/share/${share.alias ?? share.slug}`,
       mode: share.render_mode === "rendered" ? "Viewer page" : "Raw file",
       access: share.general_access === "link" ? "Anyone with the link" : "Restricted",
+      // R5-6 — "Stale" (file exists, content differs from the pinned
+      // blob) vs "File missing" (the source file is no longer in the
+      // vault at all — a chip an owner reads very differently from
+      // "Stale": there's no bytes to re-pin until the file exists again,
+      // where "Stale" is one click away from fixed via "Update share").
+      // `null` for "fresh"/"unknown" renders as a plain em dash (see the
+      // column comment above), never a false-positive chip.
+      freshness: shareFreshness === "stale" ? "Stale" : shareFreshness === "missing" ? "File missing" : null,
       linksTo: counts?.linksTo ?? 0,
       linkedFrom: counts?.linkedFrom ?? 0,
       hits: share.hit_count,
@@ -209,13 +288,22 @@ export function SharedView() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--color-fg)", margin: 0 }}>Shared</h1>
           <Tooltip content="Refresh" side="left">
-            <Button type="button" variant="ghost" size="icon-sm" aria-label="Refresh shares" onClick={() => refreshShares()}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Refresh shares"
+              onClick={() => {
+                setFreshnessRefreshNonce((n) => n + 1);
+                void refreshShares();
+              }}
+            >
               <RefreshCcw size={14} />
             </Button>
           </Tooltip>
         </div>
         <p style={{ fontSize: 13, color: "var(--color-muted)", margin: "0 0 20px" }}>
-          Every active share, audited: link, access, links to/from other shares, hits, and last accessed.
+          Every active share, audited: link, access, freshness, links to/from other shares, hits, and last accessed.
         </p>
 
         {error && <p style={{ fontSize: 12.5, color: "var(--color-danger)", margin: "0 0 12px" }}>{error}</p>}
@@ -261,6 +349,14 @@ export function SharedView() {
                           }}
                         >
                           <RotateCw size={13} /> Regenerate
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="gap-inline"
+                          disabled={updatingShareId === share.id}
+                          onClick={() => void handleUpdateShare(share)}
+                          data-testid={`shared-update-${share.id}`}
+                        >
+                          <UploadCloud size={13} /> Update share
                         </DropdownMenuItem>
                         {share.auth_mode === "token" && (
                           <DropdownMenuItem className="gap-inline" onClick={() => setTokenShare(share)} data-testid={`shared-tokens-${share.id}`}>

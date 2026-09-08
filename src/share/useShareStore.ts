@@ -60,6 +60,13 @@ interface ShareStoreState {
   refreshShares: () => Promise<void>;
   publish: (input: PublishInput) => Promise<api.ShareOut>;
   updateShare: (id: number, patch: api.SharePatchIn) => Promise<api.ShareOut>;
+  /** R5-6 "Update share" — uploads `content` as a fresh blob then PATCHes
+   * the share to point at it, touching nothing else (slug/alias/auth/
+   * expiry/back_link all untouched — see `server/app/schemas.py::
+   * SharePatchIn.blob_id`'s docstring). Composes the same two calls
+   * `publish()` above makes for a brand-new share, reused here for an
+   * EXISTING one instead of duplicating the "upload then link" sequence. */
+  updateShareContent: (id: number, filename: string, content: string) => Promise<api.ShareOut>;
   regenerate: (id: number) => Promise<api.ShareOut>;
   revoke: (id: number) => Promise<void>;
   /** Round 6 item 8 — a vault move/rename updates every affected share's
@@ -205,6 +212,13 @@ export const useShareStore = create<ShareStoreState>()((set, get) => ({
 
   updateShare: async (id, patch) => {
     const updated = await api.patchShare(id, patch);
+    set((state) => ({ shares: state.shares.map((s) => (s.id === id ? updated : s)) }));
+    return updated;
+  },
+
+  updateShareContent: async (id, filename, content) => {
+    const blob = await api.createBlob(filename, content);
+    const updated = await api.patchShare(id, { blob_id: blob.id });
     set((state) => ({ shares: state.shares.map((s) => (s.id === id ? updated : s)) }));
     return updated;
   },

@@ -72,7 +72,7 @@ import {
   Switch,
 } from "my-you-eye";
 import { useToast } from "./useToast";
-import { Check, Copy, ExternalLink, FileCode, Globe2, Loader2, Lock, Share2, X } from "lucide-react";
+import { Check, Copy, ExternalLink, FileCode, Globe2, Loader2, Lock, RefreshCw, Share2, X } from "lucide-react";
 import { SegmentedControl } from "./SegmentedControl";
 import { Stepper } from "./Stepper";
 import { useShareStore } from "../../share/useShareStore";
@@ -133,6 +133,7 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
   const login = useShareStore((s) => s.login);
   const publish = useShareStore((s) => s.publish);
   const updateShare = useShareStore((s) => s.updateShare);
+  const updateShareContent = useShareStore((s) => s.updateShareContent);
   const allShares = useShareStore((s) => s.shares);
   const refreshShares = useShareStore((s) => s.refreshShares);
 
@@ -235,6 +236,38 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
       toast({ title: "Couldn't share that file", description: err instanceof Error ? err.message : "Try again.", variant: "danger" });
     } finally {
       setSharingSibling(null);
+    }
+  }
+
+  // R5-6 "Update share" — the editor's own share menu for an
+  // ALREADY-shared file: this instance is reached via `handleManageShare`
+  // (App.tsx), which opens with `existingShare` set and no `content` prop
+  // (edit-policy mode never re-reads the buffer up front — see this file's
+  // header doc). Reads the file's CURRENT vault content directly, the same
+  // "read a sibling file straight off the vault" pattern
+  // `handleShareSibling` above already uses, rather than requiring the
+  // caller to thread a fresh `content` prop through just for this action.
+  const [refreshingContent, setRefreshingContent] = useState(false);
+
+  async function handleUpdateShareContent() {
+    if (mode?.kind !== "edit-file") return;
+    const share = mode.share;
+    setRefreshingContent(true);
+    try {
+      const fsPath = displayToFsPath(share.source_path);
+      const fileContent = await readTextFile(fsPath);
+      const filename = share.source_path.slice(share.source_path.lastIndexOf("/") + 1);
+      const updated = await updateShareContent(share.id, filename, fileContent);
+      setResult(updated);
+      toast({ title: "Share updated", variant: "success" });
+    } catch (err) {
+      toast({
+        title: "Couldn't update the share",
+        description: err instanceof Error ? err.message : "The file may no longer exist in the vault. Check the path and try again.",
+        variant: "danger",
+      });
+    } finally {
+      setRefreshingContent(false);
     }
   }
 
@@ -734,6 +767,29 @@ export function PublishDialog({ open, onOpenChange, filePath, fileKind, content,
                     </Button>
                   </div>
                 </FormField>
+
+                {/* DESIGN-SPEC round 17 item 131 — shares are snapshots, not
+                    a live view of the file; this line points at how to get
+                    fresher content out later, without repeating the whole
+                    "Update share" explanation inline. */}
+                <p style={{ fontSize: 12, color: "var(--color-muted)", margin: 0 }}>
+                  This link serves a snapshot from right now. Update it later from here or the Shared view.
+                </p>
+
+                {isEditKind && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void handleUpdateShareContent()}
+                    disabled={refreshingContent}
+                    data-testid="publish-update-share-content"
+                    style={{ alignSelf: "flex-start" }}
+                  >
+                    {refreshingContent ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                    Update share
+                  </Button>
+                )}
 
                 <div style={{ display: "flex", gap: 6 }}>
                   <Badge variant="neutral" tone="soft">

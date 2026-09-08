@@ -380,7 +380,8 @@ def _content_payload(db: Session, share: "models.Share", blob: "models.Blob", ro
         source_path=share.source_path,
         render_mode=share.render_mode.value,
         media_type_hint=blob.media_type_hint,
-        blob_id=blob.id,
+        # R5-6 — deliberately no blob_id here, see ShareContentOut's
+        # docstring: the content hash is owner-only.
         size=blob.size,
         live=share.live,
         content=content,
@@ -596,7 +597,12 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         write_audit_event(
             db, "share.access", slug=access.share.slug, principal=access.principal, reason="editor_put", request=request
         )
-        return {"ok": True, "blob_id": digest, "vault_committed": committed}
+        # R5-6 — no `blob_id` in this response: it's the content hash
+        # (models.Blob.id), owner-only per ShareContentOut's docstring. A
+        # visitor with the Editor role must not learn the hash of what they
+        # just wrote any more than a Viewer learns the hash of what they
+        # read.
+        return {"ok": True, "vault_committed": committed}
 
     @router.api_route("/share/{identifier}/{rest:path}", methods=["GET", "HEAD", "PUT", "PATCH"])
     @limiter.limit(settings.rate_limit_share)

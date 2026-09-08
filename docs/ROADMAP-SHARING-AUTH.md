@@ -35,6 +35,43 @@ overrides earlier sections where they touch the same topic.
   default, with an opt-in "live" toggle that tracks the working file. Default
   snapshot = no accidental leaking of later edits.
 
+> **AMENDED 2026-09-08 (R5-6 "Update share")**: the pinned-snapshot bullet
+> above says a share serves a snapshot "by default" — R5-6 is the owner's
+> way to re-pin that snapshot to the file's current bytes without
+> republishing (new slug/alias/policy). `PATCH /api/shares/{id}` (owner API,
+> `share-admin` scope, same ownership check as every other `/api/shares/
+> {id}` route — 404 for a share the caller doesn't own, never a 403) now
+> accepts an optional `blob_id` field: the caller uploads the current file
+> as a fresh blob (`POST /api/blobs` — unchanged, already owner-
+> authenticated) and PATCHes the share to point at it. `blob_id` is
+> validated the same way `POST /api/shares`'s own `blob_id` already was —
+> it must exist in the content-addressed blob store; there is no per-blob
+> owner column to check "did the caller personally upload this exact
+> blob", so this closes no capability `create_share` didn't already have.
+> Slug, alias, auth mode, password, expiry, grants, `show_title`, and
+> `back_link` are all left untouched by a `blob_id`-only PATCH — the
+> route's existing per-field `is not None` guards already mean "omit a
+> field, it's unchanged", R5-6 just adds one more such field. The write is
+> its own audit event (`share.refresh`), distinct from a plain policy edit.
+>
+> **The owner-only-metadata rule this depends on**: the content hash
+> (`Share.blob_id`, itself `hashlib.sha256(content).hexdigest()` — see
+> `models.Blob`'s docstring) is exposed ONLY on authenticated owner
+> surfaces (`GET /api/shares`, and any create/patch/regenerate response).
+> It is deliberately absent from `ShareContentOut` (the public `/share/{id}`
+> JSON contract, both the root route and its `/api`-mounted CORS twin), from
+> every raw-bytes response header, and from the editor write-back `PUT
+> /share/{id}` response (which used to echo the new blob id — R5-6 removed
+> that too). A visitor — even one with the Editor role, who can already
+> read/write the document's own bytes — must never learn the hash of what
+> they read or wrote; only the owner needs it, to detect drift. This is the
+> same "hashes are enumerable/oracle-y" instinct the slug's own generation
+> rule states above, applied to a second identifier this feature
+> introduced. See `docs/ARCHITECTURE.md`'s "Share-refresh model" section and
+> `server/tests/test_share_refresh.py` for the tests that pin both halves
+> (the PATCH's authorization, and the hash's absence from every public
+> path).
+
 > **AMENDED 2026-09-05** (§4.2, the 2026-09-05 refresh plan (retired, see git history)): `Show title`
 > is an explicit, OPT-IN publication of the document's title — off by
 > default per share. Turning it on for a `none`-auth share deliberately

@@ -233,6 +233,19 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
         final_render_mode = payload.render_mode if payload.render_mode is not None else share.render_mode.value
         final_auth_mode = payload.auth_mode if payload.auth_mode is not None else share.auth_mode.value
         _check_auth_matches_render_mode(final_render_mode, final_auth_mode)
+        # R5-6 "Update share" — same existence check create_share makes for
+        # blob_id (routers/shares.py::create_share above): the blob must
+        # already be in the content-addressed store. That store has no
+        # per-blob owner column (content is deduplicated globally), so
+        # "the caller didn't just upload it" isn't a distinct case this
+        # endpoint can detect or needs to: reaching this line already means
+        # the caller authenticated with share-admin scope AND owns THIS
+        # share (the 404 above), the same two facts create_share's own
+        # blob_id acceptance relies on. Validated before any mutation, same
+        # "reject before touching anything" discipline as the alias/auth
+        # checks above.
+        if payload.blob_id is not None and db.get(models.Blob, payload.blob_id) is None:
+            raise HTTPException(status_code=404, detail="Unknown blob_id — POST /api/blobs first")
 
         if payload.alias is not None:
             share.alias = payload.alias or None
@@ -260,6 +273,8 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             share.show_title = payload.show_title
         if payload.back_link is not None:
             share.back_link = payload.back_link or None
+        if payload.blob_id is not None:
+            share.blob_id = payload.blob_id
         # Round 7 item 60 — grants are a wholesale replacement (None means
         # untouched, [] means remove everyone), mirroring the manifest's
         # replace semantics rather than inventing per-row endpoints.
@@ -286,7 +301,14 @@ def build_router(get_db, limiter: Limiter, settings: Settings, secret_key: str, 
             db.rollback()
             raise HTTPException(status_code=409, detail="alias already in use")
         db.refresh(share)
-        write_audit_event(db, "share.publish", slug=share.slug, principal=ctx.principal, reason="policy_edit", request=request)
+        # R5-6 — a blob_id swap gets its OWN audit event ("share.refresh"),
+        # distinguishable from an ordinary policy edit, so the audit log
+        # can tell "the owner updated the snapshot" apart from "the owner
+        # changed auth/access settings" — see audit.py's event-name list.
+        if payload.blob_id is not None:
+            write_audit_event(db, "share.refresh", slug=share.slug, principal=ctx.principal, request=request)
+        else:
+            write_audit_event(db, "share.publish", slug=share.slug, principal=ctx.principal, reason="policy_edit", request=request)
         return _share_out(db, share)
 
     @router.post("/shares/{share_id}/regenerate", response_model=schemas.ShareOut)

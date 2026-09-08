@@ -677,13 +677,17 @@ content-negotiates:
   not (never `text/html`, full stop).
 - **`Accept: application/json`**: returns the `ShareContentOut` JSON
   contract (see `app/schemas.py`) — `slug`, `alias`, `source_path`,
-  `render_mode`, `media_type_hint`, `blob_id`, `size`, `live`, `content`
+  `render_mode`, `media_type_hint`, `size`, `live`, `content`
   (UTF-8 text, or base64 with `content_encoding: "base64"` for non-UTF-8
   blobs), `created_at`, `last_access_at`, `hit_count`, plus (§5,
   the 2026-09-05 refresh plan (retired, see git history)) **`links`** and **`back_link`** — see
   "Dynamic link map and back link" below for both. `X-Content-Type-
   Options: nosniff` is set here too; the server never inlines share content
-  into an HTML document itself.
+  into an HTML document itself. **No `blob_id` field** (R5-6, 2026-09-08):
+  the content hash is owner-only — see "Update share (R5-6)" below — so it
+  is deliberately absent from this contract, from the raw response's
+  headers, and from the editor write-back `PUT /share/{identifier}`
+  response (which used to echo the new blob id and no longer does).
 
 `GET /api/share/{identifier}/content` — **the same JSON contract**, always
 (no content negotiation needed), mounted under `/api` instead of the root
@@ -712,6 +716,21 @@ here at all; this is also what makes the proxy/SW case above work, since
 the content re-fetch alone is enough to count.
 
 The Shared panel's "Hits" column header says what counts, in a tooltip.
+
+**Update share (R5-6, 2026-09-08).** `PATCH /api/shares/{id}` (owner API,
+`share-admin` scope) accepts an optional `blob_id` field — pass it alone to
+re-pin the share at a freshly-uploaded blob (`POST /api/blobs` first)
+without touching any other field: slug, alias, auth mode, password,
+expiry, grants, `show_title`, and `back_link` are all left exactly as they
+were. `blob_id` is validated the same way `POST /api/shares`'s own
+`blob_id` already is — it must exist in the blob store, `404` otherwise —
+and the usual `404`-not-`403` ownership check applies (a share the caller
+doesn't own looks identical to one that doesn't exist). The write lands as
+its own audit event (`share.refresh`), not the generic `share.publish`/
+`policy_edit` a plain policy edit gets. The owner's own `GET /api/shares`/
+`ShareOut` response is the only place the resulting content hash
+(`blob_id`) is ever visible — see the note on the JSON contract above for
+where it's deliberately absent.
 
 **Reserved aliases and expiry (§4.5, the 2026-09-05 refresh plan (retired, see git history)).**
 `POST /api/shares` and `PATCH /api/shares/{id}` both reject an alias that

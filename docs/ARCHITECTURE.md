@@ -635,6 +635,82 @@ the two tests that guard this contract; they extend the same file's
 pre-existing `test_html_navigation_gets_shell_for_every_deny_reason_and_
 success_alike` byte-identity matrix rather than replacing it.
 
+### Share-refresh model — stale detection and "Update share" (R5-6, 2026-09-08)
+
+A share is a pinned snapshot (`Share.blob_id`); the vault file it was
+published from keeps changing underneath it. R5-6 gives the owner a way to
+SEE that drift and fix it, without touching auto-update (out of scope this
+round — see "Known limitations").
+
+**The content hash already existed — it's `models.Blob.id`.** No second
+hash column: a blob's primary key IS `hashlib.sha256(content).hexdigest()`
+(`routers/shares.py::create_blob`), so "does the share match the file" is
+just "does the file's hash equal `Share.blob_id`". The client reproduces
+that exact digest (`share/contentHash.ts::sha256HexOfText`,
+`crypto.subtle.digest("SHA-256", ...)` over `TextEncoder`'s UTF-8 bytes —
+proven byte-identical to Python's `str.encode("utf-8")` for non-ASCII
+content too, `tests/unit/contentHash.test.ts`) and compares it client-side
+against the share's `blob_id`, with no round trip needed beyond the vault
+read the owner's client already has.
+
+**The hash is owner-only, structurally.** `ShareOut.blob_id` (`GET
+/api/shares`, and every create/patch/regenerate response) is the one place
+it's ever returned. `ShareContentOut` (the public `/share/{id}` JSON
+contract both `share_public.py` routes share) carries no `blob_id` field at
+all, and the editor write-back `PUT /share/{id}` response no longer echoes
+the new blob id either (it used to — R5-6 removed it): an Editor-role
+visitor must not learn the hash of what they just wrote any more than a
+Viewer learns the hash of what they read. `server/tests/test_share_
+refresh.py::test_public_content_and_raw_never_expose_blob_hash` greps the
+raw JSON of every public success path (root JSON contract, the `/api`-
+mounted CORS twin, the PUT response) plus the raw-bytes response's headers
+for the exact hash string, and `test_uniform_404_deny_paths_unchanged_by_
+hash_removal` pins that every deny reason is still the same byte-identical
+404 this change didn't touch.
+
+**Client-side freshness (`share/contentHash.ts::computeShareFreshness`,
+`ShareFreshness = "fresh" | "stale" | "missing" | "unknown"`)** hashes each
+active share's current vault content and compares it to `blob_id`, the
+same "best-effort, a read failure contributes nothing rather than failing
+the batch" discipline `share/shareLinkGraph.ts`'s links-to/linked-from
+computation already uses. A file that can no longer be read (deleted/moved
+out from under the share) resolves to `"missing"`, kept distinct from
+`"stale"` (file exists, content differs) because they mean different things
+to an owner — "Stale" is one "Update share" click from fixed; "Missing" has
+nothing to re-pin until the file exists again. `components/SharedView.tsx`
+renders this as a "Freshness" `DataTable` badge column (between Access and
+Links to): a `null` cell value (fresh/unknown) renders as `CellType`'s own
+plain muted em dash for ANY column type, so an up-to-date row shows nothing
+rather than a false chip. The freshness effect is keyed on each active
+share's `id:blob_id` pair (an "Update share" changes `blob_id` without
+touching the active id list) PLUS a manual nonce bumped by the view's
+"Refresh" button, since editing the vault file itself changes neither —
+"Refresh" is the one affordance that means "re-derive everything shown
+against the vault as it is right now".
+
+**"Update share"** (Shared view row menu, and a button on the Publish
+dialog's Result step in edit-policy mode — the same instance the editor's
+share icon opens for an already-shared file) uploads the file's current
+vault bytes as a fresh blob (`POST /api/blobs`) then `PATCH`es the share
+with `{blob_id}` alone. `SharePatchIn.blob_id` (`schemas.py`) is validated
+exactly like `ShareCreateIn.blob_id` already was at publish time — the blob
+must exist in the content-addressed store, full stop. There is no separate
+"the caller personally uploaded this exact blob" check because there is no
+column to support one (blobs are deduplicated globally, by content, with no
+per-blob owner): reusing a hash the caller didn't personally upload was
+already possible at publish time via `create_share`, so this PATCH adds no
+new capability, only the same acceptance rule applied to an existing row
+the caller already owns (`share.owner_id == ctx.user.id`, `share-admin`
+scope, uniform 404 otherwise — identical to every other `/api/shares/{id}`
+route). Every other field — slug, alias, auth mode, password, expiry,
+grants, `show_title`, `back_link` — is left exactly as `patch_share`'s
+existing per-field `is not None` guards already leave any field the caller
+omits; R5-6 added no new mutation path for them. The write gets its own
+audit event (`share.refresh`, distinct from a plain `share.publish`/
+`policy_edit`) so the audit log can tell "content updated" apart from
+"settings changed" (`server/tests/test_share_refresh.py::
+test_patch_blob_id_writes_refresh_audit_event`).
+
 ## Folder shares (Phase 10.5) — SUPERSEDED, removed 2026-09-05
 
 **This entire feature was removed** by the 2026-09-05 refresh plan (retired, see git history) §4.4

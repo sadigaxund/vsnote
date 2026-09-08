@@ -91,6 +91,12 @@ export interface SharePatchIn {
   clear_expiry?: boolean;
   /** Round 6 item 8 — moved/renamed vault paths update the share record. */
   source_path?: string;
+  /** R5-6 "Update share" — repoints this share at a freshly-uploaded blob
+   * (`POST /api/blobs` first, then PATCH with the returned id) without
+   * touching slug/alias/auth/expiry/back_link. See `server/app/schemas.py::
+   * SharePatchIn.blob_id`'s docstring for the exact authorization this
+   * enforces. */
+  blob_id?: string;
   password?: string;
   clear_password?: boolean;
   general_access?: GeneralAccess;
@@ -184,7 +190,9 @@ export interface ShareContentOut {
   source_path: string;
   render_mode: string;
   media_type_hint?: string | null;
-  blob_id: string;
+  /** R5-6 — deliberately no `blob_id` here: the content hash is
+   * owner-only (see `ShareOut.blob_id` above, and `server/app/schemas.py::
+   * ShareContentOut`'s docstring). A visitor's response never carries it. */
   size: number;
   live: boolean;
   content: string;

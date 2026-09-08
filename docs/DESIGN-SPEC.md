@@ -1754,6 +1754,84 @@ these are additive, checkable standards, not taste.
        string three levels deep). Before/after screenshots:
        `.design/r7/r5-5-jsonview-before.png` /
        `.design/r7/r5-5-jsonview-after.png`.
+
+## Amendments round 17 (continued) — 2026-09-08 (R5-6 "Update share")
+
+131. **The Shared view's "Freshness" column** (`components/SharedView.tsx`,
+     between "Access" and "Links to") flags a row whose vault file has
+     drifted from the pinned snapshot. It's a `DataTable` badge column
+     (`type: "badge"`, `badgeVariant: "warning"`, `badgeStyle: "soft"` —
+     the same `CellType` machinery "Mode"/"Access" already use), NOT a
+     hand-rolled chip: `DataTableColumn` has no per-row `badgeVariant`
+     hook (only `statusVariant` accepts a function, and that renders a
+     status dot, not a chip), so a row's cell value is either a label
+     string or `null` — `CellType` renders `null`/`undefined` as a plain
+     muted em dash for ANY column type, which reads as "nothing to
+     report" for an up-to-date share rather than forcing a third,
+     unwarranted color into the column.
+     - **"Stale"**: the file exists and its current content hash
+       (`share/contentHash.ts::sha256HexOfText`, `crypto.subtle.digest`
+       over the UTF-8 bytes) differs from the share's pinned blob id.
+     - **"File missing"**: the file could no longer be read from the
+       vault at all (deleted/moved out from under the share). Given its
+       own distinct wording, not folded into "Stale" — an owner reading
+       "Stale" expects "Update share" to fix it in one click; "File
+       missing" means there's nothing to re-pin until the file exists
+       again. Both share the same warning/soft styling: either one means
+       "this link doesn't currently point at what's in the vault right
+       now, go look."
+     - Computed client-side (`share/contentHash.ts::computeShareFreshness`),
+       same "best-effort, a failure contributes nothing rather than
+       failing the batch" discipline `share/shareLinkGraph.ts` already
+       uses for its links-to/linked-from counts — never a second server
+       endpoint, since the owner's client already has direct vault
+       access and the public content route deliberately never carries
+       the hash (item 132).
+132. **"Update share"** — a row-menu action in the Shared view
+     (`shared-update-<id>`, next to "Regenerate") AND a button on the
+     Publish dialog's Result step for an already-shared file
+     (`publish-update-share-content`, `components/local/PublishDialog.tsx`,
+     visible only in edit-policy mode). Uploads the file's current vault
+     content as a fresh blob (`POST /api/blobs`) then `PATCH`es the share
+     with just `{blob_id}` — slug, alias, auth, expiry, and back-link are
+     never touched by this call (`server/app/schemas.py::
+     SharePatchIn.blob_id`, `routers/shares.py::patch_share`). A file
+     that can no longer be read shows "Couldn't update the share" rather
+     than silently doing nothing. Toast: "Share updated" (rule 3's error
+     format doesn't apply here — this is a success toast, terse per the
+     usual house style, no em dash). Audited as its own event
+     (`share.refresh`, distinct from a plain policy edit) so the audit
+     log can tell "content updated" apart from "settings changed."
+     - **Security**: the route requires the same owner authentication
+       every other `/api/shares/{id}` route requires — `share-admin`
+       scope AND `share.owner_id == caller.id` (uniform 404 otherwise,
+       never a 403 that would confirm the row exists). The blob itself
+       need only EXIST in the content-addressed store (`db.get(Blob,
+       blob_id) is not None`) — identical to what `create_share` already
+       accepts for a brand-new share's `blob_id`. There is no separate
+       "did this caller personally upload this exact blob" check because
+       there is no column to support one (blobs are deduplicated
+       globally, by content, with no per-blob owner) — reusing an
+       existing hash the caller didn't personally upload was already
+       possible at publish time, so this PATCH introduces no new
+       capability, only the same one applied to an existing row the
+       caller already owns.
+     - The **content hash itself is owner-only**: `ShareOut.blob_id`
+       (`GET /api/shares`, and every create/patch/regenerate response) is
+       the one place it's exposed. `ShareContentOut` (the public
+       `/share/{id}` JSON contract) and the raw-bytes response carry no
+       hash field at all, and the editor write-back `PUT /share/{id}`
+       response no longer echoes the new blob id either — a visitor with
+       the Editor role must not learn the hash of what they just wrote
+       any more than a Viewer learns the hash of what they read
+       (`server/tests/test_share_refresh.py::
+       test_public_content_and_raw_never_expose_blob_hash`).
+133. **Publish dialog Result step — snapshot reminder.** One line under
+     the share-link field, every time (new publish and edit-policy
+     alike): "This link serves a snapshot from right now. Update it later
+     from here or the Shared view." Muted, `font-size: 12px`, no em dash,
+     a pointer to how rather than a re-explanation of item 132's
+     mechanics.
 134. **`SettingsRow`'s "full"-width control column stays beside its label
      no matter how long the control's own content grows** (R5-3 fix,
      `components/local/SettingsRow.tsx`). The bug: Git & Sync's

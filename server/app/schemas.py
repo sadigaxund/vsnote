@@ -156,6 +156,19 @@ class SharePatchIn(BaseModel):
     # Round 6 item 8 — a moved/renamed vault file updates its share's
     # recorded path so tree indicators and Manage keep following it.
     source_path: Optional[str] = None
+    # R5-6 "Update share" — repoints this share at a freshly-uploaded blob
+    # (POST /api/blobs first, then PATCH with the returned id) without
+    # touching slug/alias/auth/expiry/back_link. Validated the same way
+    # ShareCreateIn.blob_id is (routers/shares.py::create_share): the blob
+    # must merely EXIST in the content-addressed store — there is no
+    # per-blob owner column (blobs are deduplicated globally), so "did the
+    # caller just upload it" is enforced structurally (a POST /api/blobs
+    # that returns this id already required the same share-admin/write
+    # auth this PATCH itself requires), not by a second ownership check
+    # that the schema has no column to support. See routers/shares.py's
+    # patch_share for the 404-on-unknown-blob_id guard and the dedicated
+    # "share.refresh" audit event this produces.
+    blob_id: Optional[str] = None
     # Explicit sentinel handling: omit the field to leave the password
     # unchanged; pass "" to clear it; pass a non-empty string to set it.
     password: Optional[str] = None
@@ -254,7 +267,14 @@ class ShareContentOut(BaseModel):
     source_path: str
     render_mode: str
     media_type_hint: Optional[str] = None
-    blob_id: str
+    # R5-6 — the blob's id IS the sha256 hex of its content (models.Blob's
+    # docstring), so exposing it here would hand every visitor the exact
+    # content hash needed to detect staleness — an owner-only signal (see
+    # ShareOut.blob_id, which visitors never receive a response containing
+    # at all). Deliberately no field for it: `test_share_refresh.py`'s
+    # `test_public_content_and_raw_never_expose_blob_hash` greps the raw
+    # JSON of both this route and the raw-mode response for `blob.id` to
+    # pin that it never reappears.
     size: int
     live: bool
     content: str

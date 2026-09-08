@@ -54,13 +54,18 @@ def test_put_editor_writeback_creates_new_blob(owner_client):
     )
     r = owner_client.put(f"/share/{share['slug']}", content=b"brand new content")
     assert r.status_code == 200
-    new_blob_id = r.json()["blob_id"]
-    assert new_blob_id != share["blob_id"]
+    # R5-6 — the PUT response deliberately no longer echoes `blob_id`: it's
+    # the content hash, owner-only (an Editor-role visitor must not learn
+    # the hash of what they just wrote). `vault_committed` is still there.
+    assert "blob_id" not in r.json()
+    assert r.json()["ok"] is True
 
     fetched = owner_client.get(f"/share/{share['slug']}")
     assert fetched.content == b"brand new content"
 
-    # Owner's share record reflects the new pinned blob.
+    # Owner's share record reflects the new pinned blob (blob_id is
+    # OWNER-only — see ShareOut — so this is the one place we can observe
+    # it changed).
     listed = owner_client.get("/api/shares").json()
     row = next(s for s in listed if s["id"] == share["id"])
-    assert row["blob_id"] == new_blob_id
+    assert row["blob_id"] != share["blob_id"]
