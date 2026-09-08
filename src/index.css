@@ -32,6 +32,77 @@
   --mk-line-height: 1.8;
   --mk-paragraph-spacing: 1em;
   --mk-list-item-spacing: 0.25em;
+  /* R5-7b: two more properties the owner found still diverging after
+     R5-7 unified line-height/paragraph/list rhythm — see this file's
+     header comment above and `theme.css`'s `.mk-doc h1`-`h6` rules for
+     the consuming side.
+
+     Heading scale: `.mk-doc` had its OWN hand-picked multiples
+     (h1 2em / h2 1.5em / h3 1.2em / h4-h6 1em — theme.css, pre-R5-7b),
+     while the live-preview CM6 engine renders headings via
+     `@atomic-editor/editor`'s packaged `inline-preview.css`
+     (`.cm-line.cm-atomic-h1`..`h6`), which ships its OWN, DIFFERENT
+     multiples (1.35 / 1.2 / 1.1 / 1 / 0.95 / 0.9 em) with no CSS custom
+     property hook at all — that vendor stylesheet is what produced the
+     reported ~22px (editor) vs ~30px (Preview pane) h1. DESIGN-SPEC's
+     "Rendered markdown typography" section (item under "Editing
+     experience") describes h1/h2 color and weight but never states a
+     px/em size for any heading level — silent on the actual scale — so
+     per this round's brief, the EDITOR's scale wins (it's the surface
+     the owner writes in, and per DESIGN-SPEC "Rendered mode = this live
+     preview... Obsidian read/write parity", the editor's own numbers are
+     the more authoritative sample of the two, having been tuned as a
+     reading experience already). These six tokens are that scale, moved
+     out of the vendor CSS's un-overridable literals: `index.css` (this
+     file, loaded last) restates them at higher specificity for the
+     editor in the block below, and `theme.css`'s `.mk-doc h1`-`h6` now
+     read the SAME six values instead of their old, independently
+     hand-picked multiples. Unitless-em, same reasoning as
+     `--mk-line-height` above: `.mk-doc`'s base font-size (16px) and the
+     editor's prose baseline (17px, `RENDERED_BASE_FONT_SIZE`,
+     `LivePreviewEditor.tsx`) still differ, so the two surfaces render
+     the SAME ratio, not identical pixels — verified in
+     `tests/e2e/preview-pane.spec.ts` as a font-size/body-font-size ratio
+     match, the same pattern the line-height test already uses. */
+  --mk-h1-size: 1.35em;
+  --mk-h2-size: 1.2em;
+  --mk-h3-size: 1.1em;
+  --mk-h4-size: 1em;
+  --mk-h5-size: 0.95em;
+  --mk-h6-size: 0.9em;
+}
+
+/* R5-7b — the live-preview CM6 engine's heading font-sizes, overridden
+   from `@atomic-editor/editor`'s packaged `inline-preview.css`
+   (`.cm-line.cm-atomic-h1`..`h6`, which hardcodes 1.35/1.2/1.1/1/0.95/
+   0.9em with no variable hook — repo rule 1's "restyle via tokens, never
+   fork/override library components" doesn't apply to a THIRD-PARTY CM6
+   package the way it applies to `my-you-eye`, and there is no other way
+   to make this one CSS number a shared token). `.vsnote-live-preview
+   .cm-line.cm-atomic-h1` (three simple selectors) beats the vendor
+   stylesheet's `.cm-line.cm-atomic-h1` (two) on specificity alone, so
+   this wins regardless of which stylesheet Vite happens to emit first —
+   no `!important` needed. The values match the vendor defaults exactly
+   today (this is a no-op visually) — the point is moving the NUMBER to
+   the shared `:root` token above, so a future change only has to happen
+   once. */
+.vsnote-live-preview .cm-line.cm-atomic-h1 {
+  font-size: var(--mk-h1-size, 1.35em);
+}
+.vsnote-live-preview .cm-line.cm-atomic-h2 {
+  font-size: var(--mk-h2-size, 1.2em);
+}
+.vsnote-live-preview .cm-line.cm-atomic-h3 {
+  font-size: var(--mk-h3-size, 1.1em);
+}
+.vsnote-live-preview .cm-line.cm-atomic-h4 {
+  font-size: var(--mk-h4-size, 1em);
+}
+.vsnote-live-preview .cm-line.cm-atomic-h5 {
+  font-size: var(--mk-h5-size, 0.95em);
+}
+.vsnote-live-preview .cm-line.cm-atomic-h6 {
+  font-size: var(--mk-h6-size, 0.9em);
 }
 
 /* Theming guard (TODO §5.1 audit): NEVER use Tailwind `dark:` utilities in

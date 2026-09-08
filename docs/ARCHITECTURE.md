@@ -2381,6 +2381,50 @@ to one column, so it applies to `.mk-doc` content exactly as it would to
 suite and `tests/e2e/ui-audit.spec.ts`'s additive "reader content reflow"
 case (`VSNOTE_UI_AUDIT=1`) cover md/mk.md/code/csv shares at both widths.
 
+**Heading scale and directive block spacing, on the same shared tokens
+(R5-7b).** Two more properties R5-7 missed: heading font-size and the
+vertical rhythm around a directive block (`:::row`, `:::card`, …).
+`index.css`'s `:root` block now also carries `--mk-h1-size` through
+`--mk-h6-size` (unitless em values — `1.35em`/`1.2em`/`1.1em`/`1em`/
+`0.95em`/`0.9em`, the LIVE-PREVIEW editor's own scale, adopted as the
+tiebreaker since DESIGN-SPEC states no px/em heading size and the editor
+is the surface the owner writes in — DESIGN-SPEC item 143). `.mk-doc
+h1`-`h6` (theme.css) read them directly; the live-preview side needed an
+actual override, not just a token definition, because
+`@atomic-editor/editor`'s packaged `inline-preview.css`
+(`.cm-line.cm-atomic-h1`-`h6`) hardcodes its OWN em multiples with no
+custom-property hook at all — `index.css` restates the six rules as
+`.vsnote-live-preview .cm-line.cm-atomic-h1`-`h6` (three simple selectors
+beats the vendor stylesheet's two on specificity, so it always wins
+regardless of CSS load order, no `!important`). The values match the
+vendor's own defaults exactly, so this is visually a no-op for the editor
+today — the point is moving the number to one place. Directive block
+spacing: `doc.css` deliberately gives every component ZERO outer margin
+("components own their insides only, never outer margins" — its own
+header) and expects `.doc > * + *` (its own wrapper class's uniform-
+rhythm rule) to supply ALL inter-block spacing; this app never renders
+into `.doc` (previous section's own note), so that rule never applied —
+a top-level directive had no spacing contract on either surface.
+`theme.css` adds `.mk-doc > :where(.mk-row, .mk-card, .mk-callout, …)`
+(every top-level block component `doc.css` defines, scoped to DIRECT
+CHILDREN of `.mk-doc` so a directive nested inside another component's
+cell never gets a redundant second margin) reading the SAME
+`--mk-paragraph-spacing` token the `p`/`ul`/`ol`/`blockquote`/`table`
+rules above it already use. `directiveLezer/decorations.ts`'s
+`mkLivePreviewTheme` widget padding becomes
+`calc(var(--mk-paragraph-spacing, 1em) / 2)` on each side (top+bottom
+together equal one full unit, matching a paragraph's single-sided
+margin, not doubling it) instead of its old, unrelated hardcoded `2px`.
+Both verified as ratios (heading font-size ÷ body font-size per level;
+block padding/margin ÷ body font-size), the same pattern the line-height
+test above already established, in `tests/e2e/preview-pane.spec.ts`. Full
+before/after numbers, and the `:::row`-stacking-at-~700px investigation
+(confirmed: `doc.css` has zero `@container` queries — its
+`@media (max-width: 40rem)` always evaluates against the viewport, never
+a container — but that query did not reproduce as the CAUSE of stacking
+at a genuine ~700px column in this repo's own build), are in
+DESIGN-SPEC.md item 144.
+
 ## Phase M3 — script isolate, grants, value persistence (the 2026-09-05 refresh plan (retired) §6)
 
 Worker 1 of 3 for M3 (bundles + scripts, L2/L3 of the original host/platform

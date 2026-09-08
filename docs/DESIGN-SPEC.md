@@ -1981,3 +1981,113 @@ these are additive, checkable standards, not taste.
      check) and additively in `tests/e2e/ui-audit.spec.ts`'s
      `VSNOTE_UI_AUDIT=1` pass (a new "reader content reflow" test, and 360
      added to the existing app-shell reflow width loop alongside 320/480).
+
+## Amendments round 17 (continued) — 2026-09-08 (R5-7b: heading scale and directive block spacing, one token each)
+
+143. **Heading font-size is now on the shared token set, editor's scale
+     adopted.** After R5-7 unified line-height/paragraph/list rhythm
+     (items 140-142), the owner found headings still diverging: for the
+     same `.mk.md` source, `.mk-doc h1`-`h6` (theme.css) used its own
+     2/1.5/1.2/1/1/1 em scale off a 16px base (h1 = 32px) while the
+     live-preview CM6 engine's headings — `@atomic-editor/editor`'s
+     packaged `inline-preview.css`, `.cm-line.cm-atomic-h1`-`h6`, no CSS
+     variable hook at all — ship a DIFFERENT 1.35/1.2/1.1/1/0.95/0.9 em
+     scale off its 17px prose baseline (h1 ≈ 23px). This section's own
+     "Rendered markdown typography" text above describes H1/H2 weight and
+     color but states no px/em size for any level, so it does not settle
+     which scale is correct; per the task brief, the EDITOR's scale wins
+     as the tiebreaker (it's the surface the owner actually writes in).
+     `index.css`'s `:root` block now carries `--mk-h1-size` through
+     `--mk-h6-size` (unitless em values matching the editor's own numbers
+     exactly — 1.35em/1.2em/1.1em/1em/0.95em/0.9em), and BOTH surfaces
+     read them: `theme.css`'s `.mk-doc h1`-`h6` (replacing its old,
+     independently-chosen multiples) and a new `index.css` override,
+     `.vsnote-live-preview .cm-line.cm-atomic-h1`-`h6` (three simple
+     selectors beats the vendor stylesheet's two on specificity, so it
+     wins regardless of CSS load order, no `!important` needed — the
+     values match the vendor defaults exactly, so this is a structural
+     no-op today, not a visual change to the editor). Same reasoning as
+     `--mk-line-height`: `.mk-doc`'s 16px base and the editor's 17px
+     baseline still differ, so the two surfaces render the SAME ratio
+     (font-size ÷ body font-size), not identical pixels — verified,
+     `tests/e2e/preview-pane.spec.ts`'s new "Preview pane and Rendered
+     mode agree on heading scale" test compares that ratio per level
+     (h1-h3), the same pattern item 140's line-height test already used.
+     Measured before/after (this repo's own build, real computed styles):
+     h1 32px → 21.6px (Preview pane), h1 ≈ 22.95px unchanged (editor) —
+     ratio now 2.0 vs 1.35 (before) to 1.35 vs 1.35 (after, both surfaces).
+
+144. **Directive block spacing (`:::row`, `:::card`, …) now reads
+     `--mk-paragraph-spacing` on both surfaces.** `@markii/react/dist/
+     doc.css` deliberately gives every component ZERO outer margin (its
+     own header comment: "components own their insides only, never outer
+     margins") and expects `.doc > * + *` — ITS wrapper class's own
+     uniform-rhythm rule — to supply all inter-block spacing. This app
+     never renders into `.doc` (item 141's own note), so that rule never
+     applied: a top-level directive had no spacing contract of its own on
+     EITHER surface. On the static side this was invisible by accident —
+     the ~16px gap the owner measured above a `:::row` was really the
+     PRECEDING paragraph's own `--mk-paragraph-spacing` bottom margin, and
+     the gap below measured 0 (confirmed empirically: `marginBottom: 0px`
+     on `.mk-row` pre-fix) — while the live-preview widget
+     (`directiveLezer/decorations.ts`'s `mkLivePreviewTheme`) had its own
+     tiny, unrelated `padding: 2px 0`. Fix: `theme.css` adds
+     `.mk-doc > :where(.mk-row, .mk-card, .mk-callout, .mk-stat, …)`
+     (every top-level block component `doc.css` defines, scoped to DIRECT
+     CHILDREN of `.mk-doc` only, so a directive nested inside another
+     component's cell never gets a second, redundant margin) with
+     `margin: 0 0 var(--mk-paragraph-spacing, 1em)`, matching the existing
+     `p`/`ul`/`ol`/`blockquote`/`table` rules right above it. The
+     live-preview widget's padding becomes
+     `padding: calc(var(--mk-paragraph-spacing, 1em) / 2) 0` — halved on
+     each side so top+bottom together equal one full paragraph-spacing
+     unit, the same total a paragraph contributes via its single-sided
+     bottom margin, not doubled. Verified as a ratio (padding-total ÷
+     `.cm-content` font-size on the editor side, margin-bottom ÷ `.mk-doc`
+     font-size on the Preview side, both ≈ 1) in
+     `tests/e2e/preview-pane.spec.ts`'s new "Preview pane and Rendered
+     mode agree on directive block spacing" test. Measured before/after:
+     Preview pane's `.mk-row` margin-bottom 0px → 16px; the live-preview
+     widget's own padding 2px/2px (top/bottom) → 8.5px/8.5px. This closes
+     the CONTROLLABLE part of the gap; it does not (and cannot, via CSS
+     alone) erase a structural difference the owner's "~80px" estimate
+     ran into: the blank markdown line(s) immediately around a directive
+     fence are real, editable `.cm-line`s in a line-based editor and cost
+     real vertical space at `--mk-line-height`, something the static
+     renderer's semantic-only output has no equivalent of. Empirically
+     (this repo's own build), the DOM-adjacency gap around the widget
+     measured 0px both before and after this fix — the syntax-tree range
+     `buildBlockDecorations` replaces already spans up to the directive's
+     own fence lines with no separate blank `.cm-line` left dangling next
+     to it in the scenarios tested — so the "own margin value" the task
+     brief attributed the ~80px to could not be reproduced on the current
+     build; token-sharing the widget's real (if small) padding is still
+     the correct fix, and is what's shipped.
+
+     **`:::row` stacking at ~700px, investigated (not changed):** the
+     owner's after-screenshot review read `:::row` as stacking vertically
+     at a ~700px column in both surfaces and asked whether `doc.css`'s
+     `@media (max-width: 40rem)` (640px) rule was firing against the
+     VIEWPORT instead of the container. Confirmed by grep: `doc.css` has
+     zero `@container` queries anywhere in it — every breakpoint,
+     including this one, is a plain `@media`, which the CSS spec always
+     evaluates against the viewport, never an ancestor's width. But
+     empirically (`window.matchMedia('(max-width: 40rem)').matches`,
+     measured across a 900-2000px viewport sweep in this repo's own
+     build), that query never matched at any width tested, and `.mk-row`
+     rendered as TWO columns at every row width measured from ~572px
+     up (707.8px column → two ~346px tracks) — it only collapsed to one
+     column below ~528px (2 × the `minmax(16rem, …)` track minimum plus
+     the 1rem gap), which is `.mk-row`'s own `grid-template-columns:
+     repeat(auto-fit, minmax(min(16rem, 100%), 1fr))` working exactly as
+     designed, not a bug. A genuine ~700-708px column rendered two columns
+     side by side, not stacked, in every scenario reproduced here — so
+     the specific "~700px stacks" symptom did not reproduce on this
+     build/content. The media-query-vs-viewport question has a real,
+     confirmed answer (viewport, always, by spec — filed as the upstream
+     finding the task asked for), but it is NOT what's causing any
+     stacking observed at ~700px: that query never even matched in the
+     range where stacking would need to happen for the symptom as
+     described. Recommend re-checking the exact viewport/column at which
+     the ~700px stacking was originally seen — it did not reproduce here.
+

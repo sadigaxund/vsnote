@@ -1045,24 +1045,41 @@
 .mk-doc h2:first-child {
   margin-top: 0;
 }
+/* R5-7b: font-size now reads `index.css`'s shared `--mk-h1-size`..`
+   --mk-h6-size` tokens instead of this file's own, independently
+   hand-picked multiples (previously 2em/1.5em/1.2em/1em/1em/1em) — the
+   live-preview CM6 engine's headings (`index.css`'s
+   `.vsnote-live-preview .cm-line.cm-atomic-h1`..`h6`) read the SAME six
+   tokens, so a document's h1 renders at the SAME em-multiple of its
+   surface's own base font-size on both sides (see the token block's own
+   doc for why "same ratio," not "same pixels," given `.mk-doc`'s 16px
+   base vs the editor's 17px prose baseline). */
 .mk-doc h1 {
-  font-size: 2em;
+  font-size: var(--mk-h1-size, 1.35em);
   color: var(--mk-fg);
 }
 .mk-doc h2 {
-  font-size: 1.5em;
+  font-size: var(--mk-h2-size, 1.2em);
   color: var(--mk-accent);
 }
 .mk-doc h3 {
-  font-size: 1.2em;
+  font-size: var(--mk-h3-size, 1.1em);
 }
 .mk-doc h4,
 .mk-doc h5,
 .mk-doc h6 {
-  font-size: 1em;
   color: var(--mk-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+.mk-doc h4 {
+  font-size: var(--mk-h4-size, 1em);
+}
+.mk-doc h5 {
+  font-size: var(--mk-h5-size, 0.95em);
+}
+.mk-doc h6 {
+  font-size: var(--mk-h6-size, 0.9em);
 }
 .mk-doc p {
   margin: 0 0 var(--mk-paragraph-spacing, 1em);
@@ -1163,4 +1180,57 @@
 .mk-doc img {
   max-width: 100%;
   border-radius: var(--radius-ui-sm);
+}
+
+/* R5-7b — directive block rhythm (`:::row`, `:::card`, `:::callout`, …).
+   `@markii/react/dist/doc.css` deliberately gives every one of its own
+   component classes ZERO outer margin ("components own their insides
+   only, never outer margins" — that file's own header comment): upstream
+   expects `.doc > * + *`, ITS wrapper class's own rule, to supply ALL
+   inter-block spacing uniformly. This app never renders into `.doc`
+   (`render.tsx`, deliberately — see theme.css's Tier-2 token block
+   above), so that rule never applied here, and a directive's root
+   element (`.mk-row`, `.mk-card`, etc.) sat with NO bottom margin of its
+   own — Preview pane's ~16px gap below a `:::row` was actually the
+   FOLLOWING paragraph's own top-of-nothing/bottom-of-previous rhythm
+   coincidence, not spacing the row contributed itself, and the ~80px in
+   the live-preview editor came from that same live-preview widget's
+   `.mk-live-preview-block` wrapper reading no shared token at all (see
+   `directiveLezer/decorations.ts`'s `mkLivePreviewTheme`, fixed
+   alongside this). Listed here are every top-level block component
+   `doc.css` defines (mirrored from its own selector list, R5-7's Tier-2
+   token comment above has the same provenance note) — scoped to DIRECT
+   CHILDREN of `.mk-doc` only (`>`, not a descendant combinator) so a
+   `{width=narrow}` wrapper or a `:::row` cell NESTED inside another
+   component (e.g. a table inside a row cell) never gets a second,
+   redundant margin: only a directive sitting at the top level of the
+   document, in the exact position a plain paragraph would occupy, reads
+   this rule. Bottom margin only (matching the `p`/`ul`/`ol`/`blockquote`/
+   `table` rules above) — the SAME `--mk-paragraph-spacing` token, so a
+   directive's gap to whatever follows it (directive or plain markdown
+   alike) is identical to a paragraph's own gap, and a future rhythm
+   change moves every block type at once. */
+.mk-doc > :where(
+    .mk-callout,
+    .mk-divider,
+    .mk-details,
+    .mk-card,
+    .mk-figure,
+    .mk-tab,
+    .mk-stat,
+    .mk-progress,
+    .mk-chart,
+    .mk-table,
+    .mk-row,
+    .mk-row--cols-2,
+    .mk-row--cols-3,
+    .mk-row--cols-4,
+    .mk-layout,
+    .mk-width-narrow,
+    .mk-width-wide,
+    .mk-width-full,
+    .mk-width-fit,
+    .mk-unknown--block
+  ) {
+  margin: 0 0 var(--mk-paragraph-spacing, 1em);
 }

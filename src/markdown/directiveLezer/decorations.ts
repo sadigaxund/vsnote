@@ -621,9 +621,31 @@ function buildInlineDecorations(view: EditorView, cache: Map<string, string>, re
 }
 
 const mkLivePreviewTheme = EditorView.baseTheme({
+  // R5-7b: vertical rhythm around a rendered directive block (`:::row`,
+  // `:::card`, …) now reads the SAME `--mk-paragraph-spacing` token
+  // `theme.css`'s `.mk-doc > :where(.mk-row, .mk-card, …)` rule uses for
+  // the static Preview pane, instead of this widget's own hardcoded
+  // "2px" — the divergence the owner found (Preview pane ~16px vs this
+  // editor's much larger gap around the same block). Padding, not
+  // margin, same reasoning `inline-preview.css`'s own header comment
+  // gives for every OTHER vertical-rhythm rule in this app's CM6 tree:
+  // CM6 measures a block widget's height via `getBoundingClientRect`,
+  // which includes padding but excludes margin, so only padding keeps
+  // the heightmap/virtualization math correct. Halved on each side
+  // (`calc(.../2)`) so the widget's own top+bottom padding TOGETHER add
+  // up to one `--mk-paragraph-spacing` unit, the same total a paragraph
+  // contributes via its own single-sided bottom margin — not doubled.
+  // This does not (and structurally cannot) fully erase the gap: the
+  // blank markdown line(s) immediately above/below the directive's fence
+  // are still real, editable `.cm-line`s in a line-based editor and
+  // render at the document's own `--mk-line-height`, something the
+  // static renderer has no equivalent of at all (a blank line contributes
+  // nothing to `renderMarkdown`'s output). See docs/DESIGN-SPEC.md's
+  // R5-7b entry for the measured residual and why it's inherent, not a
+  // leftover bug.
   ".mk-live-preview-block": {
     display: "block",
-    padding: "2px 0",
+    padding: "calc(var(--mk-paragraph-spacing, 1em) / 2) 0",
   },
   ".mk-live-preview-inline": {
     display: "inline",

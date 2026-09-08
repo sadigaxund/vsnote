@@ -148,6 +148,137 @@ test.describe("side-by-side Preview pane (.mk.md / .md)", () => {
     expect(previewRatio).toBeCloseTo(renderedRatio, 1);
   });
 
+  /**
+   * R5-7b — heading scale. Before this fix `.mk-doc h1`-`h6` (theme.css)
+   * and the live-preview CM6 engine's `.cm-atomic-h1`-`h6`
+   * (`@atomic-editor/editor`'s packaged `inline-preview.css`) used two
+   * independently hand-picked em-multiple scales (2/1.5/1.2/1/1/1 vs
+   * 1.35/1.2/1.1/1/0.95/0.9), the reported ~30px (Preview pane) vs ~22px
+   * (Rendered mode) h1. Both now read `index.css`'s shared
+   * `--mk-h1-size`.."--mk-h6-size` tokens. Same pattern as the
+   * line-height test above: compares each heading's font-size/BODY
+   * font-size RATIO per surface (not raw px — `.mk-doc`'s 16px base and
+   * Rendered mode's 17px prose baseline still differ), so this tracks
+   * the shared token's em-multiple, not either surface's independent
+   * font-size choice.
+   */
+  test("Preview pane and Rendered mode agree on heading scale (same token per level)", async ({ page }) => {
+    await gotoApp(page);
+
+    await treeRow(page, "vault/src").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New File" }).click();
+    const newFileRow = treeRow(page, "vault/src/.vsnote-draft-file");
+    await expect(newFileRow).toBeVisible();
+    await newFileRow.locator("input").fill("preview-pane-headings.md");
+    await newFileRow.locator("input").press("Enter");
+    const fileRow = treeRow(page, "vault/src/preview-pane-headings.md");
+    await expect(fileRow).toBeVisible();
+    await fileRow.click();
+
+    await page.getByRole("radio", { name: "Source" }).click();
+    const source = page.locator('[data-pane-source] .cm-content').first();
+    await source.click();
+    await page.keyboard.type("# Heading one\n\nSome prose.\n\n## Heading two\n\nMore prose.\n\n### Heading three\n\nEven more.\n");
+
+    await page.getByRole("radio", { name: "Rendered" }).click();
+    await expect(page.getByTestId("tabbar-preview-toggle")).toBeVisible();
+    await page.getByTestId("tabbar-preview-toggle").click();
+    const preview = page.getByTestId("markdown-preview-pane");
+    await expect(preview).toContainText("Heading one");
+
+    const cmContent = page.locator('[data-pane-source] .cm-content').first();
+    const bodySizeEditor = await cmContent.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    const bodySizePreview = await preview.locator(".mk-doc").first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+
+    for (const [editorClass, previewTag] of [
+      ["cm-atomic-h1", "h1"],
+      ["cm-atomic-h2", "h2"],
+      ["cm-atomic-h3", "h3"],
+    ] as const) {
+      const editorSize = await cmContent
+        .locator(`.${editorClass}`)
+        .first()
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      const previewSize = await preview
+        .locator(`.mk-doc ${previewTag}`)
+        .first()
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+
+      const editorRatio = editorSize / bodySizeEditor;
+      const previewRatio = previewSize / bodySizePreview;
+      expect(previewRatio, `${previewTag} scale`).toBeCloseTo(editorRatio, 1);
+    }
+  });
+
+  /**
+   * R5-7b — directive block spacing. `@markii/react/dist/doc.css` gives
+   * every component (`.mk-row`, `.mk-card`, …) zero outer margin by
+   * design (its OWN header comment: "components own their insides only,
+   * never outer margins") — outer rhythm is supposed to come from
+   * `.doc > * + *`, but this app renders into `.mk-doc`, not `.doc`
+   * (`render.tsx`), so that rule never applied and a top-level directive
+   * had no spacing contract of its own on either surface. Both now read
+   * `--mk-paragraph-spacing` — `theme.css`'s `.mk-doc > :where(.mk-row,
+   * .mk-card, …)` on the Preview pane side, `directiveLezer/
+   * decorations.ts`'s `mkLivePreviewTheme` (`.mk-live-preview-block`
+   * padding) on the live-preview side. Expressed the same way as the
+   * line-height/heading tests: as a ratio to each surface's OWN body
+   * font-size (both should read out to ~1, one paragraph-spacing unit),
+   * not a hardcoded pixel constant — `--mk-paragraph-spacing` is `1em`,
+   * so a value of 1 confirms the token, not a coincidence of two
+   * independently-tuned numbers landing close together.
+   */
+  test("Preview pane and Rendered mode agree on directive block spacing (same token)", async ({ page }) => {
+    await gotoApp(page);
+
+    await treeRow(page, "vault/src").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New File" }).click();
+    const newFileRow = treeRow(page, "vault/src/.vsnote-draft-file");
+    await expect(newFileRow).toBeVisible();
+    await newFileRow.locator("input").fill("preview-pane-block-gap.mk.md");
+    await newFileRow.locator("input").press("Enter");
+    const fileRow = treeRow(page, "vault/src/preview-pane-block-gap.mk.md");
+    await expect(fileRow).toBeVisible();
+    await fileRow.click();
+
+    await page.getByRole("radio", { name: "Source" }).click();
+    const source = page.locator('[data-pane-source] .cm-content').first();
+    await source.click();
+    await page.keyboard.type("Before the row.\n\n:::row\nCell A\n\nCell B\n:::\n\nAfter the row.\n");
+
+    await page.getByRole("radio", { name: "Rendered" }).click();
+    await expect(page.getByTestId("tabbar-preview-toggle")).toBeVisible();
+    await page.getByTestId("tabbar-preview-toggle").click();
+    const preview = page.getByTestId("markdown-preview-pane");
+    await expect(preview).toContainText("Cell A");
+
+    // Preview pane: the row's own bottom margin against `.mk-doc`'s base
+    // font-size.
+    const previewRatio = await preview.evaluate((container) => {
+      const doc = container.querySelector(".mk-doc") as HTMLElement;
+      const row = doc.querySelector(".mk-row") as HTMLElement;
+      const docFontSize = parseFloat(getComputedStyle(doc).fontSize);
+      const marginBottom = parseFloat(getComputedStyle(row).marginBottom);
+      return marginBottom / docFontSize;
+    });
+
+    // Rendered mode: the widget's total (top + bottom) padding against
+    // `.cm-content`'s own base font-size — split across both sides via
+    // `calc(--mk-paragraph-spacing / 2)` so the two together add up to
+    // one full paragraph-spacing unit, same as the Preview pane's single
+    // bottom margin.
+    const cmContent = page.locator('[data-pane-source] .cm-content').first();
+    const editorRatio = await cmContent.evaluate((el) => {
+      const block = el.querySelector(".mk-live-preview-block") as HTMLElement;
+      const bodyFontSize = parseFloat(getComputedStyle(el).fontSize);
+      const cs = getComputedStyle(block);
+      const totalPadding = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      return totalPadding / bodyFontSize;
+    });
+
+    expect(previewRatio).toBeCloseTo(editorRatio, 1);
+  });
+
   test("the command palette's Toggle preview command opens and closes the pane", async ({ page }) => {
     await gotoApp(page);
 
