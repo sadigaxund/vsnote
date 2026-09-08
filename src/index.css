@@ -122,6 +122,37 @@ textarea:focus-visible {
   }
 }
 
+/* R5-1 — `my-you-eye`'s `SegmentedControl` (`node_modules/my-you-eye/dist/
+   index.js`) renders each option as a `sr-only` (`position: absolute`)
+   native `<input type="radio">` inside a plain, unpositioned `<label>`,
+   itself inside the unpositioned `role="radiogroup"` root div. With no
+   `position: relative` anywhere in that chain, the sr-only input's
+   containing block falls through to whatever ANCESTOR further up the tree
+   happens to be positioned — in this app, `EditorPane`'s wrapper div, three
+   levels above Settings' own scrollable content. That ancestor is
+   `overflow: visible`, so the mispositioned (and, once the Settings view is
+   scrolled, WRONGLY-offset-relative-to-viewport) input escapes Settings'
+   own `ScrollArea` and inflates the app shell's outer `overflow: hidden`
+   flex container's scrollable content. Clicking a segmented option focuses
+   its hidden input, and the browser's native "scroll the newly focused
+   element into view" then walks up to that outer shell div — the first
+   ancestor it finds that is programmatically scrollable, `overflow: hidden`
+   or not — and scrolls IT by however far off the mispositioned input reads,
+   which is enough to push the entire app chrome (titlebar, activity bar,
+   editor) off-screen and leave only its near-black background: "the whole
+   page goes black" the instant any Settings segmented control is touched.
+   Reproduces on every `SegmentedControl` in the app, but only visibly once
+   the Settings view has already scrolled away from the top (round 5,
+   `docs/PLAN-2026-09-05-refresh.md`'s Sharing category sits far enough down
+   the continuous-scroll page to trigger it; Appearance's theme picker, at
+   the very top, never needs a corrective scroll and never shows the bug).
+   Filed upstream as sadigaxund/my-you-eye#42. Fix: give the radiogroup
+   itself `position: relative` so its own sr-only inputs' containing block
+   is always local, never whatever the app happens to render above it —
+   additive, no override of anything the library actually renders. */
+[role="radiogroup"] {
+  position: relative;
+}
 
 body {
   margin: 0;

@@ -83,6 +83,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input, ScrollArea, Separator } from "my-you-eye";
 import { SettingsNavRail } from "./local/SettingsNavRail";
+import { SettingsSectionErrorBoundary } from "./local/SettingsSectionErrorBoundary";
 import {
   Eye,
   GitBranch,
@@ -367,13 +368,15 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
                     {category.icon}
                     {category.label}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--settings-row-gap)" }}>
-                    {rows.map((row) => (
-                      <div key={row.id} data-testid={`settings-row-${row.id}`}>
-                        {row.content}
-                      </div>
-                    ))}
-                  </div>
+                  <SettingsSectionErrorBoundary sectionLabel={category.label}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--settings-row-gap)" }}>
+                      {rows.map((row) => (
+                        <div key={row.id} data-testid={`settings-row-${row.id}`}>
+                          {row.content}
+                        </div>
+                      ))}
+                    </div>
+                  </SettingsSectionErrorBoundary>
                 </div>
               ))}
               {searching && sections.length === 0 && (

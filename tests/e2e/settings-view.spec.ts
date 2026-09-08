@@ -10,6 +10,8 @@
  */
 import { test, expect } from "@playwright/test";
 import { gotoApp, openSettingsTab, seedSettings, tab } from "./fixtures";
+import { signInToShareBackend } from "./shareUiHelpers";
+import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 
 test.describe("Settings view", () => {
   test("opens as a tab (not a dialog), with a gear icon in the tab strip", async ({ page }) => {
@@ -339,5 +341,77 @@ test.describe("Settings view", () => {
     await page.reload();
     await expect(page.locator(`[data-tree-path="vault/notes/architecture.md"]`)).toBeVisible();
     await expect(tab(page, "settings")).toBeVisible();
+  });
+
+  // R5-1 regression: my-you-eye's `SegmentedControl` renders each option as
+  // a `sr-only` (`position: absolute`) native radio inside an unpositioned
+  // `<label>`/`role="radiogroup"`. With no `position: relative` anywhere in
+  // that chain, the hidden input's containing block fell through to
+  // `EditorPane`'s wrapper — an ancestor far above Settings' own scrolled
+  // `ScrollArea` — so focusing it (on click) made the browser's native
+  // "scroll the focused element into view" target the WRONG ancestor: the
+  // app shell's own `overflow: hidden` flex container. That container has
+  // no visible scrollbar but is still programmatically scrollable, so it
+  // silently took a huge `scrollTop`, shoving the entire app chrome
+  // (titlebar, activity bar, editor) off-screen and leaving only the
+  // near-black `--app-chrome-bg` — "the whole page goes black" the instant
+  // ANY Settings segmented control (Sharing's Reader appearance group
+  // included — the deepest section in the continuous-scroll page, so the
+  // most likely to need a corrective scroll at all) was touched. Fixed with
+  // an additive `[role="radiogroup"]{position:relative}` rule in
+  // `index.css` (`docs/COMPONENT-BACKLOG.md`'s my-you-eye#42 row) — no
+  // React crash was ever involved, so this asserts the real regression
+  // (the app shell never silently scrolls) rather than only "no
+  // pageerror," which would have passed even with the bug present.
+  test("R5-1: flipping every Settings > Sharing control never scrolls the app shell out of view", async ({ page }) => {
+    const pageErrors: string[] = [];
+    const consoleErrors: string[] = [];
+    page.on("pageerror", (err) => pageErrors.push(err.message));
+    page.on("console", (msg) => {
+      if (msg.type() === "error") consoleErrors.push(msg.text());
+    });
+
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    await expect(page.getByTestId("reader-appearance-settings")).toBeVisible({ timeout: 10_000 });
+
+    // The app shell — App.tsx's own outer flex column — never develops a
+    // scrollTop of its own; it's a fixed 100dvh box, not a scrollable
+    // region. This is the actual mechanism of the bug, not just its visible
+    // symptom, and is asserted after EVERY flip below.
+    async function expectShellNotScrolled() {
+      const shellScrollTop = await page.evaluate(() => {
+        const titlebar = document.querySelector('[data-testid="app-titlebar"]');
+        // The shell is titlebar's parent — same DOM shape App.tsx has always
+        // rendered (a <header> directly under the outer flex column).
+        return (titlebar?.parentElement as HTMLElement | null)?.scrollTop ?? 0;
+      });
+      expect(shellScrollTop, "app shell scrollTop").toBe(0);
+      await expect(page.getByTestId("app-titlebar")).toBeVisible();
+      await expect(page.getByTestId("settings-view")).toBeVisible();
+    }
+
+    await expectShellNotScrolled();
+
+    await page.getByTestId("reader-appearance-theme").locator("label", { hasText: "Dark" }).click();
+    await expectShellNotScrolled();
+
+    await page.getByTestId("reader-appearance-fontsize").locator("label", { hasText: "L" }).click();
+    await expectShellNotScrolled();
+
+    await page.getByTestId("reader-appearance-wrap").click();
+    await expectShellNotScrolled();
+
+    await page.getByTestId("reader-appearance-column-width").locator("label", { hasText: "Wide" }).click();
+    await expectShellNotScrolled();
+
+    // "Anything else in that category" — the admin blob-size row's own
+    // SegmentedControl-free number input, and the backend connection row's
+    // sign-out button, both live in the same continuous-scroll section.
+    await page.getByTestId("share-signout").click();
+    await expectShellNotScrolled();
+
+    expect(pageErrors, "no uncaught render errors").toEqual([]);
+    expect(consoleErrors, "no console errors").toEqual([]);
   });
 });
