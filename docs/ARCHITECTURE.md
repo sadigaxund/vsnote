@@ -910,6 +910,25 @@ forwarded upstream (no cookies, no other app headers leak to a third-party
 host), and every refusal this module raises comes back as a plain-text body
 prefixed `VSNOTE-GIT-PROXY-REFUSAL:` rather than JSON.
 
+**R5-2 — the proxy never relays an upstream `www-authenticate`.** This was
+the actual root cause of a live-reported bug: "after interacting with
+Settings → Git & Sync (notably 'Test connection' against a custom remote),
+Chrome pops its own native username/password dialog." A real `401` from an
+upstream host (e.g. github.com's own `WWW-Authenticate: Basic
+realm="GitHub"` on bad/missing credentials) was being relayed byte-for-byte
+through this same-origin proxy to the browser — and a same-origin browser
+`fetch()` that sees that header on ANY response pops Chrome's native
+credential dialog, the identical mechanism 26a below already fixed for
+`/git` itself. `git_proxy.py`'s `NEVER_RELAYED_RESPONSE_HEADERS` (currently
+just `{"www-authenticate"}`, kept separate from
+`HOP_BY_HOP_RESPONSE_HEADERS` since it's a browser-popup guard, not an RFC
+7230 hop-by-hop concern) drops it unconditionally, regardless of caller
+shape — isomorphic-git never reads this header at all (`onAuth`/retry is
+driven purely off the response's HTTP status code), so nothing about real
+sync behavior changes. The 401 status and body reach the browser
+unchanged; only this one header is stripped. Covered by
+`server/tests/test_no_browser_basic_challenge.py`.
+
 **Distinguishing "our proxy refused this" from "the real remote rejected the
 credentials"** (`src/git/remote.ts::mapError`): isomorphic-git's `HttpError`
 preserves the raw response text as `err.data.response`, so the client reads
@@ -1549,6 +1568,26 @@ header by caller type" is a legitimate, intentional asymmetry here, not a
 weakening of the share gate's much stricter "every deny reason is
 byte-identical, full stop" rule described earlier in this doc.
 
+**R5-2 defence-in-depth**: `_is_git_client` also explicitly excludes
+`git/isomorphic-git@<version>` (isomorphic-git's own `pkg.agent` package
+identity string) even though it starts with `git/`. Verified by reading
+`node_modules/isomorphic-git/http/web/index.js` and `http/node/index.js`
+directly: neither of isomorphic-git's two `HttpClient` implementations
+ever sets a `user-agent` HTTP header at all today (a browser `fetch()`
+can't override it anyway — `User-Agent` is a forbidden header per the
+Fetch spec — so the browser's own UA always goes out unmodified);
+`pkg.agent` is only ever embedded as an `agent=` git-protocol capability
+line INSIDE the request body, never as this HTTP header. This exclusion
+is therefore belt-and-braces against a future isomorphic-git release (or a
+different browser git client) starting to set one, not a fix for anything
+that can happen today — see `server/tests/test_git_http_ua_gating.py`'s
+`test_isomorphic_git_ua_gets_401_without_challenge`.
+
+The actual live-reported "Chrome pops its own native username/password
+dialog" bug's real root cause was a DIFFERENT route entirely —
+`/api/git-proxy` relaying an upstream host's OWN `WWW-Authenticate` — see
+the "Custom remote git CORS proxy (R3-2)" section's R5-2 note above.
+
 ### 26b — background `/git` poll suspended while signed out
 
 **The bug's other half**: `App.tsx`'s periodic background fetch (Phase 11,
@@ -1585,6 +1624,32 @@ throttled, offline-safe boot probe) is not in this phase's scope.
 `window.__gitBackgroundFetchMsOverride` (same inert-unless-set shape as
 `lib/renderProbe.ts`'s `__renderProbeEnabled`), so the e2e spec above can
 observe several poll ticks without a real 60s wait.
+
+**R5-2 course-correction**: `authenticated` alone turned out to be a
+SEPARATE concept from "has a git API token configured" — the two systems
+are genuinely independent (share/sync login vs. this app's own git-remote
+credential), and a session signed in to Sharing with no git token yet
+still made this interval fire every tick, sending `/git` a request that
+was always going to be rejected for lack of credentials. The interval now
+additionally requires `computeHasConfiguredGitCredential(...)` (the same
+check `autoSyncPolicy.ts`'s `AutoSyncGateState.hasCredential` and
+`App.tsx`'s `autoSyncNoCredential` status-bar indicator already use) —
+`!syncing && authenticated && hasCredential`.
+
+Settings → Git & Sync's "Test connection" button was deliberately left
+UNCHANGED by this pass: an "unsigned" test against the implicit remote
+still sends the real request and surfaces the real, specific 401
+("regenerate the token") rather than a generic client-side guess —
+`settings-view.spec.ts`'s "Unsigned 'Test connection' still degrades to a
+clear, specific message against the real backend" pins exactly this, and
+a preemptive client-side block was tried and reverted for conflicting
+with it. That request was never actually the source of a browser popup
+either way: the implicit remote's 401 comes from `/git`, whose
+`WWW-Authenticate` challenge is already withheld from a browser-shaped
+caller (item 26a above), and a custom remote's request goes through
+`/api/git-proxy`, which — this ticket's actual root cause — now never
+relays an upstream `www-authenticate` at all regardless of caller shape
+(see the "Custom remote git CORS proxy (R3-2)" section's R5-2 note).
 
 ### 32 — fallback-login onboarding
 

@@ -48,6 +48,20 @@ conditional — the authorization decision itself never changes, so `git
 clone`/`push`/`pull` from a real git client (which always sends a `git/…`
 UA) keeps getting the challenge it depends on
 (`tests/test_git_sync.py::test_live_tokenless_push_rejected`, unchanged).
+R5-2 additionally excludes `git/isomorphic-git@<version>` from
+`_is_git_client` as defence-in-depth, even though isomorphic-git's own
+`http/web` and `http/node` clients never actually set a `User-Agent`
+header in the first place (confirmed by reading both — see
+`_is_git_client`'s own docstring for the exact code paths checked), so
+this exclusion is belt-and-braces rather than the fix for something that
+can happen today. **The actual root cause of the live-reported "browser's
+native login prompt after touching Git & Sync" bug was a DIFFERENT route
+entirely**: `/api/git-proxy` (`app/git_proxy.py`) relaying a real upstream
+host's OWN `WWW-Authenticate: Basic` (e.g. github.com's) straight through
+to the browser same-origin — that fix is
+`git_proxy.py`'s `NEVER_RELAYED_RESPONSE_HEADERS`, unconditional
+regardless of caller shape (isomorphic-git never reads the header at all,
+so dropping it is free).
 
 **Phase 17 Milestone A — the vault repo NAME routes to the definitive path**:
 every OTHER repo name still resolves via `gitrepo.resolve_repo_path`
@@ -178,10 +192,28 @@ def _is_git_client(user_agent: Optional[str]) -> bool:
     since HTTP header VALUES aren't normalized by case the way header NAMES
     are, and matching on this string specifically is a deliberate courtesy,
     not a spec requirement.
+
+    R5-2 defence-in-depth: `git/isomorphic-git@<version>` is explicitly
+    excluded even though it also starts with `git/`. isomorphic-git's own
+    package identity string (`pkg.agent` in `node_modules/isomorphic-git/
+    index.js`) — confirmed by inspection that this is NEVER actually sent
+    as an HTTP `User-Agent` header today: neither `http/web/index.js` nor
+    `http/node/index.js` (isomorphic-git's two `HttpClient` implementations)
+    ever sets a `user-agent` header at all, and the Fetch spec forbids a
+    browser `fetch()` from overriding `User-Agent` in the first place, so
+    the browser's own UA always goes out unmodified — `pkg.agent` is only
+    ever embedded as an `agent=` capability line INSIDE the git protocol
+    body (`GitPktLine.encode('agent=' + pkg.agent)`), never as this HTTP
+    header. This exclusion is therefore belt-and-braces against a future
+    isomorphic-git release (or a different browser git client) starting to
+    set one, not the fix for a request that can happen today.
     """
     if not user_agent:
         return False
-    return user_agent.strip().lower().startswith("git/")
+    normalized = user_agent.strip().lower()
+    if normalized.startswith("git/isomorphic-git"):
+        return False
+    return normalized.startswith("git/")
 
 
 def _unauthenticated_response(user_agent: Optional[str]) -> PlainTextResponse:

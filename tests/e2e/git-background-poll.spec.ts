@@ -27,9 +27,22 @@
  * `lib/renderProbe.ts`'s `__renderProbeEnabled`) set here via
  * `page.addInitScript` BEFORE navigation, so the effect's very first
  * `setInterval` call already uses the short period.
+ *
+ * R5-2 course-correction: `authenticated` (share/sync login) turned out to
+ * be a SEPARATE concept from "has a git API token configured" — the two
+ * systems are genuinely independent. A session signed in to Sharing with
+ * no git token yet used to still fire this interval every tick, sending
+ * `/git` a request that was always going to be rejected for lack of
+ * credentials (the old "resumes polling once signed in" test below even
+ * said so in its own comment: "`git.fetch()` may well fail server-side (no
+ * sync token configured in this spec)"). The interval now additionally
+ * requires `computeHasConfiguredGitCredential(...)` — see
+ * `App.tsx`'s updated effect doc. The two tests below now cover BOTH
+ * halves of that: signed-in-with-no-token still makes zero requests, and
+ * signed-in-with-a-token is what actually resumes polling.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { gotoApp } from "./fixtures";
+import { gotoApp, seedSettings } from "./fixtures";
 import { signInToShareBackend } from "./shareUiHelpers";
 import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 
@@ -62,7 +75,7 @@ test.describe("background /git poll — suspended while signed out (item 26b)", 
     expect(gitRequests).toEqual([]);
   });
 
-  test("resumes /git polling once the user signs in", async ({ page }) => {
+  test("signing in ALONE, with no git token configured, still makes zero /git requests (R5-2)", async ({ page }) => {
     await page.addInitScript((ms) => {
       (window as unknown as { __gitBackgroundFetchMsOverride?: number }).__gitBackgroundFetchMsOverride = ms;
     }, FAST_POLL_MS);
@@ -77,16 +90,46 @@ test.describe("background /git poll — suspended while signed out (item 26b)", 
 
     await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 
+    // `authenticated` (share/sync login) is now true, but no git token was
+    // ever generated/pasted — `computeHasConfiguredGitCredential` is what
+    // must keep this interval silent regardless. Before R5-2 this used to
+    // fire a request here that was always going to be rejected for lack of
+    // credentials (a real, if harmless-looking, symptom of the same class
+    // of bug the ticket reports).
+    await page.waitForTimeout(FAST_POLL_MS * 7);
+    expect(gitRequests).toEqual([]);
+  });
+
+  test("resumes /git polling once the user signs in AND has a git token configured", async ({ page }) => {
+    await page.addInitScript((ms) => {
+      (window as unknown as { __gitBackgroundFetchMsOverride?: number }).__gitBackgroundFetchMsOverride = ms;
+    }, FAST_POLL_MS);
+    // A git token configured up front (Settings -> Git & Sync's own
+    // "generate a token" flow is exercised elsewhere, e.g. autoSync.spec.ts
+    // — this spec only needs `hasConfiguredGitCredential` to resolve
+    // truthy, which a seeded token satisfies identically).
+    await seedSettings(page, { gitAuthToken: "e2e-fixed-git-token-for-background-poll-spec" });
+
+    const gitRequests = trackGitRequests(page);
+    await gotoApp(page);
+
+    // Confirm the same pre-sign-in silence this file's other test proves,
+    // as a sanity baseline before flipping to signed-in.
+    await page.waitForTimeout(FAST_POLL_MS * 3);
+    expect(gitRequests).toEqual([]);
+
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+
     // `signInToShareBackend` itself already proves `authenticated` flipped
     // true (it waits on the "Sign out" button, which only renders once
-    // `useShareStore`'s `authenticated` is true) — the very next tick
-    // should now make a real request. `git.fetch()` may well fail
-    // server-side (no sync token configured in this spec) — that's fine,
-    // irrelevant to this assertion; only that the request left the browser
-    // at all matters here.
+    // `useShareStore`'s `authenticated` is true) — with a token ALSO
+    // configured, the very next tick should now make a real request.
+    // `git.fetch()` may well fail server-side (the seeded token isn't a
+    // real valid one) — that's fine, irrelevant to this assertion; only
+    // that the request left the browser at all matters here.
     await expect
       .poll(() => gitRequests.length, {
-        message: "expected at least one /git request after signing in",
+        message: "expected at least one /git request after signing in with a token configured",
         timeout: FAST_POLL_MS * 10,
       })
       .toBeGreaterThan(0);

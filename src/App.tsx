@@ -476,11 +476,29 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   // `useGitStore.ts`'s doc), so an attempt here never becomes an unhandled
   // rejection; `!syncing` avoids overlapping an in-flight user-initiated
   // push/pull/sync with a background tick.
+  //
+  // R5-2 (c) course-correction: `authenticated` alone is the SHARE/sync
+  // login state, a completely separate concept from having a git API
+  // token configured (see `autoSyncPolicy.ts`'s `AutoSyncGateState.
+  // hasCredential` doc for the identical distinction on the auto-sync
+  // scheduler) — a session that's signed in to Sharing but never
+  // generated/pasted a git token still made this interval fire every
+  // tick, sending `/git` an unauthenticated request that was always going
+  // to be rejected. `computeHasConfiguredGitCredential` is the same check
+  // `getGateState`/`autoSyncNoCredential` already use.
   useEffect(() => {
     const id = setInterval(() => {
       const { syncing } = useGitStore.getState();
       const { authenticated } = useShareStore.getState();
-      if (!syncing && authenticated) void useGitStore.getState().fetch();
+      const st = useSettingsStore.getState();
+      const hasCredential = computeHasConfiguredGitCredential({
+        repoName: st.gitRepoName,
+        overrideEnabled: st.gitRemoteOverrideEnabled,
+        overrideUrl: st.gitRemoteOverrideUrl,
+        token: st.gitAuthToken,
+        overrideToken: st.gitRemoteOverrideToken,
+      });
+      if (!syncing && authenticated && hasCredential) void useGitStore.getState().fetch();
     }, GIT_BACKGROUND_FETCH_MS);
     return () => clearInterval(id);
   }, []);

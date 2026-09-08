@@ -36,6 +36,15 @@ BROWSER_ACCEPT = "*/*"
 
 GIT_UA = "git/2.43.0"
 
+# R5-2 defence-in-depth case: isomorphic-git's own package identity string
+# (`pkg.agent` in `node_modules/isomorphic-git/index.js`) — never actually
+# sent as an HTTP `User-Agent` header today (isomorphic-git's `http/web`
+# and `http/node` clients never set one; see `_is_git_client`'s docstring),
+# but excluded explicitly anyway so a future isomorphic-git release
+# starting to send it would still not trigger the browser-popup-causing
+# challenge.
+ISOMORPHIC_GIT_UA = "git/isomorphic-git@1.41.4"
+
 
 def _get(client, *, user_agent) -> "httpx.Response":  # noqa: F821 - typing only, not imported
     headers = {"Accept": BROWSER_ACCEPT}
@@ -74,6 +83,22 @@ def test_git_ua_matching_is_case_insensitive(client, owner):
     r = _get(client, user_agent="GIT/2.43.0")
     assert r.status_code == 401
     assert r.headers["www-authenticate"] == 'Basic realm="vsnote-git"'
+
+
+def test_isomorphic_git_ua_gets_401_without_challenge(client, owner):
+    """R5-2 (b) — `git/isomorphic-git@<version>` starts with `git/` (real
+    git's own convention) but must NOT be treated as a real git client:
+    it's isomorphic-git's own package identity, and no browser client
+    should ever be handed a challenge that pops its native login dialog."""
+    r = _get(client, user_agent=ISOMORPHIC_GIT_UA)
+    assert r.status_code == 401
+    assert "www-authenticate" not in {k.lower() for k in r.headers.keys()}
+
+
+def test_isomorphic_git_ua_case_insensitive(client, owner):
+    r = _get(client, user_agent="GIT/ISOMORPHIC-GIT@1.41.4")
+    assert r.status_code == 401
+    assert "www-authenticate" not in {k.lower() for k in r.headers.keys()}
 
 
 def test_browser_and_git_responses_are_otherwise_byte_identical(client, owner):

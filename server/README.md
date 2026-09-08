@@ -328,7 +328,14 @@ token, or a token that doesn't resolve at all (unknown/revoked/expired), gets
 know to prompt/retry with credentials — this is a genuine auth challenge
 surface, unlike `/share/*`'s deliberate uniform-404 no-oracle posture (roadmap
 §1); the two are not the same kind of endpoint and are not held to the same
-response-shape rule.
+response-shape rule. That challenge header is withheld from a caller whose
+`User-Agent` doesn't look like real git (`_is_git_client` in
+`app/routers/git_http.py` — a bare browser `fetch()` that sees
+`WWW-Authenticate` on ANY response pops the browser's own native login
+dialog); `git/isomorphic-git@<version>` is explicitly excluded too, even
+though it starts with `git/`, as defence-in-depth (isomorphic-git's own
+`http/web`/`http/node` clients never actually set a `User-Agent` header at
+all today — confirmed by reading both).
 
 **Path safety**: the repo name is user input straight off the URL. It's
 validated against `^[A-Za-z0-9_-]{1,64}$` (`app/gitrepo.py::REPO_NAME_RE`)
@@ -394,6 +401,16 @@ and how the client tells this proxy's own refusals apart from a real
 upstream auth rejection). `VSNOTE_GIT_PROXY_ALLOW_PRIVATE` (env table above)
 is a test/dev-only escape hatch — never set it in a deployment that shares a
 network with anything sensitive.
+
+**R5-2**: this proxy never relays an upstream `www-authenticate` header
+back to the browser, regardless of what the real remote sent —
+`app/git_proxy.py`'s `NEVER_RELAYED_RESPONSE_HEADERS`. A real `401` from
+github.com carries its own `WWW-Authenticate: Basic realm="GitHub"`, and
+relaying that same-origin was exactly what made Chrome pop its native
+credential dialog after "Test connection" against a custom remote — the
+live-reported bug this fixes. Status code and body are untouched;
+isomorphic-git never reads this header at all (it drives retry off the
+401 status alone), so nothing about sync behavior changes.
 
 ## Durable storage
 

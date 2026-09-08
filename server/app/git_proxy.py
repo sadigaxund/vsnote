@@ -65,6 +65,26 @@ HOP_BY_HOP_RESPONSE_HEADERS: frozenset[str] = frozenset(
     }
 )
 
+# R5-2 — never relayed to the browser, period, regardless of what upstream
+# sent. This is the root cause of the "browser's native login prompt
+# appears after touching Git & Sync" bug: a real 401 from an upstream host
+# like github.com carries its OWN `WWW-Authenticate: Basic realm="GitHub"`
+# challenge, and a same-origin browser `fetch()` (this proxy's whole reason
+# to exist — see module docstring) that sees that header on ANY response
+# pops Chrome's native credential dialog, exactly like `git_http.py`'s
+# `/git` route used to before item 26a gated it there. isomorphic-git never
+# reads this header at all — `onAuth`/`onAuthFailure` are driven purely off
+# the response's HTTP status code (401/403), confirmed against
+# `node_modules/isomorphic-git/index.js`'s `GitRemoteHTTP`/auth-retry
+# logic — so dropping it changes nothing about how isomorphic-git behaves;
+# it only stops the byte from ever reaching the browser's own fetch
+# machinery. Kept as its own frozenset (rather than folded into
+# `HOP_BY_HOP_RESPONSE_HEADERS`, which is a distinct RFC 7230 §6.1 concept)
+# so the "why" here — a browser-popup guard, not a hop-by-hop rule — stays
+# attached to the header it actually governs. The 401 status and body are
+# untouched; only this one header is ever stripped.
+NEVER_RELAYED_RESPONSE_HEADERS: frozenset[str] = frozenset({"www-authenticate"})
+
 _UNSAFE_IP_ATTRS = ("is_private", "is_loopback", "is_link_local", "is_multicast", "is_reserved", "is_unspecified")
 
 
@@ -184,4 +204,5 @@ def filter_request_headers(headers: Iterable[tuple[str, str]]) -> dict[str, str]
 
 
 def filter_response_headers(headers: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
-    return [(k, v) for k, v in headers if k.lower() not in HOP_BY_HOP_RESPONSE_HEADERS]
+    dropped = HOP_BY_HOP_RESPONSE_HEADERS | NEVER_RELAYED_RESPONSE_HEADERS
+    return [(k, v) for k, v in headers if k.lower() not in dropped]

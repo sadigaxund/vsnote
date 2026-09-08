@@ -345,6 +345,19 @@ BINDING, same weight as §1's uniform-404 rule:
 - **Response bodies pass through untouched** — this proxy never rewrites,
   inspects, or re-encodes upstream response bytes; a git client (isomorphic-
   git or otherwise) sees exactly what the real remote sent.
+- **R5-2 — one response HEADER is the sole exception to "untouched":
+  `www-authenticate` is never relayed, period.** A real upstream `401`
+  (e.g. github.com's own `WWW-Authenticate: Basic realm="GitHub"` on
+  bad/missing credentials) used to be relayed byte-for-byte through this
+  same-origin proxy — and a same-origin browser `fetch()` that sees that
+  header on ANY response pops Chrome's own native credential dialog. This
+  was the actual root cause of a live-reported bug ("after interacting
+  with Settings → Git & Sync... Chrome pops its own native
+  username/password dialog"). isomorphic-git never reads this header at
+  all (`onAuth`/retry is driven purely off the response's HTTP status
+  code), so dropping it changes nothing about real sync behavior — status
+  and body stay byte-identical, only this one header is stripped
+  (`git_proxy.py`'s `NEVER_RELAYED_RESPONSE_HEADERS`).
 
 Every refusal this route generates itself (allowlist, scheme, SSRF, body
 too large) comes back as a plain-text body prefixed

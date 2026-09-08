@@ -398,6 +398,24 @@ export function useGitRows(): SettingRow[] {
                       });
                       return;
                     }
+                    // Note (R5-2): "Test connection" is deliberately NOT
+                    // preemptively blocked just because the resolved token
+                    // is blank — an "unsigned" test against this app's own
+                    // implicit remote is expected to make the real request
+                    // and surface the real, specific 401 ("regenerate the
+                    // token") rather than a generic client-side guess (see
+                    // `settings-view.spec.ts`'s "Unsigned 'Test connection'
+                    // still degrades to a clear, specific message"). That
+                    // request can never trigger a browser credential
+                    // popup either way: the implicit remote's 401 comes
+                    // from `/git`, whose `WWW-Authenticate` challenge is
+                    // already withheld from a browser-shaped caller
+                    // (`git_http.py::_is_git_client`, item 26a), and a
+                    // custom remote's request is proxied through
+                    // `/api/git-proxy`, which now never relays an upstream
+                    // `www-authenticate` at all (`git_proxy.py`'s
+                    // `NEVER_RELAYED_RESPONSE_HEADERS` — this ticket's
+                    // actual root cause).
                     setGitTesting(true);
                     setGitTestResult(null);
                     void testGitConnection({
