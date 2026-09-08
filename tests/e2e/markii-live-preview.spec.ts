@@ -201,3 +201,142 @@ test.describe("markii directive live preview (.mk.md Rendered mode)", () => {
     }
   });
 });
+
+/**
+ * Round 6 MK item 1's mouse-interaction contract
+ * (`src/markdown/directiveLezer/decorations.ts`: `pointerActiveField` +
+ * `pointerTrackingHandlers`, the widget's measured-height min-height
+ * reservation, and `MkBlockDirectiveWidget.ignoreEvent`'s interactive-
+ * control exemption). See `docs/ARCHITECTURE.md`'s "Mouse interaction with
+ * a rendered directive widget" section for the full mechanism.
+ */
+test.describe("markii directive live preview — mouse interaction (.mk.md Rendered mode)", () => {
+  async function makeCardFixture(page: import("@playwright/test").Page, fileName: string) {
+    await gotoApp(page);
+    await treeRow(page, "vault/src").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New File" }).click();
+    const newFileRow = treeRow(page, "vault/src/.vsnote-draft-file");
+    await expect(newFileRow).toBeVisible();
+    await newFileRow.locator("input").fill(fileName);
+    await newFileRow.locator("input").press("Enter");
+    const fileRow = treeRow(page, `vault/src/${fileName}`);
+    await expect(fileRow).toBeVisible();
+    await fileRow.click();
+
+    await page.getByRole("radio", { name: "Source" }).click();
+    const source = page.locator(".cm-content").first();
+    await source.click();
+    await page.keyboard.type(
+      'Intro paragraph.\n\n:::card{title="Notes"}\nHello world example.\n\n[Docs](#mk-mouse-test-anchor)\n:::\n\nOutro paragraph.\n',
+    );
+
+    await page.getByRole("radio", { name: "Rendered" }).click();
+    const rendered = page.locator(".cm-content").first();
+    await expect(rendered.locator(".mk-live-preview-block")).toBeVisible();
+    return rendered;
+  }
+
+  test("double-clicking a word inside a rendered widget selects it once settled, without scrolling the view", async ({
+    page,
+  }) => {
+    const rendered = await makeCardFixture(page, "mouse-dblclick.mk.md");
+    const scroller = page.locator(".cm-scroller").first();
+
+    const scrollBefore = await scroller.evaluate((el) => el.scrollTop);
+
+    // A real double-click: two mousedown/mouseup pairs close together on
+    // the SAME word, inside the rendered (still collapsed) widget's own
+    // text. `pointerActiveField` must keep the widget from reveal-and-
+    // shifting between the two clicks of the pair.
+    const word = rendered.locator(".mk-live-preview-block", { hasText: "Hello world example." });
+    await word.dblclick({ position: { x: 5, y: 5 } });
+
+    // Give the ~200ms settle window (plus slack) time to fire the deferred
+    // recompute.
+    await page.waitForTimeout(400);
+
+    // Settled: the widget is gone (revealed) and the layout never moved
+    // the scroller underneath the interaction.
+    await expect(rendered.locator(".mk-live-preview-block")).toHaveCount(0);
+    await expect(rendered).toContainText("Hello world example.");
+    const scrollAfter = await scroller.evaluate((el) => el.scrollTop);
+    expect(scrollAfter).toBe(scrollBefore);
+  });
+
+  test("dragging from the paragraph above to the paragraph below flips the widget's decoration at most once", async ({
+    page,
+  }) => {
+    const rendered = await makeCardFixture(page, "mouse-drag.mk.md");
+
+    // A presence-flip counter, not a raw mutation-record count: several
+    // mutation records can fire for ONE logical reveal/collapse (removing
+    // the widget node, inserting several raw-text line elements), so only
+    // TRANSITIONS in whether `.mk-live-preview-block` exists at all count
+    // as a "flip" — exactly what "decoration flips" means here.
+    await page.evaluate(() => {
+      const content = document.querySelector(".cm-content");
+      if (!content) return;
+      const log: boolean[] = [];
+      const check = () => {
+        const present = document.querySelectorAll(".mk-live-preview-block").length > 0;
+        if (log.length === 0 || log[log.length - 1] !== present) log.push(present);
+      };
+      check();
+      const observer = new MutationObserver(check);
+      observer.observe(content, { childList: true, subtree: true });
+      (window as unknown as { __mkFlipLog: boolean[] }).__mkFlipLog = log;
+      (window as unknown as { __mkFlipObserver: MutationObserver }).__mkFlipObserver = observer;
+    });
+
+    const intro = rendered.getByText("Intro paragraph.", { exact: false });
+    const outro = rendered.getByText("Outro paragraph.", { exact: false });
+    const introBox = await intro.boundingBox();
+    const outroBox = await outro.boundingBox();
+    if (!introBox || !outroBox) throw new Error("fixture paragraphs not laid out");
+
+    await page.mouse.move(introBox.x + introBox.width / 2, introBox.y + introBox.height / 2);
+    await page.mouse.down();
+    // Several intermediate `mousemove`s crossing the widget's edge, same as
+    // a real drag gesture — this is exactly what used to flip the
+    // decoration on every step.
+    const steps = 6;
+    for (let i = 1; i <= steps; i++) {
+      const x = introBox.x + ((outroBox.x - introBox.x) * i) / steps;
+      const y = introBox.y + ((outroBox.y - introBox.y) * i) / steps;
+      await page.mouse.move(x, y);
+    }
+    await page.mouse.move(outroBox.x + outroBox.width / 2, outroBox.y + outroBox.height / 2);
+    await page.mouse.up();
+
+    // Let the settle window close so the ONE deferred recompute (if any)
+    // actually lands before reading the log.
+    await page.waitForTimeout(400);
+
+    const flipLog = await page.evaluate(() => (window as unknown as { __mkFlipLog: boolean[] }).__mkFlipLog);
+    const flips = flipLog.length - 1;
+    expect(flips).toBeLessThanOrEqual(1);
+  });
+
+  test("clicking a control rendered inside a widget operates it without revealing the widget or moving the caret", async ({
+    page,
+  }) => {
+    // No `.mk.md` render path emits a real "button" element (VSNote's
+    // live-preview rendering is deliberately pure/static — no script
+    // execution inside a decoration — see MK-23 in the orchestrator log),
+    // so a plain markdown link is the realistic interactive control: an
+    // `<a>` inside the widget's own rendered HTML, exercised the same way
+    // `INTERACTIVE_WIDGET_SELECTOR` in `decorations.ts` selects it.
+    const rendered = await makeCardFixture(page, "mouse-control.mk.md");
+
+    const link = rendered.locator(".mk-live-preview-block a", { hasText: "Docs" }).first();
+    await expect(link).toBeVisible();
+
+    await link.click();
+
+    // The widget never reveals and stays exactly one widget — `ignoreEvent`
+    // kept CM6 from ever treating this as a click into the directive's
+    // span, so no reveal, no caret move.
+    await expect(rendered.locator(".mk-live-preview-block")).toHaveCount(1);
+    await expect(rendered).not.toContainText(":::card");
+  });
+});

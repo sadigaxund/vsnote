@@ -86,7 +86,7 @@ import "@markii/react/doc.css";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { cursorLineDown, cursorLineUp } from "@codemirror/commands";
 import { completionStatus } from "@codemirror/autocomplete";
-import { EditorSelection, Prec, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
+import { EditorSelection, Prec, StateEffect, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { MK_DIRECTIVE_CONTAINER, MK_DIRECTIVE_LEAF, MK_DIRECTIVE_TEXT } from "./extension";
 import { buildPackRegistry, type PackForRegistry } from "../packPlaceholderLogic";
@@ -195,12 +195,48 @@ function buildWidgetDom(tag: "div" | "span", html: string, className: string): H
   return el;
 }
 
+/**
+ * Round-6 MK item 3 — a click inside a rendered directive widget on one of
+ * these must operate the control (follow the link, toggle the checkbox,
+ * press the button) WITHOUT moving the caret into the widget and revealing
+ * raw source underneath it: `MkBlockDirectiveWidget.ignoreEvent` returns
+ * `true` for any event whose target sits inside one of these, so CM6 never
+ * touches the selection for it, and `buildWidgetDom`'s own `mousedown`
+ * listener additionally stops the event from bubbling to CM6's own
+ * selection-drag machinery and to `pointerTrackingHandlers` below.
+ *
+ * `[data-markii-action]` covers a future/pack-provided explicit "run this"
+ * control; nothing in THIS render pipeline emits one today (rendering here
+ * is deliberately pure/static — see this file's module doc, "Rendering"
+ * section — so a real `@markii/lua` run-script action button has nowhere
+ * to attach a handler in static markup in the first place). Logged as an
+ * MK-next finding in the orchestrator log rather than silently assumed
+ * covered: when script-triggering UI is ever rendered into a live-preview
+ * widget, it needs to actually mark itself with this attribute (or one of
+ * the other selectors here) for this contract to apply to it.
+ */
+const INTERACTIVE_WIDGET_SELECTOR = 'button, a, input, [role="button"], [role="tab"], summary, [data-markii-action]';
+
+function isInteractiveWidgetTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(INTERACTIVE_WIDGET_SELECTOR) !== null;
+}
+
 class MkBlockDirectiveWidget extends WidgetType {
+  private resizeObserver: ResizeObserver | undefined;
+
   constructor(
     private readonly source: string,
     private readonly cache: Map<string, string>,
     private readonly registry: Registry,
     private readonly valueStore: ValueStore | undefined,
+    /** Round-6 MK item 2 — the last measured render height per source
+     * slice, shared with `buildBlockDecorations` (same `Map` instance, one
+     * per `.mk.md` editor, created alongside `cache`/`registry` in
+     * `markiiLivePreviewDecorations`) so a REVEALED directive's raw lines
+     * can reserve at least that much height and never shift the rest of
+     * the document when the raw source is visually shorter than the
+     * rendered widget. */
+    private readonly heightCache: Map<string, number>,
   ) {
     super();
   }
@@ -213,10 +249,44 @@ class MkBlockDirectiveWidget extends WidgetType {
     return other.source === this.source && other.registry === this.registry;
   }
   toDOM(): HTMLElement {
-    return buildWidgetDom("div", renderBlockDirectiveHtml(this.cache, this.source, this.registry, this.valueStore), "mk-live-preview-block");
+    const el = buildWidgetDom("div", renderBlockDirectiveHtml(this.cache, this.source, this.registry, this.valueStore), "mk-live-preview-block");
+    // Interactive controls (see `INTERACTIVE_WIDGET_SELECTOR`'s doc) must
+    // never start CM6's own click/drag-selection handling — stopping
+    // propagation here (capture-phase, so it runs before ANY other
+    // `mousedown` listener, including `pointerTrackingHandlers`' own) keeps
+    // the click a plain, ordinary DOM interaction with the control.
+    // `ignoreEvent` below is what keeps CM6 from moving the caret for the
+    // click that DOES still reach it (an ordinary "click" event, since
+    // stopping `mousedown` propagation doesn't stop `click`).
+    el.addEventListener(
+      "mousedown",
+      (event) => {
+        if (isInteractiveWidgetTarget(event.target)) event.stopPropagation();
+      },
+      true,
+    );
+    if (typeof ResizeObserver !== "undefined") {
+      const source = this.source;
+      const heightCache = this.heightCache;
+      this.resizeObserver = new ResizeObserver((entries) => {
+        const height = entries[0]?.contentRect.height;
+        if (height !== undefined && height > 0) heightCache.set(source, height);
+      });
+      this.resizeObserver.observe(el);
+    }
+    return el;
   }
-  ignoreEvent(): boolean {
-    return false; // let clicks land normally (e.g. a link inside the rendered directive) rather than swallowing every interaction.
+  destroy(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = undefined;
+  }
+  ignoreEvent(event: Event): boolean {
+    // Interactive controls: let the control handle its own click, never
+    // move the caret into the widget or reveal raw source underneath it
+    // (round-6 MK item 3). Plain text: `false` — a click there is editing
+    // intent, and CM6's normal handling (caret placement -> selection
+    // change -> `cursorTouches` -> reveal) is exactly what should happen.
+    return isInteractiveWidgetTarget(event.target);
   }
 }
 
@@ -465,7 +535,13 @@ function mkBlockNavigationKeymap(blockField: StateField<DecorationSet>): Extensi
   );
 }
 
-function buildBlockDecorations(state: EditorState, cache: Map<string, string>, registry: Registry, valueStore: ValueStore | undefined): DecorationSet {
+function buildBlockDecorations(
+  state: EditorState,
+  cache: Map<string, string>,
+  registry: Registry,
+  valueStore: ValueStore | undefined,
+  heightCache: Map<string, number>,
+): DecorationSet {
   const decorations: Range<Decoration>[] = [];
   const tree = treeFor(state, state.doc.length);
   const doc = state.doc;
@@ -474,17 +550,32 @@ function buildBlockDecorations(state: EditorState, cache: Map<string, string>, r
     enter(node) {
       if (node.name !== MK_DIRECTIVE_CONTAINER && node.name !== MK_DIRECTIVE_LEAF) return undefined;
       const { from, to } = node;
+      const source = doc.sliceString(from, to);
       if (cursorTouches(state, from, to)) {
         // Reveal raw source; still skip descending, nothing nested needs
         // its own decoration. R3-11: the discoverability hint goes here —
         // this IS "a revealed directive or fence."
         maybePushRevealHint(decorations, to);
+        // Round-6 MK item 2 — reserve at least as much vertical space as
+        // the widget last measured, on the directive's FIRST revealed
+        // line, so revealing shorter raw source never shifts everything
+        // below it (the exact jump a double-click into a `card` widget
+        // used to cause: reveal on the first click already moved the
+        // layout, so the second click of the pair landed somewhere else
+        // entirely). No-op (no line decoration at all) until a widget for
+        // this exact source has actually been measured once.
+        const measuredHeight = heightCache.get(source);
+        if (measuredHeight !== undefined) {
+          const firstLine = doc.lineAt(from);
+          decorations.push(
+            Decoration.line({ attributes: { style: `min-height: ${Math.ceil(measuredHeight)}px` } }).range(firstLine.from),
+          );
+        }
         return false;
       }
-      const source = doc.sliceString(from, to);
       decorations.push(
         Decoration.replace({
-          widget: new MkBlockDirectiveWidget(source, cache, registry, valueStore),
+          widget: new MkBlockDirectiveWidget(source, cache, registry, valueStore, heightCache),
           block: true,
           inclusive: false,
         }).range(from, to),
@@ -577,17 +668,115 @@ const mkLivePreviewTheme = EditorView.baseTheme({
  * language/decorations load — a stale store is never held onto past a
  * real run.
  */
+/**
+ * Round-6 MK item 1 — "unpredictable editing" during mouse interaction: a
+ * double-click on a rendered leaf/container widget revealed raw source on
+ * the FIRST click (mousedown -> selection change -> `blockField` recomputes
+ * synchronously, same transaction), shifting the layout under the pointer
+ * before the second click of the pair landed, so that second click often
+ * hit whatever scrolled into its place instead of the intended word. A
+ * drag-selection crossing a widget's boundary flipped reveal/collapse on
+ * every `mousemove` the same way, each flip re-laying-out the document
+ * under the drag.
+ *
+ * `pointerActiveField` freezes `blockField`'s recompute (see its own
+ * `update` below) for the ENTIRE span from the first `mousedown` of a
+ * click/drag/double-click through `POINTER_SETTLE_MS` after the matching
+ * `mouseup` — long enough to cover the standard double-click window, so a
+ * second `mousedown` arriving inside it (this IS a double-click) finds the
+ * field already `true` and simply keeps it frozen instead of letting the
+ * first click's reveal happen at all. Only once the pointer has been fully
+ * at rest for that long does the deferred recompute run, in one shot,
+ * against whatever the FINAL selection ended up being — never a
+ * flip-per-mousemove during a drag.
+ *
+ * Keyboard/programmatic selection changes are untouched: they don't touch
+ * this field (no dom event fired `setPointerActive`), so `blockField`
+ * keeps recomputing immediately for those, exactly as before this fix.
+ */
+const setPointerActive = StateEffect.define<boolean>();
+
+const pointerActiveField = StateField.define<boolean>({
+  create: () => false,
+  update(value, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setPointerActive)) value = effect.value;
+    }
+    return value;
+  },
+});
+
+/** A click/drag/double-click's debounce window (`pointerActiveField`'s own doc) — long enough to cover a standard double-click without being long enough to read as "stuck" after a plain single click. */
+const POINTER_SETTLE_MS = 200;
+
+/** Per-view pending "settle" timer (`WeakMap`, not a module-level scalar) — this extension is installed once per `.mk.md` editor instance (`markiiLivePreviewDecorations`, called once per mount), and a split view can have more than one such instance alive at once; keying by the `EditorView` itself keeps each editor's own double-click timing fully independent of any other's. */
+const pointerSettleTimers = new WeakMap<EditorView, ReturnType<typeof setTimeout>>();
+
+function clearPointerSettleTimer(view: EditorView): void {
+  const existing = pointerSettleTimers.get(view);
+  if (existing !== undefined) {
+    clearTimeout(existing);
+    pointerSettleTimers.delete(view);
+  }
+}
+
+/**
+ * Observes `mousedown`/`mouseup` on the content DOM to drive
+ * `pointerActiveField` — never swallows the event itself (`return false`
+ * from both handlers): this is purely an observer, no different from a
+ * `ResizeObserver` watching layout, so every other mousedown/mouseup
+ * consumer (CM6's own click/drag-selection handling, the widget's own
+ * `mousedown` listener, `ignoreEvent`) behaves exactly as it would without
+ * this extension installed.
+ */
+const pointerTrackingHandlers = EditorView.domEventHandlers({
+  mousedown(_event, view) {
+    clearPointerSettleTimer(view);
+    if (!view.state.field(pointerActiveField)) {
+      view.dispatch({ effects: setPointerActive.of(true) });
+    }
+    return false;
+  },
+  mouseup(_event, view) {
+    clearPointerSettleTimer(view);
+    pointerSettleTimers.set(
+      view,
+      setTimeout(() => {
+        pointerSettleTimers.delete(view);
+        if (view.dom.isConnected) view.dispatch({ effects: setPointerActive.of(false) });
+      }, POINTER_SETTLE_MS),
+    );
+    return false;
+  },
+});
+
 export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegistry[] = [], valueStore?: ValueStore): Extension[] {
   const cache = new Map<string, string>();
   const registry = buildRegistry(enabledPacks);
+  // Round-6 MK item 2 — shared with every `MkBlockDirectiveWidget` this
+  // instance creates; see that class's own doc for why it lives here
+  // (one per `.mk.md` editor, alongside `cache`/`registry`) rather than
+  // per-widget or module-global.
+  const heightCache = new Map<string, number>();
 
   const blockField = StateField.define<DecorationSet>({
     create(state) {
-      return buildBlockDecorations(state, cache, registry, valueStore);
+      return buildBlockDecorations(state, cache, registry, valueStore, heightCache);
     },
     update(value, tr) {
-      if (!tr.docChanged && tr.startState.selection.eq(tr.state.selection)) return value;
-      return buildBlockDecorations(tr.state, cache, registry, valueStore);
+      // Frozen while a pointer interaction is in flight or still inside its
+      // settle window (`pointerActiveField`'s own doc) — a docChanged
+      // transaction (typing) still recomputes even then, since editing while
+      // a mouse button happens to be down is not the "reveal jitter" this
+      // guards against and must never go stale.
+      if (tr.state.field(pointerActiveField) && !tr.docChanged) return value;
+      // The settle window JUST closed this transaction (an effect-only
+      // transaction from `pointerTrackingHandlers`' timeout) — recompute
+      // now even though neither the doc nor the selection changed, so
+      // whatever was deferred while frozen actually happens once.
+      const justSettled = tr.effects.some((effect) => effect.is(setPointerActive) && effect.value === false);
+      if (!justSettled && !tr.docChanged && tr.startState.selection.eq(tr.state.selection)) return value;
+      return buildBlockDecorations(tr.state, cache, registry, valueStore, heightCache);
     },
     provide: (field) => EditorView.decorations.from(field),
   });
@@ -607,5 +796,5 @@ export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegis
     { decorations: (v) => v.decorations },
   );
 
-  return [blockField, inlinePlugin, mkLivePreviewTheme, mkBlockNavigationKeymap(blockField)];
+  return [pointerActiveField, pointerTrackingHandlers, blockField, inlinePlugin, mkLivePreviewTheme, mkBlockNavigationKeymap(blockField)];
 }

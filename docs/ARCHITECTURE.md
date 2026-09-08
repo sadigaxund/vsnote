@@ -2096,6 +2096,70 @@ those live in `render.tsx`, which this module deliberately does not
 import), and the container-close scan tracks fenced code but not
 4-space-indented code.
 
+### Mouse interaction with a rendered directive widget (DESIGN-SPEC round 15, item 126)
+
+Selection-driven reveal (this section's own opening rule — raw source
+revealed only while the cursor is inside) is exactly right for keyboard
+navigation and plain clicks into text, and exactly wrong applied naively
+to a MOUSE gesture spanning more than one event: a double-click's first
+`mousedown` already changes the selection, so the reveal decision recomputed
+synchronously off it, shifted the layout under the pointer, and routinely
+made the pair's SECOND click land somewhere else entirely; a drag crossing
+a widget's edge did the same thing on every `mousemove`. Two independent
+mechanisms in `decorations.ts` fix this without weakening the reveal rule
+itself for keyboard/programmatic selection changes, which still recompute
+immediately:
+
+1. **Deferred recompute while a pointer interaction is live.** A module-level
+   `pointerActiveField` (`StateField<boolean>`), flipped by a `setPointerActive`
+   `StateEffect` from `pointerTrackingHandlers` (`EditorView.domEventHandlers`
+   observing `mousedown`/`mouseup` — never swallowing either event, purely an
+   observer). `blockField.update` skips its recompute entirely while this
+   field reads `true`, UNLESS the document itself changed (typing while a
+   button happens to be down for some other reason must never go stale). On
+   `mouseup`, a ~200ms timer (a `WeakMap<EditorView, TimeoutHandle>`, so
+   multiple `.mk.md` editors in a split view each get their own independent
+   timing) schedules `setPointerActive.of(false)`; a second `mousedown`
+   arriving inside that window — a double-click, by definition — cancels the
+   pending timer and keeps the field `true`, so nothing recomputes for the
+   ENTIRE gesture. The one recompute that eventually happens runs against
+   wherever the selection finally settled, not against an intermediate state
+   a fast double-click or drag never meant to show.
+2. **A revealed directive's raw lines reserve the widget's last-measured
+   height.** `MkBlockDirectiveWidget` attaches a `ResizeObserver` to its own
+   DOM in `toDOM()` and records the measured height into a `Map<string,
+   number>` keyed by source text (`heightCache`, one per `.mk.md` editor,
+   shared with `buildBlockDecorations` the same way the render-HTML `cache`
+   already is). When a directive reveals, `buildBlockDecorations` looks up
+   that cache and — if a measurement exists — pushes a `Decoration.line`
+   carrying a `min-height` style onto the directive's first revealed line,
+   so shorter raw source never shifts whatever follows it. This is
+   deliberately NOT the same fix as (1) above: (1) stops the reveal decision
+   from flipping mid-gesture at all; (2) keeps a reveal that DOES happen
+   from moving the layout under it. Reveal never calls `scrollIntoView`
+   either (only the keyboard vertical-navigation path,
+   `mkBlockVerticalNavigation`, deliberately does that, to bring a
+   keyboard-driven jump into view).
+3. **Interactive controls inside a widget bypass reveal entirely.**
+   `MkBlockDirectiveWidget.ignoreEvent` returns `true` for any event whose
+   target matches `button, a, input, [role="button"], [role="tab"], summary,
+   [data-markii-action]` — CM6 then leaves the click alone rather than
+   moving the caret into the widget, so a link, checkbox, or button rendered
+   by a directive's own markdown body works exactly as an ordinary DOM
+   control would. The widget's own DOM additionally stops a `mousedown` on
+   one of those targets from bubbling (capture-phase `stopPropagation`, so
+   it runs ahead of CM6's own click/drag-selection handling and ahead of
+   `pointerTrackingHandlers` above) — belt and braces, since `ignoreEvent`
+   alone governs CM6's selection handling but not whether some OTHER
+   `mousedown` listener on the content DOM also reacts. A click on plain
+   rendered text is unaffected: `ignoreEvent` returns `false` for it, exactly
+   as it always did, so caret placement and reveal still follow normal
+   editing intent. `[data-markii-action]` is a forward-compatible slot, not
+   something any current render path emits — see MK-23 in the orchestrator
+   log: VSNote's live-preview rendering is deliberately pure/static (this
+   section's own "Rendering" note), so there is no real run-script control
+   inside a widget today for it to select.
+
 ## Phase M3 — script isolate, grants, value persistence (docs/PLAN-2026-09-05-refresh.md §6)
 
 Worker 1 of 3 for M3 (bundles + scripts, L2/L3 of `docs/temp-plan-add-extension.md`).

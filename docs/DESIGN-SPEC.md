@@ -1580,3 +1580,47 @@ items OVERRIDE anything above them.
        mode already does and changing it would be a real UX regression,
        not a generalization). The owner's explicit `column_width` choice
        (item 111) still overrides any of these defaults, for any kind.
+
+## Amendments round 15 — 2026-09-08 (Markii live-preview mouse interaction contract)
+
+126. **Mouse interaction with a rendered directive widget (item 91) never
+     jumps the caret or the layout under the pointer, and interactive
+     controls inside a widget work without revealing it.** A double-click
+     used to reveal raw source on the FIRST click of the pair (mousedown
+     already changes the selection, and reveal/collapse recomputes
+     synchronously off any selection change) — the layout shift under the
+     pointer meant the second click routinely landed somewhere else
+     entirely. A drag-selection crossing a widget's edge flipped
+     reveal/collapse on every `mousemove` the same way. Two independent
+     fixes, both in `src/markdown/directiveLezer/decorations.ts`:
+     - **Reveal/collapse is frozen for the full span of a mouse
+       interaction.** From the first `mousedown` through ~200ms after the
+       matching `mouseup` (the standard double-click window — a second
+       `mousedown` inside that window just keeps it frozen, exactly a
+       double-click), the block decoration `StateField` defers its
+       recompute; once the pointer has been at rest for the full window,
+       it recomputes once, against wherever the selection finally settled.
+       Keyboard and programmatic selection changes are untouched — they
+       still recompute immediately, as before.
+     - **A revealed directive's raw lines reserve at least the rendered
+       widget's own last-measured height** (a `ResizeObserver` on the
+       widget DOM, applied back as a `min-height` line decoration on
+       reveal), so revealing shorter raw source never shifts whatever
+       follows it. Reveal never calls `scrollIntoView` either — unlike the
+       keyboard vertical-navigation path (item 91's `mkBlockVerticalNavigation`),
+       which deliberately does, since a keyboard jump needs the newly
+       revealed line brought into view.
+     - **A click on an interactive control inside a rendered widget**
+       (`button`, `a`, `input`, `[role="button"]`, `[role="tab"]`,
+       `summary`, or an explicit `[data-markii-action]`) operates the
+       control without moving the caret into the widget or revealing it —
+       the widget's `ignoreEvent` returns `true` for such a target, and the
+       widget's own DOM additionally stops the triggering `mousedown` from
+       reaching CM6's selection/drag handling. A click on plain rendered
+       text is unchanged: it moves the caret and reveals, exactly the
+       editing intent it always was. See `docs/ARCHITECTURE.md`'s directive
+       live-preview section for the full mechanism and a markii-upstream
+       finding this surfaced (no `.mk.md` render path currently emits a
+       real run-script action element to mark with `[data-markii-action]`
+       in the first place — VSNote's live-preview rendering is deliberately
+       pure/static, per item 91).
