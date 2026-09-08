@@ -20,8 +20,26 @@
  * (`filetypes/registry.ts`), so a freshly created `.mk.md` tab opens
  * straight into Rendered mode — no mode switch needed.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Locator } from "@playwright/test";
 import { gotoApp, treeRow } from "./fixtures";
+
+/**
+ * The exact document text, reconstructed from CM6's own per-line DOM
+ * (`.cm-line`) rather than `Locator.innerText()`. `innerText()` goes
+ * through the BROWSER's own text/layout reconstruction, which — verified
+ * directly against the actual CM6 document model via a throwaway
+ * `console.log` of `view.state.doc` during this test's own development —
+ * inflates a bare/empty line into what reads as an EXTRA blank line in the
+ * returned string, purely a `.innerText()` presentation artifact having
+ * nothing to do with `markiiCompletion.ts`'s actual accepted text. Each
+ * `.cm-line` is exactly one document line regardless of soft-wrap (CM6
+ * wraps a long line WITHIN its own line element, never splits it across
+ * more than one `.cm-line`), so joining their text contents with `\n`
+ * reconstructs the document byte-for-byte.
+ */
+async function editorText(editor: Locator): Promise<string> {
+  return (await editor.locator(".cm-line").allTextContents()).join("\n");
+}
 
 test.describe("markii editor sugar in Rendered mode (.mk.md)", () => {
   test("completion popup, accepting a container, and manual-typing fence lengthening all work in Rendered mode", async ({
@@ -175,26 +193,35 @@ test.describe("markii editor sugar in Rendered mode (.mk.md)", () => {
     await page.keyboard.type(":::ro");
     const sourcePopup = page.locator(".cm-tooltip-autocomplete");
     await expect(sourcePopup).toBeVisible();
-    const rowInSource = sourcePopup.locator("li:has(.cm-completionLabel:text-is('row'))").first();
+    // "ro" is a substring of BOTH "row" (prefix) and "narrow" (mid-word),
+    // so more than one option matches — CM6's own fuzzy ranking puts the
+    // PREFIX match first and highlights it automatically. Accept with
+    // Enter (this is what's under test — a real accept after typing PAST
+    // the point the popup first queried, not the click path) rather than
+    // picking a specific option by mouse.
+    const rowInSource = sourcePopup.getByRole("option", { name: /^row\b/ }).first();
     await expect(rowInSource).toBeVisible();
-    // May already be highlighted (unique match) — ArrowDown-to-select is
-    // harmless either way since it's the only option "ro" matches.
-    await rowInSource.click();
-    await expect.poll(async () => await source.innerText()).toBe(":::row\n\n:::");
+    await expect(rowInSource).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Enter");
+    await expect(sourcePopup).toBeHidden();
+    await expect.poll(async () => await editorText(source)).toBe(":::row\n\n:::");
 
     // Rendered mode: same sequence, on a fresh line.
     await page.getByRole("radio", { name: "Rendered" }).click();
     const rendered = page.locator(".cm-content").first();
     await expect(rendered).toBeVisible();
+    await rendered.click();
     await page.keyboard.press("Control+End");
     await page.keyboard.type("\n\n:::ro");
     const renderedPopup = page.locator(".cm-tooltip-autocomplete");
     await expect(renderedPopup).toBeVisible();
-    const rowInRendered = renderedPopup.locator("li:has(.cm-completionLabel:text-is('row'))").first();
+    const rowInRendered = renderedPopup.getByRole("option", { name: /^row\b/ }).first();
     await expect(rowInRendered).toBeVisible();
-    await rowInRendered.click();
+    await expect(rowInRendered).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Enter");
+    await expect(renderedPopup).toBeHidden();
 
     await page.getByRole("radio", { name: "Source" }).click();
-    await expect.poll(async () => await source.innerText()).toBe(":::row\n\n:::\n\n:::row\n\n:::");
+    await expect.poll(async () => await editorText(source)).toBe(":::row\n\n:::\n\n:::row\n\n:::");
   });
 });
