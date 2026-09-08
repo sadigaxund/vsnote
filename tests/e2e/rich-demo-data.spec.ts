@@ -73,6 +73,40 @@ test.describe("representative demo data", () => {
     await expect(page.getByText("Priya Natarajan").first()).toBeVisible();
   });
 
+  // DESIGN-SPEC Amendments round 17 item 128: a long value (changelog[0]'s
+  // ~220-char `notes` string, nested three levels deep — root > changelog >
+  // 0 > notes) must not overlap or cover its own key. Regression coverage
+  // for the `TreeItem` flex-basis defect described in `JsonView.tsx`'s
+  // module comment: before the fix, the key's box collapsed to ~0 width and
+  // its text was covered by the value, which claimed the entire row.
+  test("a long JSON value does not overlap its key in the tree view", async ({ page }) => {
+    await gotoApp(page);
+    await openFromTree(page, "vault/vault.config.json", { pin: true });
+    await expect(tab(page, "vault/vault.config.json")).toBeVisible();
+    await page.getByRole("radio", { name: "Rendered" }).click();
+
+    const keyLocator = page.getByText("notes", { exact: true }).first();
+    const valueLocator = page.getByText(/Switched the indexer to an incremental walker/).first();
+    await expect(keyLocator).toBeVisible();
+    await expect(valueLocator).toBeVisible();
+
+    const keyBox = await keyLocator.boundingBox();
+    const valueBox = await valueLocator.boundingBox();
+    expect(keyBox).not.toBeNull();
+    expect(valueBox).not.toBeNull();
+    if (!keyBox || !valueBox) return;
+
+    // Both boxes must have real width (neither collapsed to ~0, which is
+    // exactly what the bug looked like — the key rendering but at 0 width,
+    // invisible under the value).
+    expect(keyBox.width).toBeGreaterThan(4);
+    expect(valueBox.width).toBeGreaterThan(4);
+
+    // No horizontal intersection: the key's right edge sits at or before
+    // the value's left edge.
+    expect(keyBox.x + keyBox.width).toBeLessThanOrEqual(valueBox.x + 1);
+  });
+
   test("DESIGN-SPEC Amendments round 3 item 21: markdown-kitchen-sink.md renders every supported element (real DOM markers, not a screenshot)", async ({ page }) => {
     await gotoApp(page);
     await openFromTree(page, "vault/notes/markdown-kitchen-sink.md", { pin: true });

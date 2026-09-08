@@ -1705,3 +1705,52 @@ these are additive, checkable standards, not taste.
        (`lib/browserDownload.ts::triggerBrowserDownload` — a temporary
        `<a download>` click against an object URL) rather than duplicating
        it.
+
+## Amendments round 17 (continued) — 2026-09-08 (JSON tree view key/value overlap fix)
+
+128. **A JSON tree row's key never loses to its value.** `renderers/JsonView.tsx`
+     composes a leaf's key and its `CellType`-rendered value into one flex
+     row (`LeafRow`) instead of handing the value to `TreeView`'s own
+     `value` slot: `my-you-eye`'s `TreeItem` gives the key `flex-1 min-w-0`
+     (basis 0%) and the value only `shrink min-w-0` (basis = the value's own
+     intrinsic content width), so a long unbroken string's basis can run to
+     thousands of pixels and, since the key contributes zero basis to the
+     shrink calculation, the value's shrink alone claims the whole row —
+     the key renders at ~0 width, invisible under the value, not merely
+     "behind" it. `LeafRow`'s key is `flexShrink: 0` with a `maxWidth: 50%`
+     cap (ellipsizing on its own if ever needed) and the value is
+     `flex: 1 1 0%, minWidth: 0`, so the value alone absorbs negative free
+     space — and, as a side effect, this is what lets `CellType`'s own
+     `TruncatedCellValue` overflow check (`scrollWidth > clientWidth`) and
+     click-to-expand popover work at all, since it needs a properly bounded
+     box to measure against.
+     - **Ellipsis, not wrap**, for a long JSON value: `--spacing-tree-row`
+       is a fixed, grid-unit-multiple row height precisely so rows don't
+       grow to fit content (existing library convention — see
+       `tokens.css`'s comment on that variable); wrapping a 300-character
+       string would turn one tree row into a paragraph and make the tree
+       harder to scan, exactly what a "tree/pretty view" is for. `CellType`
+       already gives click-to-expand for the full value.
+     - This is a `my-you-eye` `TreeView` defect (`TreeItem`'s hardcoded
+       label/value flex split — no prop exists to change it; every
+       `TreeViewProps` field was checked against `components.json` and
+       `index.d.ts`), not something CSS tokens can restyle away, but it did
+       NOT need a `src/components/local/` component or a CLAUDE.md rule-2
+       "missing component": `TreeNode.label` is documented as `ReactNode`
+       specifically as a customization point ("external state can render
+       into the row without the tree knowing about it" — the library's own
+       type comment), and `CellType` (the typed-value display primitive) is
+       public API. Composing both inside `label` and leaving `value`
+       unset reuses the library's row chrome (chevron, indent guides, a11y,
+       keyboard nav, selection) and its value-formatting/truncation
+       primitive untouched — a supported extension, not a fork or a
+       force-style. An upstream issue against `TreeItem`'s flex-basis
+       split is still warranted so callers who pass a long `value` without
+       going through this workaround don't hit the same defect.
+     - Regression coverage: `tests/e2e/rich-demo-data.spec.ts`'s "a long
+       JSON value does not overlap its key in the tree view" asserts the
+       key's and value's bounding boxes don't intersect for
+       `vault.config.json`'s `changelog[0].notes` (a real ~220-character
+       string three levels deep). Before/after screenshots:
+       `.design/r7/r5-5-jsonview-before.png` /
+       `.design/r7/r5-5-jsonview-after.png`.
