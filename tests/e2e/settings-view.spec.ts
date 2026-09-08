@@ -11,7 +11,7 @@
 import { test, expect } from "@playwright/test";
 import { gotoApp, openSettingsTab, seedSettings, tab } from "./fixtures";
 import { signInToShareBackend } from "./shareUiHelpers";
-import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
+import { DEMO_ALT2_PASSWORD, DEMO_ALT2_USERNAME, DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 
 test.describe("Settings view", () => {
   test("opens as a tab (not a dialog), with a gear icon in the tab strip", async ({ page }) => {
@@ -293,7 +293,16 @@ test.describe("Settings view", () => {
 
     // (b) After a successful test: the stepper reads the real terminal
     // state, never "Step 4 of 3", and the label survives.
-    await expect(stepper).toHaveText(/Step 3 of 3\s*·\s*Connected/);
+    // R5-10: the terminal label is state-aware. A passing test proves the
+    // credentials work and the endpoint answers; it does NOT prove the
+    // server-side repo exists, since that is created on first push. So the
+    // label reads "Connected" only once the server vault reports
+    // `initialized`, and "Reachable" before that. Both are correct terminal
+    // states and which one this fixture lands in depends on whether the
+    // demo backend's vault has been created yet, so the assertion pins the
+    // SHAPE ("Step 3 of 3 · <a real terminal label>") plus the absence of
+    // the off-by-one, which is what this test exists to catch.
+    await expect(stepper).toHaveText(/Step 3 of 3\s*·\s*(Connected|Reachable)/);
     await expect(stepper).not.toContainText("Step 4 of 3");
 
     // (a) `SettingsRow`'s label column and control column sit SIDE BY SIDE
@@ -435,7 +444,14 @@ test.describe("Settings view", () => {
     });
 
     await gotoApp(page);
-    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    // Signed in as the SECOND owner account on purpose. Reader appearance is
+    // owner-global SERVER state (PUT /api/reader-prefs), this suite runs spec
+    // files in parallel against ONE backend, and flipping those controls as
+    // the primary owner changed what `share-reader.spec.ts` saw mid-run. That
+    // is a real cross-spec dependency, not a flake to retry away
+    // (`playwright.config.ts` sets `retries: 0` precisely so it surfaces), and
+    // a second account isolates the writes rather than racing over one row.
+    await signInToShareBackend(page, DEMO_ALT2_USERNAME, DEMO_ALT2_PASSWORD);
     await expect(page.getByTestId("reader-appearance-settings")).toBeVisible({ timeout: 10_000 });
 
     // The app shell — App.tsx's own outer flex column — never develops a

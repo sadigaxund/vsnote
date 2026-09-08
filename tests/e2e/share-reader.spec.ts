@@ -16,7 +16,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { gotoApp } from "./fixtures";
-import { DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
+import { DEMO_ALT_PASSWORD, DEMO_ALT_USERNAME, DEMO_OWNER_PASSWORD, DEMO_OWNER_USERNAME } from "./shareFixtures";
 import { createFileWithContent, publishFileViaContextMenu, revokeShareByLink, signInToShareBackend } from "./shareUiHelpers";
 
 test.describe("chrome-less public reader", () => {
@@ -362,7 +362,11 @@ test.describe("R3-5: selectable reading text + visitor reading preferences", () 
     browser,
   }) => {
     await gotoApp(page);
-    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    // Own account on purpose: this test WRITES reader prefs, and so does the
+    // "Reader appearance changes what visitors see" test above. `fullyParallel`
+    // runs tests within a file concurrently, so sharing one owner made the two
+    // race over one server-side row. One prefs-writing test, one account.
+    await signInToShareBackend(page, DEMO_ALT_USERNAME, DEMO_ALT_PASSWORD);
 
     const content = [
       "# Directive theming",
@@ -420,6 +424,9 @@ test.describe("R3-5: selectable reading text + visitor reading preferences", () 
    */
   test.describe("mobile reflow (360/480)", () => {
     test("md, mk.md, code, and csv shares reflow with no page-level horizontal scroll", async ({ page, browser }) => {
+      // Four publishes plus two viewport passes each, all against the one
+      // shared backend: genuinely longer than the 30s default, not a hang.
+      test.slow();
       await gotoApp(page);
       await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
 

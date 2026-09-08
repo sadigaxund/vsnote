@@ -16,6 +16,7 @@ import { VaultSetupPanel } from "../local/VaultSetupPanel";
 import { SyncSetupPanel } from "../SyncSetupPanel";
 import { useSettingsStore, DEFAULT_GIT_COMMIT_TEMPLATE } from "../../stores/useSettingsStore";
 import { useGitStore } from "../../stores/useGitStore";
+import { useVaultStore } from "../../stores/useVaultStore";
 import {
   computeGitRemoteUrl,
   DEFAULT_GIT_REPO_NAME,
@@ -151,6 +152,14 @@ export function useGitRows(): SettingRow[] {
   });
   const credentialStepDone = committedCredential.trim() !== "";
   const testStepDone = gitTestResult?.ok === true;
+  // R5-10 (owner review): "Connected" overstated the state. A passing test
+  // means credentials work and the endpoint answers; it does NOT mean the
+  // server-side repo exists — the same card can simultaneously show the
+  // "Create the vault repository" wizard, because the repo is created on
+  // first push. Both statements were true and read as a contradiction, so
+  // the terminal wording now distinguishes them.
+  const serverVaultInitialized = useVaultStore((s) => s.vault?.initialized === true);
+  const connectionDoneLabel = serverVaultInitialized ? "Connected" : "Reachable";
   // `Stepper`'s `current` marks every index BELOW it "done" — once the test
   // has actually passed, `deriveConnectionStepIndex` returns one past the
   // last valid index (3), which `Stepper` (R5-3) now recognizes as a real
@@ -232,7 +241,7 @@ export function useGitRows(): SettingRow[] {
               current={connectionStepIndex}
               testidPrefix="git-sync"
               ariaLabel="Git & Sync connection steps"
-              doneLabel="Connected"
+              doneLabel={connectionDoneLabel}
             />
 
             {/* Step 1 — Remote */}
@@ -370,7 +379,7 @@ export function useGitRows(): SettingRow[] {
               <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-fg)" }}>3. Test connection</span>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
                 <Badge variant={testStepDone ? "success" : "neutral"} tone="soft">
-                  {testStepDone ? "Connected, fast-forward only" : "Not connected"}
+                  {testStepDone ? (serverVaultInitialized ? "Connected, fast-forward only" : "Reachable, repository created on first push") : "Not connected"}
                 </Badge>
                 {testStepDone && (
                   <span style={{ fontSize: 12, color: "var(--color-muted)", minWidth: 0 }}>

@@ -72,6 +72,24 @@ export const SHARE_BACKEND_BASE_URL = `http://127.0.0.1:${SHARE_BACKEND_PORT}`;
 
 export const DEMO_OWNER_USERNAME = "e2e-owner";
 export const DEMO_OWNER_PASSWORD = "e2e-owner-password-1";
+/** A SECOND owner account, for specs that mutate owner-global server state.
+ * Reader appearance (`GET/PUT /api/reader-prefs`) is stored per user, and
+ * this suite runs spec files in parallel against ONE shared backend, so a
+ * spec that flips those prefs as `DEMO_OWNER_USERNAME` silently changes what
+ * `share-reader.spec.ts` sees mid-run. Signing such a spec in as this
+ * account isolates the mutation instead of racing over one row. */
+export const DEMO_ALT_USERNAME = "e2e-owner-2";
+export const DEMO_ALT_PASSWORD = "e2e-owner-2-password-1";
+export const DEMO_ALT2_USERNAME = "e2e-owner-3";
+export const DEMO_ALT2_PASSWORD = "e2e-owner-3-password-1";
+/** Every seeded account, so the bootstrap below stays one loop instead of a
+ * copy-pasted block per user. Each test that WRITES reader prefs must own a
+ * different one of these. */
+const SEEDED_USERS: readonly (readonly [string, string, string])[] = [
+  [DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD, "e2e-owner@example.com"],
+  [DEMO_ALT_USERNAME, DEMO_ALT_PASSWORD, "e2e-owner-2@example.com"],
+  [DEMO_ALT2_USERNAME, DEMO_ALT2_PASSWORD, "e2e-owner-3@example.com"],
+];
 /** The bootstrap SQL below sets this on the owner row, and
  * `auth.py`'s `AuthContext.principal` resolves to `user.email or
  * user.username` — email wins whenever it's set — so any per-principal
@@ -211,9 +229,12 @@ import os
 engine = make_engine(os.environ["VSNOTE_DB_URL"])
 Base.metadata.create_all(engine)
 db = make_sessionmaker(engine)()
-if db.query(models.User).filter(models.User.username == "${DEMO_OWNER_USERNAME}").one_or_none() is None:
-    db.add(models.User(username="${DEMO_OWNER_USERNAME}", password_hash=security.hash_password("${DEMO_OWNER_PASSWORD}"), email="e2e-owner@example.com", is_admin=True))
-    db.commit()
+for username, password, email in [
+${SEEDED_USERS.map(([u, p, e]) => `    ("${u}", "${p}", "${e}"),`).join("\n")}
+]:
+    if db.query(models.User).filter(models.User.username == username).one_or_none() is None:
+        db.add(models.User(username=username, password_hash=security.hash_password(password), email=email, is_admin=True))
+        db.commit()
 db.close()
 `.trim(),
     ],

@@ -244,8 +244,8 @@ export function SharedView() {
     { key: "mode", header: "Mode", type: "badge", width: "sm" },
     { key: "access", header: "Access", type: "badge", width: "md" },
     { key: "freshness", header: "Freshness", type: "badge", badgeVariant: "warning", badgeStyle: "soft", width: "sm" },
-    { key: "linksTo", header: "Links to", type: "number", width: "xs", align: "right" },
-    { key: "linkedFrom", header: "Linked from", type: "number", width: "xs", align: "right" },
+    { key: "linksTo", header: "Links", type: "number", width: "xs", align: "right" },
+    { key: "linkedFrom", header: "Backlinks", type: "number", width: "xs", align: "right" },
     { key: "hits", header: "Hits", type: "number", width: "xs", align: "right" },
     { key: "lastAccessed", header: "Last accessed", width: "sm" },
   ];
