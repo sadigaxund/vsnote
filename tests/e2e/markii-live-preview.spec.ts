@@ -157,5 +157,47 @@ test.describe("markii directive live preview (.mk.md Rendered mode)", () => {
     await expect(rendered.locator(".mk-live-preview-block")).toHaveCount(0);
     await expect(rendered).toContainText(":::center");
     expect((await activeLineText()).trim()).toBe(":::");
+
+    // ---- Round-6 regression: revealed fence lines trap the caret ----
+    // `mkBlockVerticalNavigation` used to re-run its "entering the widget
+    // from outside" correction on every ArrowUp/Down, even once the
+    // directive was already revealed (its lines are real text at that
+    // point) — landing EXACTLY on the opening/closing fence line satisfied
+    // its old `before <= range.from` / `before >= range.to` check again on
+    // the very next keystroke and snapped the caret straight back, an
+    // infinite trap plain arrows could never escape (only Ctrl+Arrow, which
+    // this keymap never binds, could). The caret is currently on the
+    // CLOSING fence (`:::`, from the check just above) with the whole
+    // directive revealed — continuing to arrow UP must walk through the
+    // inner line, the opening fence, the blank separator, and the intro
+    // paragraph, each one a NEW line, never bouncing back onto a line
+    // already visited.
+    const upSequence: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press("ArrowUp");
+      upSequence.push((await activeLineText()).trim());
+    }
+    expect(upSequence).toEqual(["Hello from inside.", ":::center", "", "Some intro text."]);
+    for (let i = 1; i < upSequence.length; i++) {
+      expect(upSequence[i]).not.toBe(upSequence[i - 1]);
+    }
+
+    // Symmetric check going back DOWN from the intro paragraph, through the
+    // same revealed block, out the other side to the outro paragraph.
+    const downSequence: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press("ArrowDown");
+      downSequence.push((await activeLineText()).trim());
+    }
+    expect(downSequence).toEqual([
+      "",
+      ":::center",
+      "Hello from inside.",
+      ":::",
+      "Outro text.",
+    ]);
+    for (let i = 1; i < downSequence.length; i++) {
+      expect(downSequence[i]).not.toBe(downSequence[i - 1]);
+    }
   });
 });

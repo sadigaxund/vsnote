@@ -318,22 +318,23 @@ function cursorTouches(state: EditorState, from: number, to: number): boolean {
 }
 
 /**
- * `pos`'s enclosing `MK_DIRECTIVE_CONTAINER`/`MK_DIRECTIVE_LEAF` node, if
- * `pos` sits STRICTLY inside it (excluding both boundaries — a boundary
- * position already satisfies `cursorTouches` and gets the raw-source
- * decoration on its own, so vertical motion landing exactly on `from`/`to`
- * needs no correction). Used only by `mkBlockVerticalNavigation` below.
+ * Whether `pos` sits inside (inclusive of both edges) a currently
+ * COLLAPSED block widget range in `decorations` — a `Decoration.replace`
+ * range `buildBlockDecorations` only ever pushes for a directive the
+ * cursor is NOT touching (see that function: a touched directive pushes
+ * nothing here, its lines stay real, revealed text). `RangeSet.between`
+ * with equal `from`/`to` bounds reports every decoration overlapping that
+ * single point, inclusive on both ends — exactly "does this position fall
+ * inside, or right on the edge of, a widget". Used only by
+ * `mkBlockVerticalNavigation` below, and always queried against the
+ * decoration set as it stood BEFORE the keystroke being handled (see that
+ * function's own doc for why "before", not "after").
  */
-function findEnclosingBlockRange(state: EditorState, pos: number): { from: number; to: number } | null {
-  const tree = treeFor(state, state.doc.length);
+function collapsedRangeAt(decorations: DecorationSet, pos: number): { from: number; to: number } | null {
   let found: { from: number; to: number } | null = null;
-  tree.iterate({
-    enter(node) {
-      if (found) return false;
-      if (node.name !== MK_DIRECTIVE_CONTAINER && node.name !== MK_DIRECTIVE_LEAF) return undefined;
-      if (pos > node.from && pos < node.to) found = { from: node.from, to: node.to };
-      return false; // never need to descend into a directive's own children for this check.
-    },
+  decorations.between(pos, pos, (from, to) => {
+    found = { from, to };
+    return false;
   });
   return found;
 }
@@ -361,22 +362,41 @@ function findEnclosingBlockRange(state: EditorState, pos: number): { from: numbe
  * the same "no text to land in" problem `atomicRanges` is normally used to
  * paper over).
  *
- * The fix extends the existing cursor-reveal predicate (`cursorTouches`,
- * used by `buildBlockDecorations`/`buildInlineDecorations` to decide when
- * to show raw source) to this case: run CM6's default vertical motion
- * first, then check whether the result landed strictly inside a directive
- * range while the ORIGINAL position was outside it (i.e. this keypress is
- * what's crossing the boundary). If so, snap the selection to the range's
- * `from` (entering from above — lands on the directive's own first/opening
- * fence line) or `to` (entering from below — lands on its last/closing
- * fence line) instead of wherever the pre-decoration-update motion guessed.
- * That dispatches a second, selection-only transaction, which the block
- * `StateField` DOES see before rendering (its `update` recomputes on any
- * selection change), so the directive is already showing raw, editable
- * source lines by the time this command returns — the caret lands on real
- * text, not the widget.
+ * The fix: capture `blockField`'s decoration set BEFORE running CM6's
+ * default vertical motion, run the default motion, then check whether the
+ * result landed inside a range that was COLLAPSED as of that captured,
+ * PRE-motion snapshot (`collapsedRangeAt`). If so — this keypress is what's
+ * crossing into the widget from outside it — snap the selection to the
+ * range's `from` (entering from above — lands on the directive's own
+ * first/opening fence line) or `to` (entering from below — lands on its
+ * last/closing fence line) instead of wherever the pre-decoration-update
+ * motion guessed. That dispatches a second, selection-only transaction,
+ * which the block `StateField` DOES see before rendering (its `update`
+ * recomputes on any selection change), so the directive is already showing
+ * raw, editable source lines by the time this command returns — the caret
+ * lands on real text, not the widget.
+ *
+ * Using the syntax tree alone here (an earlier version's `findEnclosingBlockRange`,
+ * matching on the `MK_DIRECTIVE_CONTAINER`/`MK_DIRECTIVE_LEAF` node span
+ * regardless of collapse state) is what caused MK round-6's "revealed fence
+ * lines trap the caret" bug: a directive's tree-node span covers its
+ * opening-fence-to-closing-fence range whether or not it's currently
+ * revealed, so once a directive was already open (cursor inside it, raw
+ * `:::` lines showing as real text), moving down from EXACTLY the opening
+ * fence position satisfied `before <= range.from` (equality, not just
+ * "truly from outside") and got treated as "entering from outside" all over
+ * again — snapping the caret straight back to `range.from` on every single
+ * ArrowDown, an infinite trap. Querying the DECORATION set instead of the
+ * tree fixes this at the root: a revealed directive has NO `Decoration.replace`
+ * range in `blockField` at all (`buildBlockDecorations` only ever pushes one
+ * for a directive the cursor is NOT touching), so `collapsedRangeAt` simply
+ * returns `null` for any position inside an already-revealed directive —
+ * this handler does nothing special and CM6's own default motion (which
+ * needs no help on real, revealed text) is left to run untouched, exactly
+ * per the bug report's "when the caret is already inside a revealed range,
+ * do nothing special".
  */
-function mkBlockVerticalNavigation(direction: 1 | -1) {
+function mkBlockVerticalNavigation(direction: 1 | -1, blockField: StateField<DecorationSet>) {
   return (view: EditorView): boolean => {
     // This keymap sits at `Prec.highest` and, per the module's compartment
     // ordering (`LivePreviewEditor.tsx`: decorations compartment installed
@@ -394,18 +414,20 @@ function mkBlockVerticalNavigation(direction: 1 | -1) {
     // `handleContainerOpenFenceEnter`'s own `completionStatus` guard below
     // in `markiiCompletion.ts` does for Enter.
     if (completionStatus(view.state) === "active") return false;
-    const before = view.state.selection.main.head;
+    // Snapshot BEFORE the default motion runs — `cursorLineDown`/`cursorLineUp`
+    // dispatch a selection-changing transaction, and `blockField.update`
+    // recomputes on any selection change, so `view.state.field(blockField)`
+    // read AFTER already reflects the NEW cursor position (a directive it
+    // just entered is already marked revealed there). Only the PRE-motion
+    // snapshot can answer "was the destination shown collapsed a moment
+    // ago", which is the only case this handler needs to correct.
+    const beforeDecorations = view.state.field(blockField);
     const ran = direction === 1 ? cursorLineDown(view) : cursorLineUp(view);
     if (!ran) return ran;
     const after = view.state.selection.main;
     if (!after.empty) return true; // a shift-selection variant isn't this command's concern.
-    const range = findEnclosingBlockRange(view.state, after.head);
-    if (!range) return true;
-    // Only correct a genuine crossing INTO the range from outside it — a
-    // move that already started inside (or on its edge) already has real,
-    // revealed source lines to navigate within, and needs no help.
-    const enteredFromOutside = direction === 1 ? before <= range.from : before >= range.to;
-    if (!enteredFromOutside) return true;
+    const range = collapsedRangeAt(beforeDecorations, after.head);
+    if (!range) return true; // not a collapsed-widget crossing — real text, default motion already correct.
     const target = direction === 1 ? range.from : range.to;
     if (after.head !== target) {
       view.dispatch({ selection: EditorSelection.cursor(target), scrollIntoView: true });
@@ -427,13 +449,21 @@ function mkBlockVerticalNavigation(direction: 1 | -1) {
  * every position with no enclosing directive — behaves exactly as before;
  * this only ever changes the RESULT of the default motion when it lands
  * inside a directive block per `mkBlockVerticalNavigation`'s own doc.
+ *
+ * Built inside `markiiLivePreviewDecorations` (not module-level) so the
+ * handler can close over THAT editor instance's own `blockField` — plain
+ * ArrowUp/ArrowDown only, deliberately: no `shift`/`ctrl`/`alt` modifier
+ * variant is bound here, so Shift-Arrow selection and Ctrl/Mod-Arrow (word/
+ * paragraph) motion keep going straight to CM6's own bindings, untouched.
  */
-const mkBlockNavigationKeymap = Prec.highest(
-  keymap.of([
-    { key: "ArrowDown", run: mkBlockVerticalNavigation(1) },
-    { key: "ArrowUp", run: mkBlockVerticalNavigation(-1) },
-  ]),
-);
+function mkBlockNavigationKeymap(blockField: StateField<DecorationSet>): Extension {
+  return Prec.highest(
+    keymap.of([
+      { key: "ArrowDown", run: mkBlockVerticalNavigation(1, blockField) },
+      { key: "ArrowUp", run: mkBlockVerticalNavigation(-1, blockField) },
+    ]),
+  );
+}
 
 function buildBlockDecorations(state: EditorState, cache: Map<string, string>, registry: Registry, valueStore: ValueStore | undefined): DecorationSet {
   const decorations: Range<Decoration>[] = [];
@@ -577,5 +607,5 @@ export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegis
     { decorations: (v) => v.decorations },
   );
 
-  return [blockField, inlinePlugin, mkLivePreviewTheme, mkBlockNavigationKeymap];
+  return [blockField, inlinePlugin, mkLivePreviewTheme, mkBlockNavigationKeymap(blockField)];
 }
