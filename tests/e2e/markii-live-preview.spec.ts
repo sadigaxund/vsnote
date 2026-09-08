@@ -185,7 +185,7 @@ test.describe("markii directive live preview (.mk.md Rendered mode)", () => {
     // Symmetric check going back DOWN from the intro paragraph, through the
     // same revealed block, out the other side to the outro paragraph.
     const downSequence: string[] = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await page.keyboard.press("ArrowDown");
       downSequence.push((await activeLineText()).trim());
     }
@@ -194,6 +194,7 @@ test.describe("markii directive live preview (.mk.md Rendered mode)", () => {
       ":::center",
       "Hello from inside.",
       ":::",
+      "",
       "Outro text.",
     ]);
     for (let i = 1; i < downSequence.length; i++) {
