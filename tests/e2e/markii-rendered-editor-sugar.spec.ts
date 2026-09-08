@@ -60,7 +60,7 @@ test.describe("markii editor sugar in Rendered mode (.mk.md)", () => {
     await centerOption.click();
 
     // `componentSkeleton("center", "container", [])` is
-    // `:::center{}\n\n:::`, cursor landing right after the first `\n` —
+    // `:::center\n\n:::`, cursor landing right after the first `\n` —
     // i.e. on the blank body line between the two fences. That's exactly
     // where the next step needs to type.
     await expect.poll(async () => (await rendered.innerText())).toContain(":::center");
@@ -136,5 +136,65 @@ test.describe("markii editor sugar in Rendered mode (.mk.md)", () => {
     // Enter must have ACCEPTED the third item's skeleton, not inserted a
     // bare newline — the fence line now names that directive.
     await expect.poll(async () => (await rendered.innerText())).toContain(`:::${thirdLabel}`);
+  });
+
+  /**
+   * Round 6 MK item 2 regression: accepting `row` after typing `:::ro` used
+   * to leave the typed `ro` behind as a leftover line right after the
+   * inserted skeleton's closing fence (`:::row{ }` / blank / `:::ro`) —
+   * `toCmCompletion`'s `apply` closed over a `to` frozen at the moment the
+   * popup first opened (right after `:::` alone), instead of reading the
+   * LIVE end of the typed span CodeMirror hands `apply` on accept (see that
+   * function's own doc in `markiiCompletion.ts`). Checked in BOTH modes —
+   * Source mode's `CodeMirrorEditor` and Rendered mode's `LivePreviewEditor`
+   * share the exact same `markiiEditorExtensions()` bundle, but the
+   * completion-accept path is worth confirming didn't regress in either
+   * wiring. Also confirms the round-6 `componentSkeleton` fix: no bare
+   * empty `{}`/`{ }` for a component with no required attributes ("row"
+   * only has an optional `cols`).
+   */
+  test("accepting a completion after typing past the query position replaces the whole typed prefix, in both modes", async ({
+    page,
+  }) => {
+    await gotoApp(page);
+
+    await treeRow(page, "vault/src").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New File" }).click();
+    const newFileRow = treeRow(page, "vault/src/.vsnote-draft-file");
+    await expect(newFileRow).toBeVisible();
+    await newFileRow.locator("input").fill("accept-range.mk.md");
+    await newFileRow.locator("input").press("Enter");
+    const fileRow = treeRow(page, "vault/src/accept-range.mk.md");
+    await expect(fileRow).toBeVisible();
+    await fileRow.click();
+
+    // Source mode first.
+    await page.getByRole("radio", { name: "Source" }).click();
+    const source = page.locator(".cm-content").first();
+    await source.click();
+    await page.keyboard.type(":::ro");
+    const sourcePopup = page.locator(".cm-tooltip-autocomplete");
+    await expect(sourcePopup).toBeVisible();
+    const rowInSource = sourcePopup.locator("li:has(.cm-completionLabel:text-is('row'))").first();
+    await expect(rowInSource).toBeVisible();
+    // May already be highlighted (unique match) — ArrowDown-to-select is
+    // harmless either way since it's the only option "ro" matches.
+    await rowInSource.click();
+    await expect.poll(async () => await source.innerText()).toBe(":::row\n\n:::");
+
+    // Rendered mode: same sequence, on a fresh line.
+    await page.getByRole("radio", { name: "Rendered" }).click();
+    const rendered = page.locator(".cm-content").first();
+    await expect(rendered).toBeVisible();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("\n\n:::ro");
+    const renderedPopup = page.locator(".cm-tooltip-autocomplete");
+    await expect(renderedPopup).toBeVisible();
+    const rowInRendered = renderedPopup.locator("li:has(.cm-completionLabel:text-is('row'))").first();
+    await expect(rowInRendered).toBeVisible();
+    await rowInRendered.click();
+
+    await page.getByRole("radio", { name: "Source" }).click();
+    await expect.poll(async () => await source.innerText()).toBe(":::row\n\n:::\n\n:::row\n\n:::");
   });
 });

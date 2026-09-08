@@ -128,7 +128,34 @@ function applyMarkiiInsertion(view: EditorView, insertText: string, insertCursor
   view.dispatch({ selection: EditorSelection.cursor(cursorPos) });
 }
 
-function toCmCompletion(item: ReturnType<typeof completionAt>["items"][number], from: number, to: number): Completion {
+/**
+ * `from` here is FIXED — the start of the `:::`/`::`/`:` run on the line,
+ * computed once when the completion source ran (`markiiCompletionSource`'s
+ * `applyFrom`) — that anchor never moves as the author keeps typing the
+ * directive name.
+ *
+ * The end of what gets replaced is a different story, and `apply` below
+ * deliberately does NOT close over a `to` frozen at query time (that WAS
+ * this function's round-6 bug): CodeMirror's own `applyCompletion`
+ * (`node_modules/@codemirror/autocomplete/dist/index.js`, `ActiveResult`)
+ * tracks the LIVE end of the typed token itself and passes it as `apply`'s
+ * 4th argument on every accept, growing it via `validFor`'s regex re-match
+ * as the author types more characters WITHOUT re-invoking
+ * `markiiCompletionSource` (see that function's own `validFor` comment).
+ * The `to` this outer function receives is only ever used to build the
+ * INITIAL `CompletionResult` at query time — by definition already stale
+ * for the very typing `validFor` exists to accommodate.
+ *
+ * Using the stale, closed-over `to` for the actual accept edit was exactly
+ * the round-6 "leftover prefix" bug: typing `:::ro`, then accepting `row`,
+ * replaced only `:::` (the closed-over range from when the popup FIRST
+ * opened, right after `:::` alone) with the skeleton, leaving the `ro`
+ * typed afterward sitting untouched immediately after the skeleton's own
+ * closing fence — `:::row\n\n:::` + the orphaned `ro` read as
+ * `:::row\n\n:::ro`. Reading the live `to` CM hands `apply` instead makes
+ * the accepted range always cover everything typed since the popup opened.
+ */
+function toCmCompletion(item: ReturnType<typeof completionAt>["items"][number], from: number): Completion {
   return {
     label: item.label,
     type: item.kind === "component" ? "class" : item.kind === "attribute" ? "property" : "text",
@@ -139,7 +166,7 @@ function toCmCompletion(item: ReturnType<typeof completionAt>["items"][number], 
           return text ? document.createTextNode(text) : null;
         }
       : undefined,
-    apply: (view) => applyMarkiiInsertion(view, item.insertText, item.insertCursorOffset, from, to),
+    apply: (view, _completion, _from, liveTo) => applyMarkiiInsertion(view, item.insertText, item.insertCursorOffset, from, liveTo),
   };
 }
 
@@ -176,14 +203,17 @@ export function markiiCompletionSource(context: CompletionContext): CompletionRe
   if (ctx.kind === "none" || ctx.items.length === 0) return null;
 
   const applyFrom = lineFrom + ctx.replaceStart;
-  const applyTo = lineFrom + ctx.replaceEnd;
   const from = lineFrom + completionTokenStart(lineText, column, ctx.replaceStart, ctx.kind);
   return {
     from,
     // Re-filter in place while a name is still being typed instead of
-    // re-querying the catalog on every keystroke.
+    // re-querying the catalog on every keystroke. `toCmCompletion`'s
+    // `apply` reads the LIVE end of what's been typed straight from
+    // CodeMirror at accept time (see its own doc) rather than closing over
+    // `ctx.replaceEnd` here, which would go stale the moment the author
+    // types past it.
     validFor: /^[\w-]*$/,
-    options: ctx.items.map((item) => toCmCompletion(item, applyFrom, applyTo)),
+    options: ctx.items.map((item) => toCmCompletion(item, applyFrom)),
   };
 }
 

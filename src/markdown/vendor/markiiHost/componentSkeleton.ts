@@ -6,8 +6,16 @@
  * `@markii/host` is `private: true` upstream and never published to npm
  * (confirmed: `npm view @markii/host` 404s), so this file is copied rather
  * than imported — see docs/PLAN-2026-09-05-refresh.md §6 Phase M1. Copied
- * verbatim (no `@markii/pack` dependency to trim). Re-fetch from upstream
- * on version bumps rather than hand-editing.
+ * verbatim (no `@markii/pack` dependency to trim) EXCEPT for one deliberate
+ * deviation, logged as an upstream finding (orchestrator log, MK-next):
+ * upstream's `container`/`leaf` branches for zero required attributes
+ * emitted a bare, pointless `{}` (e.g. `:::row{}`) — the exact "trailing
+ * empty `{}` would be pointless noise" reasoning this file's own module doc
+ * already gives for why the `inline` branch omits it, just not applied
+ * consistently to the other two forms upstream. Fixed locally below rather
+ * than re-vendoring around it (there is nothing to re-fetch: this IS the
+ * latest pinned upstream source). Re-fetch from upstream on version bumps
+ * rather than hand-editing otherwise.
  *
  * Original file header:
  * "Insert Component" (GitHub issue #17, slice 1): given a component's
@@ -41,13 +49,14 @@ export interface ComponentSkeleton {
  * never emitted, keeping the inserted text as small as the directive can
  * legally be.
  *
- * Directive forms match docs/format.md's three spellings:
- * - `container`: `:::NAME{...}\n\n:::`
- * - `leaf`:      `::NAME{...}`
- * - `inline`:    `:NAME[...]{...}` (the `{...}` clause only appears when
- *   there are required attributes — an inline directive with none of its
- *   own is just `:NAME[]`, since `[...]` is already its content slot and a
- *   trailing empty `{}` would be pointless noise in the inserted text)
+ * Directive forms match docs/format.md's three spellings, and in ALL THREE
+ * the `{...}`/`[...]{...}` attribute clause only appears when there are
+ * required attributes to pre-fill — zero required attributes means no
+ * bracket noise at all, never a bare empty `{}`:
+ * - `container`: `:::NAME{...}\n\n:::`, or just `:::NAME\n\n:::`
+ * - `leaf`:      `::NAME{...}`, or just `::NAME`
+ * - `inline`:    `:NAME[...]{...}`, or `:NAME[]` (no `{}` needed here even
+ *   as a matter of principle — `[...]` is already its content slot)
  */
 export function componentSkeleton(
   directiveName: string,
@@ -58,7 +67,7 @@ export function componentSkeleton(
 
   if (kind === "container") {
     if (requiredAttributes.length === 0) {
-      const prefix = `:::${directiveName}{}\n`;
+      const prefix = `:::${directiveName}\n`;
       return { text: `${prefix}\n:::`, cursorOffset: prefix.length };
     }
     const prefix = `:::${directiveName}${attributesClause}\n`;
@@ -70,8 +79,8 @@ export function componentSkeleton(
 
   if (kind === "leaf") {
     if (requiredAttributes.length === 0) {
-      const text = `::${directiveName}{}`;
-      return { text, cursorOffset: text.length - 1 };
+      const text = `::${directiveName}`;
+      return { text, cursorOffset: text.length };
     }
     const text = `::${directiveName}${attributesClause}`;
     return { text, cursorOffset: firstAttributeQuoteOffset(text) };

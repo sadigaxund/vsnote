@@ -55,9 +55,20 @@ describe("completionAt / hoverAt", () => {
 });
 
 describe("componentSkeleton", () => {
-  it("builds a container skeleton with a bare {} clause when nothing is required", () => {
+  it("builds a container skeleton with no attribute clause at all when nothing is required", () => {
+    // Round-6 fix: upstream's `{}` here was pointless noise (the same
+    // reasoning its own module doc already gives for why the `inline` form
+    // omits it) — see `componentSkeleton.ts`'s header for the logged
+    // upstream finding.
     const skeleton = componentSkeleton("center", "container", []);
-    expect(skeleton.text).toBe(":::center{}\n\n:::");
+    expect(skeleton.text).toBe(":::center\n\n:::");
+    expect(skeleton.cursorOffset).toBe(":::center\n".length);
+  });
+
+  it("builds a leaf skeleton with no attribute clause at all when nothing is required", () => {
+    const skeleton = componentSkeleton("divider", "leaf", []);
+    expect(skeleton.text).toBe("::divider");
+    expect(skeleton.cursorOffset).toBe(skeleton.text.length);
   });
 });
 
