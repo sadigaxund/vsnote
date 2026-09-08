@@ -79,6 +79,9 @@ const SettingsView = lazyWithReload(() => import("./SettingsView").then((m) => (
 // the exact lazy point the reported bug hit ("Failed to fetch dynamically
 // imported module: .../SharedView-<hash>.js").
 const SharedView = lazyWithReload(() => import("./SharedView").then((m) => ({ default: m.SharedView })));
+// R5-9 — the Markii extension page, same lazy/virtual-tab treatment as
+// Settings/Shared above (see `lib/extensionTab.ts`'s doc).
+const ExtensionPage = lazyWithReload(() => import("./ExtensionPage").then((m) => ({ default: m.ExtensionPage })));
 
 export interface EditorContentProps {
   /** Which pane this content belongs to (Phase 6) — threaded to every CM6
@@ -104,6 +107,10 @@ export interface EditorContentProps {
   onExportVault?: () => void;
   onRequestResetVault?: () => void;
   onRestoreFromRemote?: () => void;
+  /** R5-9 — `SettingsView`'s pointer row ("Markii settings live in
+   * Extensions") opens the Markii extension page tab through this, same
+   * threading as `onExportVault` etc. above. */
+  onOpenExtension?: () => void;
 }
 
 export function EditorContent({
@@ -124,6 +131,7 @@ export function EditorContent({
   onExportVault,
   onRequestResetVault,
   onRestoreFromRemote,
+  onOpenExtension,
 }: EditorContentProps) {
   const [headContent, setHeadContent] = useState("");
   useEffect(() => {
@@ -160,6 +168,7 @@ export function EditorContent({
           onExportVault={onExportVault}
           onRequestResetVault={onRequestResetVault}
           onRestoreFromRemote={onRestoreFromRemote}
+          onOpenExtension={onOpenExtension}
         />
       </Suspense>
     );
@@ -171,6 +180,16 @@ export function EditorContent({
     return (
       <Suspense fallback={<EditorLoading />}>
         <SharedView />
+      </Suspense>
+    );
+  }
+
+  // R5-9 — same short-circuit as "settings"/"shared" above, for the same
+  // reason: not a file, no mode/buffer/diff behavior.
+  if (kind === "extension") {
+    return (
+      <Suspense fallback={<EditorLoading />}>
+        <ExtensionPage />
       </Suspense>
     );
   }

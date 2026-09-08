@@ -237,9 +237,13 @@ async function loadMkMdLanguage(includeDirectives: boolean): Promise<Extension> 
  * (below) from `loadPersistedValues` + `hydrateValueStore`, a pure read
  * of a previous run's cached values; nothing here ever calls `runScripts`.
  */
-async function loadMkMdDecorations(enabledPacks: readonly EnabledPack[], valueStore: ReturnType<typeof hydrateValueStore> | undefined): Promise<Extension[]> {
+async function loadMkMdDecorations(
+  enabledPacks: readonly EnabledPack[],
+  valueStore: ReturnType<typeof hydrateValueStore> | undefined,
+  revealHintEnabled: boolean,
+): Promise<Extension[]> {
   const { markiiLivePreviewDecorations } = await import("../markdown/directiveLezer/decorations");
-  return markiiLivePreviewDecorations(enabledPacks, valueStore);
+  return markiiLivePreviewDecorations(enabledPacks, valueStore, revealHintEnabled);
 }
 
 /**
@@ -249,9 +253,9 @@ async function loadMkMdDecorations(enabledPacks: readonly EnabledPack[], valueSt
  * `markiiCompletion.ts` (or, transitively, the vendored `@markii/host`
  * chunk it pulls in).
  */
-async function loadMkMdCompletionExtensions(): Promise<Extension[]> {
+async function loadMkMdCompletionExtensions(fenceSugarEnabled: boolean): Promise<Extension[]> {
   const { markiiEditorExtensions } = await import("./markiiCompletion");
-  return markiiEditorExtensions();
+  return markiiEditorExtensions(fenceSugarEnabled);
 }
 
 export interface LivePreviewEditorProps {
@@ -313,6 +317,18 @@ export function LivePreviewEditor({
   // `markiiEditorExtensions()` reads the syntax tree), so it gets its own
   // effect below rather than being folded into either existing dispatch.
   const mkMdCompletionCompartmentRef = useRef(new Compartment());
+  // R5-9 — the language effect's own in-flight (or already-settled)
+  // dispatch, so the decorations effect can `await` it before reading the
+  // syntax tree. Needed once the Markii `Enabled` switch can flip AFTER
+  // mount (both effects re-run together, not just once at mount like
+  // before): without this, a re-enable's decorations dispatch could race
+  // ahead of the language reconfigure that puts `markiiDirectiveGrammar`
+  // back — same stale-tree hazard `mkMdLanguageCompartmentRef`'s own doc
+  // above describes, just triggered by a toggle instead of first mount.
+  // Effects in the same commit run in declaration order, so by the time
+  // the decorations effect below reads this ref, the language effect
+  // (declared first) has already assigned this render's promise into it.
+  const languageReadyRef = useRef<Promise<void>>(Promise.resolve());
 
   const onChangeRef = useRef(onChange);
   const onCursorChangeRef = useRef(onCursorChange);
@@ -401,16 +417,23 @@ export function LivePreviewEditor({
   const markiiEnabled = useMarkiiExtensionSettingsStore((s) => s.enabled);
   const directiveRenderingEnabled = useMarkiiExtensionSettingsStore((s) => s.directiveRenderingEnabled);
   const completionEnabled = useMarkiiExtensionSettingsStore((s) => s.completionEnabled);
+  // R5-9b — Editor section's "Fence sugar" row; see `markiiEditorExtensions`'s
+  // own doc in `markiiCompletion.ts` for exactly what it gates.
+  const fenceSugarEnabled = useMarkiiExtensionSettingsStore((s) => s.fenceSugarEnabled);
+  // R5-9b — Editor section's "Reveal hint" row; see `decorations.ts`'s
+  // `maybePushRevealHint` doc for exactly what it gates.
+  const revealHintEnabled = useMarkiiExtensionSettingsStore((s) => s.revealHintEnabled);
 
   useEffect(() => {
     if (!isMkMdPath(path)) return;
     let cancelled = false;
-    loadMkMdLanguage(markiiEnabled).then((language) => {
+    const ready = loadMkMdLanguage(markiiEnabled).then((language) => {
       if (cancelled) return;
       const view = viewRef.current;
       if (!view) return;
       view.dispatch({ effects: mkMdLanguageCompartmentRef.current.reconfigure(language) });
     });
+    languageReadyRef.current = ready;
     return () => {
       cancelled = true;
     };
@@ -442,10 +465,15 @@ export function LivePreviewEditor({
       return;
     }
     (async () => {
+      // R5-9 — wait for this render's language reconfigure to actually
+      // land before reading the syntax tree (see `languageReadyRef`'s own
+      // doc above for the race this avoids).
+      await languageReadyRef.current;
+      if (cancelled) return;
       const persisted = await loadPersistedValues(path).catch(() => undefined);
       if (cancelled) return;
       const valueStore = hydrateValueStore(persisted);
-      const decorations = await loadMkMdDecorations(enabledPacks, valueStore);
+      const decorations = await loadMkMdDecorations(enabledPacks, valueStore, revealHintEnabled);
       if (cancelled) return;
       const view = viewRef.current;
       if (!view) return;
@@ -459,7 +487,7 @@ export function LivePreviewEditor({
     // legitimately change under a live instance and must re-trigger this
     // effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runVersion, enabledPacks, markiiEnabled, directiveRenderingEnabled]);
+  }, [runVersion, enabledPacks, markiiEnabled, directiveRenderingEnabled, revealHintEnabled]);
 
   // `.mk.md` directive completion/hover/insert (R3-12) — see this file's
   // module doc, point 3. Runs once at mount, same "`path` fixed for this
@@ -478,7 +506,7 @@ export function LivePreviewEditor({
       return;
     }
     let cancelled = false;
-    loadMkMdCompletionExtensions().then((extensions) => {
+    loadMkMdCompletionExtensions(fenceSugarEnabled).then((extensions) => {
       if (cancelled) return;
       const view = viewRef.current;
       if (!view) return;
@@ -487,7 +515,7 @@ export function LivePreviewEditor({
     return () => {
       cancelled = true;
     };
-  }, [path, markiiEnabled, completionEnabled]);
+  }, [path, markiiEnabled, completionEnabled, fenceSugarEnabled]);
 
   useEffect(() => {
     const view = viewRef.current;

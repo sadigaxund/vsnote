@@ -65,8 +65,11 @@
 
 ## Non-goals (v1)
 
-Terminal, code execution, real network git, extensions marketplace (icon is a stub),
-collaborative editing. Sharing/publishing, authentication, and the Python/FastAPI
+Terminal, code execution, real network git, a THIRD-PARTY extensions marketplace,
+collaborative editing. (R5-9: the Extensions rail icon itself is no longer a stub —
+it lists Markii, the one built-in extension; see "Extension model" below. What's
+still out of scope is a marketplace for installing OTHER extensions.)
+Sharing/publishing, authentication, and the Python/FastAPI
 backend are specced for v2 in `docs/ROADMAP-SHARING-AUTH.md` — out of scope for
 phases 1–5. Phase 9 (2026-08-15) built the backend itself; see "Backend (v2)" below.
 Phase 10 (2026-08-15, client sharing UI) is built — see "Sharing (Phase 10)" below.
@@ -4564,7 +4567,14 @@ There is no bundle browser and no write-back wiring.
 **No auto or scheduled script trigger.** The host-side tier gate is built and
 tested, but nothing calls `runScripts` with a non-manual trigger, so no
 "run automatically" control ships. A dead toggle was removed rather than
-shipped.
+shipped. R5-9 later re-introduced this same gap twice in the Markii
+extension page's Scripting section — "Run scripts when a note opens" and a
+per-tier default (`autoTierDefault`) for an auto-tier run, both persisted
+state with no reader. R5-9b removed both rows (and the `autoTierDefault`
+field/type) for the identical reason as the original dead toggle: giving
+either one a real reader needs an actual scheduler, which is still out of
+scope. `useMarkiiExtensionSettingsStore.ts`'s `migrate` drops any
+already-persisted `runOnNoteOpen`/`autoTierDefault` value on load.
 
 **Pack attribute-value completion is absent.** `componentCatalog.ts` was
 re-vendored untrimmed so directive names and hover are pack-aware, but
@@ -4592,6 +4602,10 @@ not hit.
 
 **The live-preview reveal hint is once per session and unmeasured.** It
 passes the UI audit, but no one has watched a real writing session with it on.
+(R5-9b: now toggleable off entirely via the Extensions page's "Reveal hint"
+row — `useMarkiiExtensionSettingsStore.revealHintEnabled`, threaded through
+`markiiLivePreviewDecorations` — but the once-per-session cadence and the
+"unmeasured in real use" caveat are otherwise unchanged.)
 
 **The service worker precache exclusion is structural, not by name.** A
 chunk is dropped from the precache when every module in it comes from a
@@ -4617,3 +4631,107 @@ than VSNote bugs, filed as issues on `markii-org/markii`:
 - Home the `@lezer/markdown` `BlockContext.input`/`.to` lookahead cast in `@markii/codemirror`; ask Lezer upstream for typed multi-line lookahead (reminder, not a markii bug) — [#51](https://github.com/markii-org/markii/issues/51)
 - Omit the bare `{}` from `componentSkeleton` when a directive has no required attributes — [#52](https://github.com/markii-org/markii/issues/52)
 - Mark interactive elements in rendered directives so editor hosts can separate click-to-act from click-to-edit — [#53](https://github.com/markii-org/markii/issues/53)
+
+## Extension model (R5-9, "Markii as an extension")
+
+Before this round, Markii's settings were scattered: a few rows lived
+inside Settings' Rendered-view/Editor categories in spirit (though, checked
+while building this, none had actually shipped there yet — see
+`components/settings/Rendered.tsx`/`Editor.tsx`'s history), and the real UI
+was Settings' "Packs" category (`.mkp` install/remove, per-note grants).
+The Extensions activity-bar icon, meanwhile, was a documented stub (see
+"Non-goals (v1)" above, corrected this round). This section is the shape
+that grew out of collapsing both into one place.
+
+### The shape today (one extension)
+
+- **`ExtensionsPanel.tsx`** (activity-bar sidebar view) lists installed
+  extensions as rows: icon, name, one-line description, version, an
+  `Enabled` `Switch`. One row, Markii — built in, not removable. The
+  `Enabled` switch is the master kill switch: off means no directive
+  rendering, no fence sugar, no script execution, all at once (see
+  `useMarkiiExtensionSettingsStore.ts`'s module doc for exactly what that
+  wires into).
+- Clicking a row opens **`ExtensionPage.tsx`**, an editor-area VIEW opened
+  as a tab (`lib/extensionTab.ts`'s `MARKII_EXTENSION_TAB_PATH`) — the same
+  "virtual tab" plumbing `SettingsView`/`SharedView` already use
+  (`types.ts`'s `FileKind`, `"extension"`; `EditorContent.tsx`'s
+  `kind === "extension"` branch). Same shell as Settings: a content column
+  (`SettingsRow`/`SettingsSection`, `local/SettingsRow.tsx`) plus a
+  scroll-spy TOC (`SettingsNavRail`, reused as-is) on the right, search
+  filtering rows the same way (`settings/types.ts`'s `rowMatches`).
+- Five sections, in order: **About** (version, project link), **Rendering**
+  (directive rendering in live preview, hide script blocks, render
+  components in the Preview pane), **Editor** (completion, fence sugar,
+  reveal hint), **Scripting** — device-local (turn off script execution on
+  this device, a link to grants management), and **Component packs** — the
+  former Settings "Packs" category, moved verbatim
+  (`components/extensions/Packs.tsx`/`packsLogic.ts`, moved from
+  `components/settings/`). R5-9 originally also shipped "Run scripts when a
+  note opens" and a per-tier default in Scripting; R5-9b removed both — see
+  the R5-9b paragraph below and the "No auto or scheduled script trigger"
+  Known limitation.
+- Settings keeps one pointer row (`SettingsView.tsx`'s `packs`-id category,
+  relabeled "Extensions"): "Markii settings live in Extensions," with an
+  "Open Extensions" button.
+- **What's real (R5-9b: every row on this page now has a real reader, or
+  was removed)** — `useMarkiiExtensionSettingsStore.ts` holds every
+  remaining toggle, persisted to localStorage; see that file's module doc
+  for the authoritative per-row list. The master `Enabled` switch and the
+  Rendering section's "Directive rendering" and Editor section's
+  "Completion" toggles are wired into `LivePreviewEditor.tsx`: they gate
+  which `.mk.md` grammar/decorations/completion extensions get installed
+  into the CM6 compartments, so turning them off has an immediate, real
+  effect on an already-open note (verified in
+  `tests/e2e/extensions-panel.spec.ts`). The Scripting section's "Turn off
+  script execution on this device" is wired into `useMarkiiStore.runNote`,
+  which now refuses to run (returns a zero-result `RunSummary` instead of
+  touching the isolate/grant machinery) when either that toggle or the
+  master switch is off. As of R5-9b, the remaining four are wired too:
+  "Hide script blocks" and "Render components in the Preview pane"
+  (`MarkdownPreviewPane.tsx`, threaded into `render.tsx`'s `renderMarkdown`
+  — a Markii script fence is dropped from the Preview pane's rendered
+  output entirely, and `previewPacksLogic.ts`'s `packsForPreview` decides
+  whether the pane is given any enabled-pack registry at all, so an
+  unresolved pack directive there falls back to the generic
+  "unknown directive" box instead of the labelled pack placeholder); "Fence
+  sugar" (`LivePreviewEditor.tsx` -> `markiiCompletion.ts`'s
+  `markiiEditorExtensions`, gating only the R3-12 manual-typing
+  outer-fence-lengthening Enter keymap — the shorthand directive grammar
+  itself stays behind the master switch); and "Reveal hint"
+  (`LivePreviewEditor.tsx` -> `directiveLezer/decorations.ts`'s
+  `markiiLivePreviewDecorations`, gating `maybePushRevealHint`). "Run
+  scripts when a note opens" and the per-tier default are GONE — see the
+  Known limitations entry below for why building a scheduler for either
+  one was out of scope.
+
+### The shape a second extension would take
+
+Nothing here is generic infrastructure yet — it's Markii's page, built
+directly, because Markii is still the only extension. A second extension
+would need:
+
+1. A row shape already generic enough to reuse (`ExtensionsPanel.tsx`'s
+   icon/name/description/version/`Enabled` row) — no changes needed there
+   beyond mapping over a list instead of rendering one row.
+2. A per-extension tab identity: `lib/extensionTab.ts` currently exports
+   one constant pair (`MARKII_EXTENSION_TAB_PATH`/`_NAME`); a second
+   extension is the moment that becomes a small `extensionTabPath(id)`
+   function instead, matching `SETTINGS_TAB_PATH`/`SHARED_TAB_PATH`'s
+   existing "one unprefixed path segment, never a real fs path" contract.
+3. `types.ts`'s `"extension"` `FileKind` already covers any extension's
+   page (it doesn't encode WHICH extension — `EditorContent.tsx`'s
+   `kind === "extension"` branch would need to read an id off the tab, the
+   way a second `SettingsView`-style shell would, rather than hardcoding
+   `<ExtensionPage />`).
+4. `ExtensionPage.tsx`'s shell (header + five-section scroll-spy body) is
+   currently Markii-specific content wrapped in generic layout. Lifting the
+   shell itself into `local/` (a generic `ExtensionPageShell` taking a
+   title/version/author/description/actions plus a section list) is the
+   right move at that point — premature before there's a second real
+   consumer to generalize FROM, per this file's own "don't abstract before
+   two call sites exist" convention elsewhere.
+5. A second, non-built-in extension would also need real install/remove
+   affordances the `Enabled` row doesn't have today (Markii can't be
+   removed) — nothing here designs that yet; it's out of scope until a
+   second extension is actually being added.

@@ -55,7 +55,9 @@ import "@markii/react/doc.css";
 import { renderMarkdown } from "../markdown/render";
 import { debounce } from "../lib/debounce";
 import { scrollFraction, scrollTopForFraction } from "../markdown/previewScrollSync";
+import { packsForPreview } from "../markdown/previewPacksLogic";
 import { useMarkiiStore, selectEnabledPacks } from "../stores/useMarkiiStore";
+import { useMarkiiExtensionSettingsStore } from "../stores/useMarkiiExtensionSettingsStore";
 
 /** ~150ms per the task brief — fast enough to feel live, slow enough that a
  * fast typist's keystrokes never each pay for a full re-parse/re-render. */
@@ -93,6 +95,12 @@ export function MarkdownPreviewPane({ path, name, content, sourceContainerRef }:
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const syncingRef = useRef(false);
   const enabledPacks = useMarkiiStore(useShallow(selectEnabledPacks));
+  // R5-9b — "Hide script blocks" / "Render components in the Preview pane"
+  // (Extensions page, Rendering section). See `render.tsx`'s
+  // `hideScriptBlocks` doc and `previewPacksLogic.ts`'s `packsForPreview`
+  // doc for exactly what each one changes.
+  const hideScriptBlocks = useMarkiiExtensionSettingsStore((s) => s.hideScriptBlocks);
+  const renderComponentsInPreview = useMarkiiExtensionSettingsStore((s) => s.renderComponentsInPreview);
 
   // Re-created only when the debounce DELAY changes (never, today) — a
   // stable function across re-renders so a pending timer from the previous
@@ -196,7 +204,11 @@ export function MarkdownPreviewPane({ path, name, content, sourceContainerRef }:
         data-testid="markdown-preview-scroll"
         style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 20px" }}
       >
-        {renderMarkdown(debouncedContent, { degradeUnresolvedRelativeLinks: false, enabledPacks })}
+        {renderMarkdown(debouncedContent, {
+          degradeUnresolvedRelativeLinks: false,
+          enabledPacks: packsForPreview(renderComponentsInPreview, enabledPacks),
+          hideScriptBlocks,
+        })}
       </div>
     </div>
   );

@@ -45,6 +45,7 @@ import { runScripts } from "../markii/host/runScripts";
 import type { RunSummary, RunTrigger } from "@markii/runtime";
 import { setMarkiiDiscoveredPacks } from "../editor/markiiCompletion";
 import { displayToFsPath } from "../fs/paths";
+import { selectScriptsAllowed, useMarkiiExtensionSettingsStore } from "./useMarkiiExtensionSettingsStore";
 
 const packStore = createBrowserPackStore();
 const grantStore = createBrowserGrantStore();
@@ -154,6 +155,25 @@ export const useMarkiiStore = create<MarkiiState>()((set, get) => ({
       },
 
       async runNote(path, text, trigger) {
+        // R5-9 — the Extensions panel's Markii "Enabled" switch and the
+        // extension page's device-local "Turn off script execution on this
+        // device" toggle both gate here: either one off means no note runs
+        // its scripts, full stop, before any isolate/net/grant machinery
+        // spins up. `selectScriptsAllowed` is the single AND both places
+        // that need this check share.
+        if (!selectScriptsAllowed(useMarkiiExtensionSettingsStore.getState())) {
+          const skipped: RunSummary = {
+            trigger,
+            tier: "manual",
+            results: [],
+            freshCount: 0,
+            errorCount: 0,
+            duplicateNames: [],
+            publishedCount: 0,
+          };
+          set((s) => ({ runSummaries: { ...s.runSummaries, [path]: skipped } }));
+          return skipped;
+        }
         set((s) => ({ runningPaths: { ...s.runningPaths, [path]: true } }));
         try {
           const enabledPacks = get().packs.filter((p) => p.enabled);

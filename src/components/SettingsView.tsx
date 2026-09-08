@@ -95,15 +95,16 @@
  * section's position on ANY scroll (click-driven or manual), so a manual
  * scroll updates the current row exactly the way a click does. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Input, ScrollArea, Separator } from "my-you-eye";
+import { Button, Input, ScrollArea, Separator } from "my-you-eye";
 import { SettingsNavRail } from "./local/SettingsNavRail";
+import { SettingsRow } from "./local/SettingsRow";
 import { SettingsSectionErrorBoundary } from "./local/SettingsSectionErrorBoundary";
 import {
+  Blocks,
   Eye,
   GitBranch,
   HardDrive,
   Keyboard as KeyboardIcon,
-  Package,
   Palette,
   Search as SearchIcon,
   Share2,
@@ -115,7 +116,6 @@ import { useRenderedRows } from "./settings/Rendered";
 import { useGitRows } from "./settings/Git";
 import { useSharingRows } from "./settings/Sharing";
 import { useStorageRows } from "./settings/Storage";
-import { usePacksRows } from "./settings/Packs";
 import { useKeyboardRows } from "./settings/Keyboard";
 import { rowMatches, type SettingsCategory } from "./settings/types";
 import { requestPersistentStorage, type StoragePersistenceStatus } from "../fs/persistence";
@@ -134,6 +134,11 @@ export interface SettingsViewProps {
    * remote?" confirm dialog `App.tsx` already owns for the command
    * palette's "Restore from remote…" entry. */
   onRestoreFromRemote?: () => void;
+  /** R5-9 — opens the Markii extension page tab. Threaded down for the
+   * pointer row that replaced the old "Packs" category (see this file's
+   * `categories` array below): "Markii settings live in Extensions" now
+   * links straight there instead of just naming the destination. */
+  onOpenExtension?: () => void;
 }
 
 /** Matches `index.css`'s `.settings-layout`/`.settings-nav-rail` breakpoint
@@ -152,7 +157,7 @@ const SETTINGS_NAV_RAIL_BREAKPOINT = "(max-width: 900px)";
  * it with its neighbor. */
 const SETTINGS_SCROLL_SPY_OFFSET = 16;
 
-export function SettingsView({ storagePersistence, onExportVault, onRequestResetVault, onRestoreFromRemote }: SettingsViewProps) {
+export function SettingsView({ storagePersistence, onExportVault, onRequestResetVault, onRestoreFromRemote, onOpenExtension }: SettingsViewProps) {
   const [activeCategory, setActiveCategory] = useState("appearance");
   const [query, setQuery] = useState("");
 
@@ -204,16 +209,42 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
       icon: <HardDrive size={15} />,
       rows: useStorageRows({ persistence, onExportVault, onRequestResetVault, onRestoreFromRemote }),
     },
-    { id: "packs", label: "Packs", icon: <Package size={15} />, rows: usePacksRows() },
+    // R5-9 — the "Packs" category (`.mkp` install/remove + per-note grants)
+    // moved verbatim to the Markii extension page (`ExtensionPage.tsx`'s
+    // "Component packs" section, `components/extensions/Packs.tsx`). This
+    // slot keeps the same id/position (so `navRailGroups`' slice arithmetic
+    // below doesn't need to change) but now holds one terse pointer row
+    // instead of pack UI — DESIGN-SPEC copy rule: no em dashes.
+    {
+      id: "packs",
+      label: "Extensions",
+      icon: <Blocks size={15} />,
+      rows: [
+        {
+          id: "markii-extension-pointer",
+          label: "Markii settings",
+          keywords: "markii packs extension component grants scripts directive",
+          content: (
+            <SettingsRow label="Markii settings" hint="Markii settings live in Extensions." controlWidth="text">
+              <Button type="button" variant="secondary" size="sm" onClick={onOpenExtension} data-testid="settings-open-extensions">
+                Open Extensions
+              </Button>
+            </SettingsRow>
+          ),
+        },
+      ],
+    },
     { id: "keyboard", label: "Keyboard", icon: <KeyboardIcon size={15} />, rows: useKeyboardRows() },
   ];
   // DESIGN-SPEC item 119 (round 4) — the rail groups these 8 categories
   // into three clusters with two thin, unlabeled dividers: Appearance /
   // Editor / Rendered view (look-and-feel of the editor), Git & Sync /
-  // Sharing / Storage (the vault's data lifecycle), Packs / Keyboard
-  // (extensibility + reference). `SettingsNavRail` renders one `<ul>` per
-  // group with a `Separator` between groups — this array is that same
-  // grouping, not a second source of truth for category order.
+  // Sharing / Storage (the vault's data lifecycle), Extensions / Keyboard
+  // (R5-9: Extensions is now a one-row pointer out to the Markii extension
+  // page, not a category of its own settings — see the `packs`-id entry
+  // above). `SettingsNavRail` renders one `<ul>` per group with a
+  // `Separator` between groups — this array is that same grouping, not a
+  // second source of truth for category order.
   const navRailGroups = [categories.slice(0, 3), categories.slice(3, 6), categories.slice(6, 8)];
 
   const trimmedQuery = query.trim();

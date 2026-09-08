@@ -145,12 +145,15 @@ test.describe("sidebar resize", () => {
     expect((await explorerSidebar.boundingBox())!.width).toBeGreaterThanOrEqual(178);
   });
 
-  test("the Extensions activity view renders a real stub panel, never a blank gap (course-correction to item 20)", async ({ page }) => {
+  test("the Extensions activity view renders a real panel listing Markii, never a blank gap (course-correction to item 20)", async ({ page }) => {
     await gotoApp(page);
     await page.getByTestId("app-activitybar").getByRole("button", { name: "Extensions" }).click();
     const extensionsPanel = page.getByTestId("extensions-panel");
     await expect(extensionsPanel).toBeVisible();
-    await expect(extensionsPanel).toContainText(/not implemented/i);
+    // R5-9 — Extensions stopped being a stub this round: it lists Markii,
+    // the one built-in extension, instead of the old "not implemented"
+    // `EmptyState` copy (see `ExtensionsPanel.tsx`'s module doc).
+    await expect(extensionsPanel).toContainText("Markii");
     // Same shared region width as every other view (default 288 here since
     // this test never dragged the handle).
     expect((await extensionsPanel.boundingBox())!.width).toBeCloseTo(288, 0);

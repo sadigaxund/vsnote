@@ -1,5 +1,12 @@
 /**
- * Settings -> Packs category (Phase M3, worker 3, docs/PLAN-2026-09-05-
+ * Component packs section (R5-9, "Markii as an extension" — MOVED here
+ * verbatim from `components/settings/Packs.tsx`/`packsLogic.ts`, Settings'
+ * former "Packs" category, per the owner's brief: "The Packs category
+ * comes OUT of Settings ... The existing Packs UI moves here VERBATIM").
+ * Nothing about the two things below changed in the move — only the
+ * import path for `SettingRow` (`../settings/types` now, `./types`
+ * before) and this file's own address, `components/extensions/Packs.tsx`.
+ * Originally built Phase M3, worker 3 (docs/PLAN-2026-09-05-
  * refresh.md §6). Two things live here:
  *
  * 1. Installed packs (`.mkp` archives, `useMarkiiStore`'s `packs`) — enable
@@ -39,7 +46,7 @@ import { describePackLoadFailure } from "./packsLogic";
 import type { EnabledPack } from "../../markii/host/packs";
 import type { GrantRecord } from "../../markii/host/types";
 import type { PackEnableResult } from "../../markii/platform/browser";
-import type { SettingRow } from "./types";
+import type { SettingRow } from "../settings/types";
 
 function renderInstalledPacksRow(args: {
   packs: EnabledPack[];

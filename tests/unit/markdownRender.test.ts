@@ -124,4 +124,40 @@ describe("renderMarkdown", () => {
     const html = renderToStaticMarkup(renderMarkdown("![a](https://example.com/x.png)"));
     expect(html).toContain('src="https://example.com/x.png"');
   });
+
+  describe("hideScriptBlocks (R5-9b — the Markii extension page's 'Hide script blocks' row)", () => {
+    const SCRIPT_FENCE = "```lua {name=stars}\nreturn 1\n```";
+    const ORDINARY_FENCE = "```lua\nreturn 1\n```";
+
+    it("is a no-op by default: a Markii script block still renders", () => {
+      const html = renderToStaticMarkup(renderMarkdown(SCRIPT_FENCE));
+      expect(html).toContain("mk-static-codeblock");
+      expect(html).toContain("return 1");
+    });
+
+    it("drops a Markii script block (fence meta carries a valid script name) when hideScriptBlocks is on", () => {
+      const html = renderToStaticMarkup(renderMarkdown(SCRIPT_FENCE, { hideScriptBlocks: true }));
+      expect(html).not.toContain("mk-static-codeblock");
+      expect(html).not.toContain("return 1");
+    });
+
+    it("leaves an ordinary fenced code block (no {name=...}) alone even with hideScriptBlocks on", () => {
+      const html = renderToStaticMarkup(renderMarkdown(ORDINARY_FENCE, { hideScriptBlocks: true }));
+      expect(html).toContain("mk-static-codeblock");
+      expect(html).toContain("return 1");
+    });
+
+    it("leaves a fence whose {...} name is not a legal script name alone (extractScripts' own rule — a dotted name is not a script)", () => {
+      const html = renderToStaticMarkup(renderMarkdown("```lua {name=repo.stars}\nreturn 1\n```", { hideScriptBlocks: true }));
+      expect(html).toContain("mk-static-codeblock");
+      expect(html).toContain("return 1");
+    });
+
+    it("drops a script block that sits alongside ordinary prose, leaving the prose intact", () => {
+      const html = renderToStaticMarkup(renderMarkdown(`Before.\n\n${SCRIPT_FENCE}\n\nAfter.`, { hideScriptBlocks: true }));
+      expect(html).toContain("Before.");
+      expect(html).toContain("After.");
+      expect(html).not.toContain("mk-static-codeblock");
+    });
+  });
 });

@@ -342,7 +342,10 @@ export function modeAvailabilityFor(kind: FileKind | undefined, hasDiff: boolean
   // toggle never renders for it (see `EditorPane.tsx`, which hides the
   // whole header row for this kind rather than showing an all-disabled
   // segmented control).
-  if (!kind || kind === "folder" || kind === "settings" || kind === "shared") return [];
+  // R5-9 — "extension" (an extension's own page, e.g. Markii's) is the
+  // same kind of VIEW tab "settings"/"shared" already are: no Rendered/
+  // Source/Diff representations, so it gets the same early return.
+  if (!kind || kind === "folder" || kind === "settings" || kind === "shared" || kind === "extension") return [];
   const entry = fileTypeForOrPlain(kind);
   const modes = [...entry.baseModes];
   if (hasDiff && entry.supportsDiff) modes.push("diff");

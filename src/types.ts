@@ -64,7 +64,15 @@ export type FileKind =
    * doc for why a sidebar panel was tried first and rejected).
    * `lib/sharedTab.ts`'s `SHARED_TAB_PATH` is the one path that ever
    * carries this kind. */
-  | "shared";
+  | "shared"
+  /** R5-9 — an extension's own page (icon/name/description header, a
+   * scroll-spy section body), opened as a full-width tab exactly like
+   * "settings"/"shared" above, for the same reason: not a real fs node,
+   * never routed through `useFsStore.inferFileKind`.
+   * `lib/extensionTab.ts`'s `MARKII_EXTENSION_TAB_PATH` is the one path
+   * that carries this kind today — see that file's doc for why a single
+   * constant, not a per-extension path function, is still enough. */
+  | "extension";
 
 export interface FileNode {
   id: string;

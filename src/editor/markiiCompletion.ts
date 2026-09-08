@@ -420,12 +420,25 @@ const containerFenceEnterKeymap: Extension = Prec.highest(
  * file's module doc): `EditorContent.tsx` passes this as `CodeMirrorEditor`
  * `extraExtensions` for Source mode, and `LivePreviewEditor.tsx` passes it
  * through its own `.mk.md` compartment for Rendered mode.
+ *
+ * `fenceSugarEnabled` (default `true`, preserving every existing caller's
+ * behavior unchanged) gates ONLY `containerFenceEnterKeymap` — the
+ * manual-typing outer-fence lengthening this file's module doc calls out as
+ * R3-12's own addition ("host-side sugar," DESIGN-SPEC item 117) — never
+ * `autocompletion`/`markiiHoverTooltip`, which are the separate
+ * "Completion" row's concern (`LivePreviewEditor.tsx`'s own
+ * `completionEnabled` gate). This is the Extensions page's "Fence sugar"
+ * row's real, honest read: off means hand-typing a nested container opener
+ * and pressing Enter no longer lengthens the enclosing fence(s) for you —
+ * you still get the shorthand `:::name`/`::name` grammar itself (that's the
+ * directive grammar, gated by the master `Enabled` switch, not this row),
+ * just not the auto-lengthening convenience on top of it.
  */
-export function markiiEditorExtensions(): Extension[] {
+export function markiiEditorExtensions(fenceSugarEnabled = true): Extension[] {
   return [
     autocompletion({ override: [markiiCompletionSource] }),
     markiiHoverTooltip,
-    containerFenceEnterKeymap,
+    ...(fenceSugarEnabled ? [containerFenceEnterKeymap] : []),
     EditorView.baseTheme({
       ".cm-tooltip-markii": { color: "var(--color-fg)", background: "var(--color-surface-elevated)" },
     }),

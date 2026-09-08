@@ -15,7 +15,7 @@
  * `markiiHostVendor.test.ts`'s own style.
  */
 import { describe, expect, it } from "vitest";
-import { manualContainerOpenFenceEdits } from "../../src/editor/markiiCompletion";
+import { manualContainerOpenFenceEdits, markiiEditorExtensions } from "../../src/editor/markiiCompletion";
 import { buildComponentCatalog, completionAt } from "../../src/markdown/vendor/markiiHost";
 
 describe("manualContainerOpenFenceEdits", () => {
@@ -89,5 +89,17 @@ describe("completion trigger threshold (ticket item c)", () => {
     // "rating" is a leaf-kind standard component (@markii/stdlib) — "::"
     // is the "leaf" form, so only leaf-kind components should be offered.
     expect(ctx.items.some((item) => item.label === "rating")).toBe(true);
+  });
+});
+
+describe("markiiEditorExtensions (R5-9b — the Markii extension page's 'Fence sugar' row)", () => {
+  it("defaults to including the manual-typing fence-lengthening keymap (every pre-R5-9b caller's unchanged behavior)", () => {
+    expect(markiiEditorExtensions().length).toBe(markiiEditorExtensions(true).length);
+  });
+
+  it("omits exactly the fence-lengthening keymap when fenceSugarEnabled is false — completion/hover stay", () => {
+    const withSugar = markiiEditorExtensions(true);
+    const withoutSugar = markiiEditorExtensions(false);
+    expect(withoutSugar.length).toBe(withSugar.length - 1);
   });
 });

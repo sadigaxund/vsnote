@@ -106,7 +106,7 @@
  */
 import { Fragment, type ReactElement } from "react";
 import type { Code, Image, Link, Root, RootContent } from "mdast";
-import { isSafeUrl, parse } from "@markii/core";
+import { isSafeUrl, isValidScriptName, parse, parseMetaAttributes } from "@markii/core";
 import { createRegistry, mergeRegistries, renderMarkNode, type Registry, type ResolveImageSrc } from "@markii/react";
 import type { ValueStore } from "@markii/runtime";
 import { defaultRegistry } from "@markii/react/components";
@@ -152,6 +152,20 @@ export interface RenderMarkdownOptions {
    * reaching the DOM as a broken `<img>`.
    */
   resolveImageSrc?: ResolveImageSrc;
+  /**
+   * R5-9b — the Markii extension page's "Hide script blocks" row
+   * (`useMarkiiExtensionSettingsStore`). A `code` node is a Markii script
+   * block by the exact same rule `@markii/core`'s own `extractScripts` uses
+   * (a fence `meta` `{...}` group carrying a valid `name` — see
+   * `isScriptBlockCode` below): when true, such a node is dropped from the
+   * rewritten tree entirely rather than rendered through the `vsnote-code`
+   * directive, matching the row's hint ("Leaves script markers out of the
+   * preview"). An ordinary code fence (no `name`, or an invalid one) is
+   * never affected — only fences `extractScripts` would itself recognize as
+   * a script. Omitted/`false` (the default), behavior is unchanged from
+   * before this option existed.
+   */
+  hideScriptBlocks?: boolean;
   /**
    * Packs enabled for this vault (Phase M3, worker 2), whose components
    * always render as a labelled, unrendered placeholder rather than any
@@ -267,10 +281,26 @@ function rewriteCodeNode(node: Code, codeTable: CodeTableEntry[]): RootContent {
   } as unknown as RootContent;
 }
 
-/** Walks `children` in place, rewriting every `link`/`image`/`code` node found anywhere in the subtree. A rewritten `code` node has no children of its own to recurse into (it becomes an empty-bodied leaf directive), so it `continue`s past the generic recursion step below it. */
+/**
+ * Whether `node` is a Markii script block — the exact rule
+ * `@markii/core`'s `extractScripts` uses (`docs/scripting.md`): a fence
+ * `meta` string carrying a `{...}` attribute group with a `name` that is
+ * both present and a legal script name. Duplicated here rather than calling
+ * `extractScripts` on the whole tree, because this file already walks every
+ * `code` node individually (`rewriteTree`) and `extractScripts` offers no
+ * per-node entry point — see `hideScriptBlocks`'s own doc comment for why
+ * this is the "Hide script blocks" row's real gate.
+ */
+function isScriptBlockCode(node: Code): boolean {
+  const name = parseMetaAttributes(node.meta).name;
+  return !!name && isValidScriptName(name);
+}
+
+/** Walks `children` in place, rewriting every `link`/`image`/`code` node found anywhere in the subtree. A rewritten `code` node has no children of its own to recurse into (it becomes an empty-bodied leaf directive), so it `continue`s past the generic recursion step below it. A script-block `code` node with `hideScriptBlocks` on is REMOVED from `children` altogether (per that option's doc — "leaves script markers out of the preview") rather than rewritten to anything, hence the manual index bookkeeping instead of a plain `for`. */
 function rewriteTree(children: RootContent[], options: RenderMarkdownOptions, codeTable: CodeTableEntry[]): void {
   const links = options.links ?? {};
   const degradeUnresolved = options.degradeUnresolvedRelativeLinks ?? true;
+  const hideScriptBlocks = options.hideScriptBlocks ?? false;
 
   for (let i = 0; i < children.length; i++) {
     const child = children[i]!;
@@ -279,6 +309,11 @@ function rewriteTree(children: RootContent[], options: RenderMarkdownOptions, co
     } else if (child.type === "image") {
       children[i] = rewriteImageNode(child, options.resolveImageSrc);
     } else if (child.type === "code") {
+      if (hideScriptBlocks && isScriptBlockCode(child)) {
+        children.splice(i, 1);
+        i -= 1;
+        continue;
+      }
       children[i] = rewriteCodeNode(child, codeTable);
       continue;
     }

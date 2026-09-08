@@ -86,6 +86,9 @@ export interface EditorPaneProps {
   onExportVault: () => void;
   onRequestResetVault: () => void;
   onRestoreFromRemote?: () => void;
+  /** R5-9 — passed straight through to `EditorContent`'s Settings-view
+   * branch, same as `onExportVault` etc. above — see `EditorArea.tsx`'s doc. */
+  onOpenExtension?: () => void;
 }
 
 function computeEdge(e: React.DragEvent): DockEdge {
@@ -112,6 +115,7 @@ export function EditorPane({
   onExportVault,
   onRequestResetVault,
   onRestoreFromRemote,
+  onOpenExtension,
 }: EditorPaneProps) {
   // DESIGN-SPEC Amendments item 16 (typing-latency bug) instrumentation —
   // see `lib/renderProbe.ts`'s doc.
@@ -168,7 +172,7 @@ export function EditorPane({
     // mark it "missing" for nothing (harmless, but pointless — and it would
     // fight `EditorContent.tsx`'s own kind==="settings" branch, which never
     // reads `missing`/`loaded` for this kind anyway).
-    if (activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared") void useBufferStore.getState().ensureLoaded(activeTab.path);
+    if (activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared" && activeTab.kind !== "extension") void useBufferStore.getState().ensureLoaded(activeTab.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab?.path]);
 
@@ -181,7 +185,7 @@ export function EditorPane({
   useEffect(() => {
     // Same reasoning as the buffer-load effect above — no real file, no
     // diff to compute.
-    if (activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared") void useGitStore.getState().diffFor(activeTab.path);
+    if (activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared" && activeTab.kind !== "extension") void useGitStore.getState().diffFor(activeTab.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab?.path, gitRefreshGeneration]);
 
@@ -358,7 +362,7 @@ export function EditorPane({
               exactly one pane open, the title bar carries this same
               cluster for the focused pane instead, and NO per-pane header
               renders at all (see this file's module doc). */}
-          {multiPane && activeTab?.kind !== "settings" && activeTab?.kind !== "shared" && (
+          {multiPane && activeTab?.kind !== "settings" && activeTab?.kind !== "shared" && activeTab?.kind !== "extension" && (
             <EditorHeader
               paneId={paneId}
               kind={activeTab?.kind}
@@ -428,6 +432,7 @@ export function EditorPane({
             onExportVault={onExportVault}
             onRequestResetVault={onRequestResetVault}
             onRestoreFromRemote={onRestoreFromRemote}
+            onOpenExtension={onOpenExtension}
           />
           </PaneErrorBoundary>
           {dockPreview && <DockOverlay edge={dockPreview} />}

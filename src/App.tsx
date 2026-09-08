@@ -36,6 +36,7 @@ import { resolveVaultDisplayLabel } from "./lib/vaultLabel";
 import { probeRender } from "./lib/renderProbe";
 import { SETTINGS_TAB_NAME, SETTINGS_TAB_PATH, requestSettingsSearchFocus } from "./lib/settingsTab";
 import { SHARED_TAB_NAME, SHARED_TAB_PATH } from "./lib/sharedTab";
+import { MARKII_EXTENSION_TAB_NAME, MARKII_EXTENSION_TAB_PATH } from "./lib/extensionTab";
 import { useShareStore } from "./share/useShareStore";
 import { createAutoSyncScheduler } from "./git/autoSyncPolicy";
 import { buildShareLink } from "./share/shareLinks";
@@ -622,7 +623,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   // multi-pane case) still shows the literal "vault" segment: that file is
   // out of this item's scope, see the item 41 report for that known gap.
   const titlebarBreadcrumb =
-    activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared"
+    activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared" && activeTab.kind !== "extension"
       ? activeTab.path.split("/").map((segment, i) => (i === 0 && segment === VAULT_LABEL ? resolveVaultDisplayLabel(vaultDisplayName, VAULT_LABEL) : segment))
       : undefined;
   const titlebarDiffLayout = focusedLeaf?.diffLayout ?? "split";
@@ -1066,6 +1067,13 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     useTabsStore.getState().openFile({ path: SHARED_TAB_PATH, name: SHARED_TAB_NAME, kind: "shared" }, { pin: true });
   };
 
+  // R5-9 — Extensions panel row click opens the Markii extension page tab,
+  // exactly like `handleOpenSettings`/`handleOpenShared` above (see
+  // `lib/extensionTab.ts`'s doc for why).
+  const handleOpenExtension = () => {
+    useTabsStore.getState().openFile({ path: MARKII_EXTENSION_TAB_PATH, name: MARKII_EXTENSION_TAB_NAME, kind: "extension" }, { pin: true });
+  };
+
   // Source Control panel row click: opens (or focuses) the file pinned,
   // straight into Diff mode — every changed file the panel lists has a
   // nonzero diff by construction, so Diff is always a valid mode for it.
@@ -1281,7 +1289,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   // remain in the source pane to split against") — the title bar button
   // reflects that as disabled instead of silently doing nothing on click.
   const canSplitEditor =
-    !!activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared" && (focusedLeaf?.tabs.length ?? 0) > 1;
+    !!activeTab && activeTab.kind !== "settings" && activeTab.kind !== "shared" && activeTab.kind !== "extension" && (focusedLeaf?.tabs.length ?? 0) > 1;
   const handleSplitEditor = () => {
     if (!canSplitEditor || !activeTab) return;
     useTabsStore.getState().dockTab({
@@ -1295,7 +1303,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   };
 
   const handleShareActiveFile = () => {
-    if (!activeTab || activeTab.kind === "settings" || activeTab.kind === "shared") return;
+    if (!activeTab || activeTab.kind === "settings" || activeTab.kind === "shared" || activeTab.kind === "extension") return;
     void handleOpenPublish({ id: activeTab.path, path: activeTab.path, name: activeTab.name, kind: activeTab.kind, type: "file" });
   };
   // "Edit policy…" (re-open the Publish dialog against an EXISTING share)
@@ -1392,6 +1400,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
     { id: "close-tab", label: "Close tab", shortcut: "⌘W / ⌘⇧W" },
     { id: "settings", label: "Open settings…" },
     { id: "shared", label: "Open Shared…" },
+    { id: "extension-markii", label: "Open Markii…" },
     { id: "publish", label: "Publish/Share file…" },
   ];
 
@@ -1438,6 +1447,9 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
         break;
       case "shared":
         handleOpenShared();
+        break;
+      case "extension-markii":
+        handleOpenExtension();
         break;
       case "publish":
         handleShareActiveFile();
@@ -1567,6 +1579,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
             onWidthChange={(w) => useSettingsStore.getState().setSidebarWidth(w)}
             collapsed={sidebarCollapsed}
             onCollapsedChange={(c) => useSettingsStore.getState().setSidebarCollapsed(c)}
+            onOpenExtension={handleOpenExtension}
           />
         )}
 
@@ -1578,6 +1591,7 @@ const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
           onExportVault={() => void handleExportVaultZip()}
           onRequestResetVault={() => setResetConfirmOpen(true)}
           onRestoreFromRemote={() => setRestoreConfirmOpen(true)}
+          onOpenExtension={handleOpenExtension}
         />
       </div>
 

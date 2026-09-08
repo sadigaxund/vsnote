@@ -330,10 +330,13 @@ class RevealHintWidget extends WidgetType {
 }
 
 /** Pushes the once-per-session reveal hint at `pos` (a directive/fence's
- * end) onto `decorations`, iff it hasn't been shown yet this session.
- * Shared by both the block `StateField` and the inline `ViewPlugin` below. */
-function maybePushRevealHint(decorations: Range<Decoration>[], pos: number): void {
-  if (hintShownThisSession) return;
+ * end) onto `decorations`, iff it hasn't been shown yet this session AND
+ * the caller says it's enabled (R5-9b — the Extensions page's "Reveal
+ * hint" row; see `markiiLivePreviewDecorations`'s own `revealHintEnabled`
+ * parameter doc). Shared by both the block `StateField` and the inline
+ * `ViewPlugin` below. */
+function maybePushRevealHint(decorations: Range<Decoration>[], pos: number, enabled: boolean): void {
+  if (!enabled || hintShownThisSession) return;
   hintShownThisSession = true;
   decorations.push(Decoration.widget({ widget: new RevealHintWidget(), side: 1 }).range(pos));
 }
@@ -541,6 +544,7 @@ function buildBlockDecorations(
   registry: Registry,
   valueStore: ValueStore | undefined,
   heightCache: Map<string, number>,
+  revealHintEnabled: boolean,
 ): DecorationSet {
   const decorations: Range<Decoration>[] = [];
   const tree = treeFor(state, state.doc.length);
@@ -555,7 +559,7 @@ function buildBlockDecorations(
         // Reveal raw source; still skip descending, nothing nested needs
         // its own decoration. R3-11: the discoverability hint goes here —
         // this IS "a revealed directive or fence."
-        maybePushRevealHint(decorations, to);
+        maybePushRevealHint(decorations, to, revealHintEnabled);
         // Round-6 MK item 2 — reserve at least as much vertical space as
         // the widget last measured, on the directive's FIRST revealed
         // line, so revealing shorter raw source never shifts everything
@@ -587,7 +591,7 @@ function buildBlockDecorations(
   return Decoration.set(decorations, true);
 }
 
-function buildInlineDecorations(view: EditorView, cache: Map<string, string>, registry: Registry, valueStore: ValueStore | undefined): DecorationSet {
+function buildInlineDecorations(view: EditorView, cache: Map<string, string>, registry: Registry, valueStore: ValueStore | undefined, revealHintEnabled: boolean): DecorationSet {
   const decorations: Range<Decoration>[] = [];
   const state = view.state;
   const doc = state.doc;
@@ -601,7 +605,7 @@ function buildInlineDecorations(view: EditorView, cache: Map<string, string>, re
         if (node.name !== MK_DIRECTIVE_TEXT) return undefined;
         const { from, to } = node;
         if (cursorTouches(state, from, to)) {
-          maybePushRevealHint(decorations, to);
+          maybePushRevealHint(decorations, to, revealHintEnabled);
           return undefined;
         }
         const source = doc.sliceString(from, to);
@@ -772,7 +776,15 @@ const pointerTrackingHandlers = EditorView.domEventHandlers({
   },
 });
 
-export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegistry[] = [], valueStore?: ValueStore): Extension[] {
+export function markiiLivePreviewDecorations(
+  enabledPacks: readonly PackForRegistry[] = [],
+  valueStore?: ValueStore,
+  // R5-9b — the Extensions page's "Reveal hint" row
+  // (`useMarkiiExtensionSettingsStore.revealHintEnabled`). Default `true`
+  // preserves every pre-existing caller's behavior. See
+  // `maybePushRevealHint`'s own doc for exactly what this turns off.
+  revealHintEnabled = true,
+): Extension[] {
   const cache = new Map<string, string>();
   const registry = buildRegistry(enabledPacks);
   // Round-6 MK item 2 — shared with every `MkBlockDirectiveWidget` this
@@ -783,7 +795,7 @@ export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegis
 
   const blockField = StateField.define<DecorationSet>({
     create(state) {
-      return buildBlockDecorations(state, cache, registry, valueStore, heightCache);
+      return buildBlockDecorations(state, cache, registry, valueStore, heightCache, revealHintEnabled);
     },
     update(value, tr) {
       // Freeze ONLY a POINTER-caused selection change ("select.pointer" —
@@ -811,7 +823,7 @@ export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegis
       // above) actually happens once, against the FINAL pointer position.
       const justSettled = tr.effects.some((effect) => effect.is(setPointerActive) && effect.value === false);
       if (!justSettled && !tr.docChanged && tr.startState.selection.eq(tr.state.selection)) return value;
-      return buildBlockDecorations(tr.state, cache, registry, valueStore, heightCache);
+      return buildBlockDecorations(tr.state, cache, registry, valueStore, heightCache, revealHintEnabled);
     },
     provide: (field) => EditorView.decorations.from(field),
   });
@@ -820,11 +832,11 @@ export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegis
     class {
       decorations: DecorationSet;
       constructor(view: EditorView) {
-        this.decorations = buildInlineDecorations(view, cache, registry, valueStore);
+        this.decorations = buildInlineDecorations(view, cache, registry, valueStore, revealHintEnabled);
       }
       update(update: ViewUpdate): void {
         if (update.docChanged || update.viewportChanged || update.selectionSet) {
-          this.decorations = buildInlineDecorations(update.view, cache, registry, valueStore);
+          this.decorations = buildInlineDecorations(update.view, cache, registry, valueStore, revealHintEnabled);
         }
       }
     },

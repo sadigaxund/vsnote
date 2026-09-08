@@ -42,6 +42,9 @@ export interface EditorAreaProps {
   onExportVault: () => void;
   onRequestResetVault: () => void;
   onRestoreFromRemote?: () => void;
+  /** R5-9 — threaded down to `SettingsView`'s pointer row ("Markii settings
+   * live in Extensions") the same way `onExportVault` etc. reach it. */
+  onOpenExtension?: () => void;
 }
 
 // DESIGN-SPEC Amendments item 16: cursor position no longer flows through
@@ -56,6 +59,7 @@ export function EditorArea({
   onExportVault,
   onRequestResetVault,
   onRestoreFromRemote,
+  onOpenExtension,
 }: EditorAreaProps) {
   const tree = useTabsStore((s) => s.tree);
   const activePaneId = useTabsStore((s) => s.activePaneId);
@@ -77,6 +81,7 @@ export function EditorArea({
         onExportVault={onExportVault}
         onRequestResetVault={onRequestResetVault}
         onRestoreFromRemote={onRestoreFromRemote}
+        onOpenExtension={onOpenExtension}
       />
     );
   }
@@ -101,6 +106,7 @@ export function EditorArea({
           onExportVault={onExportVault}
           onRequestResetVault={onRequestResetVault}
           onRestoreFromRemote={onRestoreFromRemote}
+          onOpenExtension={onOpenExtension}
         />
       )}
     />

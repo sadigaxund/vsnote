@@ -33,7 +33,10 @@ buildable detail. When in doubt, open the image and match it.
 
 ### 2. Activity bar (far-left vertical rail)
 - Icons top→bottom: Explorer (active state = lighter icon + left indicator), Search,
-  Source Control (shows count badge, e.g. `6` = changed files), Extensions (stub).
+  Source Control (shows count badge, e.g. `6` = changed files), Extensions (R5-9: lists
+  installed extensions as rows — icon, name, one-line description, version, an Enabled
+  switch. One row today, Markii, built in and not removable; clicking a row opens that
+  extension's own page as an editor-area tab, item 150+ below).
 - Bottom: settings gear.
 
 ### 3. Sidebar — Explorer
@@ -2091,3 +2094,53 @@ these are additive, checkable standards, not taste.
      described. Recommend re-checking the exact viewport/column at which
      the ~700px stacking was originally seen — it did not reproduce here.
 
+## Amendments round 17 (continued) — 2026-09-08 (R5-9 "Markii as an extension")
+
+150. **Extensions panel lists installed extensions as rows, not a stub.**
+     `ExtensionsPanel.tsx` (activity-bar sidebar view): each row is icon,
+     name, a one-line description, version, and an `Enabled` `Switch` — no
+     card, no box, a plain row matching the Explorer/Source Control panels'
+     own row look. One row today, Markii, built in and not removable.
+     Clicking anywhere on a row except the switch opens that extension's
+     page; the switch is its own hit target and does not navigate. The
+     switch is a real master kill switch, not cosmetic: off disables
+     directive rendering, fence sugar, and script execution together (see
+     `docs/ARCHITECTURE.md`'s new "Extension model" section for exactly
+     what it wires into).
+
+151. **The extension page reuses the Settings shell.** Opened as a
+     full-width editor-area tab (same "virtual tab" mechanism as Settings/
+     Shared), the page is a content column plus a right-side scroll-spy
+     TOC (`SettingsNavRail`, reused as-is). Header: the extension's name as
+     an `<h1>`, a muted line under it with version and author, a short
+     description paragraph, then a row of small ghost actions (Docs,
+     Report issue, Reload). Body: plain `SettingsRow` rows — name normal
+     weight with a muted one-line description under it on the left, the
+     control on the right (`Switch`/`Select`/`Button`) — a thin
+     `Separator` between sections, small uppercase section headings, no
+     cards or boxes anywhere in the body. Five sections in order: About,
+     Rendering, Editor, Scripting (device-local, its own "stored on this
+     device only" note under the heading), and Component packs (the former
+     Settings "Packs" category, moved here verbatim). Search filters rows
+     the same way Settings' search does, including dropping a section
+     entirely once nothing in it matches.
+
+152. **Settings' old "Packs" category is now a one-row pointer.** Same
+     position in the nav rail, relabeled "Extensions": "Markii settings
+     live in Extensions." plus an "Open Extensions" button that opens the
+     extension page directly. No pack UI left inside Settings.
+
+## Amendments round 18 — 2026-09-08 (R5-9b, every remaining toggle wired or removed)
+
+160. **The extension page's Scripting section drops two rows.** "Run
+     scripts when a note opens" and "Default for automatic runs" persisted
+     state with no reader and are gone (row and `Select` control both) —
+     the auto/scheduled script trigger they depended on is the one this
+     repo already rejected building as a dead toggle
+     (`docs/ARCHITECTURE.md`'s "No auto or scheduled script trigger" Known
+     limitation). Scripting is now two rows: "Turn off script execution on
+     this device" and "Script permissions" (Manage grants) — same
+     `Switch`/`Button` treatment as before, no layout change beyond the
+     shorter list. Every other row on the page (Rendering, Editor
+     sections) is unchanged in appearance; each now has a real effect
+     behind it — see `docs/ARCHITECTURE.md`'s Extension model section.
