@@ -640,7 +640,7 @@ the folder schemas in `schemas.py` (`ManifestEntryIn/Out`, `ShareListingOut`,
 `EntryOut`, `kind`/`manifest` fields), and and, on the client, `share/folderManifest.ts`,
 `share/autoRepublish.ts` (item 58's debounced manifest republish had no
 subject left), `components/local/CheckboxTree.tsx` (its only consumer was the
-folder-publish picker; retired in `docs/COMPONENT-BACKLOG-Issued_20260821.md`),
+folder-publish picker; retired in `docs/COMPONENT-BACKLOG.md`),
 `shareLinks.ts`'s `buildFolderShareLink`, `sharePolicy.ts`'s
 `shareFolderCreatePayload`, `useShareStore`'s `publishFolder`/
 `updateFolderManifest`/`getFolderManifest`, `api.ts`'s manifest and folder-path
