@@ -764,16 +764,29 @@ export function markiiLivePreviewDecorations(enabledPacks: readonly PackForRegis
       return buildBlockDecorations(state, cache, registry, valueStore, heightCache);
     },
     update(value, tr) {
-      // Frozen while a pointer interaction is in flight or still inside its
-      // settle window (`pointerActiveField`'s own doc) — a docChanged
-      // transaction (typing) still recomputes even then, since editing while
-      // a mouse button happens to be down is not the "reveal jitter" this
-      // guards against and must never go stale.
-      if (tr.state.field(pointerActiveField) && !tr.docChanged) return value;
+      // Freeze ONLY a POINTER-caused selection change ("select.pointer" —
+      // CM6's own tag for a click/drag placing the selection;
+      // `@codemirror/commands`' keyboard motions, including this file's own
+      // `mkBlockVerticalNavigation` snap, dispatch plain "select" instead,
+      // annotation-tagged nowhere near "select.pointer"). Gating on the
+      // TRANSACTION'S OWN cause here, not on how long ago the last mouse
+      // event fired, is what keeps a keyboard press landing inside the
+      // ~200ms settle window (`pointerActiveField`'s own doc) recomputing
+      // immediately — an earlier version of this gate kept ANY transaction
+      // frozen for that whole window regardless of what caused it, which
+      // broke exactly that case: arrowing away from a widget clicked a
+      // moment earlier (well inside the settle window) left `blockField`
+      // stale for the FOLLOWING keystroke's own `beforeDecorations`
+      // snapshot in `mkBlockVerticalNavigation`, misfiring its snap target.
+      // A docChanged transaction (typing) still recomputes even mid-drag,
+      // since editing while a mouse button happens to be down is not the
+      // "reveal jitter" this guards against and must never go stale.
+      if (tr.isUserEvent("select.pointer") && !tr.docChanged) return value;
       // The settle window JUST closed this transaction (an effect-only
       // transaction from `pointerTrackingHandlers`' timeout) — recompute
       // now even though neither the doc nor the selection changed, so
-      // whatever was deferred while frozen actually happens once.
+      // whatever was deferred while frozen (every "select.pointer" update
+      // above) actually happens once, against the FINAL pointer position.
       const justSettled = tr.effects.some((effect) => effect.is(setPointerActive) && effect.value === false);
       if (!justSettled && !tr.docChanged && tr.startState.selection.eq(tr.state.selection)) return value;
       return buildBlockDecorations(tr.state, cache, registry, valueStore, heightCache);
