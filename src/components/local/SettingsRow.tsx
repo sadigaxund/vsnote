@@ -37,6 +37,27 @@
  * already used inline, named and centralized so a future spacing change is
  * one edit instead of seven.
  *
+ * fix(settings) R5-3: the control column's flex item was missing TWO things
+ * that together let a long piece of content inside it (Git & Sync's "Test
+ * connection" result text) push the whole column onto its own line under
+ * the label instead of wrapping its own text in place:
+ *   1. `min-width: 0` — without it, a flex item's browser default
+ *      (`min-width: auto`) never shrinks below its content's intrinsic
+ *      width during the row's flexible-length resolution.
+ *   2. `flex-basis: 0` instead of `auto` — this is the less obvious one.
+ *      With `flexWrap: "wrap"` on the row (this component's own outer
+ *      container), the browser decides which flex line an item belongs on
+ *      using that item's max-content size when its flex-basis is `auto`,
+ *      REGARDLESS of `min-width: 0` — `min-width` only bounds how far an
+ *      item can shrink once it's already on a line, it does not affect
+ *      that upfront "does it fit on this line" check. So `min-width: 0`
+ *      alone was not enough: a control column with a long enough child
+ *      still got wrapped onto its own line even though it had plenty of
+ *      room to shrink into. `flex-basis: 0` (the shorthand's third value)
+ *      makes that line-fitting check use 0 instead of max-content, so the
+ *      control column always stays beside the label and only its own
+ *      content wraps.
+ *
  * Styled with the same token vocabulary + inline-style convention as this
  * folder's other local primitives (`Stepper.tsx`) rather than a fork of any
  * library part or a new CSS file.
@@ -83,8 +104,21 @@ export function SettingsRow({ label, hint, controlWidth = "text", children, styl
       </div>
       <div
         style={{
-          flex: full ? "1 1 auto" : `0 0 ${width}`,
+          // fix(settings) R5-3: `flex-basis: auto` (the old value here) uses
+          // the item's max-content size to decide whether it fits on the
+          // CURRENT flex line when the container has `flexWrap: "wrap"` —
+          // `min-width: 0` only bounds how far the item can shrink DURING
+          // that line's flexible-length resolution, it does not change that
+          // upfront max-content check, so a control column with enough long
+          // content (e.g. Git & Sync's "Test connection" result text) still
+          // got kicked onto its own line under the label even though there
+          // was plenty of room for it to shrink into. `flex-basis: 0` (via
+          // the shorthand's third value) makes the line-fitting check use 0
+          // instead of max-content, so the control column always stays on
+          // the label's line and only its own content wraps.
+          flex: full ? "1 1 0%" : `0 0 ${width}`,
           width: full ? undefined : width,
+          minWidth: 0,
         }}
       >
         {children}

@@ -11,6 +11,7 @@ import { Alert, Badge, Button, FormField, Input, Separator, Switch } from "my-yo
 import { Check, ExternalLink, GitBranch, Loader2 } from "lucide-react";
 import { SettingsRow } from "../local/SettingsRow";
 import { Stepper, type StepperStep } from "../local/Stepper";
+import { deriveConnectionStepIndex } from "../local/gitSyncStepLogic";
 import { VaultSetupPanel } from "../local/VaultSetupPanel";
 import { SyncSetupPanel } from "../SyncSetupPanel";
 import { useSettingsStore, DEFAULT_GIT_COMMIT_TEMPLATE } from "../../stores/useSettingsStore";
@@ -150,11 +151,12 @@ export function useGitRows(): SettingRow[] {
   });
   const credentialStepDone = committedCredential.trim() !== "";
   const testStepDone = gitTestResult?.ok === true;
-  // `Stepper`'s `current` marks every index BELOW it "done" — passing one
-  // past the last index (3) once the test has actually passed is what lets
-  // step 3 itself show as done too, for a real "clear end state" rather
-  // than forever sitting on "current".
-  const connectionStepIndex = !remoteStepDone ? 0 : !credentialStepDone ? 1 : testStepDone ? 3 : 2;
+  // `Stepper`'s `current` marks every index BELOW it "done" — once the test
+  // has actually passed, `deriveConnectionStepIndex` returns one past the
+  // last valid index (3), which `Stepper` (R5-3) now recognizes as a real
+  // terminal state ("Step 3 of 3 · Connected") instead of the old broken
+  // "Step 4 of 3". See `gitSyncStepLogic.ts` and its unit tests.
+  const connectionStepIndex = deriveConnectionStepIndex({ remoteStepDone, credentialStepDone, testStepDone });
 
   if (!gitSyncSetupComplete) {
     return [
@@ -224,8 +226,14 @@ export function useGitRows(): SettingRow[] {
       keywords: "remote url https token credential sync auth push pull ssh key test connection generate advanced custom fast-forward",
       content: (
         <SettingsRow label="Connection" hint="Where sync sends your vault, and proof it can reach it." controlWidth="full">
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <Stepper steps={CONNECTION_STEPS} current={connectionStepIndex} testidPrefix="git-sync" ariaLabel="Git & Sync connection steps" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+            <Stepper
+              steps={CONNECTION_STEPS}
+              current={connectionStepIndex}
+              testidPrefix="git-sync"
+              ariaLabel="Git & Sync connection steps"
+              doneLabel="Connected"
+            />
 
             {/* Step 1 — Remote */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -358,19 +366,28 @@ export function useGitRows(): SettingRow[] {
             <Separator />
 
             {/* Step 3 — Test connection */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-fg)" }}>3. Test connection</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
                 <Badge variant={testStepDone ? "success" : "neutral"} tone="soft">
                   {testStepDone ? "Connected, fast-forward only" : "Not connected"}
                 </Badge>
                 {testStepDone && (
-                  <span style={{ fontSize: 12, color: "var(--color-muted)" }}>
+                  <span style={{ fontSize: 12, color: "var(--color-muted)", minWidth: 0 }}>
                     Fast-forward only: sync never force-pushes; a real divergence auto-merges or opens conflict resolution instead.
                   </span>
                 )}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {/* fix(settings) R5-3: `minWidth: 0` here (and on the result
+                  span below) lets the result's TEXT wrap onto a second line
+                  inside this row when it's long, instead of the row's
+                  default `min-width: auto` forcing the whole control column
+                  wider than available space — which, combined with
+                  `SettingsRow`'s `flexWrap: "wrap"` outer container, used to
+                  drop the result (and the row it's in) onto its own line
+                  below the label column. The button keeps `flexShrink: 0` so
+                  it never shrinks or moves; only the result text wraps. */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                 <Button
                   type="button"
                   variant="secondary"
@@ -437,7 +454,12 @@ export function useGitRows(): SettingRow[] {
                   <span
                     data-testid="git-test-result"
                     className="settings-hint"
-                    style={{ color: gitTestResult.ok ? "var(--color-muted)" : "var(--git-deleted)" }}
+                    style={{
+                      color: gitTestResult.ok ? "var(--color-muted)" : "var(--git-deleted)",
+                      flex: "1 1 auto",
+                      minWidth: 0,
+                      wordBreak: "break-word",
+                    }}
                   >
                     {describeConnectionTest(gitTestResult, gitRemoteOverrideEnabled).message}
                   </span>

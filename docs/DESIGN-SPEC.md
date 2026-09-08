@@ -1754,3 +1754,44 @@ these are additive, checkable standards, not taste.
        string three levels deep). Before/after screenshots:
        `.design/r7/r5-5-jsonview-before.png` /
        `.design/r7/r5-5-jsonview-after.png`.
+134. **`SettingsRow`'s "full"-width control column stays beside its label
+     no matter how long the control's own content grows** (R5-3 fix,
+     `components/local/SettingsRow.tsx`). The bug: Git & Sync's
+     "Connection" card's control column dropped onto its own line UNDER
+     the "Connection" label — not because of a narrow viewport (the
+     row's `flexWrap: "wrap"` legitimately stacks label-above-control at
+     narrow widths, by design) but specifically once "Test connection"
+     populated a real result message. Root cause was two flex quirks
+     stacking: (1) the control column had no `min-width: 0`, so it never
+     shrank below its content's intrinsic width; (2) even after adding
+     that, `flex-basis: auto` (the default from `flex: "1 1 auto"`)
+     makes a wrapping flex container decide which LINE an item belongs on
+     using that item's max-content size — `min-width: 0` only bounds how
+     far the item can shrink once it's already placed on a line, it does
+     not affect that upfront placement decision. Fix: `flex-basis: 0`
+     (`flex: "1 1 0%"`) on the control column, so the line-fitting check
+     always treats it as fitting and only its own content wraps.
+     Git & Sync's "Test connection" result span itself
+     (`components/settings/Git.tsx`) also picked up `flex: "1 1 auto"`,
+     `min-width: 0`, and `word-break: "break-word"` so a long message
+     wraps its text instead of pushing the "Test connection" button or
+     overflowing the column.
+135. **`Stepper` gets a real terminal ("all steps done") state** (R5-3
+     fix, `components/local/Stepper.tsx`) instead of the previous
+     undocumented trick of passing `current` one index past the last
+     step to mark every segment done — that trick left the summary line
+     computing `Step {current + 1} of {steps.length}` (reading "Step 4
+     of 3" for a 3-step stepper) with a blank current-step label, since
+     `steps[current]` was `undefined`. Now `current >= steps.length` is
+     a first-class terminal state: every segment still renders done (the
+     segment logic already treated it that way), and the summary line
+     reads `Step {steps.length} of {steps.length} · {doneLabel}` — a new
+     `doneLabel?: string` prop, defaulting to "All steps done". Git &
+     Sync's guided connection card (`components/settings/Git.tsx`) passes
+     `doneLabel="Connected"`, so a successful "Test connection" reads
+     "Step 3 of 3 · Connected". The step-index derivation itself was
+     extracted out of `Git.tsx`'s JSX into a pure, unit-tested function
+     (`components/local/gitSyncStepLogic.ts::deriveConnectionStepIndex`).
+     The Publish dialog (`Stepper`'s original call site) never passes a
+     `current` at or past `steps.length`, so its copy and testids
+     (`tests/e2e/publish-dialog-steps.spec.ts`) are unaffected.

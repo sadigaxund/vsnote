@@ -24,6 +24,21 @@
  * `data-testid="<prefix>-step-<id>"` / `aria-selected` assertion
  * (`tests/e2e/publish-dialog-steps.spec.ts`) keeps working unchanged, only
  * what's INSIDE that element changed (a bar segment, not a circle+label).
+ *
+ * fix(settings) R5-3: `current` accepted values one past the last valid
+ * index (`steps.length`) as an undocumented trick to mark every segment
+ * "done" (`index < current` is true for all of them) — but the summary line
+ * still computed `Step {current + 1} of {steps.length}` and `currentStep =
+ * steps[current]` unconditionally, so Git & Sync's guided card (the first
+ * caller to actually reach that state, once its "Test connection" step
+ * passes) read "Step 4 of 3" with a blank current-step label. `current >=
+ * steps.length` is now a sanctioned TERMINAL state: every segment renders
+ * done (already true, unchanged) and the summary line reads
+ * `Step {steps.length} of {steps.length} · {doneLabel}` — `doneLabel`
+ * defaults to "All steps done" and Git & Sync passes "Connected" so it
+ * reads "Step 3 of 3 · Connected". The Publish dialog (this component's
+ * original call site) never passes a `current` at or past `steps.length`,
+ * so its copy/testids are unaffected.
  */
 export interface StepperStep {
   id: string;
@@ -48,23 +63,35 @@ export interface StepperProps {
    * passes `"git-sync"` instead so its own testids don't collide with or
    * masquerade as the Publish dialog's. */
   testidPrefix?: string;
+  /** Label shown after "Step {N} of {N}" once every step is done (`current
+   * >= steps.length`, R5-3's sanctioned terminal state). Defaults to "All
+   * steps done"; Git & Sync passes "Connected". */
+  doneLabel?: string;
 }
 
 const SEGMENT_HEIGHT = 4;
 const SEGMENT_GAP = 4;
 
-export function Stepper({ steps, current, onStepClick, ariaLabel = "Publish steps", testidPrefix = "publish" }: StepperProps) {
+export function Stepper({
+  steps,
+  current,
+  onStepClick,
+  ariaLabel = "Publish steps",
+  testidPrefix = "publish",
+  doneLabel = "All steps done",
+}: StepperProps) {
+  const terminal = current >= steps.length;
   const currentStep = steps[current];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }} data-testid={`${testidPrefix}-stepper`}>
       <div style={{ fontSize: 12.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         <span style={{ color: "var(--color-muted)" }}>
-          Step {current + 1} of {steps.length}
+          Step {terminal ? steps.length : current + 1} of {steps.length}
         </span>
-        {currentStep && (
+        {(terminal || currentStep) && (
           <>
             <span style={{ color: "var(--color-muted)" }}> · </span>
-            <span style={{ color: "var(--color-fg)", fontWeight: 600 }}>{currentStep.label}</span>
+            <span style={{ color: "var(--color-fg)", fontWeight: 600 }}>{terminal ? doneLabel : currentStep!.label}</span>
           </>
         )}
       </div>

@@ -269,6 +269,69 @@ test.describe("Settings view", () => {
     await expect(page.getByText(/SSH key/i)).toHaveCount(0);
   });
 
+  test("Git & Sync: a successful Test connection shows the stepper's done state and never reflows the result under the label (R5-3)", async ({ page }) => {
+    await seedSettings(page, { gitSyncSetupComplete: true });
+    await gotoApp(page);
+    await signInToShareBackend(page, DEMO_OWNER_USERNAME, DEMO_OWNER_PASSWORD);
+    await page.getByTestId("settings-nav-git-sync").click();
+
+    const stepper = page.getByTestId("git-sync-stepper");
+    const connectionRow = page.getByTestId("settings-row-connection");
+
+    // Generate a real write-scoped token (requires sign-in), then run a
+    // real "Test connection" round-trip against the demo backend.
+    await page.getByTestId("git-generate-token").click();
+    await expect(page.getByLabel("Personal access token")).not.toHaveValue("");
+    await page.getByTestId("git-test-connection").click();
+    const result = page.getByTestId("git-test-result");
+    await expect(result).toBeVisible();
+    // Reachable + authenticated: either a clean "ok" or the built-in
+    // remote's expected "created on first push" first-run state — never an
+    // error (see `describeConnectionTest`; "Authenticated..." is the
+    // success copy, so only the failure-specific phrases are checked for).
+    await expect(result).not.toHaveText(/unreachable|rejected|regenerate|could not/i);
+
+    // (b) After a successful test: the stepper reads the real terminal
+    // state, never "Step 4 of 3", and the label survives.
+    await expect(stepper).toHaveText(/Step 3 of 3\s*·\s*Connected/);
+    await expect(stepper).not.toContainText("Step 4 of 3");
+
+    // (a) `SettingsRow`'s label column and control column sit SIDE BY SIDE
+    // (top-aligned), never stacked, no matter how long the "Connection"
+    // control column's content grows (the whole guided card, including the
+    // now-populated "Test connection" result). Check the actual label/
+    // control column pair directly — `settings-row-connection`'s first and
+    // second direct children — rather than the deeply-nested result span,
+    // since a "full"-width row's control column is legitimately much
+    // TALLER than its label (many stacked step blocks), so the label and
+    // the result text are never expected to sit at the same height; what
+    // must never happen is the control column dropping below the label.
+    // `settings-row-connection` wraps `SettingsRow`'s own flex row (label
+    // div + control-column div) one level down.
+    const rowFlex = connectionRow.locator(":scope > div").first();
+    const label = rowFlex.locator(":scope > div").nth(0);
+    const controlColumn = rowFlex.locator(":scope > div").nth(1);
+    await label.scrollIntoViewIfNeeded();
+    const labelBox = await label.boundingBox();
+    const controlBox = await controlColumn.boundingBox();
+    expect(labelBox).not.toBeNull();
+    expect(controlBox).not.toBeNull();
+    if (labelBox && controlBox) {
+      // Top-aligned, side by side: same row (y within a couple px of each
+      // other), control column starts to the right of the label column,
+      // never below it.
+      expect(Math.abs(controlBox.y - labelBox.y)).toBeLessThan(2);
+      expect(controlBox.x).toBeGreaterThanOrEqual(labelBox.x + labelBox.width - 1);
+    }
+
+    // The result text itself also never overflows the control column's
+    // right edge (min-width: 0 lets it wrap instead).
+    const resultBox = await result.boundingBox();
+    if (resultBox && controlBox) {
+      expect(resultBox.x + resultBox.width).toBeLessThanOrEqual(controlBox.x + controlBox.width + 1);
+    }
+  });
+
   test("Git & Sync: token commit gets a Saved confirmation, then a persistent summary that never shows the token (round 5)", async ({ page }) => {
     await seedSettings(page, { gitSyncSetupComplete: true });
     await gotoApp(page);
