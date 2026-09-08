@@ -4613,6 +4613,24 @@ lazily catalogued language package. Forcing those into named chunks with
 `manualChunks` was tried and reverted: it pulled the catalog into the boot
 chunk's static graph and broke the offline cold-start probe.
 
+**A share never refreshes itself.** A share pins one immutable
+content-addressed blob, so editing the file leaves the published page on the
+old bytes. The Shared view flags the drift (a "Stale" chip, or "File
+missing" when the file is gone from the vault) and "Update share" re-pins it,
+but nothing updates on save. Auto-update was deliberately left out of R5-6:
+publishing is an explicit act, and a save that silently changes what the
+world already sees is a different feature with its own consent question, not
+a convenience. Owner-decided 2026-09-08.
+
+**Reader appearance is one row per owner, and the e2e suite works around
+it.** `GET/PUT /api/reader-prefs` stores a single preference row per user
+while Playwright runs spec files (and tests within a file) in parallel
+against ONE backend, so any two tests that WRITE those prefs race each other.
+The suite handles this by seeding several owner accounts and giving each
+prefs-writing test its own; that is a test-side workaround, not a product
+fix. If a future feature needs many concurrent writers of owner-global
+settings, the settings row itself is the thing to revisit.
+
 ### Upstream asks
 
 Findings from integrating Markii (parse, render, live preview, Lua scripts in
@@ -4631,6 +4649,8 @@ than VSNote bugs, filed as issues on `markii-org/markii`:
 - Home the `@lezer/markdown` `BlockContext.input`/`.to` lookahead cast in `@markii/codemirror`; ask Lezer upstream for typed multi-line lookahead (reminder, not a markii bug) — [#51](https://github.com/markii-org/markii/issues/51)
 - Omit the bare `{}` from `componentSkeleton` when a directive has no required attributes — [#52](https://github.com/markii-org/markii/issues/52)
 - Mark interactive elements in rendered directives so editor hosts can separate click-to-act from click-to-edit — [#53](https://github.com/markii-org/markii/issues/53)
+- The `.doc`-scoped `color-mix()` derivations in `doc.css` never reach a host that renders into its own container class — [#54](https://github.com/markii-org/markii/issues/54)
+- Rendered tables have no scroll container, so a wide table forces horizontal page scroll — [#55](https://github.com/markii-org/markii/issues/55)
 
 ## Extension model (R5-9, "Markii as an extension")
 
