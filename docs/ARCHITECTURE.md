@@ -1383,6 +1383,19 @@ split it and gave it a real page width:
   tsc. Fixed with a module-level stable empty-array constant
   (`settings/Storage.tsx`'s `EMPTY_CHILDREN`). Worth remembering for any
   future store selector with an inline object/array fallback.
+- **Title row shares the body's column grid (DESIGN-SPEC item 129, R7).**
+  The title row was a plain `space-between` flex row spanning the view's
+  full padded width, which only lined "Settings" up with the reading
+  column below it (item 84) when the column was narrow enough to never
+  reach its 52rem cap — at any wider viewport the column centers itself in
+  the leftover space after the nav rail while the title stays pinned to
+  the padding edge, so the two left edges drift apart. The title row's
+  left item is now `flex: 1 1 auto` (matching `.settings-content`'s own
+  flex value) holding a `width: 100%, max-width: 52rem` box the `<h1>`
+  sits in — the identical cap and centering the reading column already
+  has — so the two boxes share a left edge at every width. The search
+  field's fixed `--settings-side-column-width` block (280px, already
+  matching the nav rail's width — item 119) is unchanged.
 
 ## Explorer virtualization (Phase 17 Milestone D)
 

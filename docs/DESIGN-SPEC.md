@@ -1795,3 +1795,26 @@ these are additive, checkable standards, not taste.
      The Publish dialog (`Stepper`'s original call site) never passes a
      `current` at or past `steps.length`, so its copy and testids
      (`tests/e2e/publish-dialog-steps.spec.ts`) are unaffected.
+
+## Amendments round 17 (continued) — 2026-09-08 (R5-8 settings title alignment)
+
+129. **The Settings title row now shares the body's column grid, instead of
+     floating at the padded edge.** (`components/SettingsView.tsx`.) The
+     title row used to be a plain `space-between` flex row spanning the
+     view's full padded width, so "Settings" sat flush against the page's
+     left padding while the reading column below it — centered in the
+     leftover space after the sticky nav rail (item 119) — only happened to
+     share that edge when the viewport was narrow enough that the column
+     never reached its 52rem cap (item 84). At any wider viewport the two
+     left edges drifted apart, and the title read as detached from the
+     content it names. The title row's left item is now `flex: 1 1 auto`
+     (mirroring `.settings-content`'s own flex value) holding a
+     `width: 100%, max-width: 52rem` box around the `<h1>` — the exact same
+     cap and centering the reading column already had — so the two boxes,
+     being identically-sized flex items centered the same way inside
+     identically-sized parents, share a left edge at every viewport width
+     rather than only below the cap. The search field's block keeps its
+     existing fixed `--settings-side-column-width` (280px), unchanged, which
+     is what already lined its right edge up with the nav rail below it
+     (item 119) — this round only touched the title's own box, not the
+     search block or the rail.

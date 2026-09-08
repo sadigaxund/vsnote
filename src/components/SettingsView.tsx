@@ -26,6 +26,20 @@
  * enums ~12rem, text ~24rem, full-row for textareas/tables) inside that
  * column — see `local/SettingsRow.tsx`.
  *
+ * **Title row shares the body's column grid (DESIGN-SPEC item 129, R7).**
+ * The title row used to be a plain `space-between` flex row spanning the
+ * view's full padded width, so "Settings" sat flush at the padding edge
+ * while the reading column below it — centered within the leftover space
+ * after the nav rail — only happened to share that edge when the column
+ * was too narrow to hit its 52rem cap. Above that width the two edges
+ * drifted apart. The title row now mirrors `.settings-layout`'s own
+ * geometry: a `flex: 1 1 auto` left item (matching `.settings-content`)
+ * holding a `width: 100%, maxWidth: 52rem` box the `<h1>` sits in — same
+ * cap, same centering, same left edge as the reading column below,
+ * whatever the viewport — plus a fixed `--settings-side-column-width`
+ * (280px) right block for the search field, unchanged, which is what
+ * already lined it up with the nav rail (item 119).
+ *
  * **R4 defect B — category nav is a sticky vertical "map" on the right,
  * not a left column (redone from a horizontal-row first attempt — see
  * DESIGN-SPEC item 119).** R3-3 (round 10 item 103) only compacted the
@@ -298,18 +312,33 @@ export function SettingsView({ storagePersistence, onExportVault, onRequestReset
       <div style={{ padding: "40px 40px 120px" }}>
         {/* Title row: title left, search field (~280px) + its hint beneath
             it on the right. This row is free to scroll away — only the
-            category tabs below stay sticky (R4 defect B). */}
+            category tabs below stay sticky (R4 defect B).
+            R7 item 129 — this row now shares `.settings-layout`'s exact
+            column geometry (flex:1 1 auto content area, 28px gap, a
+            280px-wide right block) instead of a plain `space-between` row,
+            so the title's box and the reading column's `52rem` box are two
+            IDENTICAL-width `flex:1 1 auto` items centered the same way —
+            their left edges coincide at any viewport width, not just the
+            ones narrow enough that the reading column never hits its cap.
+            The search block keeps the same fixed 280px
+            (`--settings-side-column-width`) it always had, which is also
+            the nav rail's width, so this row's right block lines up with
+            the rail below it too. */}
         <div
           style={{
             display: "flex",
             flexWrap: "wrap",
-            justifyContent: "space-between",
             alignItems: "flex-start",
-            gap: "8px 24px",
+            columnGap: 28,
+            rowGap: 8,
             marginBottom: 20,
           }}
         >
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--color-fg)", margin: 0 }}>Settings</h1>
+          <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", justifyContent: "center" }}>
+            <div style={{ width: "100%", maxWidth: "52rem" }}>
+              <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--color-fg)", margin: 0 }}>Settings</h1>
+            </div>
+          </div>
           <div
             style={{
               display: "flex",
