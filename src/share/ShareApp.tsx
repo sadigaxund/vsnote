@@ -76,7 +76,7 @@
  *    never written back anywhere.
  */
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, Copy } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download } from "lucide-react";
 import { Alert, Button, EmptyState, Input, SegmentedControl } from "my-you-eye";
 // `@markii/react/doc.css` — the 19 `--mk-*` tokens `.mk-doc` and its
 // children (headings/paragraph/table/callout typography) are all styled
@@ -94,9 +94,11 @@ import { JsonView } from "../renderers/JsonView";
 import { renderMarkdown } from "../markdown/render";
 import { CodeBlock } from "../markdown/codeBlock";
 import { inferFileKind } from "../lib/fileTree";
-import { getShareContentSameOrigin, postShareAuth, ShareApiError, type ShareContentOut } from "./api";
+import { fetchShareRawBlob, getShareContentSameOrigin, postShareAuth, ShareApiError, type ShareContentOut } from "./api";
 import { classifyShareContent, resolveReaderColumnWidth, resolveReaderThemeAttr } from "./readerPrefsResolve";
 import { resolveShareRenderer, shareSupportsSourceToggle } from "./shareRendererResolve";
+import { canDownloadShare } from "./shareDownloadVisibility";
+import { triggerBrowserDownload } from "../lib/browserDownload";
 
 export interface ShareAppProps {
   /** The `<slug>` (or custom alias) segment of `/share/<slug>` — parsed by
@@ -261,11 +263,15 @@ function RenderedSourceHeader({
   viewMode,
   onViewModeChange,
   content,
+  onDownload,
 }: {
   name: string;
   viewMode: "rendered" | "source";
   onViewModeChange: (mode: "rendered" | "source") => void;
   content: string;
+  /** R5-4 — see `codeBlock.tsx`'s `onDownload` doc; omitted entirely (no
+   * button) when the caller's `canDownloadShare` check says no. */
+  onDownload?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   async function handleCopy() {
@@ -303,6 +309,11 @@ function RenderedSourceHeader({
             {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
           </Button>
         )}
+        {onDownload && (
+          <Button type="button" size="icon-sm" variant="ghost" onClick={onDownload} aria-label="Download file" title="Download file">
+            <Download size={14} aria-hidden />
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -336,6 +347,21 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
   const renderer = resolveShareRenderer(kind);
   const supportsToggle = !isBinary && shareSupportsSourceToggle(renderer);
   const contentClass = classifyShareContent(renderer);
+  // R5-4 — hidden for a markdown share (rendered-only, no separate "raw
+  // file" worth downloading) and for a binary file (no header at all, see
+  // the `isBinary` EmptyState branch below) — see
+  // `shareDownloadVisibility.ts`'s own doc for the full reasoning.
+  const showDownload = canDownloadShare(renderer, isBinary);
+  async function handleDownload() {
+    try {
+      const blob = await fetchShareRawBlob(content.slug);
+      triggerBrowserDownload(blob, name);
+    } catch {
+      // Denied/unreachable mid-session (e.g. the share was just revoked) —
+      // fail silently, same "never crash, never surface a raw fetch
+      // failure" discipline the copy buttons already use.
+    }
+  }
   const prefs = content.reader_prefs;
   const columnWidth = resolveReaderColumnWidth(contentClass, prefs.column_width);
   const pageClassName =
@@ -389,26 +415,61 @@ function ReaderPage({ content }: { content: ShareContentOut }) {
           <div data-testid="share-content">{renderMarkdown(content.content, { links: content.links, codeWrap })}</div>
         ) : showSource ? (
           <div className="share-reader__code-panel" data-testid="share-content">
-            <CodeBlock code={content.content} kind={kind} path={name} filename={name} wrap={codeWrap} onWrapChange={setCodeWrap} headerExtra={sourceSwitch} />
+            <CodeBlock
+              code={content.content}
+              kind={kind}
+              path={name}
+              filename={name}
+              wrap={codeWrap}
+              onWrapChange={setCodeWrap}
+              headerExtra={sourceSwitch}
+              onDownload={showDownload ? () => void handleDownload() : undefined}
+            />
           </div>
         ) : renderer === "html" ? (
           <div className="share-reader__code-panel" data-testid="share-content">
-            <RenderedSourceHeader name={name} viewMode={viewMode} onViewModeChange={setViewMode} content={content.content} />
+            <RenderedSourceHeader
+              name={name}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              content={content.content}
+              onDownload={showDownload ? () => void handleDownload() : undefined}
+            />
             <HtmlPreview content={content.content} />
           </div>
         ) : renderer === "csv" ? (
           <div className="share-reader__code-panel" data-testid="share-content">
-            <RenderedSourceHeader name={name} viewMode={viewMode} onViewModeChange={setViewMode} content={content.content} />
+            <RenderedSourceHeader
+              name={name}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              content={content.content}
+              onDownload={showDownload ? () => void handleDownload() : undefined}
+            />
             <CsvTable content={content.content} />
           </div>
         ) : renderer === "json" ? (
           <div className="share-reader__code-panel" data-testid="share-content">
-            <RenderedSourceHeader name={name} viewMode={viewMode} onViewModeChange={setViewMode} content={content.content} />
+            <RenderedSourceHeader
+              name={name}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              content={content.content}
+              onDownload={showDownload ? () => void handleDownload() : undefined}
+            />
             <JsonView content={content.content} />
           </div>
         ) : (
           <div className="share-reader__code-panel" data-testid="share-content">
-            <CodeBlock code={content.content} kind={kind} path={name} filename={name} wrap={codeWrap} onWrapChange={setCodeWrap} />
+            <CodeBlock
+              code={content.content}
+              kind={kind}
+              path={name}
+              filename={name}
+              wrap={codeWrap}
+              onWrapChange={setCodeWrap}
+              onDownload={showDownload ? () => void handleDownload() : undefined}
+            />
           </div>
         )}
       </main>

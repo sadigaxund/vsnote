@@ -1665,3 +1665,43 @@ these are additive, checkable standards, not taste.
    possessives ("Favorites" not "Your Favorites"); "Select", never "Click";
    failures say what couldn't load, never "We're having trouble".
 7. **Numbers are `tabular-nums`** on every comparing/ticking surface.
+
+## Amendments round 17 — 2026-09-08 (file-header Download button)
+
+127. **A Download icon button (lucide `Download`) sits next to the copy
+     button in every file header that already has one** — the public share
+     reader's raw-code-file/Source-view header (`markdown/codeBlock.tsx`'s
+     toolbar) and its csv/json/html Rendered-view header
+     (`share/ShareApp.tsx`'s `RenderedSourceHeader`), AND the app's own
+     (non-share) code Rendered mode (`renderers/CodeView.tsx`, the same
+     `CodeBlock` toolbar). `my-you-eye` `Button size="icon-sm"
+     variant="ghost"`, `aria-label`/`title="Download file"` — same
+     conventions as the existing "Copy code"/"Copy content" buttons next to
+     it.
+     - **In the reader**, the button fetches the share's RAW bytes from
+       `GET /share/{id}?download=1` (`share/api.ts::fetchShareRawBlob`) and
+       saves them under the file's original name. `?download=1` only flips
+       `Content-Disposition` from `inline` to `attachment` on the exact
+       same response every other GET already produces — it goes through
+       the identical policy gate, with identical auth/password/token
+       behavior and the identical uniform 404 for every deny reason (see
+       `server/app/routers/share_public.py`'s module doc and
+       `server/tests/test_share_download.py`, which replays every
+       `test_policy_gate.py` deny scenario with `?download=1` appended and
+       proves parity).
+     - **In the app's Rendered mode**, the button builds a `Blob` straight
+       from the already-open file's content and saves it — no server round
+       trip, since the vault-backed file is already fully loaded and
+       current.
+     - **Hidden for a markdown share** (rendered-only — raw vs. rendered is
+       a MODE chosen at publish time, not a per-visit download affordance)
+       **and for a binary file** (the reader's "Binary file" `EmptyState`
+       has no header at all). The predicate
+       (`share/shareDownloadVisibility.ts::canDownloadShare`) is pure and
+       unit-tested (`tests/unit/shareDownloadVisibility.test.ts`)
+       independent of `ShareApp.tsx`'s own branching, which already never
+       constructs a header for either case.
+     - Both callers share one DOM-level trigger
+       (`lib/browserDownload.ts::triggerBrowserDownload` — a temporary
+       `<a download>` click against an object URL) rather than duplicating
+       it.

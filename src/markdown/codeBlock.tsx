@@ -48,7 +48,16 @@
  * simply doesn't render at all when the API is unavailable (an insecure
  * context, an old browser, a locked-down embed) rather than offering a
  * button that would silently fail — "degrade gracefully" per the API's own
- * contract, not a try/catch band-aid around a control nobody can use. The
+ * contract, not a try/catch band-aid around a control nobody can use.
+ *
+ * R5-4 added a Download icon button, last in the toolbar, that renders iff
+ * a caller passes `onDownload` — see that prop's own doc for why this
+ * component takes a plain callback instead of a URL/filename pair. The
+ * public reader (`ShareApp.tsx`) also renders one in `RenderedSourceHeader`
+ * (the csv/json/html Rendered-view header, which isn't `CodeBlock` at
+ * all), so the visibility rule lives in one shared place
+ * (`share/shareDownloadVisibility.ts::canDownloadShare`) rather than being
+ * re-derived at each call site. The
  * `.mk-static-codeblock__lineno` gutter is unselectable both via
  * `theme.css`'s existing rule AND an inline `userSelect: "none"` here (this
  * component's own guarantee, not one borrowed from a stylesheet a caller
@@ -57,7 +66,7 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import type { Language } from "@codemirror/language";
-import { Check, Copy, WrapText } from "lucide-react";
+import { Check, Copy, Download, WrapText } from "lucide-react";
 import { Button } from "my-you-eye";
 import { fileTypeForOrPlain } from "../filetypes/registry";
 import type { FileKind } from "../types";
@@ -85,6 +94,19 @@ export interface CodeBlockProps {
    * otherwise no toolbar and no filename (an unlikely combination in
    * practice, but kept correct rather than assumed away). */
   headerExtra?: ReactNode;
+  /** R5-4 — when provided, a Download icon button renders in the toolbar
+   * after the copy button; omitted entirely (no button) when this is
+   * undefined. Deliberately a plain callback rather than a URL/filename
+   * pair: the two callers need genuinely different mechanisms (the public
+   * share reader fetches `?download=1` raw bytes over the network;
+   * `renderers/CodeView.tsx`'s app-side Rendered mode builds a `Blob`
+   * straight from the already-open file's `content`, no server round
+   * trip) — this component only needs to know "there is something to
+   * download", not how. Callers gate whether to pass this at all (e.g. the
+   * reader's `share/shareDownloadVisibility.ts::canDownloadShare` —
+   * hidden for a markdown share or a binary file) rather than this
+   * component re-deriving that decision. */
+  onDownload?: () => void;
 }
 
 function clipboardAvailable(): boolean {
@@ -102,6 +124,7 @@ export function CodeBlock({
   truncatedHint,
   filename,
   headerExtra,
+  onDownload,
 }: CodeBlockProps): ReactNode {
   const capped = capCodeLines(code, maxLines);
   const [language, setLanguage] = useState<Language | undefined>(undefined);
@@ -165,7 +188,8 @@ export function CodeBlock({
   const lines = buildHighlightedLines(capped.code, language);
   const lineNumberWidth = String(lines.length).length;
   const canCopy = clipboardAvailable();
-  const showToolbar = canToggleWrap || canCopy || !!headerExtra;
+  const canDownload = !!onDownload;
+  const showToolbar = canToggleWrap || canCopy || canDownload || !!headerExtra;
 
   return (
     <div>
@@ -207,6 +231,11 @@ export function CodeBlock({
               {canCopy && (
                 <Button type="button" size="icon-sm" variant="ghost" onClick={() => void handleCopy()} aria-label="Copy code" title="Copy code">
                   {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+                </Button>
+              )}
+              {canDownload && (
+                <Button type="button" size="icon-sm" variant="ghost" onClick={onDownload} aria-label="Download file" title="Download file">
+                  <Download size={14} aria-hidden />
                 </Button>
               )}
             </div>

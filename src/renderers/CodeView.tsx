@@ -24,11 +24,17 @@
  * the real CM6 editor, virtualized, never capped, and editable — so this
  * view's truncation notice says so via `CodeBlock`'s `truncatedHint` prop
  * instead of leaving the rest of a long file looking silently unreachable.
+ *
+ * R5-4 — this view's copy of `CodeBlock` also gets a Download button
+ * (`onDownload`), wired straight to a local `Blob` built from `content`:
+ * unlike the share reader, this file is already fully loaded and current,
+ * so there's no server round trip to make.
  */
 import { EmptyState, ScrollArea } from "my-you-eye";
 import { FileCode } from "lucide-react";
 import { CodeBlock } from "../markdown/codeBlock";
-import { CODE_BLOCK_MAX_LINES, capCodeLines } from "../markdown/codeBlockLogic";
+import { basenameOf, CODE_BLOCK_MAX_LINES, capCodeLines } from "../markdown/codeBlockLogic";
+import { triggerBrowserDownload } from "../lib/browserDownload";
 import type { FileKind } from "../types";
 
 export interface CodeViewProps {
@@ -53,6 +59,17 @@ export function CodeView({ content, kind, path }: CodeViewProps) {
 
   const { truncated } = capCodeLines(content, CODE_BLOCK_MAX_LINES);
 
+  // R5-4 — the in-vault file's own bytes, downloaded straight from the
+  // client (no server round trip: unlike the public share reader, this
+  // view already holds the full, current content). `path` is always a
+  // real vault-relative path for a `code`-kind file (every caller of this
+  // component passes one); the plain "file.txt" fallback only guards
+  // against a theoretically path-less call.
+  function handleDownload() {
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    triggerBrowserDownload(blob, path ? basenameOf(path) : "file.txt");
+  }
+
   return (
     <ScrollArea className="flex-1" style={{ minHeight: 0, background: "var(--app-editor-bg)" }}>
       {/* DESIGN-SPEC Amendments item 12: rendered content stays selectable
@@ -65,6 +82,7 @@ export function CodeView({ content, kind, path }: CodeViewProps) {
           kind={kind}
           path={path}
           truncatedHint={truncated ? " Switch to Source to see the rest of this file." : undefined}
+          onDownload={handleDownload}
         />
       </div>
     </ScrollArea>

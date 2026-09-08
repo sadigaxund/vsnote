@@ -10,7 +10,21 @@
  */
 import { describe, expect, it } from "vitest";
 import { javascript } from "@codemirror/lang-javascript";
-import { buildHighlightedLines, capCodeLines, CODE_BLOCK_MAX_LINES } from "../../src/markdown/codeBlockLogic";
+import { basenameOf, buildHighlightedLines, capCodeLines, CODE_BLOCK_MAX_LINES } from "../../src/markdown/codeBlockLogic";
+
+describe("basenameOf", () => {
+  it("returns the trailing path segment", () => {
+    expect(basenameOf("src/renderers/CodeView.tsx")).toBe("CodeView.tsx");
+  });
+
+  it("returns the whole string when there is no slash", () => {
+    expect(basenameOf("CodeView.tsx")).toBe("CodeView.tsx");
+  });
+
+  it("falls back to the whole path when the basename would sanitize empty (trailing slash)", () => {
+    expect(basenameOf("notes/")).toBe("notes/");
+  });
+});
 
 describe("capCodeLines", () => {
   it("leaves a small file untouched (no cap, no truncation flag)", () => {

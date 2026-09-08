@@ -23,6 +23,15 @@ export interface CapCodeLinesResult {
   truncated: boolean;
 }
 
+/** R5-4 — the trailing path segment of `path` (everything after the last
+ * `/`, or `path` itself when there is none). Used to name a downloaded
+ * file from a full vault-relative path (`renderers/CodeView.tsx`'s
+ * download handler); mirrors `share/ShareApp.tsx`'s own private `baseName`
+ * verbatim so the two agree on what "the filename" means. */
+export function basenameOf(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1) || path;
+}
+
 /** Pure line cap — a whole-line prefix of `code`, never a mid-line cut. */
 export function capCodeLines(code: string, maxLines: number = CODE_BLOCK_MAX_LINES): CapCodeLinesResult {
   const lines = code.split("\n");

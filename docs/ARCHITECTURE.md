@@ -490,6 +490,18 @@ change the policy gate's shape:
   quotes, and any path separator stripped; falls back to the share's slug
   if that sanitizes to empty). See `routers/share_public.py`'s module
   docstring and `tests/test_raw_mode.py`.
+  - **R5-4 (2026-09-08)** gave the public reader an actual UI affordance for
+    this: a Download button in the file header (`markdown/codeBlock.tsx`/
+    `share/ShareApp.tsx`'s `RenderedSourceHeader`) that fetches
+    `?download=1` client-side (`share/api.ts::fetchShareRawBlob`) and saves
+    the result under the original filename. This is a client-only addition
+    — `?download=1` itself, and its full auth/password/token parity with
+    every other GET, already existed and is unchanged; `server/tests/
+    test_share_download.py` is the parity proof (every `test_policy_gate.py`
+    deny scenario replayed with `?download=1` appended, plus a
+    never-`text/html` check). The app's own (non-share) code Rendered mode
+    (`renderers/CodeView.tsx`) gained a matching button that never touches
+    the server at all — it saves the already-loaded file content directly.
 - **Custom aliases have their own rules, separate from generated slugs**
   (R3-4, `docs/ROADMAP-SHARING-AUTH.md` §5.6). A generated slug stays 22
   mixed-case characters (`SLUG_RE`, unchanged); a custom alias gets its own

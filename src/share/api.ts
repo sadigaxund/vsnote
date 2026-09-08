@@ -508,6 +508,32 @@ export async function getShareContentSameOrigin(identifier: string): Promise<Sha
   return parseJsonOrThrow<ShareContentOut>(res);
 }
 
+/** `GET /share/{id}?download=1` — the raw-bytes download path behind
+ * R5-4's file-header Download button. Goes through the EXACT same policy
+ * gate as every other `/share/*` GET: `?download=1` only flips the
+ * `Content-Disposition` header (`inline` -> `attachment`) on the response
+ * `_raw_response` builds AFTER `resolve_share` has already succeeded — see
+ * `server/app/routers/share_public.py`'s module doc and
+ * `server/tests/test_share_download.py` for the auth/password/token-parity
+ * proof. Deliberately sends no `Accept` override: no `application/json`
+ * (that's `getShareContentSameOrigin` above) and no `text/html` (that
+ * would risk the rendered-mode SPA-shell branch) — a bare `fetch` with no
+ * `Accept` header is exactly the raw-bytes contract a non-browser caller
+ * already gets. Throws a `ShareApiError` on any non-2xx response
+ * (including the uniform 404 for every deny reason), same discipline as
+ * `parseJsonOrThrow`; the caller (`ShareApp.tsx`) hands the resulting
+ * `Blob` straight to `lib/browserDownload.ts::triggerBrowserDownload`. */
+export async function fetchShareRawBlob(identifier: string): Promise<Blob> {
+  const res = await fetch(`/share/${encodeURIComponent(identifier)}?download=1`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new ShareApiError(res.status, res.statusText);
+  }
+  return res.blob();
+}
+
 /** `POST /share/{id}/auth` — a relative URL, same as every other call in
  * this file (see the module header doc). Returns
  * `true` on a 200 (session cookie now set for this slug), `false` on a 404
